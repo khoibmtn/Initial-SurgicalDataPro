@@ -1,0 +1,5 @@
+{
+  "name": "20251202 SurgicalDataPro  13.30 (chỉnh lại ngày KT PT là key)",
+  "description": "A specialized medical data processing tool for synchronizing surgical lists, detecting schedule conflicts, and generating comprehensive reports.",
+  "requestFramePermissions": []
+}
