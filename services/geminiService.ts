@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { ProcessedStats, Conflict } from '../types';
+const apiKey = process.env.GEMINI_API_KEY;
 
 export const analyzeReport = async (stats: ProcessedStats, conflicts: Conflict[]): Promise<string> => {
   if (!process.env.API_KEY) {
