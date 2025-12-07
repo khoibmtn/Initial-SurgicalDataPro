@@ -18,7 +18,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const inputBuffer = await readFile(file.filepath);
 
     // Gọi hàm xử lý SurgicalDataPro
-    const outputBuffer = await processExcel(inputBuffer);
+    const outputBuffer = await processSurgicalFiles(inputBuffer);
 
     // Trả file
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
