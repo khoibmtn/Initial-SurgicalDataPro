@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import formidable from 'formidable';
 import { readFile, writeFile } from 'fs/promises';
-import { processExcel } from '../services/excelProcessor';
+import { processSurgicalFiles } from '../services/excelProcessor';
 
 export const config = {
   api: {
