@@ -84,7 +84,7 @@ function isOverlap(
   bStart: Date,
   bEnd: Date
 ): boolean {
-  return aStart < bEnd && bStart < aEnd;
+  return aStart <= bEnd && bStart <= aEnd;
 }
 
 // ────────────── 1. Tạo map KEY → Máy từ file Chi tiết PT ──────────────
@@ -183,8 +183,7 @@ interface SurgeryRecord {
   ngayBD: string;
   ngayKT: string;
   tenKT: string;
-  loaiPT: string;
-  loaiTT: string;
+  loaiPTTT: string;
   soLuong: number;
   timeMinutes: number;
   ptChinh: string;
@@ -224,15 +223,33 @@ function determineLoaiTT(row: any[]): string {
   return "";
 }
 
+function determineLoaiPTTT(row: any[]): string {
+  // Cột phẫu thuật (J→M)
+  const loaiPT_raw = determineLoaiPT(row);
+  if (loaiPT_raw) {
+    return "P" + loaiPT_raw;   // PĐB, P1, P2, P3
+  }
+
+  // Cột thủ thuật (N→R)
+  const loaiTT_raw = determineLoaiTT(row);
+  if (loaiTT_raw) {
+    return "T" + loaiTT_raw;   // TĐB, T1, T2, T3, TKPL
+  }
+
+  return ""; // fallback nhưng trường hợp này gần như không xảy ra
+}
+
+
 function processListData(
   listData: any[][],
   machineMap: Map<string, string>
 ): SurgeryRecord[] {
   const records: SurgeryRecord[] = [];
-
+  
   for (let i = 8; i < listData.length; i++) {
     const row = listData[i] || [];
     const stt = row[0];
+    
     if (stt === null || stt === undefined || String(stt).trim() === "") break;
 
     const name = (row[1] ?? "").toString().trim();
@@ -292,12 +309,9 @@ function processListData(
 
     const machine = machineMap.get(key) || "";
 
-    const loaiPT = determineLoaiPT(row);
-    const loaiTT = determineLoaiTT(row);
-
     const soLuongRaw = (tyLe / 100) * sl;
     const soLuong = Math.round(soLuongRaw * 100) / 100;
-
+    const loaiPTTT = determineLoaiPTTT(row);
     records.push({
       stt,
       patientId: maBN,
@@ -309,8 +323,7 @@ function processListData(
       ngayBD,
       ngayKT,
       tenKT,
-      loaiPT,
-      loaiTT,
+      loaiPTTT,
       soLuong,
       timeMinutes,
       ptChinh,
@@ -345,6 +358,8 @@ interface StaffConflict {
   tenKT2: string;
   start2: Date;
   end2: Date;
+  rec1: SurgeryRecord;
+  rec2: SurgeryRecord;
 }
 
 interface MachineConflict {
@@ -359,6 +374,8 @@ interface MachineConflict {
   tenKT2: string;
   start2: Date;
   end2: Date;
+  rec1: SurgeryRecord;
+  rec2: SurgeryRecord;
 }
 
 function detectStaffConflicts(records: SurgeryRecord[]): StaffConflict[] {
@@ -410,6 +427,9 @@ function detectStaffConflicts(records: SurgeryRecord[]): StaffConflict[] {
             tenKT2: b.tenKT,
             start2: b.start,
             end2: b.end,
+            rec1: a,
+            rec2: b,
+
           });
         }
       }
@@ -452,6 +472,8 @@ function detectMachineConflicts(records: SurgeryRecord[]): MachineConflict[] {
             tenKT2: b.tenKT,
             start2: b.start,
             end2: b.end,
+            rec1: a,
+            rec2: b,
           });
         }
       }
@@ -583,6 +605,19 @@ export async function processSurgicalFiles(
   const wb = XLSX.utils.book_new();
 
   // 6.1. Sheet BANG_KET_QUA
+// Quy định thời gian tối thiểu của từng loại PTTT
+  const timeRules: Record<string, number> = {
+    "PĐB": 180,
+    "P1": 120,
+    "P2": 60,
+    "P3": 60,
+    "TĐB": 180,
+    "T1": 120,
+    "T2": 60,
+    "T3": 60,
+    "TKPL": 0
+  };
+
   const mainSheetData: any[][] = [
     [
       "STT",
@@ -595,8 +630,7 @@ export async function processSurgicalFiles(
       "Ngày BĐ",
       "Ngày KT",
       "Tên kỹ thuật",
-      "Loại Phẫu thuật",
-      "Loại Thủ thuật",
+      "Loại PTTT",
       "Số lượng",
       "Thời gian (phút)",
       "PT Chính",
@@ -606,32 +640,40 @@ export async function processSurgicalFiles(
       "TDC",
       "GV",
       "Mã máy",
-      "key",
+      "Thời gian tối thiểu",
     ],
-    ...records.map((r) => [
-      r.stt,
-      r.patientId,
-      r.patientName,
-      r.gender,
-      r.yob,
-      r.bhyt,
-      r.ngayCD,
-      r.ngayBD,
-      r.ngayKT,
-      r.tenKT,
-      r.loaiPT,
-      r.loaiTT,
-      r.soLuong,
-      r.timeMinutes,
-      r.ptChinh,
-      r.ptPhu,
-      r.bsGM,
-      r.ktvGM,
-      r.tdc,
-      r.gv,
-      r.machine,
-      r.key
-    ]),
+    ...records.map((r) => {
+        const minTime = timeRules[r.loaiPTTT] ?? 0;
+        const actual = r.timeMinutes;
+
+        // nếu vi phạm thời gian tối thiểu → ghi lý do
+        let reason = "";
+        if (actual < minTime) {
+          reason = `Thời gian PT < tối thiểu (${minTime} phút)`;
+        }
+        return [
+          r.stt,
+          r.patientId,
+          r.patientName,
+          r.gender,
+          r.yob,
+          r.bhyt,
+          r.ngayCD,
+          r.ngayBD,
+          r.ngayKT,
+          r.tenKT,
+          r.loaiPTTT,
+          r.soLuong,
+          r.timeMinutes,
+          r.ptChinh,
+          r.ptPhu,
+          r.bsGM,
+          r.ktvGM,
+          r.tdc,
+          r.gv,
+          r.machine,
+          reason
+        ]}),
   ];
   
     const wsMain = XLSX.utils.aoa_to_sheet([]);
@@ -744,6 +786,7 @@ export async function processSurgicalFiles(
       { wch: 25 },   // U
     ];
 
+
     XLSX.utils.book_append_sheet(wb, wsMain, "BANG_KET_QUA");
 
 
@@ -757,28 +800,90 @@ export async function processSurgicalFiles(
       "Tên KT 1",
       "BĐ 1",
       "KT 1",
+      "PT Phụ 1",
+      "TDC 1",
+      "BS GM 1",
       "Mã BN 2",
       "Tên BN 2",
       "Tên KT 2",
       "BĐ 2",
       "KT 2",
+      "PT Phụ 2",
+      "TDC 2",
+      "BS GM 2",
     ],
     ...staffConflicts.map((c) => [
       c.staffName,
       c.role,
+
       c.patientId1,
       c.patientName1,
       c.tenKT1,
       c.start1,
       c.end1,
+      c.rec1.ptPhu,
+      c.rec1.tdc,
+      c.rec1.bsGM,
+
       c.patientId2,
       c.patientName2,
       c.tenKT2,
       c.start2,
       c.end2,
+      c.rec2.ptPhu,
+      c.rec2.tdc,
+      c.rec2.bsGM,
     ]),
   ];
   const wsStaff = XLSX.utils.aoa_to_sheet(staffSheetData);
+  // helper: tìm index của header (so sánh không phân biệt hoa thường, bỏ khoảng trắng thừa)
+  function findHeaderIndexes(headerRow: any[], names: string[]) {
+    const row = headerRow.map((h: any) => (h ?? "").toString().trim().toLowerCase());
+    const res: number[] = [];
+    for (const name of names) {
+      const idx = row.indexOf(name.toLowerCase());
+      res.push(idx); // -1 nếu không tìm thấy
+    }
+    return res;
+  }
+
+  // helper: áp định dạng ngày-giờ cho một mảng cột (indexes), bắt đầu từ dataRow (0-based)
+  function applyDateFormatToColsByIndex(ws: XLSX.WorkSheet, colIndexes: number[], startRow = 1, maxRows = 5000) {
+      for (let r = startRow; r < startRow + maxRows; r++) {
+        for (const c of colIndexes) {
+          if (c < 0) continue;
+          const addr = XLSX.utils.encode_cell({ r, c });
+          const cell = ws[addr];
+          if (!cell) continue;
+          // nếu là numeric (Excel stores dates as numbers) hoặc kiểu date
+          if (cell.t === 'n' || cell.t === 'd') {
+            cell.z = 'dd/mm/yyyy hh:mm';
+          } else if (cell.t === 's') {
+            // nếu là string nhưng có thể parse sang Date, chuyển thành số ngày của Excel
+            const s = (cell.v ?? '').toString().trim();
+            const parsed = new Date(s);
+            if (!isNaN(parsed.getTime())) {
+              // chuyển Date -> Excel serial (XLSX stores as number of days since 1899-12-31)
+              const excelDate = (parsed.getTime() - new Date(Date.UTC(1899,11,30)).getTime()) / (24*3600*1000);
+              cell.t = 'n';
+              cell.v = excelDate;
+              cell.z = 'dd/mm/yyyy hh:mm';
+            }
+          }
+        }
+      }
+    }
+    // tìm header (hàng 0 của staffSheetData)
+  const staffheader = staffSheetData[0] || [];
+
+  // tên cột bạn cần tìm (trùng chính xác tên header trong sheet)
+  const names = ['BĐ 1', 'KT 1', 'BĐ 2', 'KT 2'];
+  const [bd1Idx, kt1Idx, bd2Idx, kt2Idx] = findHeaderIndexes(staffheader, names);
+
+  // áp định dạng cho các cột tìm được
+  applyDateFormatToColsByIndex(wsStaff, [bd1Idx, kt1Idx, bd2Idx, kt2Idx], 1, staffSheetData.length + 5);
+
+
   XLSX.utils.book_append_sheet(wb, wsStaff, "TRUNG_GIO_NHAN_VIEN");
 
   // 6.3. Sheet TRUNG_GIO_MAY
@@ -790,11 +895,17 @@ export async function processSurgicalFiles(
       "Tên KT 1",
       "BĐ 1",
       "KT 1",
+      "PT Phụ 1",
+      "TDC 1",
+      "BS GM 1",
       "Mã BN 2",
       "Tên BN 2",
       "Tên KT 2",
       "BĐ 2",
       "KT 2",
+      "PT Phụ 2",
+      "TDC 2",
+      "BS GM 2",
     ],
     ...machineConflicts.map((c) => [
       c.machine,
@@ -803,14 +914,24 @@ export async function processSurgicalFiles(
       c.tenKT1,
       c.start1,
       c.end1,
+      c.rec1.ptPhu,
+      c.rec1.tdc,
+      c.rec1.bsGM,
       c.patientId2,
       c.patientName2,
       c.tenKT2,
       c.start2,
       c.end2,
+      c.rec2.ptPhu,
+      c.rec2.tdc,
+      c.rec2.bsGM,
     ]),
   ];
   const wsMachine = XLSX.utils.aoa_to_sheet(machineSheetData);
+ const headerM = machineSheetData[0] || [];
+  const [m_bd1, m_kt1, m_bd2, m_kt2] = findHeaderIndexes(headerM, ['BĐ 1','KT 1','BĐ 2','KT 2']);
+  applyDateFormatToColsByIndex(wsMachine, [m_bd1,m_kt1,m_bd2,m_kt2], 1, machineSheetData.length + 5);
+ 
   XLSX.utils.book_append_sheet(wb, wsMachine, "TRUNG_GIO_MAY");
 
   // 6.4. Sheet THIEU_MA_MAY
@@ -825,187 +946,245 @@ export async function processSurgicalFiles(
     ]),
   ];
   const wsMissing = XLSX.utils.aoa_to_sheet(missingSheetData);
-  XLSX.utils.book_append_sheet(wb, wsMissing, "THIEU_MA_MAY");
+   XLSX.utils.book_append_sheet(wb, wsMissing, "THIEU_MA_MAY");
 
  
+ 
+ // ================== BANG_THANH_TOAN (PHIÊN BẢN XÓA CỘT RỖNG) ==================
 
+const LOAI = ["PĐB","P1","P2","P3","TĐB","T1","T2","T3","TKPL"];
+const VAITRO = ["Chính","Phụ","Giúp việc"];
 
+// --- Thứ tự ưu tiên vai trò ---
+const ROLE_ORDER: Record<string, number> = {
+  "PT Chính": 1,
+  "PT Phụ": 2,
+  "BS GM": 3,
+  "KTV GM": 4,
+  "TDC": 5,
+  "GV": 6
+};
 
+const staffOrder = new Map<string, number>();
+let globalOrderCounter = 1;
+function registerStaffAppearance(name: string | undefined, roleLabel: string) {
+  if (!name) return;
+  if (!staffOrder.has(name)) {
+    const base = (ROLE_ORDER[roleLabel] || 99) * 100000;
+    staffOrder.set(name, base + globalOrderCounter);
+    globalOrderCounter++;
+  }
+}
 
+// --- GOM DỮ LIỆU NHÂN VIÊN ---
+function collectThanhToanData_New(records: SurgeryRecord[]) {
+  const map = new Map<string, Record<string, number>>();
 
-  
-
-  // ================== BANG_THANH_TOAN - PHIÊN BẢN HOÀN CHỈNH 6 NHÓM ==================
-  // QUY TẮC: XOÁ CỘT RỖNG -> SAU ĐÓ MỚI ĐẶT CÔNG THỨC CỘT TỔNG
-
-  // 1. CẤU HÌNH CHUNG
-  const DON_GIA_MAC_DINH = 20000;
-
-  const ROLE_GROUPS = [
-    { key: 'ptChinh', label: 'PTV CHÍNH' },
-    { key: 'ptPhu',   label: 'PTV PHỤ' },
-    { key: 'bsGM',    label: 'BS GMHS' },
-    { key: 'ktvGM',   label: 'KTV GMHS' },
-    { key: 'tdc',     label: 'TÍT DC' },
-    { key: 'gv',      label: 'GIÚP VIỆC' },
-  ] as const;
-
-  const LOAI_PT = ['ĐB','1','2','3'];
-  const LOAI_TT = ['ĐB','1','2','3','KPL'];
-
-  interface ThanhToanRow {
-    role: string;
-    name: string;
-    values: Record<string, number>;
+  function add(name: string | undefined, role: string, loai: string, sl: number, roleLabel: string) {
+    if (!name || !loai) return;
+    registerStaffAppearance(name, roleLabel);
+    if (!map.has(name)) map.set(name, {});
+    const bucket = map.get(name)!;
+    const key = `${loai}-${role}`;
+    bucket[key] = (bucket[key] || 0) + (Number(sl) || 0);
   }
 
-  // 2. GOM DỮ LIỆU THANH TOÁN
-  function collectThanhToanData(records: SurgeryRecord[]): ThanhToanRow[] {
-    const result: ThanhToanRow[] = [];
+  for (const r of records) {
+    const loai = r.loaiPTTT;
+    if (!loai) continue;
 
-    for (const role of ROLE_GROUPS) {
-      const map = new Map<string, Record<string, number>>();
-
-      for (const r of records) {
-        const staffName = (r as any)[role.key];
-        if (!staffName) continue;
-
-        if (!map.has(staffName)) {
-          map.set(staffName, {});
-        }
-
-        const bucket = map.get(staffName)!;
-
-        // PHẪU THUẬT
-        if (r.loaiPT) {
-          const keyPT = `PT_${r.loaiPT}`;
-          bucket[keyPT] = (bucket[keyPT] || 0) + Number(r.soLuong);
-        }
-
-        // THỦ THUẬT
-        if (r.loaiTT) {
-          const keyTT = `TT_${r.loaiTT}`;
-          bucket[keyTT] = (bucket[keyTT] || 0) + Number(r.soLuong);
-        }
-      }
-
-      for (const [name, values] of map.entries()) {
-        result.push({ role: role.label, name, values });
-      }
-    }
-    return result;
-  }(records: SurgeryRecord[]): ThanhToanRow[] {
-    const result: ThanhToanRow[] = [];
-
-    for (const role of ROLE_GROUPS) {
-      const map = new Map<string, Record<string, number>>();
-
-      for (const r of records) {
-        const staffName = (r as any)[role.key];
-        if (!staffName) continue;
-
-        if (!map.has(staffName)) {
-          map.set(staffName, {});
-        }
-
-        const bucket = map.get(staffName)!;
-        if (!bucket[r.loaiPT]) bucket[r.loaiPT] = 0;
-        bucket[r.loaiPT] += Number(r.soLuong);
-      }
-
-      for (const [name, values] of map.entries()) {
-        result.push({ role: role.label, name, values });
-      }
-    }
-    return result;
+    add(r.ptChinh, "Chính", loai, r.soLuong, "PT Chính");
+    add(r.ptPhu,   "Phụ",   loai, r.soLuong, "PT Phụ");
+    add(r.bsGM,    "Chính", loai, r.soLuong, "BS GM");
+    add(r.ktvGM,   "Phụ",   loai, r.soLuong, "KTV GM");
+    add(r.tdc,     "Phụ",   loai, r.soLuong, "TDC");
+    add(r.gv,      "Giúp việc", loai, r.soLuong, "GV");
   }
 
-  // 3. TẠO SHEET
-  const ttData = collectThanhToanData(records);
-  
-  let header = [
-    'STT',
-    'HỌ TÊN',
-    ...LOAI_PT.map(l => `PT ${l}`),
-    ...LOAI_TT.map(l => `TT ${l}`)
-  ]; ['STT','HỌ TÊN', ...LOAI_PT.map(l => `PT ${l}`)];
+  return Array.from(map.entries())
+    .map(([name, values]) => ({ name, values, order: staffOrder.get(name) ?? 999999 }))
+    .sort((a, b) => a.order - b.order);
+}
 
+// --- Tạo danh sách cột ---
+const COLS: string[] = [];
+for (const loai of LOAI) for (const v of VAITRO) COLS.push(`${loai}-${v}`);
 
+// ----------------------------------------------------------
+// BẮT ĐẦU TẠO SHEET
+// ----------------------------------------------------------
+let ws = XLSX.utils.aoa_to_sheet([]);
+const rowStart = 7;
 
+// ban đầu tạo header với toàn bộ COLS (sẽ rút gọn sau khi xóa)
+const headerFull = ["STT", "HỌ TÊN", ...COLS];
+XLSX.utils.sheet_add_aoa(ws, [headerFull], { origin: `A${rowStart}` });
 
-  let wsTT = XLSX.utils.aoa_to_sheet([]);
-  let currentRow = 7;
+// ===== Ghi dữ liệu nhân viên (KHÔNG ghi đơn giá lúc này) =====
+const dongGiaRow = rowStart + 1;          // vị trí dành cho đơn giá — sẽ ghi *sau khi xóa cột*
+const ttData = collectThanhToanData_New(records);
 
-  XLSX.utils.sheet_add_aoa(wsTT, [header], { origin: `A${currentRow}` });
+let dataRow = dongGiaRow + 1;
+let stt = 1;
 
-  // 4. ĐƠN GIÁ (DÒNG 10)
-  const dongGiaRow = currentRow + 3;
-  for (let c = 2; c < header.length; c++) {
-    const cell = XLSX.utils.encode_cell({ r: dongGiaRow - 1, c });
-    wsTT[cell] = { t: 'n', v: DON_GIA_MAC_DINH };
-  }
-
-  // 5. GHI DỮ LIỆU
-  const totalColIndex = header.length;
-  let dataRow = currentRow + 4;
-  let firstDataRow = dataRow;
-  let lastRole = '';
-  let stt = 1;
-
-  for (const row of ttData) {
-  if (row.role !== lastRole) {
-  XLSX.utils.sheet_add_aoa(wsTT, [[row.role]], { origin: `A${dataRow}` });
+// ghi các hàng nhân viên: giá trị quantities tương ứng với COLS cố định (chưa rút gọn)
+for (const it of ttData) {
+  const rowVals: any[] = [stt++, it.name];
+  for (const colKey of COLS) rowVals.push(it.values[colKey] ?? 0);
+  // không ghi cột TỔNG bây giờ (sẽ thêm sau)
+  XLSX.utils.sheet_add_aoa(ws, [rowVals], { origin: `A${dataRow}` });
   dataRow++;
-  stt = 1;
-  lastRole = row.role;
+}
+
+// ----------------------------------------------------------
+// === XÓA CỘT RỖNG ===
+// ----------------------------------------------------------
+// helper: xóa 1 cột (colIndex là số cột 0-based)
+function deleteCol(ws: XLSX.WorkSheet, colIndex: number) {
+  const range = XLSX.utils.decode_range(ws["!ref"]!);
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    for (let C = colIndex; C < range.e.c; ++C) {
+      const from = XLSX.utils.encode_cell({ r: R, c: C + 1 });
+      const to   = XLSX.utils.encode_cell({ r: R, c: C });
+      ws[to] = ws[from];
+    }
+    // clear last cell in this row
+    const lastAddr = XLSX.utils.encode_cell({ r: R, c: range.e.c });
+    delete ws[lastAddr];
   }
+  range.e.c = range.e.c - 1;
+  ws["!ref"] = XLSX.utils.encode_range(range);
+}
 
+// Tính tổng theo COLS trước khi xóa để quyết định cột nào giữ
+const totalsByCol: number[] = COLS.map((colKey, idx) => {
+  return ttData.reduce((s, it) => s + (it.values[colKey] ?? 0), 0);
+});
 
-  const rowData: any[] = [stt++, row.name];
-
-
-  for (const l of LOAI_PT) rowData.push(row.values[`PT_${l}`] ?? 0);
-  for (const l of LOAI_TT) rowData.push(row.values[`TT_${l}`] ?? 0);
-
-  
-  const startCol = XLSX.utils.encode_col(2);
-  const endCol = XLSX.utils.encode_col(totalColIndex - 1);
-
-
-  rowData.push({
-  f: `SUMPRODUCT(${startCol}${dataRow}:${endCol}${dataRow},${startCol}${dongGiaRow}:${endCol}${dongGiaRow})`
-  });
-
-
-  XLSX.utils.sheet_add_aoa(wsTT, [rowData], { origin: `A${dataRow}` });
-  dataRow++;
+// Xóa từ phải sang trái (bắt đầu từ cột cuối của COLS)
+// Lưu ý: trong sheet chúng ta có cột A,B trước; COLS bắt đầu ở index 2 (0-based)
+for (let i = COLS.length - 1; i >= 0; i--) {
+  const total = totalsByCol[i];
+  if (total === 0) {
+    // colIndex sheet (0-based) = 2 + i
+    deleteCol(ws, 2 + i);
   }
+}
 
+// Sau khi xóa xong, tạo mảng COLS_RUTGON để biết tên từng cột hiện có
+const finalRange = XLSX.utils.decode_range(ws["!ref"]!);
+// cột dữ liệu bắt đầu ở index 2, kết thúc ở finalRange.e.c
+const presentColsCount = Math.max(0, finalRange.e.c - 1); // trừ 2 cột STT,HỌ TÊN (cách tính đơn giản)
+const COLS_RUTGON: string[] = [];
+// ta cần rebuild danh sách từ left->right read header cells at rowStart
+for (let c = 2; c <= finalRange.e.c; c++) {
+  const addr = `${XLSX.utils.encode_col(c)}${rowStart}`;
+  const cell = ws[addr];
+  if (cell && cell.v) {
+    // header text (ví dụ "PĐB-Chính")
+    COLS_RUTGON.push(String(cell.v).toString());
+  } else {
+    // nếu header bị xoá dữ liệu (không tin), fallback lấy từ original COLS theo vị trí tương ứng:
+    // vị trí in original = c - 2, nếu tồn tại push
+    const fallback = COLS[c - 2];
+    if (fallback) COLS_RUTGON.push(fallback);
+  }
+}
 
-  // 6. HÀNG TỔNG CUỐI BẢNG
-  const totalRow = dataRow;
-  wsTT[`A${totalRow}`] = { t: 's', v: 'TỔNG' };
+// ----------------------------------------------------------
+// === SAU KHI XÓA: GHI LẠI HÀNG ĐƠN GIÁ (DONGGIA) THEO COLS_RUTGON
+// ----------------------------------------------------------
+// dongGiaRow vẫn là rowStart + 1
+// Ghi header rút gọn (STT, HỌ TÊN, ...COLS_RUTGON) - overwrite header row
+const headerRuttgon = ["STT", "HỌ TÊN", ...COLS_RUTGON];
+XLSX.utils.sheet_add_aoa(ws, [headerRuttgon], { origin: `A${rowStart}` });
 
+// Ghi hàng đơn giá (dongGiaRow)
+for (let i = 0; i < COLS_RUTGON.length; i++) {
+  const colIndex = 2 + i; // zero-based index of column in sheet
+  const colLetter = XLSX.utils.encode_col(colIndex);
+  const [loai, role] = (COLS_RUTGON[i] || "").split("-");
+  // nếu thiếu loai/role thì để rỗng
+  const formula = (loai && role)
+    ? `SUMIFS(CAU_HINH!$C:$C, CAU_HINH!$A:$A, "${loai}", CAU_HINH!$B:$B, "${role}")`
+    : undefined;
 
-  for (let c = 2; c <= totalColIndex; c++) {
-  const colLetter = XLSX.utils.encode_col(c);
-  wsTT[`${colLetter}${totalRow}`] = {
-  f: `SUM(${colLetter}${firstDataRow}:${colLetter}${dataRow - 1})`
+  if (formula) {
+    ws[`${colLetter}${dongGiaRow}`] = { t: "n", f: formula };
+  } else {
+    ws[`${colLetter}${dongGiaRow}`] = { t: "n", v: 0 };
+  }
+}
+
+// ----------------------------------------------------------
+// === TẠO CỘT TỔNG (sau cột dữ liệu hiện có) và GÁN SUMPRODUCT cho từng hàng
+// ----------------------------------------------------------
+const updatedRange = XLSX.utils.decode_range(ws["!ref"]!);
+const lastDataColIndex = updatedRange.e.c;               // index (0-based) của cột cuối hiện có
+const totalColIndex = lastDataColIndex + 1;              // index cho cột TỔNG mới
+const totalColLetter = XLSX.utils.encode_col(totalColIndex);
+
+// Ghi header TỔNG trên cùng (rowStart)
+ws[`${totalColLetter}${rowStart}`] = { t: "s", v: "TỔNG" };
+
+// Ghi công thức TỔNG hàng cho từng nhân viên
+let writeRow = dongGiaRow + 1;
+const lastDataColLetter = (idx: number) => XLSX.utils.encode_col(idx);
+
+while (writeRow < dataRow) {
+  const firstDataColLetter = XLSX.utils.encode_col(2); // C
+  const lastDataColLetterStr = XLSX.utils.encode_col(lastDataColIndex);
+  // SUMPRODUCT( Crow:LastDataColrow , CdongGiaRow:LastDataColdongGiaRow )
+  ws[`${totalColLetter}${writeRow}`] = {
+    t: "n",
+    f: `SUMPRODUCT(${firstDataColLetter}${writeRow}:${lastDataColLetterStr}${writeRow},${firstDataColLetter}${dongGiaRow}:${lastDataColLetterStr}${dongGiaRow})`
   };
-  }
+  writeRow++;
+}
+
+// ----------------------------------------------------------
+// === DÒNG TỔNG CUỐI
+// ----------------------------------------------------------
+const totalRow = dataRow;
+ws[`A${totalRow}`] = { t: "s", v: "" };
+ws[`B${totalRow}`] = { t: "s", v: "TỔNG" };
+
+// SUM từng cột số lượng từ dongGiaRow+1 -> dataRow -1
+for (let c = 2; c <= lastDataColIndex; c++) {
+  const colL = XLSX.utils.encode_col(c);
+  ws[`${colL}${totalRow}`] = {
+    t: "n",
+    f: `SUM(${colL}${dongGiaRow + 1}:${colL}${dataRow - 1})`
+  };
+}
+
+// SUMPRODUCT dòng tổng
+const firstDataColLetterFinal = XLSX.utils.encode_col(2);
+const lastDataColLetterFinal  = XLSX.utils.encode_col(lastDataColIndex);
+ws[`${totalColLetter}${totalRow}`] = {
+  t: "n",
+  f: `SUMPRODUCT(${firstDataColLetterFinal}${totalRow}:${lastDataColLetterFinal}${totalRow},${firstDataColLetterFinal}${dongGiaRow}:${lastDataColLetterFinal}${dongGiaRow})`
+};
+
+// Update ws['!ref'] để cover đến cột TỔNG
+ws["!ref"] = XLSX.utils.encode_range({
+  s: { r: 0, c: 0 },
+  e: { r: totalRow - 1, c: totalColIndex }
+});
+
+// TIÊU ĐỀ PHÍA TRÊN
+XLSX.utils.sheet_add_aoa(ws, [["SỞ Y TẾ HẢI PHÒNG"]], { origin: "B1" });
+XLSX.utils.sheet_add_aoa(ws, [["BỆNH VIỆN ĐA KHOA THUỶ NGUYÊN"]], { origin: "B2" });
+
+const midCol = XLSX.utils.encode_col(Math.floor((totalColIndex + 1) / 2));
+XLSX.utils.sheet_add_aoa(ws, [["BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT"]], { origin: `${midCol}3` });
+XLSX.utils.sheet_add_aoa(ws, [[timeExtract]], { origin: `${midCol}5` });
+
+// Append sheet vào workbook
+XLSX.utils.book_append_sheet(wb, ws, "BANG_THANH_TOAN");
 
 
-  // 7. TIÊU ĐỀ PHÍA TRÊN
-  XLSX.utils.sheet_add_aoa(wsTT, [["SỞ Y TẾ HẢI PHÒNG"]], { origin: 'C1' });
-  XLSX.utils.sheet_add_aoa(wsTT, [["BỆNH VIỆN ĐA KHOA THUỶ NGUYÊN"]], { origin: 'C2' });
 
-
-  const midCol = XLSX.utils.encode_col(Math.floor(totalColIndex / 2));
-  XLSX.utils.sheet_add_aoa(wsTT, [["BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT"]], { origin: `${midCol}3` });
-  XLSX.utils.sheet_add_aoa(wsTT, [[timeExtract]], { origin: `${midCol}5` });
-
-
-  XLSX.utils.book_append_sheet(wb, wsTT, 'BANG_THANH_TOAN');
 
 
 
@@ -1013,7 +1192,7 @@ export async function processSurgicalFiles(
 // 6.5. Sheet DS_MA_MAY (xuất từ CHI TIẾT PHẪU THUẬT THEO KHOA)
 
 const machineListData: any[][] = [
-  ["Mã BN", "Tên bệnh nhân", "Ngày phẫu thuật", "Mã máy", "Tên phẫu thuật","key"]
+  ["Mã BN", "Tên bệnh nhân", "Ngày phẫu thuật", "Mã máy", "Tên phẫu thuật"]
 ];
 
 for (const [key, machine] of machineMap.entries()) {
@@ -1036,14 +1215,98 @@ for (const [key, machine] of machineMap.entries()) {
     surgery = parts.slice(3).join("-") || "";
   }
 
-  machineListData.push([patientId, patientName, date, machine, surgery, key]);
+  machineListData.push([patientId, patientName, date, machine, surgery]);
 }
 
+  const wsMachineList = XLSX.utils.aoa_to_sheet(machineListData);
+  XLSX.utils.book_append_sheet(wb, wsMachineList, "DS_MA_MAY");
 
-const wsMachineList = XLSX.utils.aoa_to_sheet(machineListData);
-XLSX.utils.book_append_sheet(wb, wsMachineList, "DS_MA_MAY");
 
+    // =====  Xây sheet cấu hình thù lao: CAU_HINH  =====
+    const cauHinhData: any[][] = [
+      ["PTTT", "Vai trò", "Thù lao"],
+      ["PĐB", "Chính", 20000],
+      ["PĐB", "Phụ", 20000],
+      ["PĐB", "Giúp việc", 20000],
+      ["P1", "Chính", 20000],
+      ["P1", "Phụ", 20000],
+      ["P1", "Giúp việc", 20000],
+      ["P2", "Chính", 20000],
+      ["P2", "Phụ", 20000],
+      ["P2", "Giúp việc", 20000],
+      ["P3", "Chính", 20000],
+      ["P3", "Phụ", 20000],
+      ["P3", "Giúp việc", 20000],
+      ["T1", "Chính", 20000],
+      ["T1", "Phụ", 20000],
+      ["T1", "Giúp việc", 20000],
+      ["T2", "Chính", 20000],
+      ["T2", "Phụ", 20000],
+      ["T2", "Giúp việc", 20000],
+      ["T3", "Chính", 20000],
+      ["T3", "Phụ", 20000],
+      ["T3", "Giúp việc", 20000],
+      ["TKPL", "Chính", 20000],
+      ["TKPL", "Phụ", 20000],
+      ["TKPL", "Giúp việc", 20000],
+    ];
 
+    // ===== BỔ SUNG BẢNG QUY ĐỊNH THỜI GIAN PHẪU THUẬT (ô F1) =====
+    const timeConfig = [
+      ["LoaiPTTT", "Thời gian tối thiểu", "Thời gian tối đa"],
+      ["PĐB", 180, 240],
+      ["P1", 120, 180],
+      ["P2", 60, 180],
+      ["P3", 60, 120],
+      ["TĐB", 180, 240],
+      ["T1", 120, 180],
+      ["T2", 60, 180],
+      ["T3", 60, 120],
+      ["TKPL", 0, 0],
+    ];
+
+    const wsCauHinh = XLSX.utils.aoa_to_sheet(cauHinhData);
+
+    // Đặt định dạng số cho cột "Thù lao" (cột C) để Excel hiển thị thousands separator
+    for (let r = 1; r < cauHinhData.length; r++) { // bắt đầu từ 1 để bỏ header
+      const cellAddr = XLSX.utils.encode_cell({ r: r, c: 2 }); // c = 2 -> cột C (0-indexed)
+      const cell = wsCauHinh[cellAddr];
+      if (cell) {
+        // đảm bảo cell là number
+        if (typeof cell.v === "string") {
+          const n = Number(cell.v.replace(/[^0-9.-]+/g, ""));
+          cell.t = "n";
+          cell.v = isNaN(n) ? 0 : n;
+        } else {
+          cell.t = "n";
+        }
+        // định dạng hiển thị: thousands separator, không chữ thập phân
+        cell.z = "#,##0";
+      }
+    }
+
+    // (tùy chọn) căn giữa header
+    XLSX.utils.sheet_add_aoa(wsCauHinh, [], { origin: -1 }); // no-op but safe
+    wsCauHinh["A1"].s = { font: { bold: true } };
+    wsCauHinh["B1"].s = { font: { bold: true } };
+    wsCauHinh["C1"].s = { font: { bold: true } };
+
+    // Ghi vào ô F1
+    XLSX.utils.sheet_add_aoa(wsCauHinh, timeConfig, { origin: "F1" });
+
+    // Set width cho các cột mới F, G, H (tuỳ chọn)
+    const cols = wsCauHinh["!cols"] || [];
+    cols[5] = { wch: 12 };  // F
+    cols[6] = { wch: 18 };  // G
+    cols[7] = { wch: 16 };  // H
+    wsCauHinh["!cols"] = cols;
+
+    // In đậm hàng tiêu đề của bảng thời gian
+    wsCauHinh["F1"].s = { font: { bold: true } };
+    wsCauHinh["G1"].s = { font: { bold: true } };
+    wsCauHinh["H1"].s = { font: { bold: true } };
+
+    XLSX.utils.book_append_sheet(wb, wsCauHinh, "CAU_HINH");
 
 
 
