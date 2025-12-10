@@ -19,11 +19,16 @@ export interface Conflict {
   durationOverlap: number; // minutes
 }
 
+export interface PaymentStats {
+  totalAmount: number;
+}
+
 export interface ProcessingResult {
   success: boolean;
   message: string;
   downloadUrl?: string;
   stats: ProcessedStats;
+  paymentStats?: PaymentStats;
   conflicts: Conflict[];
 }
 

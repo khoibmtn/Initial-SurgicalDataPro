@@ -1,0 +1,39 @@
+{
+    "tools": [
+        {
+            "name": "Commit tất cả",
+            "command": "git add . && git commit -m \"Commit tự động từ Toolkit\"",
+            "category": "Quản lý mã nguồn"
+        },
+        {
+            "name": "Push lên GitHub",
+            "command": "git push",
+            "category": "Quản lý mã nguồn"
+        },
+        {
+            "name": "Pull bản mới nhất",
+            "command": "git pull origin main",
+            "category": "Quản lý mã nguồn"
+        },
+        {
+            "name": "Tạo nhánh mới (feature)",
+            "command": "git checkout main && git pull && git checkout -b feature-$(date +%Y%m%d%H%M)",
+            "category": "Quản lý nhánh"
+        },
+        {
+            "name": "Gộp nhánh hiện tại vào main",
+            "command": "git checkout main && git pull && git merge $(git branch --show-current)",
+            "category": "Quản lý nhánh"
+        },
+        {
+            "name": "Tạo phiên bản (tag)",
+            "command": "git tag -a v$(date +%Y%m%d%H%M) -m \"Tạo phiên bản tự động\" && git push origin --tags",
+            "category": "Phiên bản"
+        },
+        {
+            "name": "Rollback về phiên bản trước",
+            "command": "git reset --hard HEAD~1 && git push --force",
+            "category": "Phiên bản"
+        }
+    ]
+}
