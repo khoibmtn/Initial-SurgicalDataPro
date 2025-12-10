@@ -114,6 +114,7 @@ export interface ProcessingResult {
   machineConflicts: MachineConflict[];
   missingRecords: SurgeryRecord[];
   paymentData: PaymentData;
+  dateRangeText?: string; // Extracted from A5 of list file / A3 of detail file
 }
 
 export interface FileState {

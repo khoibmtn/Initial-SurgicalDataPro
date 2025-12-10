@@ -50,6 +50,55 @@ function validateDetailFileFormat(detailData: any[][]): string | null {
   return null;
 }
 
+// ================= EXPORTED VALIDATION FUNCTIONS =================
+export interface FileValidationResult {
+  valid: boolean;
+  error?: string;
+  dateRangeText?: string;
+}
+
+export async function validateListFile(file: File): Promise<FileValidationResult> {
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+
+    const error = validateListFileFormat(data);
+    if (error) {
+      return { valid: false, error };
+    }
+
+    // Extract date range from A5
+    const dateRangeText = String(data?.[4]?.[0] ?? "").trim();
+
+    return { valid: true, dateRangeText };
+  } catch (e: any) {
+    return { valid: false, error: `Không thể đọc file: ${e.message}` };
+  }
+}
+
+export async function validateDetailFile(file: File): Promise<FileValidationResult> {
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+
+    const error = validateDetailFileFormat(data);
+    if (error) {
+      return { valid: false, error };
+    }
+
+    // Extract date range from A3
+    const dateRangeText = String(data?.[2]?.[0] ?? "").trim();
+
+    return { valid: true, dateRangeText };
+  } catch (e: any) {
+    return { valid: false, error: `Không thể đọc file: ${e.message}` };
+  }
+}
+
 
 function parseVNDateTime(value: any): Date | null {
   if (!value) return null;
@@ -502,6 +551,20 @@ export async function processSurgicalFiles(
   const detailError = validateDetailFileFormat(detailData);
   if (detailError) throw new Error(detailError);
 
+  // Validate date range matching: A5 of list file (index 4) should match A3 of detail file (index 2)
+  const listDateRange = String(listData?.[4]?.[0] ?? "").trim();
+  const detailDateRange = String(detailData?.[2]?.[0] ?? "").trim();
+
+  if (!listDateRange || !detailDateRange) {
+    throw new Error("Không tìm thấy thông tin thời gian trong file. Vui lòng kiểm tra lại định dạng file.");
+  }
+
+  if (listDateRange !== detailDateRange) {
+    throw new Error(`Thời gian của 2 file không khớp nhau:\n- Danh sách PT: "${listDateRange}"\n- Chi tiết PT: "${detailDateRange}"\n\nVui lòng xuất lại 2 file với cùng khoảng thời gian.`);
+  }
+
+  // Extract dateRangeText for display
+  const dateRangeText = listDateRange;
 
   // 3. Tạo map KEY → Máy
   const machineMap = buildMachineMap(detailData);
@@ -930,17 +993,20 @@ export async function processSurgicalFiles(
   // BẮT ĐẦU TẠO SHEET
   // ----------------------------------------------------------
   let ws = XLSX.utils.aoa_to_sheet([]);
-  const rowStart = 7;
+  const rowStart = 7; // Header row 1 (merged groups)
+  // Header row 2 (roles) will be at rowStart + 1 = 8
+  // Đơn giá row will be at rowStart + 2 = 9
+  // Data starts at rowStart + 3 = 10
 
   // ban đầu tạo header với toàn bộ COLS (sẽ rút gọn sau khi xóa)
   const headerFull = ["STT", "HỌ TÊN", ...COLS];
   XLSX.utils.sheet_add_aoa(ws, [headerFull], { origin: `A${rowStart}` });
 
   // ===== Ghi dữ liệu nhân viên (KHÔNG ghi đơn giá lúc này) =====
-  const dongGiaRow = rowStart + 1;          // vị trí dành cho đơn giá — sẽ ghi *sau khi xóa cột*
+  let dongGiaRow = rowStart + 2;          // vị trí dành cho đơn giá (row 9)
   const ttData = collectThanhToanData_New(records);
 
-  let dataRow = dongGiaRow + 1;
+  let dataRow = dongGiaRow + 1;           // dữ liệu nhân viên bắt đầu từ row 10
   let stt = 1;
 
   // ghi các hàng nhân viên: giá trị quantities tương ứng với COLS cố định (chưa rút gọn)
@@ -987,46 +1053,140 @@ export async function processSurgicalFiles(
     }
   }
 
-  // Sau khi xóa xong, tạo mảng COLS_RUTGON để biết tên từng cột hiện có
-  const finalRange = XLSX.utils.decode_range(ws["!ref"]!);
-  // cột dữ liệu bắt đầu ở index 2, kết thúc ở finalRange.e.c
-  const presentColsCount = Math.max(0, finalRange.e.c - 1); // trừ 2 cột STT,HỌ TÊN (cách tính đơn giản)
+  // Sau khi xóa xong, tạo mảng COLS_RUTGON chỉ chứa các cột có tổng > 0
+  // Thay vì đọc lại từ worksheet (không đáng tin cậy), ta tạo trực tiếp từ totalsByCol
   const COLS_RUTGON: string[] = [];
-  // ta cần rebuild danh sách từ left->right read header cells at rowStart
-  for (let c = 2; c <= finalRange.e.c; c++) {
-    const addr = `${XLSX.utils.encode_col(c)}${rowStart}`;
-    const cell = ws[addr];
-    if (cell && cell.v) {
-      // header text (ví dụ "PĐB-Chính")
-      COLS_RUTGON.push(String(cell.v).toString());
-    } else {
-      // nếu header bị xoá dữ liệu (không tin), fallback lấy từ original COLS theo vị trí tương ứng:
-      // vị trí in original = c - 2, nếu tồn tại push
-      const fallback = COLS[c - 2];
-      if (fallback) COLS_RUTGON.push(fallback);
+  for (let i = 0; i < COLS.length; i++) {
+    if (totalsByCol[i] > 0) {
+      COLS_RUTGON.push(COLS[i]);
     }
   }
 
   // ----------------------------------------------------------
-  // === SAU KHI XÓA: GHI LẠI HÀNG ĐƠN GIÁ (DONGGIA) THEO COLS_RUTGON
+  // === SAU KHI XÓA: GHI LẠI HÀNG TIÊU ĐỀ 2 CẤP ===
   // ----------------------------------------------------------
-  // dongGiaRow vẫn là rowStart + 1
-  // Ghi header rút gọn (STT, HỌ TÊN, ...COLS_RUTGON) - overwrite header row
-  const headerRuttgon = ["STT", "HỌ TÊN", ...COLS_RUTGON];
-  XLSX.utils.sheet_add_aoa(ws, [headerRuttgon], { origin: `A${rowStart}` });
 
-  // Ghi hàng đơn giá (dongGiaRow)
-  // Ghi hàng đơn giá (dongGiaRow) lấy trực tiếp từ config (thay vì công thức referencing CAU_HINH sheet)
+  // 1. Chuẩn bị định nghĩa nhóm
+  const GROUP_MAP: Record<string, string> = {
+    "PĐB": "Phẫu thuật ĐB", "P1": "Phẫu thuật loại 1", "P2": "Phẫu thuật loại 2", "P3": "Phẫu thuật loại 3",
+    "TĐB": "Thủ thuật ĐB", "T1": "Thủ thuật loại 1", "T2": "Thủ thuật loại 2", "T3": "Thủ thuật loại 3", "TKPL": "Thủ thuật KPL"
+  };
+
+  // 2. Phân tích COLS_RUTGON để xây dựng cấu trúc Header
+  // colsStructure: mảng các nhóm, mỗi nhóm chứa { title, colspan, startColIndex }
+  // Đồng thời chuẩn bị mảng roleHeaders cho hàng 2
+
+  const roleHeaders: string[] = ["STT", "HỌ TÊN"];
+  const topHeaders: { title: string, startCol: number, endCol: number }[] = [];
+
+  // STT và HỌ TÊN là 2 cột đầu
+  // Ta sẽ merge hàng 1 và hàng 2 cho 2 cột này sau.
+
+  let currentGroup = "";
+  let currentGroupStart = -1;
+  const colOffset = 2; // Cột bắt đầu dữ liệu (sau STT, HỌ TÊN)
+
+  for (let i = 0; i < COLS_RUTGON.length; i++) {
+    const colKey = COLS_RUTGON[i];
+    const [loai, role] = colKey.split("-"); // vd: PĐB-Chính
+
+    // Header hàng 2 chỉ là Role
+    roleHeaders.push(role);
+
+    // Xử lý nhóm cho hàng 1
+    if (loai !== currentGroup) {
+      // Kết thúc nhóm cũ nếu có
+      if (currentGroup && currentGroupStart !== -1) {
+        topHeaders.push({
+          title: GROUP_MAP[currentGroup] || currentGroup,
+          startCol: colOffset + currentGroupStart,
+          endCol: colOffset + i - 1
+        });
+      }
+      // Bắt đầu nhóm mới
+      currentGroup = loai;
+      currentGroupStart = i;
+    }
+  }
+  // Push nhóm cuối cùng
+  if (currentGroup && currentGroupStart !== -1) {
+    topHeaders.push({
+      title: GROUP_MAP[currentGroup] || currentGroup,
+      startCol: colOffset + currentGroupStart,
+      endCol: colOffset + COLS_RUTGON.length - 1
+    });
+  }
+
+  // 3. Ghi dữ liệu vào Sheet
+
+  // -- Hàng 1 (Top Header) --
+  // Ghi STT, HỌ TÊN vào A7, B7 (rowStart) nhưng sẽ merge với A8, B8
+  ws[`A${rowStart}`] = { t: "s", v: "STT", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
+  ws[`B${rowStart}`] = { t: "s", v: "HỌ TÊN", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
+
+  // Ghi các nhóm
+  topHeaders.forEach(grp => {
+    const cellAddr = XLSX.utils.encode_cell({ r: rowStart - 1, c: grp.startCol }); // rowStart is 1-based in var, but encode_cell r is 0-based. Wait. 
+    // rowStart=7. API encode_cell wants 0-based row index? 
+    // Yes, utils.encode_cell({r:0, c:0}) is A1.
+    // My variable `rowStart` is 7 (A7). So r should be 6.
+
+    // Tuy nhiên code cũ dùng xlsx utils aoa_to_sheet hoặc gán trực tiếp.
+    // Ở dưới tôi gán trực tiếp ws[...].
+    // XLSX range is 0-indexed. 
+    // rowStart là biến số (7). Ghi vào excel là row 7. Index là 6.
+
+    const rIndex = rowStart - 1; // 6
+    const startC = XLSX.utils.encode_col(grp.startCol);
+
+    // Ghi title vào ô đầu tiên của nhóm
+    ws[`${startC}${rowStart}`] = {
+      t: "s",
+      v: grp.title,
+      s: {
+        font: { bold: true },
+        alignment: { horizontal: "center", vertical: "center" },
+        border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+      }
+    };
+
+    // Merge cells cho nhóm
+    if (!ws["!merges"]) ws["!merges"] = [];
+    ws["!merges"].push({ s: { r: rIndex, c: grp.startCol }, e: { r: rIndex, c: grp.endCol } });
+  });
+
+  // -- Hàng 2 (Role Header) --
+  // Row index = rowStart (7) -> Excel Row 8
+  const contentRow = rowStart + 1;
+  XLSX.utils.sheet_add_aoa(ws, [roleHeaders], { origin: `A${contentRow}` });
+
+  // Style cho hàng roleHeaders
+  for (let c = 0; c < roleHeaders.length; c++) {
+    const addr = XLSX.utils.encode_cell({ r: rowStart, c: c }); // r=7 -> Row 8
+    if (!ws[addr]) ws[addr] = { t: 's', v: '' }; // fallback
+    ws[addr].s = {
+      font: { bold: true, italic: true },
+      alignment: { horizontal: "center", vertical: "center" },
+      border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } }
+    };
+  }
+
+  // Merge STT và HỌ TÊN (Row 7 & 8)
+  ws["!merges"].push({ s: { r: rowStart - 1, c: 0 }, e: { r: rowStart, c: 0 } }); // A7-A8
+  ws["!merges"].push({ s: { r: rowStart - 1, c: 1 }, e: { r: rowStart, c: 1 } }); // B7-B8
+
+
+  // 4. Ghi hàng đơn giá (dongGiaRow đã được đặt đúng = rowStart + 2 = row 9)
+  // Ghi hàng đơn giá lấy trực tiếp từ config
   const PRICE_CFG = config.priceConfig;
+
+  // Ghi header "Đơn giá" vào cột B
+  ws[`B${dongGiaRow}`] = { t: "s", v: "Đơn giá", s: { font: { italic: true }, alignment: { horizontal: "right" } } };
+
   for (let i = 0; i < COLS_RUTGON.length; i++) {
     const colIndex = 2 + i; // zero-based index of column in sheet
     const colLetter = XLSX.utils.encode_col(colIndex);
     const [loai, role] = (COLS_RUTGON[i] || "").split("-");
-
-    // role "Chính" -> "Chính", "Phụ" -> "Phụ", ... 
-    // Trong ConfigContext, keys là "Chính", "Phụ", "Giúp việc".
-    // COLS generated lines 983-984 also use "Chính", "Phụ", "Giúp việc".
-    // So distinct mapping is likely not needed if strings match perfectly.
 
     let price = 0;
     if (loai && role && PRICE_CFG[loai]) {
@@ -1260,12 +1420,10 @@ export async function processSurgicalFiles(
       rows: ttData.map(item => ({
         name: item.name,
         values: item.values,
-        total: COLS_RUTGON.reduce((sum, col) => sum + (item.values[col] || 0), 0) // Simple qty sum, usually payment sum is preferred but for quantity table this is fine. Wait, user might want amount.
-        // Actually for the "Payment Table" (Bảng Thanh toán), it usually shows QUANTITY logic in the columns.
-        // The total amount is calculated in totalPayment.
-        // Let's just return the values so UI can render the matrix.
+        total: COLS_RUTGON.reduce((sum, col) => sum + (item.values[col] || 0), 0)
       }))
-    }
+    },
+    dateRangeText: dateRangeText
   };
 
 

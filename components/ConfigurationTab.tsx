@@ -93,31 +93,34 @@ export const ConfigurationTab: React.FC = () => {
     const getTime = (loai: string, field: 'min' | 'max') => config.timeRules[loai]?.[field] ?? 0;
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden min-h-[600px] flex flex-col font-inter text-sm">
+        <div className="bg-white rounded-2xl shadow-sm overflow-hidden min-h-[600px] flex flex-col font-inter text-sm">
 
             {/* Tab Navigation */}
-            <div className="flex border-b border-gray-200">
+            <div className="flex relative">
                 <button
                     onClick={() => setActiveSubTab('norms')}
-                    className={`flex-1 py-4 text-sm font-bold text-center border-b-2 transition-colors ${activeSubTab === 'norms'
-                            ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    className={`flex-1 py-4 text-sm font-bold text-center transition-all border-t-2 border-l border-r ${activeSubTab === 'norms'
+                        ? 'bg-indigo-600 text-white border-t-indigo-400 border-l-indigo-300 border-r-indigo-300'
+                        : 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 border-b border-b-indigo-300'
                         }`}
                 >
                     Định mức thời gian, phụ cấp PTTT
                 </button>
                 <button
                     onClick={() => setActiveSubTab('machines')}
-                    className={`flex-1 py-4 text-sm font-bold text-center border-b-2 transition-colors ${activeSubTab === 'machines'
-                            ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    className={`flex-1 py-4 text-sm font-bold text-center transition-all border-t-2 border-l border-r ${activeSubTab === 'machines'
+                        ? 'bg-emerald-600 text-white border-t-emerald-400 border-l-emerald-300 border-r-emerald-300'
+                        : 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 border-b border-b-emerald-300'
                         }`}
                 >
                     Danh sách PTTT không sử dụng máy
                 </button>
             </div>
 
-            <div className="p-6 flex-1 overflow-y-auto">
+            {/* Content area with matching thin border - continuous with active tab */}
+            <div className={`p-6 flex-1 overflow-y-auto ${activeSubTab === 'norms'
+                ? 'bg-gradient-to-b from-indigo-100 via-indigo-50 to-white border-l border-r border-b border-indigo-300 rounded-b-xl'
+                : 'bg-gradient-to-b from-emerald-100 via-emerald-50 to-white border-l border-r border-b border-emerald-300 rounded-b-xl'}`}>
                 {activeSubTab === 'norms' && (
                     <div className="animate-fade-in">
                         <div className="overflow-x-auto border border-gray-200 rounded-lg">
@@ -140,92 +143,118 @@ export const ConfigurationTab: React.FC = () => {
                                 </thead>
                                 <tbody>
                                     {/* Section: Phẫu thuật */}
-                                    <tr className="bg-gray-100 font-bold">
-                                        <td colSpan={6} className="px-4 py-2 text-gray-800 uppercase text-xs border-b">Phẫu thuật</td>
+                                    <tr className="bg-gradient-to-r from-indigo-600 to-indigo-500 shadow-md">
+                                        <td colSpan={6} className="px-4 py-3 text-white uppercase text-sm font-bold tracking-wide border-b border-indigo-400">
+                                            <span className="flex items-center gap-2">
+                                                <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                                                Phẫu thuật
+                                            </span>
+                                        </td>
                                     </tr>
-                                    {SURGERY_TYPES.map((type) => (
-                                        <tr key={type} className="border-b hover:bg-gray-50 transition-colors">
-                                            <td className="px-4 py-2 font-medium border-r">{type === 'PĐB' ? 'Loại Đặc biệt' : type.replace("P", "Loại ")}</td>
-                                            <td className="p-1 border-r">
+                                    {SURGERY_TYPES.map((type, idx) => (
+                                        <tr
+                                            key={type}
+                                            className={`border-b transition-all duration-200 cursor-pointer group
+                                                hover:bg-indigo-50 hover:shadow-lg hover:scale-[1.01] hover:z-10 relative
+                                                ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                                            `}
+                                        >
+                                            <td className="px-4 py-2.5 font-medium border-r pl-8">
+                                                <span className="text-gray-700">{type === 'PĐB' ? 'Loại Đặc biệt' : type.replace("P", "Loại ")}</span>
+                                            </td>
+                                            <td className="p-1.5 border-r">
                                                 <NumberInput
                                                     value={getPrice(type, 'Chính')}
                                                     onChange={(val) => handlePriceChange(type, 'Chính', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 rounded-md bg-white hover:bg-indigo-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 border-r">
+                                            <td className="p-1.5 border-r">
                                                 <NumberInput
                                                     value={getPrice(type, 'Phụ')}
                                                     onChange={(val) => handlePriceChange(type, 'Phụ', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 rounded-md bg-white hover:bg-indigo-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 border-r">
+                                            <td className="p-1.5 border-r">
                                                 <NumberInput
                                                     value={getPrice(type, 'Giúp việc')}
                                                     onChange={(val) => handlePriceChange(type, 'Giúp việc', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-indigo-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 rounded-md bg-white hover:bg-indigo-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 border-r bg-orange-50/10">
+                                            <td className="p-1.5 border-r bg-orange-50/20">
                                                 <NumberInput
                                                     value={getTime(type, 'min')}
                                                     onChange={(val) => handleTimeChange(type, 'min', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 rounded-md bg-white hover:bg-orange-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 bg-orange-50/10">
+                                            <td className="p-1.5 bg-orange-50/20">
                                                 <NumberInput
                                                     value={getTime(type, 'max')}
                                                     onChange={(val) => handleTimeChange(type, 'max', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 rounded-md bg-white hover:bg-orange-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
                                         </tr>
                                     ))}
 
                                     {/* Section: Thủ thuật */}
-                                    <tr className="bg-gray-100 font-bold">
-                                        <td colSpan={6} className="px-4 py-2 text-gray-800 uppercase text-xs border-b border-t">Thủ thuật</td>
+                                    <tr className="bg-gradient-to-r from-teal-600 to-teal-500 shadow-md">
+                                        <td colSpan={6} className="px-4 py-3 text-white uppercase text-sm font-bold tracking-wide border-b border-t border-teal-400">
+                                            <span className="flex items-center gap-2">
+                                                <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                                                Thủ thuật
+                                            </span>
+                                        </td>
                                     </tr>
-                                    {PROCEDURE_TYPES.map((type) => (
-                                        <tr key={type} className="border-b hover:bg-gray-50 transition-colors">
-                                            <td className="px-4 py-2 font-medium border-r">
-                                                {type === 'TĐB' ? 'Loại Đặc biệt' : type === 'TKPL' ? 'Không phân loại' : type.replace("T", "Loại ")}
+                                    {PROCEDURE_TYPES.map((type, idx) => (
+                                        <tr
+                                            key={type}
+                                            className={`border-b transition-all duration-200 cursor-pointer group
+                                                hover:bg-teal-50 hover:shadow-lg hover:scale-[1.01] hover:z-10 relative
+                                                ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
+                                            `}
+                                        >
+                                            <td className="px-4 py-2.5 font-medium border-r pl-8">
+                                                <span className="text-gray-700">
+                                                    {type === 'TĐB' ? 'Loại Đặc biệt' : type === 'TKPL' ? 'Không phân loại' : type.replace("T", "Loại ")}
+                                                </span>
                                             </td>
-                                            <td className="p-1 border-r">
+                                            <td className="p-1.5 border-r">
                                                 <NumberInput
                                                     value={getPrice(type, 'Chính')}
                                                     onChange={(val) => handlePriceChange(type, 'Chính', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-teal-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 rounded-md bg-white hover:bg-teal-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 border-r">
+                                            <td className="p-1.5 border-r">
                                                 <NumberInput
                                                     value={getPrice(type, 'Phụ')}
                                                     onChange={(val) => handlePriceChange(type, 'Phụ', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-teal-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 rounded-md bg-white hover:bg-teal-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 border-r">
+                                            <td className="p-1.5 border-r">
                                                 <NumberInput
                                                     value={getPrice(type, 'Giúp việc')}
                                                     onChange={(val) => handlePriceChange(type, 'Giúp việc', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-teal-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/30 rounded-md bg-white hover:bg-teal-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 border-r bg-orange-50/10">
+                                            <td className="p-1.5 border-r bg-orange-50/20">
                                                 <NumberInput
                                                     value={getTime(type, 'min')}
                                                     onChange={(val) => handleTimeChange(type, 'min', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 rounded-md bg-white hover:bg-orange-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
-                                            <td className="p-1 bg-orange-50/10">
+                                            <td className="p-1.5 bg-orange-50/20">
                                                 <NumberInput
                                                     value={getTime(type, 'max')}
                                                     onChange={(val) => handleTimeChange(type, 'max', val)}
-                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/30 rounded-md bg-white hover:bg-orange-50/50 outline-none transition-all shadow-sm group-hover:shadow"
                                                 />
                                             </td>
                                         </tr>
@@ -268,11 +297,19 @@ export const ConfigurationTab: React.FC = () => {
                                 </button>
                             </div>
 
-                            <div className="bg-gray-50 rounded-lg p-2 max-h-[400px] overflow-y-auto border border-gray-200">
+                            <div className="bg-white rounded-lg p-2 max-h-[400px] overflow-y-auto border border-emerald-200 shadow-inner">
                                 {config.ignoredMachineNames.length === 0 && <p className="text-gray-400 text-sm italic p-4 text-center">Chưa có tên nào trong danh sách.</p>}
+                                {config.ignoredMachineNames.length > 0 && (
+                                    <p className="text-emerald-700 font-bold text-sm p-3 bg-emerald-100 rounded-lg mb-3 text-center">
+                                        Có {config.ignoredMachineNames.length} phẫu thuật, thủ thuật không cần sử dụng máy
+                                    </p>
+                                )}
                                 {config.ignoredMachineNames.map((name, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-3 bg-white rounded shadow-sm mb-2 last:mb-0 border border-gray-100">
-                                        <span className="text-sm text-gray-700 font-medium">{name}</span>
+                                    <div key={idx} className={`flex items-center justify-between p-3 rounded shadow-sm mb-2 last:mb-0 border ${idx % 2 === 0 ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-gray-100'}`}>
+                                        <div className="flex items-center gap-3">
+                                            <span className="w-8 h-8 flex items-center justify-center bg-emerald-600 text-white rounded-full text-xs font-bold">{idx + 1}</span>
+                                            <span className="text-sm text-gray-700 font-medium">{name}</span>
+                                        </div>
                                         <button
                                             onClick={() => {
                                                 const newNames = config.ignoredMachineNames.filter(n => n !== name);
