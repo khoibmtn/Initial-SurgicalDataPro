@@ -1,434 +1,308 @@
-import React, { } from 'react';
-import * as XLSX from 'xlsx';
-import { useConfig } from '../contexts/ConfigContext';
-import { Save, RotateCcw, Download, Upload, DollarSign, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Save, RefreshCw, AlertCircle, Plus, Trash2, Search } from 'lucide-react';
+import { useConfig, AppConfig, RolePrice, TimeRule } from '../contexts/ConfigContext';
 
-export const ConfigurationTab: React.FC = () => {
-    const { config, updateConfig, resetConfig } = useConfig();
+// Helper component for formatted number input
+const NumberInput: React.FC<{
+    value: number;
+    onChange: (val: number) => void;
+    className?: string;
+    align?: 'left' | 'center' | 'right';
+}> = ({ value, onChange, className = "", align = 'right' }) => {
+    const [localVal, setLocalVal] = useState(value.toString());
 
-    const [activeSubTab, setActiveSubTab] = React.useState<'price' | 'time' | 'no-machine'>('price');
-    const [newIgnoredName, setNewIgnoredName] = React.useState('');
+    useEffect(() => {
+        setLocalVal(value.toString());
+    }, [value]);
 
-    const handlePriceChange = (type: string, role: string, value: string) => {
-        const num = parseInt(value.replace(/[^0-9]/g, ''), 10);
-        if (!isNaN(num)) {
-            updateConfig({
-                priceConfig: {
-                    ...config.priceConfig,
-                    [type]: {
-                        ...config.priceConfig[type],
-                        [role]: num
-                    }
-                }
-            });
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const raw = e.target.value.replace(/,/g, '');
+        if (!isNaN(Number(raw))) {
+            setLocalVal(raw); // Keep raw in local state for typing
+            onChange(Number(raw));
         }
     };
 
-    const handleTimeRuleChange = (key: string, field: 'min' | 'max', value: string) => {
-        const num = parseInt(value, 10);
-        if (!isNaN(num)) {
-            updateConfig({
-                timeRules: {
-                    ...config.timeRules,
-                    [key]: {
-                        ...config.timeRules[key],
-                        [field]: num
-                    }
-                }
-            });
-        }
+    const handleBlur = () => {
+        setLocalVal(value.toString()); // Reset to valid prop value on blur
     };
 
-    const handleAddIgnoredName = () => {
-        const name = newIgnoredName.trim();
-        if (!name) return;
-
-        // Prevent duplicates
-        if (config.ignoredMachineNames?.includes(name)) {
-            alert("Tên phẫu thuật này đã có trong danh sách!");
-            return;
-        }
-
-        const newList = [...(config.ignoredMachineNames || []), name];
-        updateConfig({ ignoredMachineNames: newList });
-        setNewIgnoredName('');
-    };
-
-    const handleDeleteIgnoredName = (nameToDelete: string) => {
-        const newList = (config.ignoredMachineNames || []).filter(n => n !== nameToDelete);
-        updateConfig({ ignoredMachineNames: newList });
-    };
-
-    const exportConfig = () => {
-        // --- 1. Tạo Sheet Đơn Giá ---
-        const priceHeader = ["Loại PTTT", "Chính", "Phụ", "Giúp việc"];
-        const priceData = [priceHeader];
-
-        ORDERED_KEYS.forEach(key => {
-            const row = [
-                key,
-                config.priceConfig[key]?.["Chính"] || 0,
-                config.priceConfig[key]?.["Phụ"] || 0,
-                config.priceConfig[key]?.["Giúp việc"] || 0,
-            ];
-            priceData.push(row);
-        });
-
-        const wsPrice = XLSX.utils.aoa_to_sheet(priceData);
-
-        // --- 2. Tạo Sheet Thời Gian ---
-        const timeHeader = ["Loại PTTT", "Tối thiểu (phút)", "Tối đa (phút)"];
-        const timeData = [timeHeader];
-
-        ORDERED_KEYS.forEach(key => {
-            const row = [
-                key,
-                config.timeRules[key]?.min || 0,
-                config.timeRules[key]?.max || 0
-            ];
-            timeData.push(row);
-        });
-
-        const wsTime = XLSX.utils.aoa_to_sheet(timeData);
-
-        // --- 3. Tạo Sheet Không Cần Máy ---
-        const noMachineHeader = ["Tên phẫu thuật, thủ thuật", "Không cần máy thực hiện"];
-        const noMachineData: any[][] = [noMachineHeader];
-
-        (config.ignoredMachineNames || []).forEach(name => {
-            noMachineData.push([name, true]); // Mark as true (checked)
-        });
-
-        const wsNoMachine = XLSX.utils.aoa_to_sheet(noMachineData);
-
-        // --- 4. Tạo Workbook và Xuất file ---
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, wsPrice, "DON_GIA");
-        XLSX.utils.book_append_sheet(wb, wsTime, "THOI_GIAN");
-        XLSX.utils.book_append_sheet(wb, wsNoMachine, "KHONG_CAN_MAY");
-
-        XLSX.writeFile(wb, "cau_hinh_pttt.xlsx");
-    };
-
-    const importConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            try {
-                const data = new Uint8Array(event.target?.result as ArrayBuffer);
-                const workbook = XLSX.read(data, { type: 'array' });
-
-                const newConfig: any = {};
-                let hasData = false;
-
-                // --- 1. Đọc Sheet Đơn Giá ---
-                const priceSheet = workbook.Sheets["DON_GIA"];
-                if (priceSheet) {
-                    const priceRows: any[][] = XLSX.utils.sheet_to_json(priceSheet, { header: 1 });
-                    // Bỏ header (row 0), đọc từ row 1
-                    const parsedPriceConfig: Record<string, any> = { ...config.priceConfig };
-
-                    for (let i = 1; i < priceRows.length; i++) {
-                        const row = priceRows[i];
-                        const key = (row[0] || "").toString().trim(); // Loại PTTT
-                        if (key && ORDERED_KEYS.includes(key)) {
-                            parsedPriceConfig[key] = {
-                                "Chính": Number(row[1]) || 0,
-                                "Phụ": Number(row[2]) || 0,
-                                "Giúp việc": Number(row[3]) || 0
-                            };
-                        }
-                    }
-                    newConfig.priceConfig = parsedPriceConfig;
-                    hasData = true;
-                }
-
-                // --- 2. Đọc Sheet Thời Gian ---
-                const timeSheet = workbook.Sheets["THOI_GIAN"];
-                if (timeSheet) {
-                    const timeRows: any[][] = XLSX.utils.sheet_to_json(timeSheet, { header: 1 });
-                    const parsedTimeRules: Record<string, any> = { ...config.timeRules };
-
-                    for (let i = 1; i < timeRows.length; i++) {
-                        const row = timeRows[i];
-                        const key = (row[0] || "").toString().trim(); // Loại PTTT
-                        if (key && ORDERED_KEYS.includes(key)) {
-                            parsedTimeRules[key] = {
-                                min: Number(row[1]) || 0,
-                                max: Number(row[2]) || 0
-                            };
-                        }
-                    }
-                    newConfig.timeRules = parsedTimeRules;
-                    hasData = true;
-                }
-
-                // --- 3. Đọc Sheet Không Cần Máy ---
-                const noMachineSheet = workbook.Sheets["KHONG_CAN_MAY"];
-                if (noMachineSheet) {
-                    const rows: any[][] = XLSX.utils.sheet_to_json(noMachineSheet, { header: 1 });
-                    const newIgnoredList: string[] = [];
-                    // Row structure: [Name, Checked]
-                    for (let i = 1; i < rows.length; i++) {
-                        const row = rows[i];
-                        const name = (row[0] || "").toString().trim();
-                        const isChecked = row[1]; // boolean or string usually
-                        if (name && (isChecked === true || String(isChecked).toLowerCase() === 'true')) {
-                            newIgnoredList.push(name);
-                        }
-                    }
-                    newConfig.ignoredMachineNames = newIgnoredList;
-                    hasData = true;
-                }
-
-                if (hasData) {
-                    updateConfig(newConfig);
-                    alert("Cấu hình đã được cập nhật từ file Excel!");
-                } else {
-                    alert("Không tìm thấy dữ liệu hợp lệ trong file Excel. Vui lòng kiểm tra lại tên sheet (DON_GIA, THOI_GIAN, KHONG_CAN_MAY).");
-                }
-
-            } catch (err) {
-                console.error(err);
-                alert("File cấu hình không hợp lệ hoặc lỗi khi đọc file.");
-            }
-        };
-        reader.readAsArrayBuffer(file);
-        // Reset value
-        e.target.value = '';
-    };
-
-    const handleManualSave = () => {
-        // Since auto-save is enabled in Provider via useEffect, 
-        // this button serves as a reassurance and visual confirmation.
-        // We can also force a re-render or similar if needed, but context is reactive.
-        alert("Đã lưu cấu hình thành công!");
-    };
-
-    const ORDERED_KEYS = ["PĐB", "P1", "P2", "P3", "TĐB", "T1", "T2", "T3", "TKPL"];
+    // Format display value with commas
+    const displayValue = localVal === '' ? '' : Number(localVal).toLocaleString('en-US');
 
     return (
-        <div className="space-y-6 animate-fade-in">
+        <input
+            type="text"
+            value={displayValue}
+            onChange={(e) => {
+                // Remove commas to get raw number
+                const val = e.target.value.replace(/,/g, '');
+                if (/^\d*$/.test(val)) {
+                    onChange(Number(val));
+                    setLocalVal(val);
+                }
+            }}
+            className={`${className} text-${align}`}
+        />
+    );
+};
 
-            {/* Header Actions */}
-            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-                <div>
-                    <h2 className="text-xl font-bold text-gray-900">Cấu hình hệ thống</h2>
-                    <p className="text-sm text-gray-500">Quản lý thù lao, thời gian và các quy định khác</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    <button onClick={handleManualSave} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm">
-                        <Save className="h-4 w-4" /> Lưu cấu hình
-                    </button>
-                    <label className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 cursor-pointer shadow-sm">
-                        <Upload className="h-4 w-4" />
-                        Nhập Excel
-                        <input type="file" accept=".xlsx" onChange={importConfig} className="hidden" />
-                    </label>
-                    <button onClick={exportConfig} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 shadow-sm">
-                        <Download className="h-4 w-4" /> Xuất Excel
-                    </button>
-                    <button onClick={resetConfig} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 shadow-sm">
-                        <RotateCcw className="h-4 w-4" /> Khôi phục gốc
-                    </button>
-                </div>
+export const ConfigurationTab: React.FC = () => {
+    const { config, updateConfig, resetConfig, isLoaded } = useConfig();
+    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'machines'>('norms');
+    const [newMachineName, setNewMachineName] = useState("");
+
+    if (!isLoaded) return <div>Loading config...</div>;
+
+    const handlePriceChange = (loai: string, role: keyof RolePrice, val: number) => {
+        updateConfig({
+            priceConfig: {
+                ...config.priceConfig,
+                [loai]: {
+                    ...config.priceConfig[loai],
+                    [role]: val
+                }
+            }
+        });
+    };
+
+    const handleTimeChange = (loai: string, type: 'min' | 'max', val: number) => {
+        updateConfig({
+            timeRules: {
+                ...config.timeRules,
+                [loai]: {
+                    ...config.timeRules[loai],
+                    [type]: val
+                }
+            }
+        });
+    };
+
+    const handleAddMachineName = () => {
+        if (newMachineName.trim() && !config.ignoredMachineNames.includes(newMachineName.trim())) {
+            updateConfig({ ignoredMachineNames: [...config.ignoredMachineNames, newMachineName.trim()] });
+            setNewMachineName("");
+        }
+    };
+
+    const SURGERY_TYPES = ["PĐB", "P1", "P2", "P3"];
+    const PROCEDURE_TYPES = ["TĐB", "T1", "T2", "T3", "TKPL"]; // Fixed typo TKKPL -> TKPL if needed, check default config keys. 
+    // In ConfigContext default keys are TKPL.
+
+    const getPrice = (loai: string, role: keyof RolePrice) => config.priceConfig[loai]?.[role] ?? 0;
+    const getTime = (loai: string, field: 'min' | 'max') => config.timeRules[loai]?.[field] ?? 0;
+
+    return (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden min-h-[600px] flex flex-col font-inter text-sm">
+
+            {/* Tab Navigation */}
+            <div className="flex border-b border-gray-200">
+                <button
+                    onClick={() => setActiveSubTab('norms')}
+                    className={`flex-1 py-4 text-sm font-bold text-center border-b-2 transition-colors ${activeSubTab === 'norms'
+                            ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                        }`}
+                >
+                    Định mức thời gian, phụ cấp PTTT
+                </button>
+                <button
+                    onClick={() => setActiveSubTab('machines')}
+                    className={`flex-1 py-4 text-sm font-bold text-center border-b-2 transition-colors ${activeSubTab === 'machines'
+                            ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                        }`}
+                >
+                    Danh sách PTTT không sử dụng máy
+                </button>
             </div>
 
-            {/* Sub-tabs Navigation */}
-            <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                <button
-                    onClick={() => setActiveSubTab('price')}
-                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeSubTab === 'price' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    Phụ cấp phẫu thuật, thủ thuật
-                </button>
-                <button
-                    onClick={() => setActiveSubTab('time')}
-                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeSubTab === 'time' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    Thời gian thực hiện
-                </button>
-                <button
-                    onClick={() => setActiveSubTab('no-machine')}
-                    className={`px-4 py-2 text-sm font-medium rounded-md transition-all ${activeSubTab === 'no-machine' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                    Phẫu thuật không máy
-                </button>
-            </div>
-
-
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden min-h-[400px]">
-
-                {/* 1. PRICE CONFIG TAB */}
-                {activeSubTab === 'price' && (
+            <div className="p-6 flex-1 overflow-y-auto">
+                {activeSubTab === 'norms' && (
                     <div className="animate-fade-in">
-                        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
-                            <div className="bg-green-100 p-1.5 rounded-md">
-                                <DollarSign className="h-5 w-5 text-green-700" />
-                            </div>
-                            <h3 className="font-semibold text-gray-900">Đơn giá phụ cấp (VND)</h3>
-                        </div>
-                        <div className="p-6">
-                            <div className="grid grid-cols-12 gap-4 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-3">
-                                <div className="col-span-2">Loại PTTT</div>
-                                <div className="col-span-10 grid grid-cols-3 gap-4">
-                                    <div className="text-right">Chính</div>
-                                    <div className="text-right">Phụ</div>
-                                    <div className="text-right">Giúp việc</div>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                {ORDERED_KEYS.map(key => (
-                                    <div key={key} className="grid grid-cols-12 gap-4 items-center p-3 bg-gray-50 rounded-lg border border-transparent hover:border-gray-200 transition-all">
-                                        <div className="col-span-2 font-bold text-gray-700">{key}</div>
-                                        <div className="col-span-10 grid grid-cols-3 gap-4">
-                                            <input
-                                                type="text"
-                                                value={config.priceConfig[key]?.["Chính"]?.toLocaleString('vi-VN')}
-                                                onChange={(e) => handlePriceChange(key, "Chính", e.target.value)}
-                                                className="w-full text-right font-mono text-sm bg-white border border-gray-300 rounded-md px-3 py-2 focus:ring-1 focus:ring-green-500 outline-none"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={config.priceConfig[key]?.["Phụ"]?.toLocaleString('vi-VN')}
-                                                onChange={(e) => handlePriceChange(key, "Phụ", e.target.value)}
-                                                className="w-full text-right font-mono text-sm bg-white border border-gray-300 rounded-md px-3 py-2 focus:ring-1 focus:ring-green-500 outline-none"
-                                            />
-                                            <input
-                                                type="text"
-                                                value={config.priceConfig[key]?.["Giúp việc"]?.toLocaleString('vi-VN')}
-                                                onChange={(e) => handlePriceChange(key, "Giúp việc", e.target.value)}
-                                                className="w-full text-right font-mono text-sm bg-white border border-gray-300 rounded-md px-3 py-2 focus:ring-1 focus:ring-green-500 outline-none"
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                            <table className="w-full text-sm text-left text-gray-700">
+                                <thead className="bg-gray-50 text-gray-900 font-bold uppercase text-xs">
+                                    <tr>
+                                        <th rowSpan={2} className="px-4 py-3 border-r border-b border-gray-200 bg-gray-100 min-w-[150px] align-middle">Loại PTTT</th>
+                                        <th colSpan={3} className="px-4 py-2 border-r border-b border-gray-200 text-center bg-blue-50 text-blue-800">Phụ cấp PTTT (đồng)</th>
+                                        <th colSpan={2} className="px-4 py-2 border-b border-gray-200 text-center bg-orange-50 text-orange-800">Thời gian thực hiện (phút)</th>
+                                    </tr>
+                                    <tr>
+                                        {/* Prices */}
+                                        <th className="px-4 py-2 border-r border-gray-200 w-[120px] text-center bg-blue-50/50">Chính</th>
+                                        <th className="px-4 py-2 border-r border-gray-200 w-[120px] text-center bg-blue-50/50">Phụ</th>
+                                        <th className="px-4 py-2 border-r border-gray-200 w-[120px] text-center bg-blue-50/50">Giúp việc</th>
+                                        {/* Times */}
+                                        <th className="px-4 py-2 border-r border-gray-200 w-[100px] text-center bg-orange-50/50">Tối thiểu</th>
+                                        <th className="px-4 py-2 w-[100px] text-center bg-orange-50/50">Tối đa</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {/* Section: Phẫu thuật */}
+                                    <tr className="bg-gray-100 font-bold">
+                                        <td colSpan={6} className="px-4 py-2 text-gray-800 uppercase text-xs border-b">Phẫu thuật</td>
+                                    </tr>
+                                    {SURGERY_TYPES.map((type) => (
+                                        <tr key={type} className="border-b hover:bg-gray-50 transition-colors">
+                                            <td className="px-4 py-2 font-medium border-r">{type === 'PĐB' ? 'Loại Đặc biệt' : type.replace("P", "Loại ")}</td>
+                                            <td className="p-1 border-r">
+                                                <NumberInput
+                                                    value={getPrice(type, 'Chính')}
+                                                    onChange={(val) => handlePriceChange(type, 'Chính', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 border-r">
+                                                <NumberInput
+                                                    value={getPrice(type, 'Phụ')}
+                                                    onChange={(val) => handlePriceChange(type, 'Phụ', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 border-r">
+                                                <NumberInput
+                                                    value={getPrice(type, 'Giúp việc')}
+                                                    onChange={(val) => handlePriceChange(type, 'Giúp việc', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 border-r bg-orange-50/10">
+                                                <NumberInput
+                                                    value={getTime(type, 'min')}
+                                                    onChange={(val) => handleTimeChange(type, 'min', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 bg-orange-50/10">
+                                                <NumberInput
+                                                    value={getTime(type, 'max')}
+                                                    onChange={(val) => handleTimeChange(type, 'max', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                        </tr>
+                                    ))}
+
+                                    {/* Section: Thủ thuật */}
+                                    <tr className="bg-gray-100 font-bold">
+                                        <td colSpan={6} className="px-4 py-2 text-gray-800 uppercase text-xs border-b border-t">Thủ thuật</td>
+                                    </tr>
+                                    {PROCEDURE_TYPES.map((type) => (
+                                        <tr key={type} className="border-b hover:bg-gray-50 transition-colors">
+                                            <td className="px-4 py-2 font-medium border-r">
+                                                {type === 'TĐB' ? 'Loại Đặc biệt' : type === 'TKPL' ? 'Không phân loại' : type.replace("T", "Loại ")}
+                                            </td>
+                                            <td className="p-1 border-r">
+                                                <NumberInput
+                                                    value={getPrice(type, 'Chính')}
+                                                    onChange={(val) => handlePriceChange(type, 'Chính', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 border-r">
+                                                <NumberInput
+                                                    value={getPrice(type, 'Phụ')}
+                                                    onChange={(val) => handlePriceChange(type, 'Phụ', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 border-r">
+                                                <NumberInput
+                                                    value={getPrice(type, 'Giúp việc')}
+                                                    onChange={(val) => handlePriceChange(type, 'Giúp việc', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 border-r bg-orange-50/10">
+                                                <NumberInput
+                                                    value={getTime(type, 'min')}
+                                                    onChange={(val) => handleTimeChange(type, 'min', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                            <td className="p-1 bg-orange-50/10">
+                                                <NumberInput
+                                                    value={getTime(type, 'max')}
+                                                    onChange={(val) => handleTimeChange(type, 'max', val)}
+                                                    className="w-full px-2 py-1 text-right text-gray-900 border border-transparent focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded hover:bg-white bg-transparent outline-none"
+                                                />
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 )}
 
-                {/* 2. TIME CONFIG TAB */}
-                {activeSubTab === 'time' && (
-                    <div className="animate-fade-in">
-                        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
-                            <div className="bg-blue-100 p-1.5 rounded-md">
-                                <Clock className="h-5 w-5 text-blue-700" />
-                            </div>
-                            <h3 className="font-semibold text-gray-900">Quy định thời gian (phút)</h3>
-                        </div>
-                        <div className="p-6">
-                            <div className="grid grid-cols-12 gap-4 text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-3">
-                                <div className="col-span-2">Loại</div>
-                                <div className="col-span-10 grid grid-cols-2 gap-4">
-                                    <div className="text-center">Tối thiểu</div>
-                                    <div className="text-center">Tối đa</div>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                {ORDERED_KEYS.map(key => (
-                                    <div key={key} className="grid grid-cols-12 gap-4 items-center p-3 bg-gray-50 rounded-lg border border-transparent hover:border-gray-200 transition-all">
-                                        <span className="col-span-2 font-bold text-gray-700">{key}</span>
-                                        <div className="col-span-10 grid grid-cols-2 gap-4">
-                                            <div className="relative">
-                                                <input
-                                                    type="number"
-                                                    value={config.timeRules[key]?.min}
-                                                    onChange={(e) => handleTimeRuleChange(key, 'min', e.target.value)}
-                                                    className="w-full font-mono text-center bg-white border border-gray-300 rounded-md px-3 py-2 focus:ring-1 focus:ring-blue-500 outline-none"
-                                                />
-                                                <span className="absolute right-3 top-2.5 text-xs text-gray-400">min</span>
-                                            </div>
-                                            <div className="relative">
-                                                <input
-                                                    type="number"
-                                                    value={config.timeRules[key]?.max}
-                                                    onChange={(e) => handleTimeRuleChange(key, 'max', e.target.value)}
-                                                    className="w-full font-mono text-center bg-white border border-gray-300 rounded-md px-3 py-2 focus:ring-1 focus:ring-blue-500 outline-none"
-                                                />
-                                                <span className="absolute right-3 top-2.5 text-xs text-gray-400">min</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
 
-                {/* 3. NO MACHINE TAB */}
-                {activeSubTab === 'no-machine' && (
-                    <div className="animate-fade-in flex flex-col h-full">
-                        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
-                            <div className="bg-orange-100 p-1.5 rounded-md">
-                                <DollarSign className="h-5 w-5 text-orange-700" /> {/* Reusing Icon or importing a new one like ZapOff */}
+                {activeSubTab === 'machines' && (
+                    <div className="space-y-6 animate-fade-in">
+                        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex gap-3 text-yellow-800">
+                            <AlertCircle className="h-5 w-5 shrink-0" />
+                            <div className="text-sm">
+                                <p className="font-bold mb-1">Cấu hình bỏ qua lỗi thiếu máy</p>
+                                <p>Nhập tên (hoặc một phần tên) của phẫu thuật/thủ thuật để hệ thống không báo lỗi "Thiếu mã máy" đối với các dịch vụ này.</p>
                             </div>
-                            <h3 className="font-semibold text-gray-900">Danh sách Phẫu thuật, Thủ thuật không sử dụng máy</h3>
                         </div>
 
-                        <div className="p-6 flex flex-col gap-6">
-                            {/* Add Form */}
-                            <div className="flex gap-4 items-end bg-gray-50 p-4 rounded-lg border border-gray-100">
-                                <div className="flex-1">
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Tên phẫu thuật, thủ thuật</label>
-                                    <input
-                                        type="text"
-                                        value={newIgnoredName}
-                                        onChange={(e) => setNewIgnoredName(e.target.value)}
-                                        placeholder="Ví dụ: Phẫu thuật cắt amidan..."
-                                        className="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none"
-                                    />
-                                </div>
-                                <div className="flex items-center h-10 pb-1">
-                                    <label className="flex items-center gap-2 text-sm text-gray-700 font-medium cursor-pointer select-none">
-                                        <input type="checkbox" checked disabled className="w-4 h-4 text-indigo-600 rounded" />
-                                        Không cần máy thực hiện
-                                    </label>
-                                </div>
+                        <div className="max-w-2xl">
+                            <h4 className="font-bold text-gray-900 mb-3 block">Danh sách tên PTTT bỏ qua kiểm tra máy</h4>
+
+                            <div className="flex gap-2 mb-4">
+                                <input
+                                    type="text"
+                                    value={newMachineName}
+                                    onChange={(e) => setNewMachineName(e.target.value)}
+                                    placeholder="Nhập tên PTTT (ví dụ: bó bột, nắn trật khớp...)"
+                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                    onKeyDown={(e) => e.key === 'Enter' && handleAddMachineName()}
+                                />
                                 <button
-                                    onClick={handleAddIgnoredName}
-                                    className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 mb-0.5"
+                                    onClick={handleAddMachineName}
+                                    disabled={!newMachineName.trim()}
+                                    className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
-                                    Thêm vào danh sách
+                                    <Plus className="h-4 w-4" /> Thêm
                                 </button>
                             </div>
 
-                            {/* List */}
-                            <div className="border rounded-lg overflow-hidden">
-                                <div className="bg-gray-100 px-4 py-2 text-xs font-bold text-gray-500 uppercase tracking-wider grid grid-cols-12 gap-4">
-                                    <div className="col-span-1">STT</div>
-                                    <div className="col-span-9">Tên phẫu thuật, thủ thuật</div>
-                                    <div className="col-span-2 text-center">Thao tác</div>
-                                </div>
-                                <div className="divide-y divide-gray-100 max-h-[400px] overflow-y-auto bg-white">
-                                    {(config.ignoredMachineNames && config.ignoredMachineNames.length > 0) ? (
-                                        config.ignoredMachineNames.map((name, index) => (
-                                            <div key={index} className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-gray-50">
-                                                <div className="col-span-1 text-gray-500 text-sm">{index + 1}</div>
-                                                <div className="col-span-9 font-medium text-gray-900">{name}</div>
-                                                <div className="col-span-2 text-center">
-                                                    <button
-                                                        onClick={() => handleDeleteIgnoredName(name)}
-                                                        className="text-red-600 hover:text-red-800 text-sm font-medium"
-                                                    >
-                                                        Xóa
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="p-8 text-center text-gray-500 italic">
-                                            Chưa có phẫu thuật nào trong danh sách.
-                                        </div>
-                                    )}
-                                </div>
+                            <div className="bg-gray-50 rounded-lg p-2 max-h-[400px] overflow-y-auto border border-gray-200">
+                                {config.ignoredMachineNames.length === 0 && <p className="text-gray-400 text-sm italic p-4 text-center">Chưa có tên nào trong danh sách.</p>}
+                                {config.ignoredMachineNames.map((name, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-3 bg-white rounded shadow-sm mb-2 last:mb-0 border border-gray-100">
+                                        <span className="text-sm text-gray-700 font-medium">{name}</span>
+                                        <button
+                                            onClick={() => {
+                                                const newNames = config.ignoredMachineNames.filter(n => n !== name);
+                                                updateConfig({ ignoredMachineNames: newNames });
+                                            }}
+                                            className="text-red-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                                            title="Xóa"
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
                 )}
+            </div>
 
+            {/* Footer Actions */}
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
+                <button
+                    onClick={resetConfig}
+                    className="text-red-600 text-sm hover:underline flex items-center gap-1 font-medium"
+                >
+                    <RefreshCw className="h-4 w-4" /> Khôi phục mặc định
+                </button>
+                <div className="flex items-center gap-2 text-xs text-gray-500 bg-white px-3 py-1.5 rounded-full border border-gray-200 shadow-sm">
+                    <Save className="h-3 w-3 text-green-500" />
+                    Tự động lưu thay đổi
+                </div>
             </div>
         </div>
     );

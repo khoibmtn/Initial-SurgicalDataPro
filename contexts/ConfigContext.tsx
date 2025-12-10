@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ref, onValue, set } from "firebase/database";
 import { db } from "../lib/firebase";
+import { UISettings } from "../types";
 
 export interface TimeRule {
     min: number;
@@ -21,6 +22,7 @@ export interface AppConfig {
     roleOrder: Record<string, number>;
     ignoredMachineCodes: string[]; // List of PTTT that don't need machine codes
     ignoredMachineNames: string[]; // List of Surgery Names that don't need machine codes
+    uiSettings: UISettings;
 }
 
 interface ConfigContextType {
@@ -32,15 +34,15 @@ interface ConfigContextType {
 
 // --- Defaults ---
 const DEFAULT_PRICE_CONFIG: { [key: string]: RolePrice } = {
-    "PĐB": { "Chính": 280000, "Phụ": 0, "Giúp việc": 0 },
-    "P1": { "Chính": 125000, "Phụ": 76000, "Giúp việc": 38000 },
+    "PĐB": { "Chính": 280000, "Phụ": 200000, "Giúp việc": 120000 },
+    "P1": { "Chính": 125000, "Phụ": 90000, "Giúp việc": 70000 },
     "P2": { "Chính": 65000, "Phụ": 50000, "Giúp việc": 30000 },
-    "P3": { "Chính": 50000, "Phụ": 38000, "Giúp việc": 25000 },
-    "TĐB": { "Chính": 125000, "Phụ": 76000, "Giúp việc": 38000 },
-    "T1": { "Chính": 65000, "Phụ": 50000, "Giúp việc": 30000 },
-    "T2": { "Chính": 50000, "Phụ": 38000, "Giúp việc": 25000 },
-    "T3": { "Chính": 30000, "Phụ": 25000, "Giúp việc": 15000 },
-    "TKPL": { "Chính": 20000, "Phụ": 20000, "Giúp việc": 20000 },
+    "P3": { "Chính": 50000, "Phụ": 30000, "Giúp việc": 15000 },
+    "TĐB": { "Chính": 84000, "Phụ": 60000, "Giúp việc": 36000 },
+    "T1": { "Chính": 37500, "Phụ": 27000, "Giúp việc": 21000 },
+    "T2": { "Chính": 19500, "Phụ": 15000, "Giúp việc": 9000 },
+    "T3": { "Chính": 15000, "Phụ": 9000, "Giúp việc": 4500 },
+    "TKPL": { "Chính": 0, "Phụ": 0, "Giúp việc": 0 },
 };
 
 const DEFAULT_TIME_RULES: { [key: string]: TimeRule } = {
@@ -62,12 +64,19 @@ const DEFAULT_ROLE_ORDER: Record<string, number> = {
     "Vận hành máy": 4
 };
 
+const DEFAULT_UI_SETTINGS: UISettings = {
+    rowsPerPage: 20,
+    dateFormat: 'dd/mm/yyyy hh:mm',
+    visibleColumns: {}
+};
+
 export const DEFAULT_CONFIG: AppConfig = {
     priceConfig: DEFAULT_PRICE_CONFIG,
     timeRules: DEFAULT_TIME_RULES,
     roleOrder: DEFAULT_ROLE_ORDER,
     ignoredMachineCodes: ["K0", "K1"],
-    ignoredMachineNames: []
+    ignoredMachineNames: [],
+    uiSettings: DEFAULT_UI_SETTINGS
 };
 
 // --- Context ---
@@ -126,6 +135,11 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                         });
                     }
 
+                    // Deep merge for uiSettings
+                    if (data.uiSettings) {
+                        merged.uiSettings = { ...DEFAULT_UI_SETTINGS, ...data.uiSettings };
+                    }
+
                     return merged;
                 });
             } else {
@@ -146,10 +160,11 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const updateConfig = (newPart: Partial<AppConfig>) => {
         // Merge newPart with the current config to create the full object to save.
-
         const fullNewConfig = { ...config, ...newPart };
 
-        // Deep merge for nested objects if newPart only contains partial updates to them.
+        // Deep merge logic for specific objects is handled automatically by spread above for simple updates,
+        // but for nested objects like priceConfig/timeRules/uiSettings, we need to be careful if newPart passes partials.
+
         if (newPart.priceConfig) {
             fullNewConfig.priceConfig = { ...config.priceConfig };
             Object.keys(newPart.priceConfig).forEach(key => {
@@ -168,6 +183,10 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     ...newPart.timeRules[key]
                 };
             });
+        }
+
+        if (newPart.uiSettings) {
+            fullNewConfig.uiSettings = { ...config.uiSettings, ...newPart.uiSettings };
         }
 
         // Write to Firebase

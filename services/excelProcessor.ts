@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { ProcessingResult } from "../types";
+import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffRole } from "../types";
 
 
 
@@ -170,33 +170,7 @@ function buildMachineMap(detailData: any[][]): Map<string, string> {
 
 // ────────────── 2. Xử lý file Danh sách PT thành dòng chuẩn ──────────────
 
-type StaffRole = "PT_CHINH" | "PT_PHU" | "BS_GM" | "KTV_GM" | "TDC" | "GV";
-
-interface SurgeryRecord {
-  stt: any;
-  patientId: string;
-  patientName: string;
-  gender: string;
-  yob: string;
-  bhyt: string;
-  ngayCD: string;
-  ngayBD: string;
-  ngayKT: string;
-  tenKT: string;
-  loaiPTTT: string;
-  soLuong: number;
-  timeMinutes: number;
-  ptChinh: string;
-  ptPhu: string;
-  bsGM: string;
-  ktvGM: string;
-  tdc: string;
-  gv: string;
-  machine: string;
-  start: Date | null;
-  end: Date | null;
-  key?: string;
-}
+// (Đã chuyển SurgeryRecord và StaffRole sang types.ts)
 
 function determineLoaiPT(row: any[]): string {
   const j = row[9];
@@ -346,38 +320,7 @@ function processListData(
 
 // ────────────── 3. Phát hiện trùng giờ nhân viên & máy ──────────────
 
-interface StaffConflict {
-  staffName: string;
-  role: StaffRole;
-  patientId1: string;
-  patientName1: string;
-  tenKT1: string;
-  start1: Date;
-  end1: Date;
-  patientId2: string;
-  patientName2: string;
-  tenKT2: string;
-  start2: Date;
-  end2: Date;
-  rec1: SurgeryRecord;
-  rec2: SurgeryRecord;
-}
-
-interface MachineConflict {
-  machine: string;
-  patientId1: string;
-  patientName1: string;
-  tenKT1: string;
-  start1: Date;
-  end1: Date;
-  patientId2: string;
-  patientName2: string;
-  tenKT2: string;
-  start2: Date;
-  end2: Date;
-  rec1: SurgeryRecord;
-  rec2: SurgeryRecord;
-}
+// (Đã chuyển StaffConflict và MachineConflict sang types.ts)
 
 function detectStaffConflicts(records: SurgeryRecord[]): StaffConflict[] {
   type StaffInstance = {
@@ -1287,21 +1230,42 @@ export async function processSurgicalFiles(
     }
   }
 
+
+  const lowPaymentCount = records.filter(r => r.soLuong < 1).length;
+
   return {
     success: true,
     message: "Đã xử lý xong dữ liệu phẫu thuật.",
-    wb: wb, // Trả về workbook object
+    wb: wb,
     stats: {
       totalSurgeries: records.length,
-      totalDurationMinutes: totalDurationMinutes,
+      totalDurationMinutes: records.reduce((acc, r) => acc + r.timeMinutes, 0),
       staffConflicts: staffConflicts.length,
       machineConflicts: machineConflicts.length,
-      missingMachines: missingMachine.length
+      missingMachines: missingMachine.length,
+      lowPaymentCount: lowPaymentCount
     },
     paymentStats: {
       totalAmount: totalPayment
     },
-    conflicts: toConflictFormat(staffConflicts, machineConflicts)
+    conflicts: toConflictFormat(staffConflicts, machineConflicts),
+
+    // New Raw Data for UI Tables
+    validRecords: records,
+    staffConflicts: staffConflicts,
+    machineConflicts: machineConflicts,
+    missingRecords: missingMachine,
+    paymentData: {
+      columns: COLS_RUTGON,
+      rows: ttData.map(item => ({
+        name: item.name,
+        values: item.values,
+        total: COLS_RUTGON.reduce((sum, col) => sum + (item.values[col] || 0), 0) // Simple qty sum, usually payment sum is preferred but for quantity table this is fine. Wait, user might want amount.
+        // Actually for the "Payment Table" (Bảng Thanh toán), it usually shows QUANTITY logic in the columns.
+        // The total amount is calculated in totalPayment.
+        // Let's just return the values so UI can render the matrix.
+      }))
+    }
   };
 
 
