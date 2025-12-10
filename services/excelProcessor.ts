@@ -570,7 +570,18 @@ export async function processSurgicalFiles(
   // 5. Phát hiện trùng
   const staffConflicts = detectStaffConflicts(records);
   const machineConflicts = detectMachineConflicts(records);
-  const missingMachine = records.filter((r) => !r.machine);
+  const missingMachine = records.filter((r) => {
+    // Nếu có mã máy thì OK
+    if (r.machine) return false;
+
+    // Nếu không có mã máy, kiểm tra xem có được cấu hình "Không cần máy" không (theo config mới)
+    // config.ignoredMachineNames chứa danh sách Tên được đánh dấu
+    if (config.ignoredMachineNames && config.ignoredMachineNames.includes(r.tenKT)) {
+      return false; // Bỏ qua, không coi là lỗi thiếu máy
+    }
+
+    return true; // Vẫn tính là lỗi thiếu máy
+  });
 
   // 6. Tạo workbook kết quả
   const wb = XLSX.utils.book_new();

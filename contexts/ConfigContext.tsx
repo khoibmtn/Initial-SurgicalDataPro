@@ -15,6 +15,7 @@ export interface AppConfig {
     timeRules: Record<string, TimeRule>;
     roleOrder: Record<string, number>;
     ignoredMachineCodes: string[]; // List of PTTT that don't need machine codes
+    ignoredMachineNames: string[]; // List of Surgery Names that don't need machine codes
 }
 
 interface ConfigContextType {
@@ -61,7 +62,8 @@ const DEFAULT_CONFIG: AppConfig = {
     priceConfig: DEFAULT_PRICE_CONFIG,
     timeRules: DEFAULT_TIME_RULES,
     roleOrder: DEFAULT_ROLE_ORDER,
-    ignoredMachineCodes: []
+    ignoredMachineCodes: [],
+    ignoredMachineNames: []
 };
 
 // --- Context ---
@@ -109,6 +111,10 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                             }
                         });
                     }
+
+                    // Arrays are just replaced by the spread { ...prev, ...parsed } above, 
+                    // storing 'ignoredMachineNames' from localStorage if it exists.
+                    // If parsed.ignoredMachineNames is undefined, it keeps prev.ignoredMachineNames (default [])
 
                     return merged;
                 });
