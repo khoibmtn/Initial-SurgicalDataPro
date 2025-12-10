@@ -1073,20 +1073,24 @@ export async function processSurgicalFiles(
   XLSX.utils.sheet_add_aoa(ws, [headerRuttgon], { origin: `A${rowStart}` });
 
   // Ghi hàng đơn giá (dongGiaRow)
+  // Ghi hàng đơn giá (dongGiaRow) lấy trực tiếp từ config (thay vì công thức referencing CAU_HINH sheet)
+  const PRICE_CFG = config.priceConfig;
   for (let i = 0; i < COLS_RUTGON.length; i++) {
     const colIndex = 2 + i; // zero-based index of column in sheet
     const colLetter = XLSX.utils.encode_col(colIndex);
     const [loai, role] = (COLS_RUTGON[i] || "").split("-");
-    // nếu thiếu loai/role thì để rỗng
-    const formula = (loai && role)
-      ? `SUMIFS(CAU_HINH!$C:$C, CAU_HINH!$A:$A, "${loai}", CAU_HINH!$B:$B, "${role}")`
-      : undefined;
 
-    if (formula) {
-      ws[`${colLetter}${dongGiaRow}`] = { t: "n", f: formula };
-    } else {
-      ws[`${colLetter}${dongGiaRow}`] = { t: "n", v: 0 };
+    // role "Chính" -> "Chính", "Phụ" -> "Phụ", ... 
+    // Trong ConfigContext, keys là "Chính", "Phụ", "Giúp việc".
+    // COLS generated lines 983-984 also use "Chính", "Phụ", "Giúp việc".
+    // So distinct mapping is likely not needed if strings match perfectly.
+
+    let price = 0;
+    if (loai && role && PRICE_CFG[loai]) {
+      price = PRICE_CFG[loai][role] || 0;
     }
+
+    ws[`${colLetter}${dongGiaRow}`] = { t: "n", v: price, z: "#,##0" };
   }
 
   // ----------------------------------------------------------
@@ -1194,98 +1198,20 @@ export async function processSurgicalFiles(
   XLSX.utils.book_append_sheet(wb, wsMachineList, "DS_MA_MAY");
 
 
-  // =====  Xây sheet cấu hình thù lao: CAU_HINH  =====
-  const cauHinhData: any[][] = [
-    ["PTTT", "Vai trò", "Thù lao"],
-  ];
-
-  // Tạo các dòng từ config.priceConfig
-  const ROLES = ["Chính", "Phụ", "Giúp việc"] as const;
-  const SORTED_KEYS = ["PĐB", "P1", "P2", "P3", "TĐB", "T1", "T2", "T3", "TKPL"];
-
-  for (const loai of SORTED_KEYS) {
-    const typeConfig = config.priceConfig[loai];
-    if (typeConfig) {
-      for (const role of ROLES) {
-        const price = typeConfig[role] || 0;
-        cauHinhData.push([loai, role, price]);
-      }
-    }
-  }
-
-  // ===== BỔ SUNG BẢNG QUY ĐỊNH THỜI GIAN PHẪU THUẬT (ô F1) =====
-  const timeConfig: any[][] = [
-    ["LoaiPTTT", "Thời gian tối thiểu", "Thời gian tối đa"],
-  ];
-  for (const loai of SORTED_KEYS) {
-    const rule = config.timeRules[loai];
-    if (rule) {
-      timeConfig.push([loai, rule.min, rule.max]);
-    }
-  }
-
-  const wsCauHinh = XLSX.utils.aoa_to_sheet(cauHinhData);
-
-  // Đặt định dạng số cho cột "Thù lao" (cột C) để Excel hiển thị thousands separator
-  for (let r = 1; r < cauHinhData.length; r++) { // bắt đầu từ 1 để bỏ header
-    const cellAddr = XLSX.utils.encode_cell({ r: r, c: 2 }); // c = 2 -> cột C (0-indexed)
-    const cell = wsCauHinh[cellAddr];
-    if (cell) {
-      // đảm bảo cell là number
-      if (typeof cell.v === "string") {
-        const n = Number(cell.v.replace(/[^0-9.-]+/g, ""));
-        cell.t = "n";
-        cell.v = isNaN(n) ? 0 : n;
-      } else {
-        cell.t = "n";
-      }
-      // định dạng hiển thị: thousands separator, không chữ thập phân
-      cell.z = "#,##0";
-    }
-  }
-
-  // (tùy chọn) căn giữa header
-  XLSX.utils.sheet_add_aoa(wsCauHinh, [], { origin: -1 }); // no-op but safe
-  wsCauHinh["A1"].s = { font: { bold: true } };
-  wsCauHinh["B1"].s = { font: { bold: true } };
-  wsCauHinh["C1"].s = { font: { bold: true } };
-
-  // Ghi vào ô F1
-  XLSX.utils.sheet_add_aoa(wsCauHinh, timeConfig, { origin: "F1" });
-
-  // Set width cho các cột mới F, G, H (tuỳ chọn)
-  const cols = wsCauHinh["!cols"] || [];
-  cols[5] = { wch: 12 };  // F
-  cols[6] = { wch: 18 };  // G
-  cols[7] = { wch: 16 };  // H
-  wsCauHinh["!cols"] = cols;
-
-  // In đậm hàng tiêu đề của bảng thời gian
-  wsCauHinh["F1"].s = { font: { bold: true } };
-  wsCauHinh["G1"].s = { font: { bold: true } };
-  wsCauHinh["H1"].s = { font: { bold: true } };
-
-  XLSX.utils.book_append_sheet(wb, wsCauHinh, "CAU_HINH");
+  // (Đã xóa logic tạo sheet CAU_HINH theo yêu cầu)
 
 
 
 
-  // 7. Xuất workbook thành Blob + URL để tải về
-  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
-  const blob = new Blob(
-    [wbout],
-    {
-      type:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }
-  );
-  const downloadUrl = URL.createObjectURL(blob);
+  // 7. (ĐÃ CẬP NHẬT) Trả về workbook để App.tsx xử lý download (tránh lỗi filename và memory leak)
+  // const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  // const blob = ...
+  // const downloadUrl = ...
 
   const totalDurationMinutes = records.reduce(
     (sum, r) => sum + r.timeMinutes,
     0
   );
-
 
   function toConflictFormat(
     staffConflicts: StaffConflict[],
@@ -1334,11 +1260,7 @@ export async function processSurgicalFiles(
     return result;
   }
 
-
-
-
-  // ... (previous logic for creating sheet)
-
+  // ... (logic tính tiền ...)
   // ===== TÍNH TỔNG TIỀN CHO UI =====
   let totalPayment = 0;
 
@@ -1346,33 +1268,17 @@ export async function processSurgicalFiles(
   const PRICE_CONFIG = config.priceConfig;
 
   // Duyệt qua ttData (đã gom theo staff/role/loai)
-  // ttData items: { name: string, values: { "PĐB-Chính": 5, ... } }
   for (const item of ttData) {
     for (const colKey of Object.keys(item.values)) {
       const qty = item.values[colKey] || 0;
       if (qty > 0) {
         const [loai, role] = colKey.split("-");
-        // Mapping role names from Excel columns to Config keys if necessary
-        // In this file, roles seem to be "Chính", "Phụ", "Giúp việc" which matches our Config keys?
-        // Let's verify: In processDetailData, keys are `${loai}-${role}`.
-        // Role usually comes from header mapping?
-        // Actually, looking at ROLE_ORDER/Detail parsing, role strings are "PT Chính", "PT Phụ", "BS GM", etc.
-        // Wait, we need to map standard surgical roles (PT Chính, PT Phụ...) to Payment Roles (Chính, Phụ, Giúp việc).
 
-        // MAPPING LOGIC (Based on standard practice or implicit rules in this app):
-        // PT Chính -> Chính
-        // PT Phụ -> Phụ
-        // BS GM, KTV GM, TDC, GV -> Giúp việc?
-
-        // Let's assume standard mapping for now to match the "CAU_HINH" sheet structure which uses "Chính", "Phụ", "Giúp việc".
-
-        // Logic mapping đã được xử lý ở bước add(), role lúc này là "Chính", "Phụ", "Giúp việc"
         let configRole: any = "Giúp việc";
         if (role === "Chính") configRole = "Chính";
         else if (role === "Phụ") configRole = "Phụ";
         else if (role === "Giúp việc") configRole = "Giúp việc";
 
-        // Access safely
         const typeConfig = PRICE_CONFIG[loai];
         const price = (typeConfig && typeConfig[configRole]) ? typeConfig[configRole] : 20000;
 
@@ -1381,11 +1287,10 @@ export async function processSurgicalFiles(
     }
   }
 
-
   return {
     success: true,
     message: "Đã xử lý xong dữ liệu phẫu thuật.",
-    downloadUrl,
+    wb: wb, // Trả về workbook object
     stats: {
       totalSurgeries: records.length,
       totalDurationMinutes: totalDurationMinutes,

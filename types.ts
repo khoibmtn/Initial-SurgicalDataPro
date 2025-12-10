@@ -26,7 +26,7 @@ export interface PaymentStats {
 export interface ProcessingResult {
   success: boolean;
   message: string;
-  downloadUrl?: string;
+  wb?: any;
   stats: ProcessedStats;
   paymentStats?: PaymentStats;
   conflicts: Conflict[];

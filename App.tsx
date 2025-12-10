@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { FileUpload } from './components/FileUpload';
 import { processSurgicalFiles } from "./services/excelProcessor";
 import { StatsCard } from './components/StatsCard';
@@ -86,24 +87,20 @@ const InnerApp: React.FC = () => {
     }
   };
 
-
-
-
   const handleDownload = () => {
-    if (!result?.downloadUrl) {
-      alert("Chưa có file kết quả.");
+    if (!result?.wb) {
+      alert("Chưa có file kết quả (Workbook not found).");
       return;
     }
 
-    const a = document.createElement('a');
-    a.href = result.downloadUrl;
-    a.download = `Ket_qua_kiem_tra_PTTT_${new Date().toISOString().split('T')[0]}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      const filename = `Ket_qua_kiem_tra_PTTT_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(result.wb, filename);
+    } catch (e) {
+      console.error("Download failed:", e);
+      alert("Lỗi khi tải file: " + (e as any).message);
+    }
   };
-
-
 
 
   return (
@@ -254,7 +251,7 @@ const InnerApp: React.FC = () => {
                       Phân tích bằng AI Gemini
                     </button>
 
-                    {result?.downloadUrl && (
+                    {result && (
                       <button
                         onClick={handleDownload}
                         className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg shadow-sm transition-colors"
