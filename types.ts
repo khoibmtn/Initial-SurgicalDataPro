@@ -5,6 +5,7 @@ export interface ProcessedStats {
   machineConflicts: number;
   missingMachines: number;
   lowPaymentCount: number; // Num surgeries with soLuong < 1
+  violateMinTimeCount: number; // Num surgeries violating min time rule
 }
 
 export interface UISettings {

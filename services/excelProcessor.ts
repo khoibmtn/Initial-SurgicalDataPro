@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffRole } from "../types";
+import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffRole, ProcessedStats } from "../types";
 
 
 
@@ -1391,20 +1391,27 @@ export async function processSurgicalFiles(
   }
 
 
-  const lowPaymentCount = records.filter(r => r.soLuong < 1).length;
+  // 6.3. Tính toán thống kê
+  const violateMinTimeCount = records.filter(r => {
+    const minTime = config.timeRules[r.loaiPTTT]?.min;
+    return minTime && r.timeMinutes < minTime;
+  }).length;
+
+  const stats: ProcessedStats = {
+    totalSurgeries: records.length,
+    totalDurationMinutes: records.reduce((acc, r) => acc + r.timeMinutes, 0),
+    staffConflicts: staffConflicts.length,
+    machineConflicts: machineConflicts.length,
+    missingMachines: missingMachine.length,
+    lowPaymentCount: records.filter((r) => r.soLuong < 1).length,
+    violateMinTimeCount,
+  };
 
   return {
     success: true,
     message: "Đã xử lý xong dữ liệu phẫu thuật.",
     wb: wb,
-    stats: {
-      totalSurgeries: records.length,
-      totalDurationMinutes: records.reduce((acc, r) => acc + r.timeMinutes, 0),
-      staffConflicts: staffConflicts.length,
-      machineConflicts: machineConflicts.length,
-      missingMachines: missingMachine.length,
-      lowPaymentCount: lowPaymentCount
-    },
+    stats: stats,
     paymentStats: {
       totalAmount: totalPayment
     },
