@@ -745,7 +745,7 @@ const InnerApp: React.FC = () => {
                         <span className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">1</span>
                         <span className="font-bold text-indigo-900 text-sm truncate">Danh sách PT</span>
                       </div>
-                      <p className="text-indigo-700 text-[10px] ml-8">Báo cáo &rarr; BC Cận lâm sàng &rarr; 10. Danh sách PT</p>
+                      <p className="text-indigo-700 text-xs ml-8">Báo cáo &rarr; BC Cận lâm sàng &rarr; 10. Danh sách PT</p>
                     </div>
                     <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-indigo-300">
                       <FileUpload label="" file={listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
@@ -758,7 +758,7 @@ const InnerApp: React.FC = () => {
                         <span className="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">2</span>
                         <span className="font-bold text-emerald-900 text-sm truncate">Chi tiết theo khoa</span>
                       </div>
-                      <p className="text-emerald-700 text-[10px] ml-8">Báo cáo &rarr; BC CLS &rarr; Chi tiết PT theo khoa</p>
+                      <p className="text-emerald-700 text-xs ml-8">Báo cáo &rarr; BC CLS &rarr; Chi tiết PT theo khoa</p>
                     </div>
                     <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-emerald-300">
                       <FileUpload label="" file={detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
