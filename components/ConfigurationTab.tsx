@@ -93,7 +93,7 @@ export const ConfigurationTab: React.FC = () => {
     const getTime = (loai: string, field: 'min' | 'max') => config.timeRules[loai]?.[field] ?? 0;
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden min-h-[600px] flex flex-col font-inter text-sm">
+        <div className="bg-white rounded-2xl shadow-sm overflow-hidden min-h-[600px] flex flex-col font-inter text-sm max-w-6xl mx-auto w-full">
 
             {/* Tab Navigation */}
             <div className="flex relative">
@@ -104,7 +104,7 @@ export const ConfigurationTab: React.FC = () => {
                         : 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 border-b border-b-indigo-300'
                         }`}
                 >
-                    Định mức thời gian, phụ cấp PTTT
+                    Định mức bàn mổ, thời gian, phụ cấp PTTT
                 </button>
                 <button
                     onClick={() => setActiveSubTab('machines')}
@@ -264,9 +264,9 @@ export const ConfigurationTab: React.FC = () => {
                         </div>
 
                         {/* --- New Table: Định mức bàn mổ --- */}
-                        <div className="p-4 border-t bg-gray-50 mt-6 rounded-lg">
+                        <div className="p-4 border-t bg-blue-50 mt-6 rounded-lg border-blue-100">
                             <div className="mb-2">
-                                <h3 className="font-semibold text-gray-800">Định mức bàn mổ</h3>
+                                <h3 className="font-bold text-lg text-indigo-900">Định mức bàn mổ</h3>
                                 <p className="text-xs text-gray-500 mt-1">
                                     Cấu hình định mức bàn mổ tối đa được phép thực hiện để kiểm tra trùng giờ nhân viên y tế:
                                     <ul className="list-disc list-inside mt-1 ml-1 space-y-0.5">
@@ -277,22 +277,22 @@ export const ConfigurationTab: React.FC = () => {
                                 </p>
                             </div>
 
-                            <div className="overflow-x-auto border rounded-lg shadow-sm bg-white">
+                            <div className="overflow-x-auto border border-indigo-200 rounded-lg shadow-sm bg-white">
                                 <table className="w-full text-sm">
-                                    <thead className="bg-gray-100 text-gray-700 font-semibold">
+                                    <thead className="bg-indigo-100 text-indigo-900 font-bold">
                                         <tr>
-                                            <th className="px-3 py-2 text-left border-r w-[40%]">Đối tượng</th>
-                                            <th className="px-3 py-2 text-center">Tùy chọn kiểm tra trùng giờ</th>
+                                            <th className="px-4 py-3 text-left border-r border-indigo-200 w-[40%]">Đối tượng</th>
+                                            <th className="px-4 py-3 text-center">Tùy chọn kiểm tra trùng giờ</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-gray-100">
+                                    <tbody className="divide-y divide-indigo-100">
                                         {[
                                             { label: "Bác sĩ phẫu thuật (PT chính, PT phụ)", key: "surgeons" as const },
                                             { label: "Bác sĩ gây mê hồi sức", key: "anesthesiologists" as const },
                                             { label: "KTV gây mê, Tít dụng cụ, giúp việc", key: "support" as const }
-                                        ].map((row) => (
-                                            <tr key={row.key} className="hover:bg-gray-50 transition-colors">
-                                                <td className="px-3 py-2 border-r font-medium text-gray-700">{row.label}</td>
+                                        ].map((row, idx) => (
+                                            <tr key={row.key} className={`hover:bg-indigo-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-indigo-50/30'}`}>
+                                                <td className="px-4 py-3 border-r border-indigo-100 font-medium text-gray-700">{row.label}</td>
                                                 <td className="px-3 py-2 text-center">
                                                     <select
                                                         value={config.staffLimits?.[row.key] ?? 1}

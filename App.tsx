@@ -241,7 +241,7 @@ const DynamicTable = <T extends Record<string, any>>({
             {currentData.map((row, idx) => {
               const customClass = rowStyle ? rowStyle(row) : '';
               return (
-                <tr key={idx} className={`border-b hover:bg-indigo-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-100')}`}>
+                <tr key={idx} className={`border-b group hover:bg-indigo-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-100')}`}>
                   <td className={`px-2 py-1 text-center font-medium sticky left-0 z-10 border-r text-gray-900 shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${customClass ? customClass : 'bg-inherit'}`}>
                     {startIndex + idx + 1}
                   </td>
@@ -398,7 +398,16 @@ const InnerApp: React.FC = () => {
     } catch (e: any) { console.error("Download failed:", e); addToast("Lỗi khi tải file: " + e.message, 'error'); }
   };
 
-  // Auto re-process when config changes
+  // Create a hash of the config that strictly affects processing results (excluding UI settings)
+  const processingConfigHash = useMemo(() => JSON.stringify({
+    priceConfig: config.priceConfig,
+    timeRules: config.timeRules,
+    staffLimits: config.staffLimits,
+    ignoredMachineCodes: config.ignoredMachineCodes,
+    ignoredMachineNames: config.ignoredMachineNames
+  }), [config]);
+
+  // Auto re-process when config changes (only if processing-relevant config changes)
   useEffect(() => {
     if (listFile && detailFile && result) {
       const timer = setTimeout(() => {
@@ -406,7 +415,7 @@ const InnerApp: React.FC = () => {
       }, 500); // 500ms debounce
       return () => clearTimeout(timer);
     }
-  }, [config]);
+  }, [processingConfigHash]);
 
   // Columns
   // Calculate violateMinTimeCount dynamically based on current config
@@ -456,7 +465,7 @@ const InnerApp: React.FC = () => {
     { key: 'ktvGM', label: 'KTV GM', width: 'min-w-[130px]' },
     { key: 'tdc', label: 'TDC', width: 'min-w-[130px]' },
     { key: 'gv', label: 'GV', width: 'min-w-[130px]' },
-    { key: 'machine', label: 'Mã máy', align: 'center', width: 'min-w-[200px]' },
+    { key: 'machine', label: 'Mã máy', width: 'min-w-[200px]' },
     {
       key: 'reason', label: 'Lỗi thời gian',
       render: (r) => {
@@ -464,7 +473,7 @@ const InnerApp: React.FC = () => {
         if (min && r.timeMinutes < min) return <span className="font-bold">{`< ${min}p`}</span>;
         return null;
       },
-      width: 'w-[100px]'
+      width: 'min-w-[150px]'
     }
   ], [config.timeRules, dateFormat]);
 
@@ -472,56 +481,56 @@ const InnerApp: React.FC = () => {
   const columnsMissing = useMemo<ColumnDef<SurgeryRecord>[]>(() => columnsList.filter(c => c.key !== 'machine' && c.key !== 'reason'), [columnsList]);
 
   const columnsStaff = useMemo<ColumnDef<StaffConflict>[]>(() => [
-    { key: 'staffName', label: 'Nhân viên', width: 'min-w-[150px]' },
-    { key: 'role', label: 'Vai trò', width: 'w-[90px]' },
+    { key: 'staffName', label: 'NHÂN VIÊN TRÙNG', width: 'min-w-[150px]', headerClassName: 'text-center' },
+    { key: 'role', label: 'Vai trò', width: 'w-[90px]', headerClassName: 'text-center' },
 
     // PATIENT 1 BLOCK (White/Default)
-    { key: 'patientId1', label: 'Mã BN 1', width: 'w-[80px]' },
-    { key: 'patientName1', label: 'Tên BN 1', width: 'min-w-[150px]' },
-    { key: 'tenKT1', label: 'Tên KT 1', width: 'min-w-[200px]' },
-    { key: 'ptChinh1', label: 'PT Chính 1', render: (c) => c.rec1.ptChinh || '-', width: 'min-w-[100px]' },
-    { key: 'ptPhu1', label: 'PT Phụ 1', render: (c) => c.rec1.ptPhu || '-', width: 'min-w-[100px]' },
-    { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', width: 'min-w-[100px]' },
-    { key: 'ktvGM1', label: 'KTV GM 1', render: (c) => c.rec1.ktvGM || '-', width: 'min-w-[100px]' },
-    { key: 'bsGM', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', width: 'min-w-[100px]' },
-    { key: 'start1', label: 'BĐ 1', render: (c) => formatDate(c.start1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800' },
-    { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800' },
+    { key: 'patientId1', label: 'Mã BN 1', width: 'w-[80px]', headerClassName: 'text-center' },
+    { key: 'patientName1', label: 'Tên BN 1', width: 'min-w-[150px]', headerClassName: 'text-center' },
+    { key: 'tenKT1', label: 'Tên KT 1', width: 'min-w-[200px]', headerClassName: 'text-center' },
+    { key: 'ptChinh1', label: 'PT Chính 1', render: (c) => c.rec1.ptChinh || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'ptPhu1', label: 'PT Phụ 1', render: (c) => c.rec1.ptPhu || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'ktvGM1', label: 'KTV GM 1', render: (c) => c.rec1.ktvGM || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'bsGM', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'start1', label: 'BĐ 1', render: (c) => formatDate(c.start1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
+    { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
 
     // PATIENT 2 BLOCK (Highlighted - Blue, darker header)
-    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-blue-50 text-blue-800 font-semibold group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-blue-50 text-blue-800 font-semibold group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[180px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[250px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'ptChinh2', label: 'PT Chính 2', render: (c) => c.rec2.ptChinh || '-', width: 'min-w-[100px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'ktvGM2', label: 'KTV GM 2', render: (c) => c.rec2.ktvGM || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
+    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[180px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[250px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'ptChinh2', label: 'PT Chính 2', render: (c) => c.rec2.ptChinh || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'ktvGM2', label: 'KTV GM 2', render: (c) => c.rec2.ktvGM || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
   ], [dateFormat]);
 
   const columnsMachine = useMemo<ColumnDef<MachineConflict>[]>(() => [
-    { key: 'machine', label: 'Mã máy', width: 'min-w-[200px]' },
+    { key: 'machine', label: 'MÁY TRÙNG', width: 'min-w-[200px]', headerClassName: 'text-center' },
 
     // PATIENT 1 BLOCK - Red text for time columns
-    { key: 'patientId1', label: 'Mã BN 1', width: 'w-[80px]' },
-    { key: 'patientName1', label: 'Tên BN 1', width: 'min-w-[150px]' },
-    { key: 'tenKT1', label: 'Tên KT 1', width: 'min-w-[200px]' },
-    { key: 'ptPhu1', label: 'PT Phụ 1', render: (c) => c.rec1.ptPhu || '-', width: 'min-w-[100px]' },
-    { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', width: 'min-w-[100px]' },
-    { key: 'bsgm1', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', width: 'min-w-[100px]' },
-    { key: 'start1', label: 'BĐ 1', render: (c) => formatDate(c.start1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800' },
-    { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800' },
+    { key: 'patientId1', label: 'Mã BN 1', width: 'w-[80px]', headerClassName: 'text-center' },
+    { key: 'patientName1', label: 'Tên BN 1', width: 'min-w-[150px]', headerClassName: 'text-center' },
+    { key: 'tenKT1', label: 'Tên KT 1', width: 'min-w-[200px]', headerClassName: 'text-center' },
+    { key: 'ptPhu1', label: 'PT Phụ 1', render: (c) => c.rec1.ptPhu || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'bsgm1', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
+    { key: 'start1', label: 'BĐ 1', render: (c) => formatDate(c.start1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
+    { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
 
     // PATIENT 2 BLOCK (Highlighted - Blue, darker header)
-    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-blue-50 text-blue-800 font-semibold group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-blue-50 text-blue-800 font-semibold group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[150px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[200px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[100px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[100px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
-    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[100px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
+    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[150px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[200px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
   ], [dateFormat]);
 
   const getPaymentColumns = (): ColumnDef<any>[] => {
@@ -535,8 +544,8 @@ const InnerApp: React.FC = () => {
         align: 'right' as const,
         width: 'min-w-[80px]'
       })),
-      { key: 'total_qty', label: 'Tổng số', align: 'center', width: 'min-w-[80px]' },
-      { key: 'total_amount', label: 'Thành tiền', align: 'right', width: 'min-w-[120px]' }
+      { key: 'total_qty', label: 'Tổng số', align: 'center', width: 'min-w-[80px]', className: 'font-bold' },
+      { key: 'total_amount', label: 'Thành tiền', align: 'right', width: 'min-w-[120px]', className: 'font-bold' }
     ];
   };
 
@@ -551,7 +560,8 @@ const InnerApp: React.FC = () => {
       return <DynamicTable data={result.validRecords} columns={columnsList} tableName="Danh sách phẫu thuật" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['list']} onVisibleColsChange={(cols) => updateVisibleCols('list', cols)} rowStyle={rowStyle} rowCountLabel={countLabel} />;
     }
     if (activeTable === 'staff') {
-      return <DynamicTable data={result.staffConflicts} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} />;
+      const staffRowStyle = (r: StaffConflict) => r.violationType === 'max2' ? 'text-red-600 font-bold bg-red-50' : '';
+      return <DynamicTable data={result.staffConflicts} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} />;
     }
     if (activeTable === 'machine') {
       return <DynamicTable data={result.machineConflicts} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} />;
@@ -615,42 +625,54 @@ const InnerApp: React.FC = () => {
 
       // Custom 2-level thead
       const CustomThead = (
-        <thead className="text-xs text-gray-700 bg-gray-50 border-b">
+        <thead className="text-xs text-gray-900 border-b">
           {/* Row 1: Group Headers */}
           <tr className="border-b">
-            <th rowSpan={2} className="px-2 py-2 sticky left-0 bg-gray-50/95 backdrop-blur z-10 w-[40px] border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] text-center align-middle">#</th>
-            <th rowSpan={2} className="px-2 py-2 border-r min-w-[150px] font-semibold text-gray-600 bg-gray-50 align-middle text-center">Họ tên</th>
+            <th rowSpan={2} className="px-2 py-2 sticky left-0 bg-gray-100/95 backdrop-blur z-10 w-[40px] border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] text-center align-middle font-bold">#</th>
+            <th rowSpan={2} className="px-2 py-2 border-r min-w-[150px] font-bold text-gray-900 bg-gray-100 align-middle text-center">Họ tên</th>
             {groups.map(grp => {
               // Color-code based on group type
-              let bgColor = 'bg-gray-100';
-              if (grp.name.startsWith('P')) {
-                if (grp.name === 'PĐB') bgColor = 'bg-red-100';
-                else if (grp.name === 'P1') bgColor = 'bg-orange-100';
-                else if (grp.name === 'P2') bgColor = 'bg-yellow-100';
-                else if (grp.name === 'P3') bgColor = 'bg-lime-100';
-              } else if (grp.name.startsWith('T')) {
-                if (grp.name === 'TĐB') bgColor = 'bg-cyan-100';
-                else if (grp.name === 'T1') bgColor = 'bg-sky-100';
-                else if (grp.name === 'T2') bgColor = 'bg-blue-100';
-                else if (grp.name === 'T3') bgColor = 'bg-indigo-100';
-                else if (grp.name === 'TKPL') bgColor = 'bg-purple-100';
-              }
+              let bgMain = 'bg-gray-200';
+
+              if (grp.name === 'PĐB') bgMain = 'bg-red-300';
+              else if (grp.name === 'P1') bgMain = 'bg-orange-300';
+              else if (grp.name === 'P2') bgMain = 'bg-yellow-300';
+              else if (grp.name === 'P3') bgMain = 'bg-lime-300';
+              else if (grp.name === 'TĐB') bgMain = 'bg-cyan-300';
+              else if (grp.name === 'T1') bgMain = 'bg-sky-300';
+              else if (grp.name === 'T2') bgMain = 'bg-blue-300';
+              else if (grp.name === 'T3') bgMain = 'bg-indigo-300';
+              else if (grp.name === 'TKPL') bgMain = 'bg-purple-300';
+
               return (
-                <th key={grp.name} colSpan={grp.subCols.length} className={`px-2 py-2 border-r font-bold text-gray-800 ${bgColor} text-center`}>
+                <th key={grp.name} colSpan={grp.subCols.length} className={`px-2 py-2 border-r font-bold text-gray-900 ${bgMain} text-center align-middle`}>
                   {grp.label}
                 </th>
               );
             })}
-            <th rowSpan={2} className="px-2 py-2 border-r min-w-[80px] font-semibold text-gray-600 bg-gray-50 align-middle text-center">Tổng số</th>
-            <th rowSpan={2} className="px-2 py-2 border-r min-w-[120px] font-semibold text-gray-600 bg-gray-50 align-middle text-right">Thành tiền</th>
+            <th rowSpan={2} className="px-2 py-2 border-r min-w-[80px] font-bold text-gray-900 bg-gray-100 align-middle text-center">Tổng số</th>
+            <th rowSpan={2} className="px-2 py-2 border-r min-w-[120px] font-bold text-gray-900 bg-gray-100 align-middle text-right">Thành tiền</th>
           </tr>
           {/* Row 2: Sub-column Headers (Roles) */}
           <tr>
-            {groups.flatMap(grp => grp.subCols.map(role => (
-              <th key={`${grp.name}-${role}`} className="px-2 py-1 border-r font-medium text-gray-600 bg-gray-50 text-center text-[11px]">
-                {role}
-              </th>
-            )))}
+            {groups.flatMap(grp => {
+              let bgSub = 'bg-gray-50';
+              if (grp.name === 'PĐB') bgSub = 'bg-red-100';
+              else if (grp.name === 'P1') bgSub = 'bg-orange-100';
+              else if (grp.name === 'P2') bgSub = 'bg-yellow-100';
+              else if (grp.name === 'P3') bgSub = 'bg-lime-100';
+              else if (grp.name === 'TĐB') bgSub = 'bg-cyan-100';
+              else if (grp.name === 'T1') bgSub = 'bg-sky-100';
+              else if (grp.name === 'T2') bgSub = 'bg-blue-100';
+              else if (grp.name === 'T3') bgSub = 'bg-indigo-100';
+              else if (grp.name === 'TKPL') bgSub = 'bg-purple-100';
+
+              return grp.subCols.map(role => (
+                <th key={`${grp.name}-${role}`} className={`px-2 py-1 border-r font-bold text-gray-900 ${bgSub} text-center align-middle text-[11px]`}>
+                  {role}
+                </th>
+              ));
+            })}
           </tr>
         </thead>
       );
@@ -694,7 +716,7 @@ const InnerApp: React.FC = () => {
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <header className="bg-white shadow-sm sticky top-0 z-30 border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between">
+        <div className="w-full px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="bg-indigo-600 p-1.5 rounded-lg">
               <Activity className="h-5 w-5 text-white" />
@@ -702,7 +724,7 @@ const InnerApp: React.FC = () => {
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">Quản lý danh sách phẫu thuật, thủ thuật</h1>
           </div>
           <div className="flex items-center gap-4">
-            <nav className="hidden md:flex items-center gap-2">
+            <nav className="flex items-center gap-2">
               <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-sm ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white border-2 border-indigo-700 shadow-indigo-200' : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'}`}>Tổng quan</button>
               <button onClick={() => setActiveTab('config')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-sm ${activeTab === 'config' ? 'bg-emerald-600 text-white border-2 border-emerald-700 shadow-emerald-200' : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-emerald-400 hover:bg-emerald-50'}`}>Cấu hình</button>
             </nav>
@@ -712,246 +734,252 @@ const InnerApp: React.FC = () => {
 
       <main className="w-full px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
         {activeTab === 'dashboard' && (
-          <div className="space-y-6 animate-fade-in relative max-w-screen-2xl mx-auto">
+          <div className="space-y-6 animate-fade-in relative w-full mx-auto">
 
-            <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 relative overflow-hidden">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="flex flex-row items-center gap-4 p-4 bg-gradient-to-r from-indigo-50 to-indigo-100 rounded-lg border-2 border-indigo-200 hover:border-indigo-300 transition-colors shadow-sm">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">1</span>
-                      <span className="font-bold text-indigo-900 text-sm truncate">Danh sách PT</span>
+            <div className="max-w-7xl mx-auto">
+              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 relative overflow-hidden">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="flex flex-row items-center gap-4 p-4 bg-gradient-to-r from-indigo-50 to-indigo-100 rounded-lg border-2 border-indigo-200 hover:border-indigo-300 transition-colors shadow-sm">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">1</span>
+                        <span className="font-bold text-indigo-900 text-sm truncate">Danh sách PT</span>
+                      </div>
+                      <p className="text-indigo-700 text-[10px] ml-8">Báo cáo &rarr; BC Cận lâm sàng &rarr; 10. Danh sách PT</p>
                     </div>
-                    <p className="text-indigo-700 text-[10px] ml-8">Báo cáo &rarr; BC Cận lâm sàng &rarr; 10. Danh sách PT</p>
+                    <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-indigo-300">
+                      <FileUpload label="" file={listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
+                    </div>
                   </div>
-                  <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-indigo-300">
-                    <FileUpload label="" file={listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
+
+                  <div className="flex flex-row items-center gap-4 p-4 bg-gradient-to-r from-emerald-50 to-emerald-100 rounded-lg border-2 border-emerald-200 hover:border-emerald-300 transition-colors shadow-sm">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">2</span>
+                        <span className="font-bold text-emerald-900 text-sm truncate">Chi tiết theo khoa</span>
+                      </div>
+                      <p className="text-emerald-700 text-[10px] ml-8">Báo cáo &rarr; BC CLS &rarr; Chi tiết PT theo khoa</p>
+                    </div>
+                    <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-emerald-300">
+                      <FileUpload label="" file={detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex flex-row items-center gap-4 p-4 bg-gradient-to-r from-emerald-50 to-emerald-100 rounded-lg border-2 border-emerald-200 hover:border-emerald-300 transition-colors shadow-sm">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">2</span>
-                      <span className="font-bold text-emerald-900 text-sm truncate">Chi tiết theo khoa</span>
-                    </div>
-                    <p className="text-emerald-700 text-[10px] ml-8">Báo cáo &rarr; BC CLS &rarr; Chi tiết PT theo khoa</p>
-                  </div>
-                  <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-emerald-300">
-                    <FileUpload label="" file={detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
-                  </div>
+                <div className="flex justify-center mt-4">
+                  <button onClick={handleProcess} disabled={isProcessing || !listFile || !detailFile} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm shadow transition-all active:scale-95 ${isProcessing || !listFile || !detailFile ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-200'}`}>
+                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-current" />} {isProcessing ? 'Đang xử lý...' : 'Tiến hành xử lý'}
+                  </button>
                 </div>
-              </div>
-
-              <div className="flex justify-center mt-4">
-                <button onClick={handleProcess} disabled={isProcessing || !listFile || !detailFile} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm shadow transition-all active:scale-95 ${isProcessing || !listFile || !detailFile ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-200'}`}>
-                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-current" />} {isProcessing ? 'Đang xử lý...' : 'Tiến hành xử lý'}
-                </button>
               </div>
             </div>
 
             {stats && result && (
-              <div id="results-section" className="space-y-6 animate-fade-in bg-gradient-to-b from-indigo-50/50 to-white rounded-xl p-6 border border-indigo-100 shadow-sm mt-6">
+              <>
+                <div className="max-w-7xl mx-auto mt-6">
+                  <div id="results-section" className="space-y-6 animate-fade-in bg-gradient-to-b from-indigo-50/50 to-white rounded-xl p-6 border border-indigo-100 shadow-sm">
 
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div className="flex-1">
-                    <h2 className="text-lg font-bold text-gray-900">Kết quả xử lý</h2>
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded text-sm hover:bg-indigo-100 transition-colors border border-indigo-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
-                    <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div className="flex-1">
+                        <h2 className="text-lg font-bold text-gray-900">Kết quả xử lý</h2>
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded text-sm hover:bg-indigo-100 transition-colors border border-indigo-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
+                        <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
+                      </div>
+                    </div>
+
+                    {result.dateRangeText && (
+                      <p className="text-lg font-bold text-blue-800 text-center">
+                        {result.dateRangeText}
+                      </p>
+                    )}
+
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                      {/* Card 1: Tổng số PTTT */}
+                      <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Database className="h-6 w-6" /></div>
+                          <div>
+                            <p className="text-xs font-semibold text-indigo-100 uppercase tracking-wide">Tổng số PTTT</p>
+                            <p className="text-3xl font-bold text-white">{derivedStats.totalSurgeries}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card 2: Tỷ lệ TT <100% */}
+                      <div className="relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-xl shadow-lg border-2 border-purple-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Percent className="h-6 w-6" /></div>
+                          <div>
+                            <p className="text-xs font-semibold text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
+                            <p className="text-3xl font-bold text-white">{derivedStats.lowPaymentCount || 0}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card 3: Trùng nhân viên - Always alert style */}
+                      <div className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 p-4 rounded-xl shadow-lg border-2 border-red-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Users className="h-6 w-6" /></div>
+                          <div>
+                            <p className="text-xs font-semibold text-red-100 uppercase tracking-wide">Trùng nhân viên</p>
+                            <p className="text-3xl font-bold text-white">{derivedStats.staffConflicts}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card 4: Trùng máy */}
+                      <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.machineConflicts > 0
+                        ? 'bg-gradient-to-br from-orange-500 to-orange-600 border-orange-400'
+                        : 'bg-gradient-to-br from-emerald-500 to-emerald-600 border-emerald-400'
+                        }`}>
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        {derivedStats.machineConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Zap className="h-6 w-6" /></div>
+                          <div>
+                            <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
+                            <p className="text-3xl font-bold text-white">{derivedStats.machineConflicts}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card 5: Thiếu mã máy */}
+                      <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.missingMachines > 0
+                        ? 'bg-gradient-to-br from-amber-500 to-amber-600 border-amber-400'
+                        : 'bg-gradient-to-br from-teal-500 to-teal-600 border-teal-400'
+                        }`}>
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        {derivedStats.missingMachines > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-6 w-6" /></div>
+                          <div>
+                            <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
+                            <p className="text-3xl font-bold text-white">{derivedStats.missingMachines}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card 6: Vi phạm thời gian tối thiểu */}
+                      <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.violateMinTimeCount > 0
+                        ? 'bg-gradient-to-br from-pink-500 to-pink-600 border-pink-400'
+                        : 'bg-gradient-to-br from-cyan-500 to-cyan-600 border-cyan-400'
+                        }`}>
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        {derivedStats.violateMinTimeCount > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Clock className="h-6 w-6" /></div>
+                          <div>
+                            <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
+                            <p className="text-3xl font-bold text-white">{derivedStats.violateMinTimeCount}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Modern Tab Switcher - Segment Control Style */}
+                    <div className="relative bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100 p-2 rounded-2xl shadow-inner border border-gray-200">
+                      <div className="flex flex-wrap justify-center gap-1">
+                        {/* Tab 1: DS Phẫu thuật */}
+                        <button
+                          onClick={() => setActiveTable('list')}
+                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'list'
+                            ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-300 scale-105 z-10'
+                            : 'bg-white/80 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 hover:shadow-md border border-transparent hover:border-indigo-200'
+                            }`}
+                        >
+                          <div className={`p-1.5 rounded-lg ${activeTable === 'list' ? 'bg-white/20' : 'bg-indigo-100'}`}>
+                            <ListChecks className="h-4 w-4" />
+                          </div>
+                          <span>DS Phẫu thuật</span>
+                          {activeTable === 'list' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
+                        </button>
+
+                        {/* Tab 2: Trùng giờ NV */}
+                        <button
+                          onClick={() => setActiveTable('staff')}
+                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'staff'
+                            ? 'bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg shadow-red-300 scale-105 z-10'
+                            : 'bg-white/80 text-gray-600 hover:bg-red-50 hover:text-red-700 hover:shadow-md border border-transparent hover:border-red-200'
+                            }`}
+                        >
+                          <div className={`p-1.5 rounded-lg ${activeTable === 'staff' ? 'bg-white/20' : 'bg-red-100'}`}>
+                            <Users className="h-4 w-4" />
+                          </div>
+                          <span>Trùng giờ NV</span>
+                          {stats.staffConflicts > 0 && (
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'staff' ? 'bg-white/30 text-white' : 'bg-red-600 text-white animate-pulse'
+                              }`}>{stats.staffConflicts}</span>
+                          )}
+                          {activeTable === 'staff' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
+                        </button>
+
+                        {/* Tab 3: Trùng máy */}
+                        <button
+                          onClick={() => setActiveTable('machine')}
+                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'machine'
+                            ? 'bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-lg shadow-orange-300 scale-105 z-10'
+                            : 'bg-white/80 text-gray-600 hover:bg-orange-50 hover:text-orange-700 hover:shadow-md border border-transparent hover:border-orange-200'
+                            }`}
+                        >
+                          <div className={`p-1.5 rounded-lg ${activeTable === 'machine' ? 'bg-white/20' : 'bg-orange-100'}`}>
+                            <Zap className="h-4 w-4" />
+                          </div>
+                          <span>Trùng máy</span>
+                          {stats.machineConflicts > 0 && (
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'machine' ? 'bg-white/30 text-white' : 'bg-orange-600 text-white animate-pulse'
+                              }`}>{stats.machineConflicts}</span>
+                          )}
+                          {activeTable === 'machine' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
+                        </button>
+
+                        {/* Tab 4: Thiếu mã máy */}
+                        <button
+                          onClick={() => setActiveTable('missing')}
+                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'missing'
+                            ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white shadow-lg shadow-amber-300 scale-105 z-10'
+                            : 'bg-white/80 text-gray-600 hover:bg-amber-50 hover:text-amber-700 hover:shadow-md border border-transparent hover:border-amber-200'
+                            }`}
+                        >
+                          <div className={`p-1.5 rounded-lg ${activeTable === 'missing' ? 'bg-white/20' : 'bg-amber-100'}`}>
+                            <AlertTriangle className="h-4 w-4" />
+                          </div>
+                          <span>Thiếu mã máy</span>
+                          {stats.missingMachines > 0 && (
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'missing' ? 'bg-white/30 text-white' : 'bg-amber-600 text-white animate-pulse'
+                              }`}>{stats.missingMachines}</span>
+                          )}
+                          {activeTable === 'missing' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
+                        </button>
+
+                        {/* Tab 5: Bảng thanh toán */}
+                        <button
+                          onClick={() => setActiveTable('payment')}
+                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'payment'
+                            ? 'bg-gradient-to-r from-emerald-600 to-green-500 text-white shadow-lg shadow-emerald-300 scale-105 z-10'
+                            : 'bg-white/80 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-md border border-transparent hover:border-emerald-200'
+                            }`}
+                        >
+                          <div className={`p-1.5 rounded-lg ${activeTable === 'payment' ? 'bg-white/20' : 'bg-emerald-100'}`}>
+                            <DollarSign className="h-4 w-4" />
+                          </div>
+                          <span>Bảng thanh toán</span>
+                          {activeTable === 'payment' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {result.dateRangeText && (
-                  <p className="text-lg font-bold text-blue-800 text-center">
-                    {result.dateRangeText}
-                  </p>
-                )}
-
-                <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                  {/* Card 1: Tổng số PTTT */}
-                  <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Database className="h-6 w-6" /></div>
-                      <div>
-                        <p className="text-xs font-semibold text-indigo-100 uppercase tracking-wide">Tổng số PTTT</p>
-                        <p className="text-3xl font-bold text-white">{derivedStats.totalSurgeries}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 2: Tỷ lệ TT <100% */}
-                  <div className="relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-xl shadow-lg border-2 border-purple-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Percent className="h-6 w-6" /></div>
-                      <div>
-                        <p className="text-xs font-semibold text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
-                        <p className="text-3xl font-bold text-white">{derivedStats.lowPaymentCount || 0}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 3: Trùng nhân viên - Always alert style */}
-                  <div className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 p-4 rounded-xl shadow-lg border-2 border-red-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                    {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Users className="h-6 w-6" /></div>
-                      <div>
-                        <p className="text-xs font-semibold text-red-100 uppercase tracking-wide">Trùng nhân viên</p>
-                        <p className="text-3xl font-bold text-white">{derivedStats.staffConflicts}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 4: Trùng máy */}
-                  <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.machineConflicts > 0
-                    ? 'bg-gradient-to-br from-orange-500 to-orange-600 border-orange-400'
-                    : 'bg-gradient-to-br from-emerald-500 to-emerald-600 border-emerald-400'
-                    }`}>
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                    {derivedStats.machineConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Zap className="h-6 w-6" /></div>
-                      <div>
-                        <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
-                        <p className="text-3xl font-bold text-white">{derivedStats.machineConflicts}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 5: Thiếu mã máy */}
-                  <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.missingMachines > 0
-                    ? 'bg-gradient-to-br from-amber-500 to-amber-600 border-amber-400'
-                    : 'bg-gradient-to-br from-teal-500 to-teal-600 border-teal-400'
-                    }`}>
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                    {derivedStats.missingMachines > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-6 w-6" /></div>
-                      <div>
-                        <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
-                        <p className="text-3xl font-bold text-white">{derivedStats.missingMachines}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card 6: Vi phạm thời gian tối thiểu */}
-                  <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.violateMinTimeCount > 0
-                    ? 'bg-gradient-to-br from-pink-500 to-pink-600 border-pink-400'
-                    : 'bg-gradient-to-br from-cyan-500 to-cyan-600 border-cyan-400'
-                    }`}>
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                    {derivedStats.violateMinTimeCount > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Clock className="h-6 w-6" /></div>
-                      <div>
-                        <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
-                        <p className="text-3xl font-bold text-white">{derivedStats.violateMinTimeCount}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Modern Tab Switcher - Segment Control Style */}
-                <div className="relative bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100 p-2 rounded-2xl shadow-inner border border-gray-200">
-                  <div className="flex flex-wrap justify-center gap-1">
-                    {/* Tab 1: DS Phẫu thuật */}
-                    <button
-                      onClick={() => setActiveTable('list')}
-                      className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'list'
-                        ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-300 scale-105 z-10'
-                        : 'bg-white/80 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 hover:shadow-md border border-transparent hover:border-indigo-200'
-                        }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${activeTable === 'list' ? 'bg-white/20' : 'bg-indigo-100'}`}>
-                        <ListChecks className="h-4 w-4" />
-                      </div>
-                      <span>DS Phẫu thuật</span>
-                      {activeTable === 'list' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                    </button>
-
-                    {/* Tab 2: Trùng giờ NV */}
-                    <button
-                      onClick={() => setActiveTable('staff')}
-                      className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'staff'
-                        ? 'bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg shadow-red-300 scale-105 z-10'
-                        : 'bg-white/80 text-gray-600 hover:bg-red-50 hover:text-red-700 hover:shadow-md border border-transparent hover:border-red-200'
-                        }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${activeTable === 'staff' ? 'bg-white/20' : 'bg-red-100'}`}>
-                        <Users className="h-4 w-4" />
-                      </div>
-                      <span>Trùng giờ NV</span>
-                      {stats.staffConflicts > 0 && (
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'staff' ? 'bg-white/30 text-white' : 'bg-red-600 text-white animate-pulse'
-                          }`}>{stats.staffConflicts}</span>
-                      )}
-                      {activeTable === 'staff' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                    </button>
-
-                    {/* Tab 3: Trùng máy */}
-                    <button
-                      onClick={() => setActiveTable('machine')}
-                      className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'machine'
-                        ? 'bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-lg shadow-orange-300 scale-105 z-10'
-                        : 'bg-white/80 text-gray-600 hover:bg-orange-50 hover:text-orange-700 hover:shadow-md border border-transparent hover:border-orange-200'
-                        }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${activeTable === 'machine' ? 'bg-white/20' : 'bg-orange-100'}`}>
-                        <Zap className="h-4 w-4" />
-                      </div>
-                      <span>Trùng máy</span>
-                      {stats.machineConflicts > 0 && (
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'machine' ? 'bg-white/30 text-white' : 'bg-orange-600 text-white animate-pulse'
-                          }`}>{stats.machineConflicts}</span>
-                      )}
-                      {activeTable === 'machine' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                    </button>
-
-                    {/* Tab 4: Thiếu mã máy */}
-                    <button
-                      onClick={() => setActiveTable('missing')}
-                      className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'missing'
-                        ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white shadow-lg shadow-amber-300 scale-105 z-10'
-                        : 'bg-white/80 text-gray-600 hover:bg-amber-50 hover:text-amber-700 hover:shadow-md border border-transparent hover:border-amber-200'
-                        }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${activeTable === 'missing' ? 'bg-white/20' : 'bg-amber-100'}`}>
-                        <AlertTriangle className="h-4 w-4" />
-                      </div>
-                      <span>Thiếu mã máy</span>
-                      {stats.missingMachines > 0 && (
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'missing' ? 'bg-white/30 text-white' : 'bg-amber-600 text-white animate-pulse'
-                          }`}>{stats.missingMachines}</span>
-                      )}
-                      {activeTable === 'missing' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                    </button>
-
-                    {/* Tab 5: Bảng thanh toán */}
-                    <button
-                      onClick={() => setActiveTable('payment')}
-                      className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'payment'
-                        ? 'bg-gradient-to-r from-emerald-600 to-green-500 text-white shadow-lg shadow-emerald-300 scale-105 z-10'
-                        : 'bg-white/80 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-md border border-transparent hover:border-emerald-200'
-                        }`}
-                    >
-                      <div className={`p-1.5 rounded-lg ${activeTable === 'payment' ? 'bg-white/20' : 'bg-emerald-100'}`}>
-                        <DollarSign className="h-4 w-4" />
-                      </div>
-                      <span>Bảng thanh toán</span>
-                      {activeTable === 'payment' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="animate-fade-in pb-12">
+                <div className="w-full mt-6 animate-fade-in pb-12">
                   {renderTableContent()}
                 </div>
-              </div>
+              </>
             )}
           </div>
         )}
