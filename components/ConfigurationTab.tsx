@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Save, RefreshCw, AlertCircle, Plus, Trash2, Search } from 'lucide-react';
-import { useConfig, AppConfig, RolePrice, TimeRule } from '../contexts/ConfigContext';
+import { useConfig, AppConfig, RolePrice, TimeRule, StaffLimitOption } from '../contexts/ConfigContext';
 
 // Helper component for formatted number input
 const NumberInput: React.FC<{
@@ -261,6 +261,63 @@ export const ConfigurationTab: React.FC = () => {
                                     ))}
                                 </tbody>
                             </table>
+                        </div>
+
+                        {/* --- New Table: Định mức bàn mổ --- */}
+                        <div className="p-4 border-t bg-gray-50 mt-6 rounded-lg">
+                            <div className="mb-2">
+                                <h3 className="font-semibold text-gray-800">Định mức bàn mổ</h3>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Cấu hình định mức bàn mổ tối đa được phép thực hiện để kiểm tra trùng giờ nhân viên y tế:
+                                    <ul className="list-disc list-inside mt-1 ml-1 space-y-0.5">
+                                        <li>Bác sĩ phẫu thuật (PT chính, PT phụ)</li>
+                                        <li>Bác sĩ gây mê hồi sức</li>
+                                        <li>KTV gây mê, Tít dụng cụ, giúp việc</li>
+                                    </ul>
+                                </p>
+                            </div>
+
+                            <div className="overflow-x-auto border rounded-lg shadow-sm bg-white">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-100 text-gray-700 font-semibold">
+                                        <tr>
+                                            <th className="px-3 py-2 text-left border-r w-[40%]">Đối tượng</th>
+                                            <th className="px-3 py-2 text-center">Tùy chọn kiểm tra trùng giờ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {[
+                                            { label: "Bác sĩ phẫu thuật (PT chính, PT phụ)", key: "surgeons" as const },
+                                            { label: "Bác sĩ gây mê hồi sức", key: "anesthesiologists" as const },
+                                            { label: "KTV gây mê, Tít dụng cụ, giúp việc", key: "support" as const }
+                                        ].map((row) => (
+                                            <tr key={row.key} className="hover:bg-gray-50 transition-colors">
+                                                <td className="px-3 py-2 border-r font-medium text-gray-700">{row.label}</td>
+                                                <td className="px-3 py-2 text-center">
+                                                    <select
+                                                        value={config.staffLimits?.[row.key] ?? 1}
+                                                        onChange={(e) => {
+                                                            type StaffLimitOption = 0 | 1 | 2; // Define the type for clarity
+                                                            const val = Number(e.target.value) as StaffLimitOption;
+                                                            updateConfig({
+                                                                staffLimits: {
+                                                                    ...config.staffLimits,
+                                                                    [row.key]: val
+                                                                }
+                                                            });
+                                                        }}
+                                                        className="border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500 p-1"
+                                                    >
+                                                        <option value={0}>Không kiểm tra trùng giờ</option>
+                                                        <option value={1}>Tối đa 1 bàn mổ (1 ca)</option>
+                                                        <option value={2}>Tối đa 2 bàn mổ (2 ca)</option>
+                                                    </select>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}

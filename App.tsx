@@ -398,6 +398,16 @@ const InnerApp: React.FC = () => {
     } catch (e: any) { console.error("Download failed:", e); addToast("Lỗi khi tải file: " + e.message, 'error'); }
   };
 
+  // Auto re-process when config changes
+  useEffect(() => {
+    if (listFile && detailFile && result) {
+      const timer = setTimeout(() => {
+        handleProcess();
+      }, 500); // 500ms debounce
+      return () => clearTimeout(timer);
+    }
+  }, [config]);
+
   // Columns
   // Calculate violateMinTimeCount dynamically based on current config
   const dynamicViolateMinTimeCount = useMemo(() => {
@@ -469,9 +479,11 @@ const InnerApp: React.FC = () => {
     { key: 'patientId1', label: 'Mã BN 1', width: 'w-[80px]' },
     { key: 'patientName1', label: 'Tên BN 1', width: 'min-w-[150px]' },
     { key: 'tenKT1', label: 'Tên KT 1', width: 'min-w-[200px]' },
+    { key: 'ptChinh1', label: 'PT Chính 1', render: (c) => c.rec1.ptChinh || '-', width: 'min-w-[100px]' },
     { key: 'ptPhu1', label: 'PT Phụ 1', render: (c) => c.rec1.ptPhu || '-', width: 'min-w-[100px]' },
     { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', width: 'min-w-[100px]' },
-    { key: 'bsgm1', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', width: 'min-w-[100px]' },
+    { key: 'ktvGM1', label: 'KTV GM 1', render: (c) => c.rec1.ktvGM || '-', width: 'min-w-[100px]' },
+    { key: 'bsGM', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', width: 'min-w-[100px]' },
     { key: 'start1', label: 'BĐ 1', render: (c) => formatDate(c.start1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800' },
     { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800' },
 
@@ -481,8 +493,10 @@ const InnerApp: React.FC = () => {
     { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
     { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[180px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
     { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[250px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
+    { key: 'ptChinh2', label: 'PT Chính 2', render: (c) => c.rec2.ptChinh || '-', width: 'min-w-[100px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
     { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
     { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
+    { key: 'ktvGM2', label: 'KTV GM 2', render: (c) => c.rec2.ktvGM || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
     { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[140px]', className: 'bg-blue-50 text-blue-900 group-hover:bg-blue-100', headerClassName: 'bg-blue-200 text-blue-900 font-bold' },
   ], [dateFormat]);
 

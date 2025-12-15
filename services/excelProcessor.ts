@@ -371,7 +371,7 @@ function processListData(
 
 // (Đã chuyển StaffConflict và MachineConflict sang types.ts)
 
-function detectStaffConflicts(records: SurgeryRecord[]): StaffConflict[] {
+function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig): StaffConflict[] {
   type StaffInstance = {
     name: string;
     role: StaffRole;
@@ -380,9 +380,21 @@ function detectStaffConflicts(records: SurgeryRecord[]): StaffConflict[] {
 
   const staffMap = new Map<string, StaffInstance[]>();
 
+  function getStaffGroup(role: StaffRole): number {
+    if (role === "PT_CHINH" || role === "PT_PHU") return 1;
+    if (role === "BS_GM") return 2;
+    if (role === "KTV_GM" || role === "TDC" || role === "GV") return 3;
+    return 0; // Unknown
+  }
+
   function addStaff(rec: SurgeryRecord, role: StaffRole, name: string) {
     if (!name || !rec.start || !rec.end) return;
-    const key = role + "|" + name;
+
+    // Group by Name + GroupID
+    // Conflict only checked if same person is working within the same Role Group
+    const groupId = getStaffGroup(role);
+    const key = name + "|G" + groupId;
+
     if (!staffMap.has(key)) staffMap.set(key, []);
     staffMap.get(key)!.push({ name, role, rec });
   }
@@ -398,32 +410,81 @@ function detectStaffConflicts(records: SurgeryRecord[]): StaffConflict[] {
 
   const conflicts: StaffConflict[] = [];
 
-  for (const [, list] of staffMap.entries()) {
-    // sắp xếp theo thời gian
+  for (const [key, list] of staffMap.entries()) {
+    // Determine limit based on group
+    // Key format: "Name|G{id}"
+    const groupId = parseInt(key.split('|G')[1]);
+    let limitOption: 0 | 1 | 2 = 1; // Default
+
+    if (config.staffLimits) {
+      if (groupId === 1) limitOption = config.staffLimits.surgeons;
+      else if (groupId === 2) limitOption = config.staffLimits.anesthesiologists;
+      else if (groupId === 3) limitOption = config.staffLimits.support;
+    }
+
+    if (limitOption === 0) continue; // Skip if "No Check"
+
+    // Sort by start time
     list.sort((a, b) => (a.rec.start!.getTime() - b.rec.start!.getTime()));
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
         const a = list[i].rec;
         const b = list[j].rec;
+
+        // Ignore same surgery (e.g. staff has multiple roles in same surgery)
+        if (a.key === b.key) continue;
+
         if (a.start && a.end && b.start && b.end &&
           isOverlap(a.start, a.end, b.start, b.end)) {
-          conflicts.push({
-            staffName: list[i].name,
-            role: list[i].role,
-            patientId1: a.patientId,
-            patientName1: a.patientName,
-            tenKT1: a.tenKT,
-            start1: a.start,
-            end1: a.end,
-            patientId2: b.patientId,
-            patientName2: b.patientName,
-            tenKT2: b.tenKT,
-            start2: b.start,
-            end2: b.end,
-            rec1: a,
-            rec2: b,
 
-          });
+          let isConflict = false;
+          let vType: 'max1' | 'max2' = 'max1';
+
+          if (limitOption === 1) {
+            isConflict = true;
+            vType = 'max1';
+          } else if (limitOption === 2) {
+            // Check for 3rd overlap
+            // We need to find if there is ANY k != i, j that overlaps with BOTH a and b
+            // Intersection of a and b is [max(startA, startB), min(endA, endB)]
+            const startInter = new Date(Math.max(a.start.getTime(), b.start.getTime()));
+            const endInter = new Date(Math.min(a.end.getTime(), b.end.getTime()));
+
+            // Iterate all other records to find a 3rd one covering this intersection
+            // Optimization: traverse nearby sorted list? Or just scan all for safety (list is small per staff)
+            for (let k = 0; k < list.length; k++) {
+              if (k === i || k === j) continue;
+              const c = list[k].rec;
+              if (c.key === a.key || c.key === b.key) continue; // Should effectively be covered by index check but consistent
+
+              if (c.start && c.end && isOverlap(c.start, c.end, startInter, endInter)) {
+                isConflict = true;
+                vType = 'max2';
+                break;
+              }
+            }
+          }
+
+          if (isConflict) {
+            conflicts.push({
+              staffName: list[i].name,
+              role: list[i].role,
+              violationType: vType,
+              patientId1: a.patientId,
+              patientName1: a.patientName,
+              tenKT1: a.tenKT,
+              start1: a.start,
+              end1: a.end,
+              rec1: a,
+
+              patientId2: b.patientId,
+              patientName2: b.patientName,
+              tenKT2: b.tenKT,
+              start2: b.start,
+              end2: b.end,
+              rec2: b,
+            });
+          }
         }
       }
     }
@@ -574,7 +635,7 @@ export async function processSurgicalFiles(
   console.log("DEBUG records mẫu:", records.slice(0, 5));
 
   // 5. Phát hiện trùng
-  const staffConflicts = detectStaffConflicts(records);
+  const staffConflicts = detectStaffConflicts(records, config);
   const machineConflicts = detectMachineConflicts(records);
   const missingMachine = records.filter((r) => {
     // Nếu có mã máy thì OK
@@ -779,16 +840,20 @@ export async function processSurgicalFiles(
       "Tên KT 1",
       "BĐ 1",
       "KT 1",
+      "PT Chính 1",
       "PT Phụ 1",
       "TDC 1",
+      "KTV GM 1",
       "BS GM 1",
       "Mã BN 2",
       "Tên BN 2",
       "Tên KT 2",
       "BĐ 2",
       "KT 2",
+      "PT Chính 2",
       "PT Phụ 2",
       "TDC 2",
+      "KTV GM 2",
       "BS GM 2",
     ],
     ...staffConflicts.map((c) => [
@@ -800,8 +865,10 @@ export async function processSurgicalFiles(
       c.tenKT1,
       c.start1,
       c.end1,
+      c.rec1.ptChinh,
       c.rec1.ptPhu,
       c.rec1.tdc,
+      c.rec1.ktvGM,
       c.rec1.bsGM,
 
       c.patientId2,
@@ -809,8 +876,10 @@ export async function processSurgicalFiles(
       c.tenKT2,
       c.start2,
       c.end2,
+      c.rec2.ptChinh,
       c.rec2.ptPhu,
       c.rec2.tdc,
+      c.rec2.ktvGM,
       c.rec2.bsGM,
     ]),
   ];

@@ -62,6 +62,7 @@ export type StaffRole = "PT_CHINH" | "PT_PHU" | "BS_GM" | "KTV_GM" | "TDC" | "GV
 export interface StaffConflict {
   staffName: string;
   role: StaffRole;
+  violationType?: 'max1' | 'max2';
   patientId1: string;
   patientName1: string;
   tenKT1: string;

@@ -16,6 +16,14 @@ export interface RolePrice {
 
 export type SurgeryRole = "Chính" | "Phụ" | "Giúp việc";
 
+export type StaffLimitOption = 0 | 1 | 2; // 0: No Check, 1: Max 1 table, 2: Max 2 tables
+
+export interface StaffLimitConfig {
+    surgeons: StaffLimitOption;        // PT Chính, PT Phụ
+    anesthesiologists: StaffLimitOption; // BS GM
+    support: StaffLimitOption;           // KTV GM, TDC, Giúp việc
+}
+
 export interface AppConfig {
     priceConfig: { [key: string]: RolePrice };
     timeRules: { [key: string]: TimeRule };
@@ -23,6 +31,7 @@ export interface AppConfig {
     ignoredMachineCodes: string[]; // List of PTTT that don't need machine codes
     ignoredMachineNames: string[]; // List of Surgery Names that don't need machine codes
     uiSettings: UISettings;
+    staffLimits: StaffLimitConfig;
 }
 
 interface ConfigContextType {
@@ -70,13 +79,20 @@ const DEFAULT_UI_SETTINGS: UISettings = {
     visibleColumns: {}
 };
 
+const DEFAULT_STAFF_LIMITS: StaffLimitConfig = {
+    surgeons: 1,        // Default: Max 1 table
+    anesthesiologists: 1, // Default: Max 1 table
+    support: 1          // Default: Max 1 table
+};
+
 export const DEFAULT_CONFIG: AppConfig = {
     priceConfig: DEFAULT_PRICE_CONFIG,
     timeRules: DEFAULT_TIME_RULES,
     roleOrder: DEFAULT_ROLE_ORDER,
     ignoredMachineCodes: ["K0", "K1"],
     ignoredMachineNames: [],
-    uiSettings: DEFAULT_UI_SETTINGS
+    uiSettings: DEFAULT_UI_SETTINGS,
+    staffLimits: DEFAULT_STAFF_LIMITS
 };
 
 // --- Context ---
@@ -140,6 +156,11 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                         merged.uiSettings = { ...DEFAULT_UI_SETTINGS, ...data.uiSettings };
                     }
 
+                    // Deep merge for staffLimits
+                    if (data.staffLimits) {
+                        merged.staffLimits = { ...DEFAULT_STAFF_LIMITS, ...data.staffLimits };
+                    }
+
                     return merged;
                 });
             } else {
@@ -187,6 +208,10 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         if (newPart.uiSettings) {
             fullNewConfig.uiSettings = { ...config.uiSettings, ...newPart.uiSettings };
+        }
+
+        if (newPart.staffLimits) {
+            fullNewConfig.staffLimits = { ...config.staffLimits, ...newPart.staffLimits };
         }
 
         // Write to Firebase
