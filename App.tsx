@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { processSurgicalFiles } from "./services/excelProcessor";
 import { ConfigurationTab } from './components/ConfigurationTab';
+import { PrintPreview } from './components/PrintPreview';
 import { ConfigProvider, useConfig } from './contexts/ConfigContext';
 import { analyzeReport } from './services/geminiService';
 import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict } from './types';
@@ -27,7 +28,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Percent,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Printer
 } from 'lucide-react';
 import { format, parse, isValid } from 'date-fns';
 
@@ -445,6 +447,64 @@ const InnerApp: React.FC = () => {
     };
   }, [result?.stats, dynamicViolateMinTimeCount]);
 
+  // -- Memoized Payment Data for Reuse in Print --
+  const paymentDataPrepared = useMemo(() => {
+    if (!result?.paymentData?.rows || !config) return null;
+
+    const rawRows = result.paymentData.rows;
+    const cols = result.paymentData.columns;
+
+    const GROUP_MAP: Record<string, string> = {
+      "PĐB": "Phẫu thuật ĐB", "P1": "Phẫu thuật loại 1", "P2": "Phẫu thuật loại 2", "P3": "Phẫu thuật loại 3",
+      "TĐB": "Thủ thuật ĐB", "T1": "Thủ thuật loại 1", "T2": "Thủ thuật loại 2", "T3": "Thủ thuật loại 3", "TKPL": "Thủ thuật KPL"
+    };
+
+    // Calculate Groups
+    const groups: { name: string, label: string, subCols: string[] }[] = [];
+    let currentGroup = "";
+    cols.forEach(col => {
+      const [loai, role] = col.split('-');
+      if (loai !== currentGroup) {
+        groups.push({ name: loai, label: GROUP_MAP[loai] || loai, subCols: [role] });
+        currentGroup = loai;
+      } else {
+        groups[groups.length - 1].subCols.push(role);
+      }
+    });
+
+    const enrichedRows = rawRows.map(row => {
+      let rowTotalQty = 0;
+      let rowTotalAmount = 0;
+      Object.keys(row.values).forEach(colKey => {
+        const qty = row.values[colKey] || 0;
+        if (qty > 0) {
+          rowTotalQty += qty;
+          const [loai, role] = colKey.split('-');
+          let configRole: any = "Giúp việc";
+          if (role === "Chính") configRole = "Chính";
+          else if (role === "Phụ") configRole = "Phụ";
+          else if (role === "Giúp việc") configRole = "Giúp việc";
+          const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
+          rowTotalAmount += qty * price;
+        }
+      });
+      return { ...row, total_qty: rowTotalQty, total_amount: rowTotalAmount.toLocaleString('en-US') };
+    });
+
+    // Calculate Totals
+    const footerTotals: Record<string, number> = { total_qty: 0, total_amount_val: 0 };
+    const columnTotals: Record<string, number> = {};
+    enrichedRows.forEach(row => {
+      footerTotals.total_qty += row.total_qty;
+      footerTotals.total_amount_val += Number(row.total_amount.replace(/,/g, ''));
+      Object.keys(row.values).forEach(colKey => {
+        columnTotals[colKey] = (columnTotals[colKey] || 0) + (row.values[colKey] || 0);
+      });
+    });
+
+    return { enrichedRows, groups, cols, footerTotals, columnTotals };
+  }, [result?.paymentData, config]);
+
   const columnsList = useMemo<ColumnDef<SurgeryRecord>[]>(() => [
     { key: 'stt', label: 'STT', align: 'center', width: 'w-[40px]' },
     { key: 'patientId', label: 'Mã BN', width: 'w-[80px]' },
@@ -570,56 +630,9 @@ const InnerApp: React.FC = () => {
       return <DynamicTable data={result.missingRecords || []} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} />;
     }
     if (activeTable === 'payment') {
-      const rawRows = result.paymentData.rows;
-      const cols = result.paymentData.columns; // Already filtered (non-zero totals only)
+      if (!paymentDataPrepared) return null;
+      const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentDataPrepared;
 
-      // Build grouped header structure
-      const GROUP_MAP: Record<string, string> = {
-        "PĐB": "Phẫu thuật ĐB", "P1": "Phẫu thuật loại 1", "P2": "Phẫu thuật loại 2", "P3": "Phẫu thuật loại 3",
-        "TĐB": "Thủ thuật ĐB", "T1": "Thủ thuật loại 1", "T2": "Thủ thuật loại 2", "T3": "Thủ thuật loại 3", "TKPL": "Thủ thuật KPL"
-      };
-
-      // Parse columns into groups
-      const groups: { name: string, label: string, subCols: string[] }[] = [];
-      let currentGroup = "";
-      cols.forEach(col => {
-        const [loai, role] = col.split('-');
-        if (loai !== currentGroup) {
-          groups.push({ name: loai, label: GROUP_MAP[loai] || loai, subCols: [role] });
-          currentGroup = loai;
-        } else {
-          groups[groups.length - 1].subCols.push(role);
-        }
-      });
-
-      const enrichedRows = rawRows.map(row => {
-        let rowTotalQty = 0;
-        let rowTotalAmount = 0;
-        Object.keys(row.values).forEach(colKey => {
-          const qty = row.values[colKey] || 0;
-          if (qty > 0) {
-            rowTotalQty += qty;
-            const [loai, role] = colKey.split('-');
-            let configRole: any = "Giúp việc";
-            if (role === "Chính") configRole = "Chính";
-            else if (role === "Phụ") configRole = "Phụ";
-            else if (role === "Giúp việc") configRole = "Giúp việc";
-            const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
-            rowTotalAmount += qty * price;
-          }
-        });
-        return { ...row, total_qty: rowTotalQty, total_amount: rowTotalAmount.toLocaleString('en-US') };
-      });
-
-      const footerTotals: Record<string, number> = { total_qty: 0, total_amount_val: 0 };
-      const columnTotals: Record<string, number> = {};
-      enrichedRows.forEach(row => {
-        footerTotals.total_qty += row.total_qty;
-        footerTotals.total_amount_val += Number(row.total_amount.replace(/,/g, ''));
-        Object.keys(row.values).forEach(colKey => {
-          columnTotals[colKey] = (columnTotals[colKey] || 0) + (row.values[colKey] || 0);
-        });
-      });
 
       const paymentCols = getPaymentColumns();
 
@@ -711,8 +724,129 @@ const InnerApp: React.FC = () => {
     return null;
   };
 
+  // --- Print Handling ---
+  const [isPrintOpen, setIsPrintOpen] = useState(false);
+  const [printConfig, setPrintConfig] = useState<any>(null);
+  const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
+  const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('landscape');
+
+  const handlePrintClick = (orientation: 'portrait' | 'landscape') => {
+    if (activeTable === 'list') {
+      // Prepare List Print
+      setPrintConfig({
+        type: 'list',
+        title: 'DANH SÁCH PHẪU THUẬT',
+        dateRange: result?.dateRangeText || '',
+        data: result?.validRecords || [],
+        columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false), // Respect visibility
+      });
+      setIsPrintOpen(true);
+    } else if (activeTable === 'payment' && paymentDataPrepared) {
+      // Prepare Payment Print - Need to reconstruct headers
+      const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentDataPrepared;
+      const paymentCols = getPaymentColumns().filter(c => visibleCols['payment']?.[c.key] !== false);
+
+      // Re-create the custom Header components for Print (needs to be passed as node or reconstructed in PrintPreview)
+      // Since PrintPreview accepts 'customThead', we will construct it here basically identical to table render
+      const PrintThead = (
+        <thead className="text-xs text-black border-b border-black">
+          <tr className="border-b border-black">
+            <th rowSpan={2} className="px-2 py-2 border border-black text-center align-middle font-bold">STT</th>
+            <th rowSpan={2} className="px-2 py-2 border border-black min-w-[150px] font-bold text-center align-middle">Họ tên</th>
+            {groups.map(grp => (
+              <th key={grp.name} colSpan={grp.subCols.length} className="px-2 py-2 border border-black font-bold text-center align-middle">{grp.label}</th>
+            ))}
+            <th rowSpan={2} className="px-2 py-2 border border-black min-w-[80px] font-bold text-center align-middle">Tổng số</th>
+            <th rowSpan={2} className="px-2 py-2 border border-black min-w-[120px] font-bold text-right align-middle">Thành tiền</th>
+          </tr>
+          <tr>
+            {groups.flatMap(grp => grp.subCols.map(role => (
+              <th key={`${grp.name}-${role}`} className="px-2 py-1 border border-black font-bold text-center align-middle text-[10px]">{role}</th>
+            )))}
+          </tr>
+        </thead>
+      );
+
+      const ExtraFooter = (
+        <tr className="font-bold text-xs border-t border-black">
+          <td className="px-2 py-2 text-center border border-black"></td>
+          <td className="px-2 py-2 text-right border border-black">TỔNG CỘNG</td>
+          <td className="px-2 py-2 text-center border border-black"></td> {/* Empty for STT if we added it manually in column map... wait, STT is separate td in PrintPreview */}
+          {/* Actually STT is separate. The columns map starts from name. */}
+          {/* Let's adjust footer to match columns map size */}
+          {/* Payment Cols: [Name, ...Vals, TotalQty, TotalAmt] */}
+          {/* We need an empty cell for Name, then values... */}
+
+          {/* Correction: The PrintPreview renders: STT Column (always), then mapped Columns. */}
+          {/* So Footer needs: 1 cell (STT) + 1 cell (Name) + ... */}
+
+          {/* Wait, my manual footer construction below needs to align with mapped columns */}
+          {/* PrintPreview loop: STT, then Col 1, Col 2... */}
+          {/* Footer: */}
+          <td className="border border-black px-2 py-2 text-right pointer-events-none opacity-0"></td>
+          {/* Use carefully constructed footer */}
+        </tr>
+      );
+
+      // Let's rely on passing props to PrintPreview to render special rows if needed, OR just pass data & columns.
+      // For Payment, we passed `customThead`. Components inside `PrintPreview` will use it.
+
+      // Re-create Extra Footer for Print
+      const PrintFooter = (
+        <tr className="font-bold text-xs">
+          <td className="px-2 py-2 border border-black">{/*STT*/}</td>
+          <td className="px-2 py-2 text-right border border-black">TỔNG CỘNG</td>
+          {cols.map(col => (<td key={col} className="px-2 py-2 border border-black text-right">{columnTotals[col] > 0 ? columnTotals[col] : '-'}</td>))}
+          <td className="px-2 py-2 border border-black text-center">{footerTotals.total_qty}</td>
+          <td className="px-2 py-2 border border-black text-right">{footerTotals.total_amount_val.toLocaleString('en-US')}</td>
+        </tr>
+      );
+
+      // Re-create Unit Price Header Row
+      const PrintExtraHeader = (
+        <tr className="font-bold text-xs text-center italic">
+          <td className="px-2 py-1 border border-black"></td>
+          <td className="px-2 py-1 border border-black text-right">Đơn giá</td>
+          {cols.map(col => {
+            const [loai, role] = col.split('-');
+            let configRole: any = "Giúp việc";
+            if (role === "Chính") configRole = "Chính";
+            else if (role === "Phụ") configRole = "Phụ";
+            else if (role === "Giúp việc") configRole = "Giúp việc";
+            const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
+            return <td key={col} className="px-2 py-1 border border-black text-right">{price.toLocaleString('en-US')}</td>
+          })}
+          <td className="px-2 py-1 border border-black"></td>
+          <td className="px-2 py-1 border border-black"></td>
+        </tr>
+      );
+
+      setPrintConfig({
+        type: 'payment',
+        title: 'BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT',
+        dateRange: result?.dateRangeText || '',
+        data: enrichedRows,
+        columns: paymentCols,
+        customThead: PrintThead,
+        extraFooterRow: PrintFooter,
+        extraHeaderRow: PrintExtraHeader
+      });
+      setIsPrintOpen(true);
+
+    } else {
+      addToast("Vui lòng chọn 'Danh sách PT' hoặc 'Bảng kê thanh toán' để in.", 'error');
+    }
+  };
+
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-20 font-inter">
+      <PrintPreview
+        isOpen={isPrintOpen}
+        onClose={() => setIsPrintOpen(false)}
+        orientation={printOrientation}
+        {...printConfig}
+      />
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
       <header className="bg-white shadow-sm sticky top-0 z-30 border-b border-gray-200">
@@ -783,7 +917,65 @@ const InnerApp: React.FC = () => {
                       <div className="flex-1">
                         <h2 className="text-lg font-bold text-gray-900">Kết quả xử lý</h2>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 items-center">
+                        {/* Print Dropdown */}
+                        <div className="relative">
+                          <button
+                            onClick={() => {
+                              // Check if allowed tables
+                              if (activeTable !== 'list' && activeTable !== 'payment') {
+                                addToast("Chỉ có thể in 'Danh sách phẫu thuật' và 'Bảng thanh toán'", 'error');
+                                return;
+                              }
+                              setIsPrintDropdownOpen(!isPrintDropdownOpen);
+                            }}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm"
+                          >
+                            <Printer className="h-4 w-4" /> In Báo Cáo
+                            <svg className="h-4 w-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </button>
+
+                          {isPrintDropdownOpen && (activeTable === 'list' || activeTable === 'payment') && (
+                            <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Chọn hướng giấy</div>
+                              <button
+                                onClick={() => {
+                                  setPrintOrientation('portrait');
+                                  handlePrintClick('portrait');
+                                  setIsPrintDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-2 text-sm"
+                              >
+                                <span>📄</span>
+                                <div>
+                                  <div className="font-medium">Dọc (Portrait)</div>
+                                  <div className="text-xs text-gray-500">A4 dọc</div>
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPrintOrientation('landscape');
+                                  handlePrintClick('landscape');
+                                  setIsPrintDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-2 text-sm"
+                              >
+                                <span>📃</span>
+                                <div>
+                                  <div className="font-medium">Ngang (Landscape)</div>
+                                  <div className="text-xs text-gray-500">A4 ngang</div>
+                                </div>
+                              </button>
+                              {activeTable === 'list' && (
+                                <div className="px-4 py-2 mt-1 text-xs text-blue-600 bg-blue-50 border-t border-gray-100">
+                                  💡 Gợi ý: Nên dùng khổ ngang
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                         <button className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded text-sm hover:bg-indigo-100 transition-colors border border-indigo-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
                         <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
                       </div>
@@ -991,7 +1183,9 @@ const InnerApp: React.FC = () => {
 }
 
 const App: React.FC = () => (
-  <ConfigProvider><InnerApp /></ConfigProvider>
+  <ConfigProvider>
+    <InnerApp />
+  </ConfigProvider>
 );
 
 export default App;

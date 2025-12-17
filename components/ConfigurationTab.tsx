@@ -125,28 +125,29 @@ export const ConfigurationTab: React.FC = () => {
                     <div className="animate-fade-in">
                         <div className="overflow-x-auto border border-gray-200 rounded-lg">
                             <table className="w-full text-sm text-left text-gray-700">
-                                <thead className="bg-gray-50 text-gray-900 font-bold uppercase text-xs">
+                                <thead className="bg-indigo-900 text-white font-bold uppercase text-xs">
                                     <tr>
-                                        <th rowSpan={2} className="px-4 py-3 border-r border-b border-gray-200 bg-gray-100 min-w-[150px] align-middle">Loại PTTT</th>
-                                        <th colSpan={3} className="px-4 py-2 border-r border-b border-gray-200 text-center bg-blue-50 text-blue-800">Phụ cấp PTTT (đồng)</th>
-                                        <th colSpan={2} className="px-4 py-2 border-b border-gray-200 text-center bg-orange-50 text-orange-800">Thời gian thực hiện (phút)</th>
+                                        <th rowSpan={2} className="px-4 py-3 border-r border-indigo-700 min-w-[150px] align-middle">Loại PTTT</th>
+                                        <th colSpan={3} className="px-4 py-2 border-r border-indigo-700 text-center bg-indigo-800">Phụ cấp PTTT (đồng)</th>
+                                        <th colSpan={2} className="px-4 py-2 border-indigo-700 text-center bg-indigo-800">Thời gian thực hiện (phút)</th>
                                     </tr>
                                     <tr>
                                         {/* Prices */}
-                                        <th className="px-4 py-2 border-r border-gray-200 w-[120px] text-center bg-blue-50/50">Chính</th>
-                                        <th className="px-4 py-2 border-r border-gray-200 w-[120px] text-center bg-blue-50/50">Phụ</th>
-                                        <th className="px-4 py-2 border-r border-gray-200 w-[120px] text-center bg-blue-50/50">Giúp việc</th>
+                                        <th className="px-4 py-2 border-r border-indigo-700 w-[120px] text-center border-t border-indigo-700 bg-indigo-800/50">Chính</th>
+                                        <th className="px-4 py-2 border-r border-indigo-700 w-[120px] text-center border-t border-indigo-700 bg-indigo-800/50">Phụ</th>
+                                        <th className="px-4 py-2 border-r border-indigo-700 w-[120px] text-center border-t border-indigo-700 bg-indigo-800/50">Giúp việc</th>
                                         {/* Times */}
-                                        <th className="px-4 py-2 border-r border-gray-200 w-[100px] text-center bg-orange-50/50">Tối thiểu</th>
-                                        <th className="px-4 py-2 w-[100px] text-center bg-orange-50/50">Tối đa</th>
+                                        <th className="px-4 py-2 border-r border-indigo-700 w-[100px] text-center border-t border-indigo-700 bg-indigo-800/50">Tối thiểu</th>
+                                        <th className="px-4 py-2 w-[100px] text-center border-t border-indigo-700 bg-indigo-800/50">Tối đa</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {/* Section: Phẫu thuật */}
-                                    <tr className="bg-gradient-to-r from-indigo-600 to-indigo-500 shadow-md">
-                                        <td colSpan={6} className="px-4 py-3 text-white uppercase text-sm font-bold tracking-wide border-b border-indigo-400">
+                                    {/* Section: Phẫu thuật - Softened */}
+                                    <tr className="bg-indigo-50 border-b border-indigo-100">
+                                        <td colSpan={6} className="px-4 py-3 text-indigo-900 uppercase text-sm font-bold tracking-wide">
                                             <span className="flex items-center gap-2">
-                                                <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                                                <span className="w-2 h-2 bg-indigo-400 rounded-full"></span>
                                                 Phẫu thuật
                                             </span>
                                         </td>
@@ -201,10 +202,11 @@ export const ConfigurationTab: React.FC = () => {
                                     ))}
 
                                     {/* Section: Thủ thuật */}
-                                    <tr className="bg-gradient-to-r from-teal-600 to-teal-500 shadow-md">
-                                        <td colSpan={6} className="px-4 py-3 text-white uppercase text-sm font-bold tracking-wide border-b border-t border-teal-400">
+                                    {/* Section: Thủ thuật - Softened */}
+                                    <tr className="bg-teal-50 border-b border-teal-100">
+                                        <td colSpan={6} className="px-4 py-3 text-teal-900 uppercase text-sm font-bold tracking-wide">
                                             <span className="flex items-center gap-2">
-                                                <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                                                <span className="w-2 h-2 bg-teal-400 rounded-full"></span>
                                                 Thủ thuật
                                             </span>
                                         </td>
