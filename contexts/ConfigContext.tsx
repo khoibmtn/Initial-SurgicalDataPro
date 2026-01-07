@@ -24,14 +24,25 @@ export interface StaffLimitConfig {
     support: StaffLimitOption;           // KTV GM, TDC, Giúp việc
 }
 
+export interface StaffMember {
+    id: string; // Internal unique ID or Full Name + Position key
+    name: string;
+    position: 'BS PT' | 'BS GMHS' | 'Phụ' | '';
+    taxId: string;
+    department: string;
+}
+
 export interface AppConfig {
     priceConfig: { [key: string]: RolePrice };
     timeRules: { [key: string]: TimeRule };
     roleOrder: Record<string, number>;
     ignoredMachineCodes: string[]; // List of PTTT that don't need machine codes
     ignoredMachineNames: string[]; // List of Surgery Names that don't need machine codes
+    departments: string[]; // List of departments
+    staffList: StaffMember[]; // List of medical staff members
     uiSettings: UISettings;
     staffLimits: StaffLimitConfig;
+    hospitalName: string;
 }
 
 interface ConfigContextType {
@@ -91,8 +102,11 @@ export const DEFAULT_CONFIG: AppConfig = {
     roleOrder: DEFAULT_ROLE_ORDER,
     ignoredMachineCodes: ["K0", "K1"],
     ignoredMachineNames: [],
+    departments: [],
+    staffList: [],
     uiSettings: DEFAULT_UI_SETTINGS,
-    staffLimits: DEFAULT_STAFF_LIMITS
+    staffLimits: DEFAULT_STAFF_LIMITS,
+    hospitalName: "Trung tâm Y tế Thủy Nguyên"
 };
 
 // --- Context ---

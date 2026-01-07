@@ -29,7 +29,11 @@ import {
   ChevronRight,
   Percent,
   FileSpreadsheet,
-  Printer
+  Printer,
+  FileText,
+  CreditCard,
+  RefreshCw,
+  CheckCircle2
 } from 'lucide-react';
 import { format, parse, isValid } from 'date-fns';
 
@@ -240,15 +244,18 @@ const DynamicTable = <T extends Record<string, any>>({
           )}
           <tbody>
             {extraHeaderRow}
-            {currentData.map((row, idx) => {
+            {currentData.map((row: any, idx) => {
               const customClass = rowStyle ? rowStyle(row) : '';
+              const isFirstRowOverall = startIndex + idx === 0;
+              const deptBorderClass = row.isNewDept && !isFirstRowOverall ? 'border-t-2 border-t-indigo-600' : '';
+
               return (
-                <tr key={idx} className={`border-b group hover:bg-indigo-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-100')}`}>
-                  <td className={`px-2 py-1 text-center font-medium sticky left-0 z-10 border-r text-gray-900 shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${customClass ? customClass : 'bg-inherit'}`}>
+                <tr key={idx} className={`border-b-2 border-gray-100 group hover:bg-indigo-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')}`}>
+                  <td className={`px-2 py-1 text-center font-medium sticky left-0 z-10 border-r text-gray-900 shadow-[1px_0_0_0_rgba(0,0,0,0.05)] ${deptBorderClass} ${customClass ? customClass : 'bg-inherit'}`}>
                     {startIndex + idx + 1}
                   </td>
                   {visibleColumnsList.map(col => (
-                    <td key={col.key} className={`px-2 py-1 border-r whitespace-normal break-words align-top ${col.width || 'max-w-[200px]'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.className || ''}`}>
+                    <td key={col.key} className={`px-2 py-1 border-r whitespace-normal break-words align-top ${deptBorderClass} ${col.width || 'max-w-[200px]'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.className || ''}`}>
                       {col.render ? col.render(row) : (row[col.key] || '-')}
                     </td>
                   ))}
@@ -381,15 +388,24 @@ const InnerApp: React.FC = () => {
   };
 
   const handleProcess = async () => {
-    if (!listFile || !detailFile) { addToast("Vui lòng tải đủ 2 file Excel yêu cầu.", 'error'); return; }
-    setIsProcessing(true); setActiveTable(null); setResult(null); setStats(null);
+    if (!listFile) return;
+    setIsProcessing(true);
     try {
       const res = await processSurgicalFiles(listFile, detailFile, config);
-      setStats(res.stats); setResult(res); addToast(res.message, 'success'); setActiveTable('list');
-      setTimeout(() => { document.getElementById('results-section')?.scrollIntoView({ behavior: 'smooth' }); }, 100);
+      setStats(res.stats);
+      setResult(res);
+      // Only show success toast if it's the first time processing or both files are present
+      if (detailFile) {
+        addToast("Xử lý dữ liệu thành công với đầy đủ mã máy.", 'success');
+      }
     } catch (error: any) {
-      console.error(error); addToast(error.message || "Có lỗi xử lý", 'error'); setStats(null); setResult(null);
-    } finally { setIsProcessing(false); }
+      console.error(error);
+      addToast(error.message || "Có lỗi xử lý", 'error');
+      setStats(null);
+      setResult(null);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleDownload = () => {
@@ -409,15 +425,15 @@ const InnerApp: React.FC = () => {
     ignoredMachineNames: config.ignoredMachineNames
   }), [config]);
 
-  // Auto re-process when config changes (only if processing-relevant config changes)
+  // Auto re-process when files or config changes
   useEffect(() => {
-    if (listFile && detailFile && result) {
+    if (listFile) {
       const timer = setTimeout(() => {
         handleProcess();
-      }, 500); // 500ms debounce
+      }, 300); // 300ms debounce
       return () => clearTimeout(timer);
     }
-  }, [processingConfigHash]);
+  }, [listFile, detailFile, processingConfigHash]);
 
   // Columns
   // Calculate violateMinTimeCount dynamically based on current config
@@ -596,16 +612,18 @@ const InnerApp: React.FC = () => {
   const getPaymentColumns = (): ColumnDef<any>[] => {
     if (!result?.paymentData?.columns) return [];
     return [
-      { key: 'name', label: 'Họ tên', width: 'min-w-[150px]' },
+      { key: 'department', label: 'Khoa', width: 'min-w-[60px]', className: 'whitespace-nowrap' },
+      { key: 'taxId', label: 'Mã số thuế', width: 'min-w-[90px]', className: 'whitespace-nowrap' },
+      { key: 'name', label: 'Họ tên', width: 'min-w-[180px]', className: 'whitespace-nowrap' },
       ...result.paymentData.columns.map(col => ({
         key: `val_${col}`,
         label: col.replace("PT_", "").replace("TT_", "").replace("-", " "),
         render: (row: any) => (row.values[col] || 0) > 0 ? (row.values[col] || 0) : '-',
         align: 'right' as const,
-        width: 'min-w-[80px]'
+        width: 'min-w-[60px]'
       })),
-      { key: 'total_qty', label: 'Tổng số', align: 'center', width: 'min-w-[80px]', className: 'font-bold' },
-      { key: 'total_amount', label: 'Thành tiền', align: 'right', width: 'min-w-[120px]', className: 'font-bold' }
+      { key: 'total_qty', label: 'Tổng số', align: 'center', width: 'min-w-[50px]', className: 'font-bold' },
+      { key: 'total_amount', label: 'Thành tiền', align: 'right', width: 'min-w-[100px]', className: 'font-bold' }
     ];
   };
 
@@ -635,18 +653,25 @@ const InnerApp: React.FC = () => {
 
 
       const paymentCols = getPaymentColumns();
+      const currentVisible = visibleCols['payment'] || {};
+      const isVisible = (key: string) => currentVisible[key] !== false;
 
       // Custom 2-level thead
       const CustomThead = (
         <thead className="text-xs text-gray-900 border-b">
           {/* Row 1: Group Headers */}
           <tr className="border-b">
-            <th rowSpan={2} className="px-2 py-2 sticky left-0 bg-gray-100/95 backdrop-blur z-10 w-[40px] border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] text-center align-middle font-bold">#</th>
-            <th rowSpan={2} className="px-2 py-2 border-r min-w-[150px] font-bold text-gray-900 bg-gray-100 align-middle text-center">Họ tên</th>
+            <th rowSpan={2} className="px-1 py-2 sticky left-0 bg-gray-100/95 backdrop-blur z-10 w-[30px] border-r shadow-[1px_0_0_0_rgba(0,0,0,0.05)] text-center align-middle font-bold text-[10px]">#</th>
+            {isVisible('department') && <th rowSpan={2} className="px-1 py-1 border-r min-w-[80px] font-bold text-gray-900 bg-gray-100 align-middle text-center text-[11px]">Khoa</th>}
+            {isVisible('taxId') && <th rowSpan={2} className="px-1 py-1 border-r min-w-[80px] font-bold text-gray-900 bg-gray-100 align-middle text-center text-[11px]">Mã số thuế</th>}
+            {isVisible('name') && <th rowSpan={2} className="px-1 py-1 border-r min-w-[150px] font-bold text-gray-900 bg-gray-100 align-middle text-center">Họ tên</th>}
             {groups.map(grp => {
+              // Only show group if at least one sub-col is visible
+              const visibleSubCols = grp.subCols.filter(role => isVisible(`val_${grp.name}-${role}`));
+              if (visibleSubCols.length === 0) return null;
+
               // Color-code based on group type
               let bgMain = 'bg-gray-200';
-
               if (grp.name === 'PĐB') bgMain = 'bg-red-300';
               else if (grp.name === 'P1') bgMain = 'bg-orange-300';
               else if (grp.name === 'P2') bgMain = 'bg-yellow-300';
@@ -658,13 +683,13 @@ const InnerApp: React.FC = () => {
               else if (grp.name === 'TKPL') bgMain = 'bg-purple-300';
 
               return (
-                <th key={grp.name} colSpan={grp.subCols.length} className={`px-2 py-2 border-r font-bold text-gray-900 ${bgMain} text-center align-middle`}>
+                <th key={grp.name} colSpan={visibleSubCols.length} className={`px-2 py-2 border-r font-bold text-gray-900 ${bgMain} text-center align-middle`}>
                   {grp.label}
                 </th>
               );
             })}
-            <th rowSpan={2} className="px-2 py-2 border-r min-w-[80px] font-bold text-gray-900 bg-gray-100 align-middle text-center">Tổng số</th>
-            <th rowSpan={2} className="px-2 py-2 border-r min-w-[120px] font-bold text-gray-900 bg-gray-100 align-middle text-right">Thành tiền</th>
+            {isVisible('total_qty') && <th rowSpan={2} className="px-2 py-2 border-r min-w-[80px] font-bold text-gray-900 bg-gray-100 align-middle text-center">Tổng số</th>}
+            {isVisible('total_amount') && <th rowSpan={2} className="px-2 py-2 border-r min-w-[120px] font-bold text-gray-900 bg-gray-100 align-middle text-right">Thành tiền</th>}
           </tr>
           {/* Row 2: Sub-column Headers (Roles) */}
           <tr>
@@ -680,11 +705,15 @@ const InnerApp: React.FC = () => {
               else if (grp.name === 'T3') bgSub = 'bg-indigo-100';
               else if (grp.name === 'TKPL') bgSub = 'bg-purple-100';
 
-              return grp.subCols.map(role => (
-                <th key={`${grp.name}-${role}`} className={`px-2 py-1 border-r font-bold text-gray-900 ${bgSub} text-center align-middle text-[11px]`}>
-                  {role}
-                </th>
-              ));
+              return grp.subCols.map(role => {
+                const colKey = `val_${grp.name}-${role}`;
+                if (!isVisible(colKey)) return null;
+                return (
+                  <th key={colKey} className={`px-2 py-1 border-r font-bold text-gray-900 ${bgSub} text-center align-middle text-[11px]`}>
+                    {role}
+                  </th>
+                );
+              });
             })}
           </tr>
         </thead>
@@ -694,8 +723,11 @@ const InnerApp: React.FC = () => {
       const ExtraHeader = (
         <tr className="bg-indigo-50/30 font-medium text-xs text-indigo-800 border-b">
           <td className="px-2 py-1 border-r text-center bg-indigo-50 sticky left-0 z-10 font-bold"></td>
-          <td className="px-2 py-1 border-r text-right font-bold">Đơn giá</td>
+          {isVisible('department') && <td className="px-2 py-1 border-r text-right bg-indigo-50/50"></td>}
+          {isVisible('taxId') && <td className="px-2 py-1 border-r text-right bg-indigo-50/50"></td>}
+          {isVisible('name') && <td className="px-2 py-1 border-r text-right font-bold text-indigo-400 opacity-0">Đơn giá</td>}
           {cols.map(col => {
+            if (!isVisible(`val_${col}`)) return null;
             const [loai, role] = col.split('-');
             let configRole: any = "Giúp việc";
             if (role === "Chính") configRole = "Chính";
@@ -704,18 +736,23 @@ const InnerApp: React.FC = () => {
             const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
             return <td key={col} className="px-2 py-1 border-r text-right">{price.toLocaleString('en-US')}</td>
           })}
-          <td className="px-2 py-1 border-r bg-gray-50"></td>
-          <td className="px-2 py-1 border-r bg-gray-50"></td>
+          {isVisible('total_qty') && <td className="px-2 py-1 border-r bg-gray-50"></td>}
+          {isVisible('total_amount') && <td className="px-2 py-1 border-r bg-gray-50"></td>}
         </tr>
       );
 
       const ExtraFooter = (
         <tr className="bg-indigo-600/10 font-bold text-xs text-indigo-900 border-t-2 border-indigo-200">
           <td className="px-2 py-2 text-center sticky left-0 z-10 bg-indigo-50"></td>
-          <td className="px-2 py-2 text-right">TỔNG CỘNG</td>
-          {cols.map(col => (<td key={col} className="px-2 py-2 border-r text-right">{columnTotals[col] > 0 ? columnTotals[col] : '-'}</td>))}
-          <td className="px-2 py-2 border-r text-center">{footerTotals.total_qty}</td>
-          <td className="px-2 py-2 border-r text-right">{footerTotals.total_amount_val.toLocaleString('en-US')}</td>
+          {isVisible('department') && <td className="px-2 py-2 border-r bg-indigo-50/50"></td>}
+          {isVisible('taxId') && <td className="px-2 py-2 border-r bg-indigo-50/50"></td>}
+          {isVisible('name') && <td className="px-2 py-2 text-right">TỔNG CỘNG</td>}
+          {cols.map(col => {
+            if (!isVisible(`val_${col}`)) return null;
+            return <td key={col} className="px-2 py-2 border-r text-right">{columnTotals[col] > 0 ? columnTotals[col] : '-'}</td>
+          })}
+          {isVisible('total_qty') && <td className="px-2 py-2 border-r text-center">{footerTotals.total_qty}</td>}
+          {isVisible('total_amount') && <td className="px-2 py-2 border-r text-right">{footerTotals.total_amount_val.toLocaleString('en-US')}</td>}
         </tr>
       );
 
@@ -730,8 +767,9 @@ const InnerApp: React.FC = () => {
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
   const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('landscape');
 
-  const handlePrintClick = (orientation: 'portrait' | 'landscape') => {
-    if (activeTable === 'list') {
+  const handlePrintClick = (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
+    setPrintOrientation(orientation);
+    if (type === 'list') {
       // Prepare List Print
       setPrintConfig({
         type: 'list',
@@ -741,36 +779,50 @@ const InnerApp: React.FC = () => {
         columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false), // Respect visibility
       });
       setIsPrintOpen(true);
-    } else if (activeTable === 'payment' && paymentDataPrepared) {
+    } else if (type === 'payment' && paymentDataPrepared) {
       // Prepare Payment Print - Need to reconstruct headers
       const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentDataPrepared;
-      const paymentCols = getPaymentColumns().filter(c => visibleCols['payment']?.[c.key] !== false);
+      const currentVisible = visibleCols['payment'] || {};
+      const isVisible = (key: string) => currentVisible[key] !== false;
+      const paymentCols = getPaymentColumns().filter(c => isVisible(c.key));
 
       // Re-create the custom Header components for Print (needs to be passed as node or reconstructed in PrintPreview)
       // Since PrintPreview accepts 'customThead', we will construct it here basically identical to table render
       const PrintThead = (
         <thead className="text-xs text-black border-b border-black">
           <tr className="border-b border-black">
-            <th rowSpan={2} className="px-2 py-2 border border-black text-center align-middle font-bold">STT</th>
-            <th rowSpan={2} className="px-2 py-2 border border-black min-w-[150px] font-bold text-center align-middle">Họ tên</th>
-            {groups.map(grp => (
-              <th key={grp.name} colSpan={grp.subCols.length} className="px-2 py-2 border border-black font-bold text-center align-middle">{grp.label}</th>
-            ))}
-            <th rowSpan={2} className="px-2 py-2 border border-black min-w-[80px] font-bold text-center align-middle">Tổng số</th>
-            <th rowSpan={2} className="px-2 py-2 border border-black min-w-[120px] font-bold text-right align-middle">Thành tiền</th>
+            <th rowSpan={2} className="px-1 py-1 border border-black text-center align-middle font-bold text-[10px] col-stt">STT</th>
+            {isVisible('department') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px] col-dept">Khoa</th>}
+            {isVisible('taxId') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px] col-tax">Mã số thuế</th>}
+            {isVisible('name') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[11px] col-name">Họ tên</th>}
+            {groups.map(grp => {
+              const visibleSubCols = grp.subCols.filter(role => isVisible(`val_${grp.name}-${role}`));
+              if (visibleSubCols.length === 0) return null;
+              return (
+                <th key={grp.name} colSpan={visibleSubCols.length} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px]">{grp.label}</th>
+              );
+            })}
+            {isVisible('total_qty') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px] col-numeric">Tổng số</th>}
+            {isVisible('total_amount') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-right align-middle text-[10px] col-total">Thành tiền</th>}
           </tr>
           <tr>
-            {groups.flatMap(grp => grp.subCols.map(role => (
-              <th key={`${grp.name}-${role}`} className="px-2 py-1 border border-black font-bold text-center align-middle text-[10px]">{role}</th>
-            )))}
+            {groups.flatMap(grp => grp.subCols.map(role => {
+              const colKey = `val_${grp.name}-${role}`;
+              if (!isVisible(colKey)) return null;
+              return (
+                <th key={colKey} className="px-1 py-0.5 border border-black font-bold text-center align-middle text-[9px] col-numeric">{role}</th>
+              );
+            }))}
           </tr>
         </thead>
       );
 
       const ExtraFooter = (
         <tr className="font-bold text-xs border-t border-black">
-          <td className="px-2 py-2 text-center border border-black"></td>
-          <td className="px-2 py-2 text-right border border-black">TỔNG CỘNG</td>
+          <td className="px-1 py-1 text-center border border-black"></td>
+          <td className="px-1 py-1 border border-black bg-gray-50/50"></td>
+          <td className="px-1 py-1 border border-black bg-gray-50/50"></td>
+          <td className="px-1 py-1 text-right border border-black">TỔNG CỘNG</td>
           <td className="px-2 py-2 text-center border border-black"></td> {/* Empty for STT if we added it manually in column map... wait, STT is separate td in PrintPreview */}
           {/* Actually STT is separate. The columns map starts from name. */}
           {/* Let's adjust footer to match columns map size */}
@@ -794,30 +846,38 @@ const InnerApp: React.FC = () => {
       // Re-create Extra Footer for Print
       const PrintFooter = (
         <tr className="font-bold text-xs">
-          <td className="px-2 py-2 border border-black">{/*STT*/}</td>
-          <td className="px-2 py-2 text-right border border-black">TỔNG CỘNG</td>
-          {cols.map(col => (<td key={col} className="px-2 py-2 border border-black text-right">{columnTotals[col] > 0 ? columnTotals[col] : '-'}</td>))}
-          <td className="px-2 py-2 border border-black text-center">{footerTotals.total_qty}</td>
-          <td className="px-2 py-2 border border-black text-right">{footerTotals.total_amount_val.toLocaleString('en-US')}</td>
+          <td className="px-1 py-1 border border-black text-center col-stt">{/*STT*/}</td>
+          {isVisible('department') && <td className="px-1 py-1 border border-black col-dept"></td>}
+          {isVisible('taxId') && <td className="px-1 py-1 border border-black col-tax"></td>}
+          {isVisible('name') && <td className="px-1 py-1 text-right border border-black col-name text-[11px]">TỔNG CỘNG</td>}
+          {cols.map(col => {
+            if (!isVisible(`val_${col}`)) return null;
+            return <td key={col} className="px-1 py-1 border border-black text-right col-numeric">{columnTotals[col] > 0 ? columnTotals[col] : '-'}</td>
+          })}
+          {isVisible('total_qty') && <td className="px-1 py-1 border border-black text-center col-numeric">{footerTotals.total_qty}</td>}
+          {isVisible('total_amount') && <td className="px-1 py-1 border border-black text-right col-total">{footerTotals.total_amount_val.toLocaleString('en-US')}</td>}
         </tr>
       );
 
       // Re-create Unit Price Header Row
       const PrintExtraHeader = (
         <tr className="font-bold text-xs text-center italic">
-          <td className="px-2 py-1 border border-black"></td>
-          <td className="px-2 py-1 border border-black text-right">Đơn giá</td>
+          <td className="px-1 py-0.5 border border-black col-stt"></td>
+          {isVisible('department') && <td className="px-1 py-0.5 border border-black col-dept"></td>}
+          {isVisible('taxId') && <td className="px-1 py-0.5 border border-black col-tax"></td>}
+          {isVisible('name') && <td className="px-1 py-0.5 border border-black text-right opacity-0 text-[10px] col-name">Đơn giá</td>}
           {cols.map(col => {
+            if (!isVisible(`val_${col}`)) return null;
             const [loai, role] = col.split('-');
             let configRole: any = "Giúp việc";
             if (role === "Chính") configRole = "Chính";
             else if (role === "Phụ") configRole = "Phụ";
             else if (role === "Giúp việc") configRole = "Giúp việc";
             const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
-            return <td key={col} className="px-2 py-1 border border-black text-right">{price.toLocaleString('en-US')}</td>
+            return <td key={col} className="px-1 py-0.5 border border-black text-right text-[10px] col-numeric">{price.toLocaleString('en-US')}</td>
           })}
-          <td className="px-2 py-1 border border-black"></td>
-          <td className="px-2 py-1 border border-black"></td>
+          {isVisible('total_qty') && <td className="px-1 py-0.5 border border-black text-[10px] col-numeric"></td>}
+          {isVisible('total_amount') && <td className="px-1 py-0.5 border border-black text-[10px] col-total"></td>}
         </tr>
       );
 
@@ -845,6 +905,7 @@ const InnerApp: React.FC = () => {
         isOpen={isPrintOpen}
         onClose={() => setIsPrintOpen(false)}
         orientation={printOrientation}
+        hospitalName={config.hospitalName}
         {...printConfig}
       />
       <ToastContainer toasts={toasts} removeToast={removeToast} />
@@ -900,10 +961,30 @@ const InnerApp: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex justify-center mt-4">
-                  <button onClick={handleProcess} disabled={isProcessing || !listFile || !detailFile} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold text-sm shadow transition-all active:scale-95 ${isProcessing || !listFile || !detailFile ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-indigo-200'}`}>
-                    {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4 fill-current" />} {isProcessing ? 'Đang xử lý...' : 'Tiến hành xử lý'}
-                  </button>
+                <div className="flex items-center justify-center gap-4 mt-4">
+                  {isProcessing && (
+                    <div className="flex items-center gap-3 px-6 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 shadow-sm animate-pulse">
+                      <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
+                      <span className="font-bold text-xs uppercase tracking-wide">Đang xử lý dữ liệu...</span>
+                    </div>
+                  )}
+
+                  {!listFile && (
+                    <div className="flex items-center gap-3 px-6 py-2 rounded-xl bg-gray-50 border border-gray-100 text-gray-400 opacity-60 shadow-sm">
+                      <Activity className="h-4 w-4 text-gray-400" />
+                      <span className="font-bold text-xs uppercase tracking-wide">Chờ tải file Danh sách PT...</span>
+                    </div>
+                  )}
+
+                  {listFile && !isProcessing && (
+                    <button
+                      onClick={handleProcess}
+                      className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-indigo-700 hover:shadow-indigo-200 transition-all border-2 border-indigo-500 active:scale-95"
+                    >
+                      <Zap className="h-4 w-4 fill-current" />
+                      Xử lý dữ liệu
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -921,14 +1002,7 @@ const InnerApp: React.FC = () => {
                         {/* Print Dropdown */}
                         <div className="relative">
                           <button
-                            onClick={() => {
-                              // Check if allowed tables
-                              if (activeTable !== 'list' && activeTable !== 'payment') {
-                                addToast("Chỉ có thể in 'Danh sách phẫu thuật' và 'Bảng thanh toán'", 'error');
-                                return;
-                              }
-                              setIsPrintDropdownOpen(!isPrintDropdownOpen);
-                            }}
+                            onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
                             className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm"
                           >
                             <Printer className="h-4 w-4" /> In Báo Cáo
@@ -937,42 +1011,70 @@ const InnerApp: React.FC = () => {
                             </svg>
                           </button>
 
-                          {isPrintDropdownOpen && (activeTable === 'list' || activeTable === 'payment') && (
-                            <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                              <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase">Chọn hướng giấy</div>
+                          {isPrintDropdownOpen && (
+                            <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-3 z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden">
+                              <div className="px-4 pb-2 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                                CHỌN BÁO CÁO VÀ HƯỚNG IN
+                              </div>
+
                               <button
                                 onClick={() => {
-                                  setPrintOrientation('portrait');
-                                  handlePrintClick('portrait');
+                                  handlePrintClick('list', 'landscape');
                                   setIsPrintDropdownOpen(false);
                                 }}
-                                className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-2 text-sm"
+                                className="w-full text-left px-4 py-3 hover:bg-indigo-50 flex items-center gap-4 transition-all group relative overflow-hidden"
                               >
-                                <span>📄</span>
-                                <div>
-                                  <div className="font-medium">Dọc (Portrait)</div>
-                                  <div className="text-xs text-gray-500">A4 dọc</div>
+                                <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100 group-hover:scale-110 transition-all border border-indigo-100/50">
+                                  <FileText className="h-5 w-5" />
                                 </div>
+                                <div className="flex-1">
+                                  <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Danh sách PT</div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
+                                    <span className="text-[10px] text-gray-400 italic font-medium">Khuyên dùng</span>
+                                  </div>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
                               </button>
+
                               <button
                                 onClick={() => {
-                                  setPrintOrientation('landscape');
-                                  handlePrintClick('landscape');
+                                  handlePrintClick('payment', 'portrait');
                                   setIsPrintDropdownOpen(false);
                                 }}
-                                className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center gap-2 text-sm"
+                                className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center gap-4 transition-all group relative overflow-hidden mt-1"
                               >
-                                <span>📃</span>
-                                <div>
-                                  <div className="font-medium">Ngang (Landscape)</div>
-                                  <div className="text-xs text-gray-500">A4 ngang</div>
+                                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 group-hover:scale-110 transition-all border border-emerald-100/50">
+                                  <CreditCard className="h-5 w-5" />
                                 </div>
+                                <div className="flex-1">
+                                  <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Bảng thanh toán</div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Dọc</span>
+                                  </div>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
                               </button>
-                              {activeTable === 'list' && (
-                                <div className="px-4 py-2 mt-1 text-xs text-blue-600 bg-blue-50 border-t border-gray-100">
-                                  💡 Gợi ý: Nên dùng khổ ngang
+
+                              <button
+                                onClick={() => {
+                                  handlePrintClick('payment', 'landscape');
+                                  setIsPrintDropdownOpen(false);
+                                }}
+                                className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center gap-4 transition-all group relative overflow-hidden mt-1"
+                              >
+                                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 group-hover:scale-110 transition-all border border-emerald-100/50">
+                                  <CreditCard className="h-5 w-5" />
                                 </div>
-                              )}
+                                <div className="flex-1">
+                                  <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Bảng thanh toán</div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
+                                  </div>
+                                </div>
+                                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
+                              </button>
                             </div>
                           )}
                         </div>

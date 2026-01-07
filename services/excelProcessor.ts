@@ -582,12 +582,16 @@ function normalizeLoaiTT(raw: any): "" | "ĐB" | "1" | "2" | "3" | "KPL" {
 import { AppConfig } from "../contexts/ConfigContext";
 
 export async function processSurgicalFiles(
-  surgicalListFile: File,
-  surgicalDetailFile: File,
+  surgicalListFile: File | null,
+  surgicalDetailFile: File | null,
   config: AppConfig
 ): Promise<ProcessingResult> {
 
   console.log(">>> BẮT ĐẦU XỬ LÝ EXCEL <<<");
+
+  if (!surgicalListFile) {
+    throw new Error("Vui lòng tải file Danh sách PT.");
+  }
 
   // 1. Đọc file Danh sách PT
   const listBuffer = await surgicalListFile.arrayBuffer();
@@ -597,38 +601,45 @@ export async function processSurgicalFiles(
     header: 1,
   }) as any[][];
 
-  // 2. Đọc file Chi tiết PT
-  const detailBuffer = await surgicalDetailFile.arrayBuffer();
-  const detailWorkbook = XLSX.read(detailBuffer);
-  const detailSheet = detailWorkbook.Sheets[detailWorkbook.SheetNames[0]];
-  const detailData: any[][] = XLSX.utils.sheet_to_json(detailSheet, {
-    header: 1,
-  }) as any[][];
-
-
   const listError = validateListFileFormat(listData);
   if (listError) throw new Error(listError);
 
-  const detailError = validateDetailFileFormat(detailData);
-  if (detailError) throw new Error(detailError);
+  let detailData: any[][] | null = null;
+  if (surgicalDetailFile) {
+    // 2. Đọc file Chi tiết PT
+    const detailBuffer = await surgicalDetailFile.arrayBuffer();
+    const detailWorkbook = XLSX.read(detailBuffer);
+    const detailSheet = detailWorkbook.Sheets[detailWorkbook.SheetNames[0]];
+    detailData = XLSX.utils.sheet_to_json(detailSheet, {
+      header: 1,
+    }) as any[][];
 
-  // Validate date range matching: A5 of list file (index 4) should match A3 of detail file (index 2)
-  const listDateRange = String(listData?.[4]?.[0] ?? "").trim();
-  const detailDateRange = String(detailData?.[2]?.[0] ?? "").trim();
-
-  if (!listDateRange || !detailDateRange) {
-    throw new Error("Không tìm thấy thông tin thời gian trong file. Vui lòng kiểm tra lại định dạng file.");
+    const detailError = validateDetailFileFormat(detailData);
+    if (detailError) throw new Error(detailError);
   }
 
-  if (listDateRange !== detailDateRange) {
-    throw new Error(`Thời gian của 2 file không khớp nhau:\n- Danh sách PT: "${listDateRange}"\n- Chi tiết PT: "${detailDateRange}"\n\nVui lòng xuất lại 2 file với cùng khoảng thời gian.`);
+  // Extract date range from A5 of list file (index 4)
+  const listDateRange = String(listData?.[4]?.[0] ?? "").trim();
+  if (!listDateRange) {
+    throw new Error("Không tìm thấy thông tin thời gian trong file Danh sách PT.");
   }
 
   // Extract dateRangeText for display
   const dateRangeText = listDateRange;
 
+  if (surgicalDetailFile && detailData) {
+    const detailDateRange = String(detailData?.[2]?.[0] ?? "").trim();
+    if (!detailDateRange) {
+      throw new Error("Không tìm thấy thông tin thời gian trong file Chi tiết PT.");
+    }
+
+    if (listDateRange !== detailDateRange) {
+      throw new Error(`Thời gian của 2 file không khớp nhau:\n- Danh sách PT: "${listDateRange}"\n- Chi tiết PT: "${detailDateRange}"\n\nVui lòng xuất lại 2 file với cùng khoảng thời gian.`);
+    }
+  }
+
   // 3. Tạo map KEY → Máy
-  const machineMap = buildMachineMap(detailData);
+  const machineMap = detailData ? buildMachineMap(detailData) : new Map<string, string>();
 
   // 4. Xử lý danh sách PT thành records chuẩn
   const records = processListData(listData, machineMap);
@@ -728,7 +739,7 @@ export async function processSurgicalFiles(
   };
 
   // C2
-  XLSX.utils.sheet_add_aoa(wsMain, [["BỆNH VIỆN ĐA KHOA THUỶ NGUYÊN"]], { origin: "C2" });
+  XLSX.utils.sheet_add_aoa(wsMain, [[(config.hospitalName || "BỆNH VIỆN ĐA KHOA THỦY NGUYÊN").toUpperCase()]], { origin: "C2" });
   wsMain["C2"].s = {
     font: { bold: true },
     alignment: { horizontal: "center", vertical: "center", wrapText: false }
@@ -1025,17 +1036,76 @@ export async function processSurgicalFiles(
   }
 
   // --- GOM DỮ LIỆU NHÂN VIÊN ---
-  function collectThanhToanData_New(records: SurgeryRecord[]) {
-    const map = new Map<string, Record<string, number>>();
+  function collectThanhToanData_New(records: SurgeryRecord[], config: AppConfig) {
+    const map = new Map<string, { values: Record<string, number>, taxId: string, department: string, bestRoleWeight: number, bestSubRoleWeight: number }>();
+
+    const ROLE_WEIGHTS: Record<string, number> = {
+      "Chính": 1,
+      "Phụ": 2,
+      "Giúp việc": 3
+    };
+
+    const SUB_ROLE_WEIGHTS: Record<string, number> = {
+      "KTV GM": 1,
+      "TDC": 2,
+      "GV": 3
+    };
+
+    function getDerivedPosition(roleLabel: string): string {
+      if (roleLabel === "PT Chính" || roleLabel === "PT Phụ") return "BS PT";
+      if (roleLabel === "BS GM") return "BS GMHS";
+      if (roleLabel === "KTV GM" || roleLabel === "TDC" || roleLabel === "GV") return "Phụ";
+      return "";
+    }
 
     function add(name: string | undefined, role: string, loai: string, sl: number, roleLabel: string) {
       if (!name || !loai) return;
+
+      const derivedPos = getDerivedPosition(roleLabel);
+      const staffList = config.staffList || [];
+      const currentRoleWeight = ROLE_WEIGHTS[role] || 99;
+      const currentSubRoleWeight = SUB_ROLE_WEIGHTS[roleLabel] || 99;
+
+      // Tìm nhân viên khớp cả tên và vị trí đã định nghĩa
+      const matchedStaff = staffList.find(s => s.name === name && s.position === derivedPos);
+
+      // Key cho bảng thanh toán: Kết hợp Tên và Vị trí thực tế để tách dòng nếu trùng tên
+      const staffKey = `${name}|${derivedPos}`;
       registerStaffAppearance(name, roleLabel);
-      if (!map.has(name)) map.set(name, {});
-      const bucket = map.get(name)!;
+
+      if (!map.has(staffKey)) {
+        map.set(staffKey, {
+          values: {},
+          taxId: matchedStaff?.taxId || "",
+          department: matchedStaff?.department || "",
+          bestRoleWeight: currentRoleWeight,
+          bestSubRoleWeight: currentSubRoleWeight
+        });
+      }
+
+      const item = map.get(staffKey)!;
       const key = `${loai}-${role}`;
-      bucket[key] = (bucket[key] || 0) + (Number(sl) || 0);
+      item.values[key] = (item.values[key] || 0) + (Number(sl) || 0);
+
+      // Cập nhật vai trò "xịn" nhất của nhân viên này trong đợt này
+      if (currentRoleWeight < item.bestRoleWeight) {
+        item.bestRoleWeight = currentRoleWeight;
+      }
+      if (currentSubRoleWeight < item.bestSubRoleWeight) {
+        item.bestSubRoleWeight = currentSubRoleWeight;
+      }
     }
+
+    const POS_WEIGHTS: Record<string, number> = {
+      "BS PT": 1,
+      "BS GMHS": 2,
+      "Phụ": 3
+    };
+
+    const departmentOrder = new Map<string, number>();
+    (config.departments || []).forEach((dept, idx) => {
+      departmentOrder.set(dept, idx);
+    });
 
     for (const r of records) {
       const loai = r.loaiPTTT;
@@ -1050,8 +1120,58 @@ export async function processSurgicalFiles(
     }
 
     return Array.from(map.entries())
-      .map(([name, values]) => ({ name, values, order: staffOrder.get(name) ?? 999999 }))
-      .sort((a, b) => a.order - b.order);
+      .map(([staffKey, item]) => {
+        const [name, derivedPos] = staffKey.split('|');
+        const totalQty = Object.values(item.values).reduce((sum, val) => sum + val, 0);
+        return {
+          name,
+          derivedPos,
+          taxId: item.taxId,
+          department: item.department,
+          values: item.values,
+          bestRoleWeight: item.bestRoleWeight,
+          bestSubRoleWeight: item.bestSubRoleWeight,
+          totalQty
+        };
+      })
+      .sort((a, b) => {
+        // Level 1: Position (BS PT > BS GMHS > Phụ)
+        const posA = POS_WEIGHTS[a.derivedPos] || 99;
+        const posB = POS_WEIGHTS[b.derivedPos] || 99;
+        if (posA !== posB) return posA - posB;
+
+        // Level 2: Department Order (STT trong danh mục khoa)
+        let weightA = departmentOrder.get(a.department) ?? 999;
+        let weightB = departmentOrder.get(b.department) ?? 999;
+
+        // Đặc biệt cho nhóm "Phụ": Khoa GMHS đứng đầu (vị trí -1)
+        if (a.derivedPos === "Phụ" && a.department === "GMHS") weightA = -1;
+        if (b.derivedPos === "Phụ" && b.department === "GMHS") weightB = -1;
+
+        if (weightA !== weightB) return weightA - weightB;
+
+        // Level 3: Pricing Role Weight (Chính > Phụ > Giúp việc)
+        if (a.bestRoleWeight !== b.bestRoleWeight) {
+          return a.bestRoleWeight - b.bestRoleWeight;
+        }
+
+        // Level 4 (Riêng cho nhóm Phụ): Sub-role (KTV GMHS > Tít DC > GV)
+        if (a.derivedPos === "Phụ" && a.bestSubRoleWeight !== b.bestSubRoleWeight) {
+          return a.bestSubRoleWeight - b.bestSubRoleWeight;
+        }
+
+        // Level 5: Total Quantity Descending (Ưu tiên người làm nhiều hơn)
+        if (a.totalQty !== b.totalQty) {
+          return b.totalQty - a.totalQty;
+        }
+
+        // Level 6: Name (alphabetical)
+        return a.name.localeCompare(b.name, 'vi');
+      })
+      .map((row, idx, arr) => {
+        const isNewDept = idx === 0 || row.department !== arr[idx - 1].department;
+        return { ...row, isNewDept };
+      });
   }
 
   // --- Tạo danh sách cột ---
@@ -1073,14 +1193,14 @@ export async function processSurgicalFiles(
 
   // ===== Ghi dữ liệu nhân viên (KHÔNG ghi đơn giá lúc này) =====
   let dongGiaRow = rowStart + 2;          // vị trí dành cho đơn giá (row 9)
-  const ttData = collectThanhToanData_New(records);
+  const ttData = collectThanhToanData_New(records, config);
 
   let dataRow = dongGiaRow + 1;           // dữ liệu nhân viên bắt đầu từ row 10
   let stt = 1;
 
   // ghi các hàng nhân viên: giá trị quantities tương ứng với COLS cố định (chưa rút gọn)
   for (const it of ttData) {
-    const rowVals: any[] = [stt++, it.name];
+    const rowVals: any[] = [stt++, it.department, it.taxId, it.name];
     for (const colKey of COLS) rowVals.push(it.values[colKey] ?? 0);
     // không ghi cột TỔNG bây giờ (sẽ thêm sau)
     XLSX.utils.sheet_add_aoa(ws, [rowVals], { origin: `A${dataRow}` });
@@ -1117,8 +1237,8 @@ export async function processSurgicalFiles(
   for (let i = COLS.length - 1; i >= 0; i--) {
     const total = totalsByCol[i];
     if (total === 0) {
-      // colIndex sheet (0-based) = 2 + i
-      deleteCol(ws, 2 + i);
+      // colIndex sheet (0-based) = 4 + i (vì có STT, KHOA, MST, HỌ TÊN)
+      deleteCol(ws, 4 + i);
     }
   }
 
@@ -1145,15 +1265,15 @@ export async function processSurgicalFiles(
   // colsStructure: mảng các nhóm, mỗi nhóm chứa { title, colspan, startColIndex }
   // Đồng thời chuẩn bị mảng roleHeaders cho hàng 2
 
-  const roleHeaders: string[] = ["STT", "HỌ TÊN"];
+  const roleHeaders: string[] = ["STT", "KHOA", "Mã số thuế", "HỌ TÊN"];
   const topHeaders: { title: string, startCol: number, endCol: number }[] = [];
 
-  // STT và HỌ TÊN là 2 cột đầu
-  // Ta sẽ merge hàng 1 và hàng 2 cho 2 cột này sau.
+  // STT, KHOA, MST và HỌ TÊN là 4 cột đầu
+  // Ta sẽ merge hàng 1 và hàng 2 cho 4 cột này sau.
 
   let currentGroup = "";
   let currentGroupStart = -1;
-  const colOffset = 2; // Cột bắt đầu dữ liệu (sau STT, HỌ TÊN)
+  const colOffset = 4; // Cột bắt đầu dữ liệu (sau STT, KHOA, MST, HỌ TÊN)
 
   for (let i = 0; i < COLS_RUTGON.length; i++) {
     const colKey = COLS_RUTGON[i];
@@ -1189,9 +1309,11 @@ export async function processSurgicalFiles(
   // 3. Ghi dữ liệu vào Sheet
 
   // -- Hàng 1 (Top Header) --
-  // Ghi STT, HỌ TÊN vào A7, B7 (rowStart) nhưng sẽ merge với A8, B8
+  // Ghi STT, KHOA, MST, HỌ TÊN vào A7-D7 (rowStart) nhưng sẽ merge với A8-D8
   ws[`A${rowStart}`] = { t: "s", v: "STT", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
-  ws[`B${rowStart}`] = { t: "s", v: "HỌ TÊN", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
+  ws[`B${rowStart}`] = { t: "s", v: "KHOA", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
+  ws[`C${rowStart}`] = { t: "s", v: "Mã số thuế", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
+  ws[`D${rowStart}`] = { t: "s", v: "HỌ TÊN", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
 
   // Ghi các nhóm
   topHeaders.forEach(grp => {
@@ -1240,20 +1362,22 @@ export async function processSurgicalFiles(
     };
   }
 
-  // Merge STT và HỌ TÊN (Row 7 & 8)
+  // Merge STT, KHOA, MST và HỌ TÊN (Row 7 & 8)
   ws["!merges"].push({ s: { r: rowStart - 1, c: 0 }, e: { r: rowStart, c: 0 } }); // A7-A8
   ws["!merges"].push({ s: { r: rowStart - 1, c: 1 }, e: { r: rowStart, c: 1 } }); // B7-B8
+  ws["!merges"].push({ s: { r: rowStart - 1, c: 2 }, e: { r: rowStart, c: 2 } }); // C7-C8
+  ws["!merges"].push({ s: { r: rowStart - 1, c: 3 }, e: { r: rowStart, c: 3 } }); // D7-D8
 
 
   // 4. Ghi hàng đơn giá (dongGiaRow đã được đặt đúng = rowStart + 2 = row 9)
   // Ghi hàng đơn giá lấy trực tiếp từ config
   const PRICE_CFG = config.priceConfig;
 
-  // Ghi header "Đơn giá" vào cột B
-  ws[`B${dongGiaRow}`] = { t: "s", v: "Đơn giá", s: { font: { italic: true }, alignment: { horizontal: "right" } } };
+  // Ghi header "Đơn giá" vào cột D (trước là C)
+  ws[`D${dongGiaRow}`] = { t: "s", v: "Đơn giá", s: { font: { italic: true }, alignment: { horizontal: "right" } } };
 
   for (let i = 0; i < COLS_RUTGON.length; i++) {
-    const colIndex = 2 + i; // zero-based index of column in sheet
+    const colIndex = 4 + i; // zero-based index of column in sheet (thay đổi từ 3 thành 4)
     const colLetter = XLSX.utils.encode_col(colIndex);
     const [loai, role] = (COLS_RUTGON[i] || "").split("-");
 
@@ -1281,7 +1405,7 @@ export async function processSurgicalFiles(
   const lastDataColLetter = (idx: number) => XLSX.utils.encode_col(idx);
 
   while (writeRow < dataRow) {
-    const firstDataColLetter = XLSX.utils.encode_col(2); // C
+    const firstDataColLetter = XLSX.utils.encode_col(4); // E (thay đổi từ 3 thành 4)
     const lastDataColLetterStr = XLSX.utils.encode_col(lastDataColIndex);
     // SUMPRODUCT( Crow:LastDataColrow , CdongGiaRow:LastDataColdongGiaRow )
     ws[`${totalColLetter}${writeRow}`] = {
@@ -1296,10 +1420,12 @@ export async function processSurgicalFiles(
   // ----------------------------------------------------------
   const totalRow = dataRow;
   ws[`A${totalRow}`] = { t: "s", v: "" };
-  ws[`B${totalRow}`] = { t: "s", v: "TỔNG" };
+  ws[`B${totalRow}`] = { t: "s", v: "" };
+  ws[`C${totalRow}`] = { t: "s", v: "" };
+  ws[`D${totalRow}`] = { t: "s", v: "TỔNG" };
 
   // SUM từng cột số lượng từ dongGiaRow+1 -> dataRow -1
-  for (let c = 2; c <= lastDataColIndex; c++) {
+  for (let c = 4; c <= lastDataColIndex; c++) {
     const colL = XLSX.utils.encode_col(c);
     ws[`${colL}${totalRow}`] = {
       t: "n",
@@ -1308,7 +1434,7 @@ export async function processSurgicalFiles(
   }
 
   // SUMPRODUCT dòng tổng
-  const firstDataColLetterFinal = XLSX.utils.encode_col(2);
+  const firstDataColLetterFinal = XLSX.utils.encode_col(4); // E
   const lastDataColLetterFinal = XLSX.utils.encode_col(lastDataColIndex);
   ws[`${totalColLetter}${totalRow}`] = {
     t: "n",
@@ -1321,9 +1447,19 @@ export async function processSurgicalFiles(
     e: { r: totalRow - 1, c: totalColIndex }
   });
 
+  // Thiết lập độ rộng cột
+  ws["!cols"] = [
+    { wch: 4 },  // A: STT
+    { wch: 10 }, // B: KHOA
+    { wch: 11 }, // C: MST
+    { wch: 20 }, // D: HỌ TÊN
+    ...COLS_RUTGON.map(() => ({ wch: 8 })), // Các cột số lượng
+    { wch: 12 }  // Cột Thành tiền
+  ];
+
   // TIÊU ĐỀ PHÍA TRÊN
   XLSX.utils.sheet_add_aoa(ws, [["SỞ Y TẾ HẢI PHÒNG"]], { origin: "B1" });
-  XLSX.utils.sheet_add_aoa(ws, [["BỆNH VIỆN ĐA KHOA THUỶ NGUYÊN"]], { origin: "B2" });
+  XLSX.utils.sheet_add_aoa(ws, [[(config.hospitalName || "BỆNH VIỆN ĐA KHOA THỦY NGUYÊN").toUpperCase()]], { origin: "B2" });
 
   const midCol = XLSX.utils.encode_col(Math.floor((totalColIndex + 1) / 2));
   XLSX.utils.sheet_add_aoa(ws, [["BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT"]], { origin: `${midCol}3` });
@@ -1494,8 +1630,7 @@ export async function processSurgicalFiles(
     paymentData: {
       columns: COLS_RUTGON,
       rows: ttData.map(item => ({
-        name: item.name,
-        values: item.values,
+        ...item,
         total: COLS_RUTGON.reduce((sum, col) => sum + (item.values[col] || 0), 0)
       }))
     },

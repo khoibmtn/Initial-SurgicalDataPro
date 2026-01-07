@@ -22,6 +22,7 @@ interface PrintPreviewProps {
     extraHeaderRow?: React.ReactNode; // For Unit Price row in Payment
     extraFooterRow?: React.ReactNode; // For Totals in Payment
     customThead?: React.ReactNode; // For Grouped headers in Payment
+    hospitalName?: string; // NEW: Hospital Name from config
 }
 
 export const PrintPreview: React.FC<PrintPreviewProps> = ({
@@ -35,7 +36,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
     orientation, // NEW: Use prop instead of state
     extraHeaderRow,
     extraFooterRow,
-    customThead
+    customThead,
+    hospitalName = "BỆNH VIỆN ĐA KHOA THỦY NGUYÊN" // Default fallback
 }) => {
     // Auto-print when open
     React.useEffect(() => {
@@ -61,7 +63,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
           /* Set page size based on provided orientation */
           @page { 
             size: A4 ${orientation}; 
-            margin: 10mm; 
+            margin: 1cm; 
           }
           body > *:not(.print-portal) { display: none !important; }
           .print-portal {
@@ -74,6 +76,25 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
             background: white;
             z-index: 9999;
           }
+          /* Ensure table fits page width */
+          table {
+            table-layout: auto;
+            width: 100% !important;
+            border-spacing: 0;
+            border-collapse: collapse;
+          }
+          td, th {
+            word-wrap: normal; /* Don't wrap unless forced */
+            overflow-wrap: normal;
+            padding: 2px 4px !important;
+          }
+          /* Specific widths for print - tightly fit content */
+          .col-stt { width: 25px; }
+          .col-dept { width: 1%; white-space: nowrap; }
+          .col-tax { width: 1%; white-space: nowrap; }
+          .col-name { white-space: nowrap; }
+          .col-total { width: 1%; white-space: nowrap; font-weight: bold; }
+          .col-numeric { width: 1%; white-space: nowrap; }
         }
         /* Hide on screen */
         .print-portal { display: none; }
@@ -82,50 +103,68 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
             <div className="print-content w-full h-full">
 
                 {/* REPORT HEADER */}
-                <div className="mb-6">
+                <div className="mb-4">
                     {/* Hospital Name */}
-                    <div className="inline-block text-center text-sm font-bold uppercase leading-relaxed mb-2">
+                    <div className="inline-block text-center text-sm font-bold uppercase leading-relaxed mb-1">
                         <p>SỞ Y TẾ HẢI PHÒNG</p>
-                        <p>BỆNH VIỆN ĐA KHOA THỦY NGUYÊN</p>
+                        <p>{hospitalName}</p>
                         <div className="bg-black h-[1px] w-1/3 mx-auto mt-0.5"></div>
                     </div>
 
                     {/* Title */}
                     <div className="text-center w-full">
-                        <h1 className="text-xl font-bold uppercase mb-1">{title}</h1>
-                        <p className="text-sm italic">{dateRange}</p>
+                        <h1 className="text-xl font-bold uppercase mb-0.5 whitespace-nowrap">{title}</h1>
+                        <p className="text-[11px] italic">{dateRange}</p>
                     </div>
                 </div>
 
                 {/* TABLE */}
-                <table className="w-full border-collapse border border-black text-[11px] font-[Times_New_Roman]">
+                <table className="w-full border-collapse border border-black text-[10px] font-[Times_New_Roman]">
                     {customThead ? customThead : (
                         <thead>
                             <tr className="bg-gray-100 print:bg-transparent">
-                                <th className="border border-black px-2 py-2 text-center w-[40px]">STT</th>
-                                {columns.map((col) => (
-                                    <th key={col.key} className={`border border-black px-2 py-2 font-bold ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'}`} style={{ width: col.width }}>
-                                        {col.label}
-                                    </th>
-                                ))}
+                                <th className="border border-black text-center col-stt">STT</th>
+                                {columns.map((col) => {
+                                    let extraClass = "";
+                                    if (col.key === 'taxId') extraClass = "col-tax";
+                                    if (col.key === 'name') extraClass = "col-name";
+                                    if (col.key === 'total_amount') extraClass = "col-total";
+                                    return (
+                                        <th key={col.key} className={`border border-black font-bold ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${extraClass}`} style={{ width: col.width }}>
+                                            {col.label}
+                                        </th>
+                                    );
+                                })}
                             </tr>
                         </thead>
                     )}
                     <tbody>
                         {extraHeaderRow}
-                        {data.map((row, idx) => (
-                            <tr key={idx} className="break-inside-avoid">
-                                {!customThead && <td className="border border-black px-2 py-1 text-center">{idx + 1}</td>}
+                        {data.map((row, idx) => {
+                            const isFirstRowOverall = idx === 0;
+                            const deptBorderClass = row.isNewDept && !isFirstRowOverall ? 'border-t-2 border-t-black' : '';
 
-                                {customThead && <td className="border border-black px-2 py-1 text-center">{idx + 1}</td>}
+                            return (
+                                <tr key={idx} className="break-inside-avoid border-b border-black">
+                                    <td className={`border border-black text-center col-stt ${deptBorderClass}`}>{idx + 1}</td>
 
-                                {columns.map((col) => (
-                                    <td key={col.key} className={`border border-black px-2 py-1 ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${col.className || ''}`}>
-                                        {col.render ? col.render(row) : (row[col.key] || '')}
-                                    </td>
-                                ))}
-                            </tr>
-                        ))}
+                                    {columns.map((col) => {
+                                        let extraClass = "";
+                                        if (col.key === 'department') extraClass = "col-dept";
+                                        if (col.key === 'taxId') extraClass = "col-tax";
+                                        if (col.key === 'name') extraClass = "col-name";
+                                        if (col.key === 'total_amount') extraClass = "col-total";
+                                        if (col.key === 'total_qty' || col.key.startsWith('val_')) extraClass = "col-numeric";
+
+                                        return (
+                                            <td key={col.key} className={`border border-black ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${col.className || ''} ${deptBorderClass} ${extraClass}`}>
+                                                {col.render ? col.render(row) : (row[col.key] || '')}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
                         {extraFooterRow}
                     </tbody>
                 </table>
