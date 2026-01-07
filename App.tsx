@@ -33,11 +33,49 @@ import {
   FileText,
   CreditCard,
   RefreshCw,
-  CheckCircle2
+  CheckCircle2,
+  Search
 } from 'lucide-react';
 import { format, parse, isValid } from 'date-fns';
 
-// --- Types & Interfaces ---
+// --- Helper: Sequential Search Logic ---
+const matchSearchQuery = (row: any, query: string, searchableCols: Record<string, boolean> | undefined, columns: ColumnDef<any>[], timeRules?: any) => {
+  if (!query) return true;
+  const words = query.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return true;
+
+  const regexStr = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+  let regex: RegExp;
+  try {
+    regex = new RegExp(regexStr, 'i');
+  } catch (e) {
+    return true;
+  }
+
+  return columns.some(col => {
+    if (searchableCols && searchableCols[col.key] === false) return false;
+
+    let value = '';
+
+    if (col.key === 'reason' && timeRules) {
+      const minRule = timeRules[row.loaiPTTT]?.min;
+      value = (minRule && row.timeMinutes < minRule) ? `< ${minRule}p` : '';
+    } else if (col.render) {
+      const rendered = col.render(row);
+      if (typeof rendered === 'string') {
+        value = rendered;
+      } else if (typeof rendered === 'number') {
+        value = String(rendered);
+      } else {
+        value = String(row[col.key] || '');
+      }
+    } else {
+      value = String(row[col.key] || '');
+    }
+
+    return regex.test(value);
+  });
+};
 
 interface ColumnDef<T> {
   key: string;
@@ -124,6 +162,11 @@ interface DynamicTableProps<T> {
   extraFooterRow?: React.ReactNode;
   customThead?: React.ReactNode;
   rowCountLabel?: string; // Custom label for row count (e.g., "20 ca PT, 15 ca TT")
+  searchTerm?: string;
+  onSearchChange?: (val: string) => void;
+  searchableCols?: Record<string, boolean>;
+  onSearchableColsChange?: (cols: Record<string, boolean>) => void;
+  showSearchSettings?: boolean;
 }
 
 const DynamicTable = <T extends Record<string, any>>({
@@ -140,12 +183,19 @@ const DynamicTable = <T extends Record<string, any>>({
   extraHeaderRow,
   extraFooterRow,
   customThead,
-  rowCountLabel
+  rowCountLabel,
+  searchTerm,
+  onSearchChange,
+  searchableCols,
+  onSearchableColsChange,
+  showSearchSettings
 }: DynamicTableProps<T>) => {
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({});
   const [isColDropdownOpen, setIsColDropdownOpen] = useState(false);
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
   const colDropdownRef = useRef<HTMLDivElement>(null);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
   const dateDropdownRef = useRef<HTMLDivElement>(null);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -175,6 +225,23 @@ const DynamicTable = <T extends Record<string, any>>({
   const startIndex = (currentPage - 1) * rowsPerPage;
   const currentData = data.slice(startIndex, startIndex + rowsPerPage);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (colDropdownRef.current && !colDropdownRef.current.contains(event.target as Node)) {
+        setIsColDropdownOpen(false);
+      }
+      if (searchDropdownRef.current && !searchDropdownRef.current.contains(event.target as Node)) {
+        setIsSearchDropdownOpen(false);
+      }
+      if (dateDropdownRef.current && !dateDropdownRef.current.contains(event.target as Node)) {
+        setIsDateDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   useEffect(() => { setCurrentPage(1); }, [data]);
 
   const handlePageChange = (newPage: number) => {
@@ -188,11 +255,81 @@ const DynamicTable = <T extends Record<string, any>>({
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col font-inter w-full">
       <div className="p-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-          <ListChecks className="h-4 w-4 text-indigo-600" />
-          {tableName}
-          <span className="text-[10px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{rowCountLabel || `${data.length} dòng`}</span>
-        </h3>
+        {onSearchChange !== undefined ? (
+          <div className="flex items-center gap-3 flex-1 max-w-md">
+            <span className="text-sm font-bold text-gray-700 whitespace-nowrap flex items-center gap-2">
+              Tìm kiếm:
+            </span>
+            <div className="relative flex-1 flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={searchTerm || ""}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder="Nhập nội dung cần tìm..."
+                  className="w-full pl-9 pr-4 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none shadow-sm transition-all"
+                />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                {searchTerm && (
+                  <button
+                    onClick={() => onSearchChange("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {showSearchSettings && onSearchableColsChange && (
+                <div className="flex items-center gap-2">
+                  <div className="relative" ref={searchDropdownRef}>
+                    <button
+                      onClick={() => setIsSearchDropdownOpen(!isSearchDropdownOpen)}
+                      title="Lựa chọn những cột để tìm kiếm"
+                      className={`p-1.5 rounded-lg border transition-all ${isSearchDropdownOpen ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-white text-gray-400 border-gray-200 hover:text-indigo-600 hover:border-indigo-300'}`}
+                    >
+                      <Settings className="h-4 w-4" />
+                    </button>
+                    {isSearchDropdownOpen && (
+                      <div className="absolute left-0 top-full mt-2 w-64 bg-white rounded shadow-xl border border-gray-100 z-50 p-2 max-h-[300px] overflow-y-auto">
+                        <div className="text-[10px] font-bold text-gray-400 uppercase mb-2 px-2 flex justify-between items-center">
+                          <span>Cột tìm kiếm</span>
+                          <Search className="h-2.5 w-2.5" />
+                        </div>
+                        {columns.map(col => (
+                          <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 rounded cursor-pointer group">
+                            <input
+                              type="checkbox"
+                              checked={searchableCols?.[col.key] !== false}
+                              onChange={() => {
+                                const newCols = { ...searchableCols };
+                                newCols[col.key] = !(searchableCols?.[col.key] !== false);
+                                onSearchableColsChange(newCols);
+                              }}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-3 w-3"
+                            />
+                            <span className="text-xs text-gray-700 group-hover:text-indigo-600 transition-colors">{col.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {searchTerm && (
+                    <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 whitespace-nowrap animate-in fade-in slide-in-from-left-2">
+                      Có {data.length} kết quả
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
+            <ListChecks className="h-4 w-4 text-indigo-600" />
+            {tableName}
+            <span className="text-[10px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{rowCountLabel || `${data.length} dòng`}</span>
+          </h3>
+        )}
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-500 hidden md:inline-block mr-2">Lựa chọn định dạng thời gian và chọn cột cần hiển thị</span>
@@ -304,10 +441,15 @@ const InnerApp: React.FC = () => {
   const dateFormat = config.uiSettings?.dateFormat || 'dd/mm/yyyy hh:mm';
   const visibleCols = config.uiSettings?.visibleColumns || {};
 
+  const searchableCols = config.uiSettings?.searchableColumns || {};
+
   const updateRowsPerPage = (n: number) => updateConfig({ uiSettings: { ...config.uiSettings, rowsPerPage: n } });
   const updateDateFormat = (f: string) => updateConfig({ uiSettings: { ...config.uiSettings, dateFormat: f } });
   const updateVisibleCols = (table: string, cols: Record<string, boolean>) => {
     updateConfig({ uiSettings: { ...config.uiSettings, visibleColumns: { ...config.uiSettings.visibleColumns, [table]: cols } } });
+  };
+  const updateSearchableCols = (table: string, cols: Record<string, boolean>) => {
+    updateConfig({ uiSettings: { ...config.uiSettings, searchableColumns: { ...(config.uiSettings?.searchableColumns || {}), [table]: cols } } });
   };
 
   // State
@@ -317,6 +459,16 @@ const InnerApp: React.FC = () => {
   const [listFile, setListFile] = useState<File | null>(null);
   const [detailFile, setDetailFile] = useState<File | null>(null);
   const [activeTable, setActiveTable] = useState<'list' | 'staff' | 'machine' | 'missing' | 'payment' | null>(null);
+  const [searchTerms, setSearchTerms] = useState({
+    list: '',
+    staff: '',
+    machine: '',
+    missing: '',
+    payment: ''
+  });
+  const updateSearchTerm = (key: keyof typeof searchTerms, val: string) => {
+    setSearchTerms(prev => ({ ...prev, [key]: val }));
+  };
   const [toasts, setToasts] = useState<{ id: string, message: string, type: 'error' | 'success' }[]>([]);
 
   const addToast = (message: string, type: 'error' | 'success') => {
@@ -394,6 +546,7 @@ const InnerApp: React.FC = () => {
       const res = await processSurgicalFiles(listFile, detailFile, config);
       setStats(res.stats);
       setResult(res);
+      setActiveTable('list');
       // Only show success toast if it's the first time processing or both files are present
       if (detailFile) {
         addToast("Xử lý dữ liệu thành công với đầy đủ mã máy.", 'success');
@@ -444,6 +597,15 @@ const InnerApp: React.FC = () => {
       return minTime && r.timeMinutes < minTime;
     }).length;
   }, [result?.validRecords, config.timeRules]);
+
+  // Split PT/TT counts for Tab UI
+  const { ptCount, ttCount } = useMemo(() => {
+    if (!result?.validRecords) return { ptCount: 0, ttCount: 0 };
+    return {
+      ptCount: result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length,
+      ttCount: result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length
+    };
+  }, [result?.validRecords]);
 
   // Combined stats from result and dynamic calculation
   const derivedStats = useMemo(() => {
@@ -631,28 +793,60 @@ const InnerApp: React.FC = () => {
     if (!result || !stats || !activeTable) return null;
 
     if (activeTable === 'list') {
+      const listSearchableCols = searchableCols['list'] || {
+        patientId: true, patientName: true, ngayBD: true, tenKT: true,
+        loaiPTTT: true, ptChinh: true, ptPhu: true, bsGM: true,
+        ktvGM: true, tdc: true, gv: true, reason: true
+      };
+      const filtered = result.validRecords.filter(r => matchSearchQuery(r, searchTerms.list, listSearchableCols, columnsList, config.timeRules));
       const rowStyle = (r: SurgeryRecord) => (config.timeRules[r.loaiPTTT]?.min && r.timeMinutes < config.timeRules[r.loaiPTTT].min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
       const ptCount = result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length;
       const ttCount = result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length;
       const countLabel = `${ptCount} ca PT, ${ttCount} ca TT`;
-      return <DynamicTable data={result.validRecords} columns={columnsList} tableName="Danh sách phẫu thuật" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['list']} onVisibleColsChange={(cols) => updateVisibleCols('list', cols)} rowStyle={rowStyle} rowCountLabel={countLabel} />;
+      return <DynamicTable
+        data={filtered}
+        columns={columnsList}
+        tableName="Danh sách phẫu thuật"
+        dateFormat={dateFormat}
+        onDateFormatChange={updateDateFormat}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={updateRowsPerPage}
+        defaultVisibleCols={visibleCols['list']}
+        onVisibleColsChange={(cols) => updateVisibleCols('list', cols)}
+        rowStyle={rowStyle}
+        rowCountLabel={countLabel}
+        searchTerm={searchTerms.list}
+        onSearchChange={(val) => updateSearchTerm('list', val)}
+        searchableCols={listSearchableCols}
+        onSearchableColsChange={(cols) => updateSearchableCols('list', cols)}
+        showSearchSettings
+      />;
     }
     if (activeTable === 'staff') {
+      const filtered = result.staffConflicts.filter(r => matchSearchQuery(r, searchTerms.staff, undefined, columnsStaff));
       const staffRowStyle = (r: StaffConflict) => r.violationType === 'max2' ? 'text-red-600 font-bold bg-red-50' : '';
-      return <DynamicTable data={result.staffConflicts} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} />;
+      return <DynamicTable data={filtered} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} />;
     }
     if (activeTable === 'machine') {
-      return <DynamicTable data={result.machineConflicts} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} />;
+      const filtered = result.machineConflicts.filter(r => matchSearchQuery(r, searchTerms.machine, undefined, columnsMachine));
+      return <DynamicTable data={filtered} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} />;
     }
     if (activeTable === 'missing') {
-      return <DynamicTable data={result.missingRecords || []} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} />;
+      const rawData = detailFile ? (result.missingRecords || []) : [];
+      const filtered = rawData.filter(r => matchSearchQuery(r, searchTerms.missing, undefined, columnsMissing));
+      return <DynamicTable data={filtered} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} />;
     }
     if (activeTable === 'payment') {
       if (!paymentDataPrepared) return null;
       const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentDataPrepared;
-
-
       const paymentCols = getPaymentColumns();
+      const paymentSearchableCols = { department: true, taxId: true, name: true };
+      const filtered = enrichedRows.filter((r: any) => matchSearchQuery(r, searchTerms.payment, paymentSearchableCols, paymentCols));
+
+      // Keep the existing CustomThead/ExtraHeader/ExtraFooter logic...
+      // I need to be careful with the context where they are defined.
+      // They are defined within renderTableContent but I truncated the view.
+      // I'll assume they are available if I use multi_replace_file_content carefully.
       const currentVisible = visibleCols['payment'] || {};
       const isVisible = (key: string) => currentVisible[key] !== false;
 
@@ -756,7 +950,7 @@ const InnerApp: React.FC = () => {
         </tr>
       );
 
-      return <DynamicTable data={enrichedRows} columns={paymentCols} tableName="Bảng Thanh toán phẫu thuật, thủ thuật" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['payment']} onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)} extraHeaderRow={ExtraHeader} extraFooterRow={ExtraFooter} customThead={CustomThead} />;
+      return <DynamicTable data={filtered} columns={paymentCols} tableName="Bảng Thanh toán phẫu thuật, thủ thuật" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['payment']} onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)} extraHeaderRow={ExtraHeader} extraFooterRow={ExtraFooter} customThead={CustomThead} searchTerm={searchTerms.payment} onSearchChange={(val) => updateSearchTerm('payment', val)} />;
     }
     return null;
   };
@@ -765,7 +959,18 @@ const InnerApp: React.FC = () => {
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printConfig, setPrintConfig] = useState<any>(null);
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
+  const printDropdownRef = useRef<HTMLDivElement>(null);
   const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('landscape');
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (printDropdownRef.current && !printDropdownRef.current.contains(event.target as Node)) {
+        setIsPrintDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handlePrintClick = (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
     setPrintOrientation(orientation);
@@ -954,6 +1159,7 @@ const InnerApp: React.FC = () => {
                         <span className="font-bold text-emerald-900 text-sm truncate">Chi tiết theo khoa</span>
                       </div>
                       <p className="text-emerald-700 text-xs ml-8">Báo cáo &rarr; BC CLS &rarr; Chi tiết PT theo khoa</p>
+                      <p className="text-red-700 font-bold text-xs ml-8 mt-1 select-none">Chọn nhóm theo thứ tự: Họ tên &rarr; Ngày làm &rarr; Máy làm</p>
                     </div>
                     <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-emerald-300">
                       <FileUpload label="" file={detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
@@ -1000,7 +1206,7 @@ const InnerApp: React.FC = () => {
                       </div>
                       <div className="flex gap-2 items-center">
                         {/* Print Dropdown */}
-                        <div className="relative">
+                        <div className="relative" ref={printDropdownRef}>
                           <button
                             onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
                             className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm"
@@ -1084,11 +1290,14 @@ const InnerApp: React.FC = () => {
                     </div>
 
                     {result.dateRangeText && (
-                      <p className="text-lg font-bold text-blue-800 text-center">
+                      <p className="text-lg font-bold text-blue-800 text-center mt-4">
                         {result.dateRangeText}
                       </p>
                     )}
 
+                    <div className="h-px bg-indigo-100/50 w-full my-6"></div>
+
+                    {/* Quick Stats Cards */}
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                       {/* Card 1: Tổng số PTTT */}
                       <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
@@ -1114,7 +1323,7 @@ const InnerApp: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Card 3: Trùng nhân viên - Always alert style */}
+                      {/* Card 3: Trùng nhân viên */}
                       <div className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 p-4 rounded-xl shadow-lg border-2 border-red-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
                         <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                         {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
@@ -1154,7 +1363,7 @@ const InnerApp: React.FC = () => {
                           <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-6 w-6" /></div>
                           <div>
                             <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
-                            <p className="text-3xl font-bold text-white">{derivedStats.missingMachines}</p>
+                            <p className="text-3xl font-bold text-white">{detailFile ? derivedStats.missingMachines : '--'}</p>
                           </div>
                         </div>
                       </div>
@@ -1175,110 +1384,123 @@ const InnerApp: React.FC = () => {
                         </div>
                       </div>
                     </div>
+                  </div>
 
-                    {/* Modern Tab Switcher - Segment Control Style */}
-                    <div className="relative bg-gradient-to-r from-gray-100 via-gray-50 to-gray-100 p-2 rounded-2xl shadow-inner border border-gray-200">
-                      <div className="flex flex-wrap justify-center gap-1">
-                        {/* Tab 1: DS Phẫu thuật */}
-                        <button
-                          onClick={() => setActiveTable('list')}
-                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'list'
-                            ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-lg shadow-indigo-300 scale-105 z-10'
-                            : 'bg-white/80 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 hover:shadow-md border border-transparent hover:border-indigo-200'
-                            }`}
-                        >
-                          <div className={`p-1.5 rounded-lg ${activeTable === 'list' ? 'bg-white/20' : 'bg-indigo-100'}`}>
-                            <ListChecks className="h-4 w-4" />
-                          </div>
-                          <span>DS Phẫu thuật</span>
-                          {activeTable === 'list' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                        </button>
-
-                        {/* Tab 2: Trùng giờ NV */}
-                        <button
-                          onClick={() => setActiveTable('staff')}
-                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'staff'
-                            ? 'bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg shadow-red-300 scale-105 z-10'
-                            : 'bg-white/80 text-gray-600 hover:bg-red-50 hover:text-red-700 hover:shadow-md border border-transparent hover:border-red-200'
-                            }`}
-                        >
-                          <div className={`p-1.5 rounded-lg ${activeTable === 'staff' ? 'bg-white/20' : 'bg-red-100'}`}>
-                            <Users className="h-4 w-4" />
-                          </div>
-                          <span>Trùng giờ NV</span>
-                          {stats.staffConflicts > 0 && (
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'staff' ? 'bg-white/30 text-white' : 'bg-red-600 text-white animate-pulse'
-                              }`}>{stats.staffConflicts}</span>
+                  {/* Modern Tab Switcher - Attached to content area */}
+                  <div className="flex flex-col mt-6">
+                    <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 gap-2 ${activeTable === 'list' ? 'border-b-indigo-600' :
+                      activeTable === 'staff' ? 'border-b-red-600' :
+                        activeTable === 'machine' ? 'border-b-orange-600' :
+                          activeTable === 'missing' ? 'border-b-amber-600' :
+                            'border-b-emerald-600'
+                      }`}>
+                      {/* Tab 1: DS Phẫu thuật */}
+                      <button
+                        onClick={() => setActiveTable('list')}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'list'
+                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          }`}
+                      >
+                        <ListChecks className={`h-4 w-4 ${activeTable === 'list' ? 'text-indigo-600' : ''}`} />
+                        <span>DS Phẫu thuật</span>
+                        <div className="flex items-center gap-1.5 ml-1">
+                          {ptCount > 0 && (
+                            <div className="flex items-center gap-1">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'list' ? 'bg-indigo-100 text-indigo-700' : 'bg-indigo-500 text-white'}`}>{ptCount}</span>
+                              <span className="text-[10px] opacity-70">PT</span>
+                            </div>
                           )}
-                          {activeTable === 'staff' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                        </button>
-
-                        {/* Tab 3: Trùng máy */}
-                        <button
-                          onClick={() => setActiveTable('machine')}
-                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'machine'
-                            ? 'bg-gradient-to-r from-orange-600 to-orange-500 text-white shadow-lg shadow-orange-300 scale-105 z-10'
-                            : 'bg-white/80 text-gray-600 hover:bg-orange-50 hover:text-orange-700 hover:shadow-md border border-transparent hover:border-orange-200'
-                            }`}
-                        >
-                          <div className={`p-1.5 rounded-lg ${activeTable === 'machine' ? 'bg-white/20' : 'bg-orange-100'}`}>
-                            <Zap className="h-4 w-4" />
-                          </div>
-                          <span>Trùng máy</span>
-                          {stats.machineConflicts > 0 && (
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'machine' ? 'bg-white/30 text-white' : 'bg-orange-600 text-white animate-pulse'
-                              }`}>{stats.machineConflicts}</span>
+                          {ttCount > 0 && (
+                            <div className="flex items-center gap-1">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'list' ? 'bg-indigo-100 text-indigo-700' : 'bg-indigo-500 text-white'}`}>{ttCount}</span>
+                              <span className="text-[10px] opacity-70">TT</span>
+                            </div>
                           )}
-                          {activeTable === 'machine' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                        </button>
+                        </div>
+                      </button>
 
-                        {/* Tab 4: Thiếu mã máy */}
-                        <button
-                          onClick={() => setActiveTable('missing')}
-                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'missing'
-                            ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-white shadow-lg shadow-amber-300 scale-105 z-10'
-                            : 'bg-white/80 text-gray-600 hover:bg-amber-50 hover:text-amber-700 hover:shadow-md border border-transparent hover:border-amber-200'
-                            }`}
-                        >
-                          <div className={`p-1.5 rounded-lg ${activeTable === 'missing' ? 'bg-white/20' : 'bg-amber-100'}`}>
-                            <AlertTriangle className="h-4 w-4" />
-                          </div>
-                          <span>Thiếu mã máy</span>
-                          {stats.missingMachines > 0 && (
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${activeTable === 'missing' ? 'bg-white/30 text-white' : 'bg-amber-600 text-white animate-pulse'
-                              }`}>{stats.missingMachines}</span>
-                          )}
-                          {activeTable === 'missing' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                        </button>
+                      {/* Tab 2: Trùng giờ NV */}
+                      <button
+                        onClick={() => setActiveTable('staff')}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'staff'
+                          ? 'bg-white text-red-700 border-red-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-red-600'
+                          }`}
+                      >
+                        <Users className={`h-4 w-4 ${activeTable === 'staff' ? 'text-red-600' : ''}`} />
+                        <span>Trùng giờ NV</span>
+                        {stats.staffConflicts > 0 && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'staff' ? 'bg-red-100 text-red-700' : 'bg-red-500 text-white'
+                            }`}>{stats.staffConflicts}</span>
+                        )}
+                      </button>
 
-                        {/* Tab 5: Bảng thanh toán */}
-                        <button
-                          onClick={() => setActiveTable('payment')}
-                          className={`relative flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all duration-300 ${activeTable === 'payment'
-                            ? 'bg-gradient-to-r from-emerald-600 to-green-500 text-white shadow-lg shadow-emerald-300 scale-105 z-10'
-                            : 'bg-white/80 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-md border border-transparent hover:border-emerald-200'
-                            }`}
-                        >
-                          <div className={`p-1.5 rounded-lg ${activeTable === 'payment' ? 'bg-white/20' : 'bg-emerald-100'}`}>
-                            <DollarSign className="h-4 w-4" />
-                          </div>
-                          <span>Bảng thanh toán</span>
-                          {activeTable === 'payment' && <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-white/10 to-transparent pointer-events-none"></div>}
-                        </button>
-                      </div>
+                      {/* Tab 3: Trùng máy */}
+                      <button
+                        onClick={() => setActiveTable('machine')}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'machine'
+                          ? 'bg-white text-orange-700 border-orange-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-orange-600'
+                          }`}
+                      >
+                        <Zap className={`h-4 w-4 ${activeTable === 'machine' ? 'text-orange-600' : ''}`} />
+                        <span>Trùng máy</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'machine' ? 'bg-orange-100 text-orange-700' : 'bg-orange-500 text-white'
+                          }`}>{stats.machineConflicts}</span>
+                      </button>
+
+                      {/* Tab 4: Thiếu mã máy */}
+                      <button
+                        onClick={() => setActiveTable('missing')}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'missing'
+                          ? 'bg-white text-amber-700 border-amber-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-amber-600'
+                          }`}
+                      >
+                        <AlertTriangle className={`h-4 w-4 ${activeTable === 'missing' ? 'text-amber-600' : ''}`} />
+                        <span>Thiếu mã máy</span>
+                        {stats.missingMachines > 0 && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'missing' ? 'bg-amber-100 text-amber-700' : 'bg-amber-500 text-white'
+                            }`}>{detailFile ? stats.missingMachines : '--'}</span>
+                        )}
+                      </button>
+
+                      {/* Tab 5: Bảng thanh toán */}
+                      <button
+                        onClick={() => setActiveTable('payment')}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'payment'
+                          ? 'bg-white text-emerald-700 border-emerald-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-emerald-600'
+                          }`}
+                      >
+                        <DollarSign className={`h-4 w-4 ${activeTable === 'payment' ? 'text-emerald-600' : ''}`} />
+                        <span>Bảng thanh toán PTTT</span>
+                        {paymentDataPrepared && paymentDataPrepared.enrichedRows.length > 0 && (
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'payment' ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500 text-white'
+                            }`}>{paymentDataPrepared.enrichedRows.length}</span>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className={`w-full animate-fade-in bg-white border-2 p-6 pb-12 rounded-b-xl relative z-10 ${activeTable === 'list' ? 'border-indigo-600' :
+                      activeTable === 'staff' ? 'border-red-600' :
+                        activeTable === 'machine' ? 'border-orange-600' :
+                          activeTable === 'missing' ? 'border-amber-600' :
+                            'border-emerald-600'
+                      }`}>
+                      {renderTableContent()}
                     </div>
                   </div>
-                </div>
-
-                <div className="w-full mt-6 animate-fade-in pb-12">
-                  {renderTableContent()}
                 </div>
               </>
             )}
           </div>
         )}
 
-        {activeTab === 'config' && <ConfigurationTab />}
+        {activeTab === 'config' && <ConfigurationTab onConfigUpdate={() => {
+          if (listFile) handleProcess();
+        }} />}
       </main>
     </div>
   );

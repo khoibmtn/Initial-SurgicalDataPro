@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight } from 'lucide-react';
+import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig, RolePrice, StaffMember } from '../contexts/ConfigContext';
 
@@ -49,10 +49,15 @@ const NumberInput: React.FC<{
     );
 };
 
-export const ConfigurationTab: React.FC = () => {
+interface ConfigurationTabProps {
+    onConfigUpdate?: () => void;
+}
+
+export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate }) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'machines' | 'staff'>('norms');
     const [newMachineName, setNewMachineName] = useState("");
+    const [editingMachineIndex, setEditingMachineIndex] = useState<number | null>(null);
     const [newDeptName, setNewDeptName] = useState("");
 
     // Section 2: Medical Staff State
@@ -63,6 +68,14 @@ export const ConfigurationTab: React.FC = () => {
         department: ""
     });
     const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(20);
+
+    // Section: Ignored Machines Search & Pagination
+    const [machineSearchQuery, setMachineSearchQuery] = useState("");
+    const [machineCurrentPage, setMachineCurrentPage] = useState(1);
+    const [machinePageSize, setMachinePageSize] = useState(20);
 
     if (!isLoaded) return <div>Loading config...</div>;
 
@@ -91,10 +104,107 @@ export const ConfigurationTab: React.FC = () => {
     };
 
     const handleAddMachineName = () => {
-        if (newMachineName.trim() && !config.ignoredMachineNames.includes(newMachineName.trim())) {
-            updateConfig({ ignoredMachineNames: [...config.ignoredMachineNames, newMachineName.trim()] });
-            setNewMachineName("");
+        if (!newMachineName.trim()) return;
+        const exists = config.ignoredMachineNames.includes(newMachineName.trim());
+        if (exists) {
+            alert("Tên phẫu thuật này đã có trong danh sách.");
+            return;
         }
+        const newNames = [...config.ignoredMachineNames, newMachineName.trim()];
+        updateConfig({ ignoredMachineNames: newNames });
+        setNewMachineName("");
+        if (onConfigUpdate) onConfigUpdate();
+    };
+
+    const handleEditMachineName = (index: number) => {
+        setEditingMachineIndex(index);
+        setNewMachineName(config.ignoredMachineNames[index]);
+    };
+
+    const handleSaveMachineName = () => {
+        if (editingMachineIndex === null || !newMachineName.trim()) return;
+        const oldName = config.ignoredMachineNames[editingMachineIndex];
+        const newName = newMachineName.trim();
+
+        if (confirm(`Bạn có muốn sửa phẫu thuật, thủ thuật:\n"${oldName}"\nThành tên mới:\n"${newName}"?`)) {
+            const newNames = [...config.ignoredMachineNames];
+            newNames[editingMachineIndex] = newName;
+            updateConfig({ ignoredMachineNames: newNames });
+            setEditingMachineIndex(null);
+            setNewMachineName("");
+            if (onConfigUpdate) onConfigUpdate();
+        }
+    };
+
+    const handleDeleteMachineName = (name: string) => {
+        if (confirm(`Bạn có chắc chắn muốn xóa "${name}" khỏi danh sách?`)) {
+            const newNames = config.ignoredMachineNames.filter(n => n !== name);
+            updateConfig({ ignoredMachineNames: newNames });
+            if (editingMachineIndex !== null && config.ignoredMachineNames[editingMachineIndex] === name) {
+                setEditingMachineIndex(null);
+                setNewMachineName("");
+            }
+            if (onConfigUpdate) onConfigUpdate();
+        }
+    };
+
+    const handleExportMachines = () => {
+        const machineNames = config.ignoredMachineNames || [];
+        const header = ["Tên Phẫu thuật/Thủ thuật (Bỏ qua kiểm tra máy)"];
+        const data = [header, ...machineNames.map(name => [name])];
+
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "PTTT_BoQuaMay");
+        XLSX.writeFile(wb, machineNames.length > 0 ? "DanhSach_PTTT_BoQuaMay.xlsx" : "Template_PTTT_BoQuaMay.xlsx");
+    };
+
+    const handleImportMachines = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const data = new Uint8Array(event.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+
+            let newMachineNames: string[] = [...(config.ignoredMachineNames || [])];
+            let addedCount = 0;
+
+            workbook.SheetNames.forEach(sheetName => {
+                const ws = workbook.Sheets[sheetName];
+                const rows: any[] = XLSX.utils.sheet_to_json(ws, { header: 1 });
+
+                if (rows.length > 0) {
+                    const headerRow = rows[0];
+                    const nameColIdx = headerRow.findIndex((h: any) =>
+                        String(h).toLowerCase().includes("tên phẫu thuật") ||
+                        String(h).toLowerCase().includes("tên pttt")
+                    );
+
+                    if (nameColIdx !== -1) {
+                        for (let i = 1; i < rows.length; i++) {
+                            const name = String(rows[i][nameColIdx] || "").trim();
+                            if (name && !newMachineNames.includes(name)) {
+                                newMachineNames.push(name);
+                                addedCount++;
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (addedCount > 0) {
+                updateConfig({ ignoredMachineNames: newMachineNames });
+                alert(`Đã import thành công ${addedCount} tên PTTT mới.`);
+                if (onConfigUpdate) onConfigUpdate();
+            } else {
+                alert("Không tìm thấy dữ liệu mới phù hợp trong file Excel.");
+            }
+            // Reset input
+            e.target.value = "";
+        };
+        reader.readAsArrayBuffer(file);
     };
 
     const SURGERY_TYPES = ["PĐB", "P1", "P2", "P3"];
@@ -102,6 +212,22 @@ export const ConfigurationTab: React.FC = () => {
 
     const getPrice = (loai: string, role: keyof RolePrice) => config.priceConfig[loai]?.[role] ?? 0;
     const getTime = (loai: string, field: 'min' | 'max') => config.timeRules[loai]?.[field] ?? 0;
+
+    // Logic: Ignored Machines Search & Pagination
+    const filteredMachines = (config.ignoredMachineNames || []).filter(name => {
+        if (!machineSearchQuery.trim()) return true;
+        return name.toLowerCase().includes(machineSearchQuery.toLowerCase().trim());
+    });
+
+    const totalMachinePages = Math.ceil(filteredMachines.length / machinePageSize);
+    const paginatedMachines = filteredMachines.slice(
+        (machineCurrentPage - 1) * machinePageSize,
+        machineCurrentPage * machinePageSize
+    );
+
+    useEffect(() => {
+        setMachineCurrentPage(1);
+    }, [machineSearchQuery]);
 
     // Helper to save staff without necessarily resetting the form
     const internalSaveStaff = (currentStaffForm: Omit<StaffMember, 'id'>, currentEditingId: string | null) => {
@@ -144,6 +270,33 @@ export const ConfigurationTab: React.FC = () => {
         setEditingStaffId(staff.id);
     };
 
+    const getFilteredStaff = () => {
+        const staffList = config.staffList || [];
+        if (!searchQuery.trim()) return staffList;
+
+        const words = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+
+        return staffList.filter(s => {
+            const combinedText = `${s.name} ${s.position} ${s.taxId} ${s.department}`.toLowerCase();
+            let lastIdx = -1;
+            for (const word of words) {
+                const idx = combinedText.indexOf(word, lastIdx + 1);
+                if (idx === -1) return false;
+                lastIdx = idx;
+            }
+            return true;
+        });
+    };
+
+    const filteredStaffList = getFilteredStaff();
+    const totalPages = Math.ceil(filteredStaffList.length / pageSize);
+    const paginatedStaff = filteredStaffList.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+    // Reset to page 1 when search query changes
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchQuery]);
+
     const handleNextStaff = () => {
         const staffList = config.staffList || [];
         if (staffList.length === 0) return;
@@ -160,18 +313,34 @@ export const ConfigurationTab: React.FC = () => {
             }
         }
 
-        // 2. Find next index based on potential new ID after save
+        // 2. Filter list for "Next" navigation
+        const currentFiltered = searchQuery.trim() ? currentList.filter(s => {
+            const combinedText = `${s.name} ${s.position} ${s.taxId} ${s.department}`.toLowerCase();
+            const words = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+            let lastIdx = -1;
+            for (const word of words) {
+                const idx = combinedText.indexOf(word, lastIdx + 1);
+                if (idx === -1) return false;
+                lastIdx = idx;
+            }
+            return true;
+        }) : currentList;
+
+        // 3. Find next index
         let nextIdx = 0;
         if (currentId) {
-            const currentIdx = currentList.findIndex(s => s.id === currentId);
-            if (currentIdx !== -1 && currentIdx < currentList.length - 1) {
+            const currentIdx = currentFiltered.findIndex(s => s.id === currentId);
+            if (currentIdx !== -1 && currentIdx < currentFiltered.length - 1) {
                 nextIdx = currentIdx + 1;
             } else {
                 nextIdx = 0;
             }
         }
 
-        handleEditStaff(currentList[nextIdx]);
+        if (currentFiltered.length > 0) {
+            handleEditStaff(currentFiltered[nextIdx]);
+            // Ensure next record is on the visible page? (Optional refinement)
+        }
     };
 
     const handleDeleteStaff = (id: string) => {
@@ -272,42 +441,51 @@ export const ConfigurationTab: React.FC = () => {
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden min-h-[600px] flex flex-col font-inter text-sm max-w-6xl mx-auto w-full">
 
             {/* Tab Navigation */}
-            <div className="flex relative">
+            <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 ${activeSubTab === 'norms'
+                ? 'border-b-indigo-600'
+                : activeSubTab === 'machines'
+                    ? 'border-b-emerald-600'
+                    : 'border-b-blue-600'
+                }`}>
                 <button
                     onClick={() => setActiveSubTab('norms')}
-                    className={`flex-1 py-4 text-sm font-bold text-center transition-all border-t-2 border-l border-r ${activeSubTab === 'norms'
-                        ? 'bg-indigo-600 text-white border-t-indigo-400 border-l-indigo-300 border-r-indigo-300'
-                        : 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200 border-b border-b-indigo-300'
+                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'norms'
+                        ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm'
+                        : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
                         }`}
                 >
-                    Định mức bàn mổ, thời gian, phụ cấp PTTT
+                    <ClipboardList className={`h-4 w-4 ${activeSubTab === 'norms' ? 'text-indigo-600' : ''}`} />
+                    Định mức & Phụ cấp
                 </button>
                 <button
                     onClick={() => setActiveSubTab('machines')}
-                    className={`flex-1 py-4 text-sm font-bold text-center transition-all border-t-2 border-l border-r ${activeSubTab === 'machines'
-                        ? 'bg-emerald-600 text-white border-t-emerald-400 border-l-emerald-300 border-r-emerald-300'
-                        : 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 border-b border-b-emerald-300'
+                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'machines'
+                        ? 'bg-white text-emerald-700 border-emerald-600 z-30 shadow-sm'
+                        : 'bg-transparent text-gray-400 border-transparent hover:text-emerald-600'
                         }`}
                 >
-                    Danh sách PTTT không sử dụng máy
+                    <Activity className={`h-4 w-4 ${activeSubTab === 'machines' ? 'text-emerald-600' : ''}`} />
+                    PTTT không dùng máy
                 </button>
                 <button
                     onClick={() => setActiveSubTab('staff')}
-                    className={`flex-1 py-4 text-sm font-bold text-center transition-all border-t-2 border-l border-r ${activeSubTab === 'staff'
-                        ? 'bg-blue-600 text-white border-t-blue-400 border-l-blue-300 border-r-blue-300'
-                        : 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200 border-b border-b-blue-300'
+                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'staff'
+                        ? 'bg-white text-blue-700 border-blue-600 z-30 shadow-sm'
+                        : 'bg-transparent text-gray-400 border-transparent hover:text-blue-600'
                         }`}
                 >
-                    Danh sách NVYT
+                    <Users className={`h-4 w-4 ${activeSubTab === 'staff' ? 'text-blue-600' : ''}`} />
+                    Thông tin hành chính, nhân sự
                 </button>
             </div>
 
             {/* Content area */}
-            <div className={`p-6 flex-1 overflow-y-auto ${activeSubTab === 'norms'
-                ? 'bg-gradient-to-b from-indigo-100 via-indigo-50 to-white border-l border-r border-b border-indigo-300 rounded-b-xl'
+            <div className={`p-6 flex-1 overflow-y-auto bg-white border-2 rounded-b-xl z-10 ${activeSubTab === 'norms'
+                ? 'border-indigo-600'
                 : activeSubTab === 'machines'
-                    ? 'bg-gradient-to-b from-emerald-100 via-emerald-50 to-white border-l border-r border-b border-emerald-300 rounded-b-xl'
-                    : 'bg-gradient-to-b from-blue-100 via-blue-50 to-white border-l border-r border-b border-blue-300 rounded-b-xl'}`}>
+                    ? 'border-emerald-600'
+                    : 'border-blue-600'
+                }`}>
 
                 {activeSubTab === 'norms' && (
                     <div className="animate-fade-in">
@@ -490,44 +668,178 @@ export const ConfigurationTab: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="max-w-2xl">
-                            <h4 className="font-bold text-gray-900 mb-3">Danh sách tên PTTT bỏ qua kiểm tra máy</h4>
-                            <div className="flex gap-2 mb-4">
-                                <input
-                                    type="text"
-                                    value={newMachineName}
-                                    onChange={(e) => setNewMachineName(e.target.value)}
-                                    placeholder="Nhập tên PTTT..."
-                                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                                    onKeyDown={(e) => e.key === 'Enter' && handleAddMachineName()}
-                                />
-                                <button
-                                    onClick={handleAddMachineName}
-                                    disabled={!newMachineName.trim()}
-                                    className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700"
-                                >
-                                    <Plus className="h-4 w-4 inline mr-1" /> Thêm
-                                </button>
+                        <div>
+                            <div className="flex items-center justify-between mb-4">
+                                <h4 className="font-bold text-gray-900">Danh sách tên PTTT bỏ qua kiểm tra máy</h4>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleExportMachines}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-white border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-all shadow-sm"
+                                    >
+                                        <Download className="h-3.5 w-3.5" /> Xuất Excel
+                                    </button>
+                                    <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 cursor-pointer transition-all shadow-sm">
+                                        <Upload className="h-3.5 w-3.5" /> Import Excel
+                                        <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportMachines} />
+                                    </label>
+                                </div>
                             </div>
 
-                            <div className="bg-white rounded-lg p-2 max-h-[400px] overflow-y-auto border border-emerald-200">
-                                {config.ignoredMachineNames.map((name, idx) => (
-                                    <div key={idx} className="flex items-center justify-between p-3 rounded mb-2 border hover:bg-emerald-50">
-                                        <div className="flex items-center gap-3">
-                                            <span className="w-8 h-8 flex items-center justify-center bg-emerald-600 text-white rounded-full text-xs font-bold">{idx + 1}</span>
-                                            <span className="text-sm text-gray-700 font-medium">{name}</span>
+                            <div className="bg-white rounded-xl shadow-sm border border-emerald-200 p-6 mb-6">
+                                <div className="flex gap-2">
+                                    <div className="flex-1">
+                                        <label className="block text-xs font-bold text-gray-500 mb-1 tracking-tight">Tên Phẫu thuật / Thủ thuật</label>
+                                        <input
+                                            type="text"
+                                            value={newMachineName}
+                                            onChange={(e) => setNewMachineName(e.target.value)}
+                                            placeholder="Nhập tên PTTT cần bỏ qua kiểm tra máy..."
+                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm transition-all"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    editingMachineIndex !== null ? handleSaveMachineName() : handleAddMachineName();
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="flex items-end gap-2">
+                                        <button
+                                            onClick={handleSaveMachineName}
+                                            disabled={editingMachineIndex === null}
+                                            className={`px-4 py-2 font-bold rounded-lg flex items-center gap-2 border transition-all shadow-sm min-w-[140px] justify-center ${editingMachineIndex !== null
+                                                ? 'bg-orange-500 text-white border-orange-600 hover:bg-orange-600'
+                                                : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                                                }`}
+                                        >
+                                            <Save className="h-4 w-4" /> Lưu thay đổi
+                                        </button>
+                                        <button
+                                            onClick={handleAddMachineName}
+                                            disabled={!newMachineName.trim() || config.ignoredMachineNames.includes(newMachineName.trim())}
+                                            className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50 border border-emerald-700 transition-all shadow-sm flex items-center gap-2"
+                                        >
+                                            <Plus className="h-4 w-4" /> Thêm
+                                        </button>
+                                        {editingMachineIndex !== null && (
+                                            <button
+                                                onClick={() => {
+                                                    setEditingMachineIndex(null);
+                                                    setNewMachineName("");
+                                                }}
+                                                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                                title="Hủy sửa"
+                                            >
+                                                <XCircle className="h-6 w-6" />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
+                                <div className="flex items-center gap-2 w-full md:w-auto">
+                                    <label className="text-sm font-bold text-gray-700 whitespace-nowrap">Tìm kiếm:</label>
+                                    <div className="relative w-full md:w-64">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                        <input
+                                            type="text"
+                                            value={machineSearchQuery}
+                                            onChange={(e) => setMachineSearchQuery(e.target.value)}
+                                            placeholder="Tên phẫu thuật, thủ thuật..."
+                                            className="w-full pl-9 pr-4 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm transition-all"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-4 w-full md:w-auto justify-end">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-tight">Số dòng:</label>
+                                        <select
+                                            value={machinePageSize}
+                                            onChange={(e) => {
+                                                setMachinePageSize(Number(e.target.value));
+                                                setMachineCurrentPage(1);
+                                            }}
+                                            className="px-2 py-1 text-xs border border-gray-300 rounded bg-white font-bold text-emerald-900 focus:ring-1 focus:ring-emerald-500 outline-none"
+                                        >
+                                            {[10, 20, 30, 50, 100].map(size => (
+                                                <option key={size} value={size}>{size}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="text-xs text-gray-500 font-medium">
+                                        Hiển thị {paginatedMachines.length} / {filteredMachines.length} bản ghi
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => setMachineCurrentPage(prev => Math.max(1, prev - 1))}
+                                            disabled={machineCurrentPage === 1}
+                                            className="p-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </button>
+                                        <div className="text-sm font-bold text-emerald-900 px-2 min-w-[100px] text-center">
+                                            Trang {machineCurrentPage} / {Math.max(1, totalMachinePages)}
                                         </div>
                                         <button
-                                            onClick={() => {
-                                                const newNames = config.ignoredMachineNames.filter(n => n !== name);
-                                                updateConfig({ ignoredMachineNames: newNames });
-                                            }}
-                                            className="text-red-400 hover:text-red-600"
+                                            onClick={() => setMachineCurrentPage(prev => Math.min(totalMachinePages, prev + 1))}
+                                            disabled={machineCurrentPage >= totalMachinePages}
+                                            className="p-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                                         >
-                                            <Trash2 className="h-4 w-4" />
+                                            <ChevronRight className="h-4 w-4" />
                                         </button>
                                     </div>
-                                ))}
+                                </div>
+                            </div>
+
+                            <div className="overflow-hidden border border-gray-200 rounded-xl shadow-sm bg-white">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-emerald-700 text-white font-bold uppercase text-xs">
+                                        <tr>
+                                            <th className="px-4 py-3 w-[70px] text-center border-r border-emerald-600">STT</th>
+                                            <th className="px-4 py-3 border-r border-emerald-600">Tên Phẫu thuật / Thủ thuật</th>
+                                            <th className="px-4 py-3 w-[100px] text-center">Thao tác</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {paginatedMachines.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={3} className="px-4 py-10 text-center text-gray-400 italic">
+                                                    {machineSearchQuery.trim() ? "Không tìm thấy kết quả nào phù hợp." : "Chưa có phẫu thuật nào trong danh sách bỏ qua kiểm tra máy."}
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            paginatedMachines.map((name, idx) => {
+                                                const globalIdx = (machineCurrentPage - 1) * machinePageSize + idx;
+                                                // Find original index in config.ignoredMachineNames for handleEditMachineName
+                                                const originalIdx = config.ignoredMachineNames.indexOf(name);
+
+                                                return (
+                                                    <tr
+                                                        key={`${name}-${idx}`}
+                                                        onClick={() => handleEditMachineName(originalIdx)}
+                                                        className={`cursor-pointer transition-all ${editingMachineIndex === originalIdx ? 'bg-orange-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-emerald-50`}
+                                                    >
+                                                        <td className="px-4 py-3 text-center font-bold text-gray-400 border-r">{globalIdx + 1}</td>
+                                                        <td className="px-4 py-3 font-bold text-gray-800 border-r">{name}</td>
+                                                        <td className="px-4 py-2 text-center">
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDeleteMachineName(name);
+                                                                }}
+                                                                className="p-1.5 rounded-md hover:bg-red-100 text-red-500 transition-colors"
+                                                                title="Xóa"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -535,140 +847,143 @@ export const ConfigurationTab: React.FC = () => {
 
                 {activeSubTab === 'staff' && (
                     <div className="space-y-8 animate-fade-in pb-20">
-                        {/* Section 1: Departments */}
                         <div>
-                            <div className="flex items-center gap-2 mb-4">
-                                <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">Section 0</span>
-                                <h3 className="font-bold text-lg text-blue-900">Tên Bệnh viện</h3>
-                            </div>
-
-                            <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-6 mb-8">
-                                <div className="flex gap-4 items-end">
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">Tên Bệnh viện hiển thị trên báo cáo</label>
-                                        <input
-                                            type="text"
-                                            value={config.hospitalName || ""}
-                                            onChange={(e) => updateConfig({ hospitalName: e.target.value })}
-                                            placeholder="Nhập tên bệnh viện..."
-                                            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                        />
+                            {/* Section: Hospital Name */}
+                            <div className="flex items-center gap-4 mb-8">
+                                <div className="flex items-center gap-3 min-w-fit">
+                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg shadow-sm">
+                                        <Building2 className="h-5 w-5" />
                                     </div>
-                                    <div className="bg-blue-50 px-4 py-2.5 rounded-lg border border-blue-100 flex items-center gap-2 text-blue-700 h-[46px]">
-                                        <Save className="h-4 w-4" />
-                                        <span className="text-xs font-medium italic">Tự động lưu khi thay đổi</span>
-                                    </div>
+                                    <h3 className="font-bold text-lg text-blue-900 whitespace-nowrap">Tên Bệnh viện:</h3>
                                 </div>
-                            </div>
 
-                            <div className="flex items-center gap-2 mb-4">
-                                <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">Section 1</span>
-                                <h3 className="font-bold text-lg text-blue-900">Danh sách khoa phòng</h3>
-                            </div>
-
-                            <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-6">
-                                <div className="flex gap-2 mb-6">
+                                <div className="flex-1 flex gap-3 items-center">
                                     <input
                                         type="text"
-                                        value={newDeptName}
-                                        onChange={(e) => setNewDeptName(e.target.value)}
-                                        placeholder="Nhập tên khoa, phòng cần bổ sung..."
-                                        className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && newDeptName.trim()) {
-                                                const depts = config.departments || [];
-                                                if (!depts.includes(newDeptName.trim())) {
-                                                    updateConfig({ departments: [...depts, newDeptName.trim()] });
-                                                    setNewDeptName("");
-                                                }
-                                            }
-                                        }}
+                                        value={config.hospitalName || ""}
+                                        onChange={(e) => updateConfig({ hospitalName: e.target.value })}
+                                        placeholder="Nhập tên bệnh viện hiển thị trên báo cáo..."
+                                        className="flex-1 px-4 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm font-medium text-blue-900 bg-white"
                                     />
-                                    <button
-                                        onClick={() => {
-                                            if (newDeptName.trim()) {
-                                                const depts = config.departments || [];
-                                                if (!depts.includes(newDeptName.trim())) {
-                                                    updateConfig({ departments: [...depts, newDeptName.trim()] });
-                                                    setNewDeptName("");
-                                                }
-                                            }
-                                        }}
-                                        disabled={!newDeptName.trim()}
-                                        className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                                    >
-                                        <Plus className="h-5 w-5 inline mr-1" /> Thêm khoa phòng
-                                    </button>
+                                    <div className="flex items-center gap-1.5 text-blue-400 select-none">
+                                        <Save className="h-3.5 w-3.5" />
+                                        <span className="text-[10px] font-bold italic tracking-wider uppercase opacity-80">Tự động lưu</span>
+                                    </div>
                                 </div>
+                            </div>
 
-                                <div className="overflow-hidden border border-gray-200 rounded-lg shadow-sm">
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="bg-blue-900 text-white font-bold uppercase text-xs">
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
+                                <div className="flex items-center gap-4 w-full md:w-auto">
+                                    <div className="flex items-center gap-3">
+                                        <div className="p-2 bg-blue-100 text-blue-600 rounded-lg shadow-sm">
+                                            <Layers className="h-5 w-5" />
+                                        </div>
+                                        <h3 className="font-bold text-lg text-blue-900 whitespace-nowrap">Danh sách khoa phòng:</h3>
+                                    </div>
+                                    <div className="flex-1 md:w-80 flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newDeptName}
+                                            onChange={(e) => setNewDeptName(e.target.value)}
+                                            placeholder="Nhập tên khoa, phòng cần bổ sung..."
+                                            className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm h-10"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && newDeptName.trim()) {
+                                                    const depts = config.departments || [];
+                                                    if (!depts.includes(newDeptName.trim())) {
+                                                        updateConfig({ departments: [...depts, newDeptName.trim()] });
+                                                        setNewDeptName("");
+                                                    }
+                                                }
+                                            }}
+                                        />
+                                        <button
+                                            onClick={() => {
+                                                if (newDeptName.trim()) {
+                                                    const depts = config.departments || [];
+                                                    if (!depts.includes(newDeptName.trim())) {
+                                                        updateConfig({ departments: [...depts, newDeptName.trim()] });
+                                                        setNewDeptName("");
+                                                    }
+                                                }
+                                            }}
+                                            disabled={!newDeptName.trim()}
+                                            title="Thêm khoa phòng"
+                                            className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
+                                        >
+                                            <Plus className="h-5 w-5" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="overflow-hidden border border-gray-200 rounded-xl shadow-sm mb-12">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-blue-900 text-white font-bold uppercase text-xs">
+                                        <tr>
+                                            <th className="px-4 py-3 w-[80px] text-center border-r border-blue-800">STT</th>
+                                            <th className="px-4 py-3 border-r border-blue-800">Tên khoa, phòng</th>
+                                            <th className="px-4 py-3 w-[150px] text-center">Thao tác</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {(config.departments || []).length === 0 ? (
                                             <tr>
-                                                <th className="px-4 py-3 w-[80px] text-center border-r border-blue-800">STT</th>
-                                                <th className="px-4 py-3 border-r border-blue-800">Tên khoa, phòng</th>
-                                                <th className="px-4 py-3 w-[150px] text-center">Thao tác</th>
+                                                <td colSpan={3} className="px-4 py-10 text-center text-gray-400 italic">
+                                                    Chưa có khoa phòng nào trong danh sách.
+                                                </td>
                                             </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-200">
-                                            {(config.departments || []).length === 0 ? (
-                                                <tr>
-                                                    <td colSpan={3} className="px-4 py-10 text-center text-gray-400 italic">
-                                                        Chưa có khoa phòng nào trong danh sách.
+                                        ) : (
+                                            (config.departments || []).map((dept, idx) => (
+                                                <tr key={dept} className={`hover:bg-blue-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                                    <td className="px-4 py-3 text-center font-bold text-gray-500 border-r">{idx + 1}</td>
+                                                    <td className="px-4 py-3 font-medium text-gray-800 border-r">{dept}</td>
+                                                    <td className="px-4 py-2">
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            <button
+                                                                onClick={() => {
+                                                                    if (idx === 0) return;
+                                                                    const depts = [...config.departments];
+                                                                    [depts[idx], depts[idx - 1]] = [depts[idx - 1], depts[idx]];
+                                                                    updateConfig({ departments: depts });
+                                                                }}
+                                                                disabled={idx === 0}
+                                                                title="Di chuyển lên"
+                                                                className="p-1.5 rounded-md hover:bg-blue-100 text-blue-600 disabled:opacity-20"
+                                                            >
+                                                                <ArrowUp className="h-4 w-4" />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    if (idx === (config.departments || []).length - 1) return;
+                                                                    const depts = [...(config.departments || [])];
+                                                                    [depts[idx], depts[idx + 1]] = [depts[idx + 1], depts[idx]];
+                                                                    updateConfig({ departments: depts });
+                                                                }}
+                                                                disabled={idx === (config.departments || []).length - 1}
+                                                                title="Di chuyển xuống"
+                                                                className="p-1.5 rounded-md hover:bg-blue-100 text-blue-600 disabled:opacity-20"
+                                                            >
+                                                                <ArrowDown className="h-4 w-4" />
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    const depts = config.departments.filter((_, i) => i !== idx);
+                                                                    updateConfig({ departments: depts });
+                                                                }}
+                                                                title="Xóa"
+                                                                className="p-1.5 rounded-md hover:bg-red-100 text-red-500"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
-                                            ) : (
-                                                (config.departments || []).map((dept, idx) => (
-                                                    <tr key={dept} className={`hover:bg-blue-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                                                        <td className="px-4 py-3 text-center font-bold text-gray-500 border-r">{idx + 1}</td>
-                                                        <td className="px-4 py-3 font-medium text-gray-800 border-r">{dept}</td>
-                                                        <td className="px-4 py-2">
-                                                            <div className="flex items-center justify-center gap-1">
-                                                                <button
-                                                                    onClick={() => {
-                                                                        if (idx === 0) return;
-                                                                        const depts = [...config.departments];
-                                                                        [depts[idx], depts[idx - 1]] = [depts[idx - 1], depts[idx]];
-                                                                        updateConfig({ departments: depts });
-                                                                    }}
-                                                                    disabled={idx === 0}
-                                                                    title="Di chuyển lên"
-                                                                    className="p-1.5 rounded-md hover:bg-blue-100 text-blue-600 disabled:opacity-20"
-                                                                >
-                                                                    <ArrowUp className="h-4 w-4" />
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        if (idx === (config.departments || []).length - 1) return;
-                                                                        const depts = [...(config.departments || [])];
-                                                                        [depts[idx], depts[idx + 1]] = [depts[idx + 1], depts[idx]];
-                                                                        updateConfig({ departments: depts });
-                                                                    }}
-                                                                    disabled={idx === (config.departments || []).length - 1}
-                                                                    title="Di chuyển xuống"
-                                                                    className="p-1.5 rounded-md hover:bg-blue-100 text-blue-600 disabled:opacity-20"
-                                                                >
-                                                                    <ArrowDown className="h-4 w-4" />
-                                                                </button>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        const depts = config.departments.filter((_, i) => i !== idx);
-                                                                        updateConfig({ departments: depts });
-                                                                    }}
-                                                                    title="Xóa"
-                                                                    className="p-1.5 rounded-md hover:bg-red-100 text-red-500"
-                                                                >
-                                                                    <Trash2 className="h-4 w-4" />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
 
@@ -676,7 +991,9 @@ export const ConfigurationTab: React.FC = () => {
                         <div>
                             <div className="flex items-center justify-between mb-4">
                                 <div className="flex items-center gap-2">
-                                    <span className="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">Section 2</span>
+                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
+                                        <Users className="h-5 w-5" />
+                                    </div>
                                     <h3 className="font-bold text-lg text-blue-900">Danh sách nhân viên y tế</h3>
                                 </div>
                                 <div className="flex gap-2">
@@ -748,20 +1065,20 @@ export const ConfigurationTab: React.FC = () => {
                                             <button
                                                 onClick={handleSaveStaff}
                                                 disabled={!staffForm.name.trim()}
-                                                className="px-8 py-2 bg-orange-500 text-white font-bold rounded-lg hover:bg-orange-600 transition-all shadow-md"
+                                                className="px-5 py-2 bg-orange-500 text-white font-bold rounded-lg hover:bg-orange-600 transition-all shadow-md border border-orange-600"
                                             >
-                                                <Edit3 className="h-5 w-5 inline mr-1" /> Cập nhật nhân viên
+                                                <Save className="h-5 w-5 inline mr-1" /> Lưu thay đổi
                                             </button>
                                             <button
                                                 onClick={handleNextStaff}
-                                                className="px-6 py-2 bg-blue-100 text-blue-700 font-bold rounded-lg hover:bg-blue-200 transition-all border border-blue-200"
-                                                title="Chuyển đến nhân viên tiếp theo"
+                                                className="px-5 py-2 bg-blue-100 text-blue-700 font-bold rounded-lg hover:bg-blue-200 transition-all border border-blue-300"
+                                                title="Lưu và chuyển đến nhân viên tiếp theo"
                                             >
-                                                <ChevronRight className="h-5 w-5 inline mr-1" /> Kế tiếp
+                                                <ChevronRight className="h-5 w-5 inline mr-1" /> Lưu, Kế tiếp &gt;&gt;
                                             </button>
                                             <button
                                                 onClick={resetStaffForm}
-                                                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-bold text-gray-600 transition-all"
+                                                className="px-5 py-2 bg-yellow-100 border border-yellow-300 rounded-lg hover:bg-yellow-200 font-bold text-yellow-700 transition-all"
                                             >
                                                 <XCircle className="h-5 w-5 inline mr-1" /> Hủy bỏ
                                             </button>
@@ -770,11 +1087,68 @@ export const ConfigurationTab: React.FC = () => {
                                         <button
                                             onClick={handleSaveStaff}
                                             disabled={!staffForm.name.trim()}
-                                            className="px-8 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md"
+                                            className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md border border-blue-700"
                                         >
                                             <UserPlus className="h-5 w-5 inline mr-1" /> Thêm nhân viên
                                         </button>
                                     )}
+                                </div>
+                            </div>
+
+                            {/* Search and Pagination Bar */}
+                            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
+                                <div className="flex items-center gap-2 w-full md:w-auto">
+                                    <label className="text-sm font-bold text-gray-700 whitespace-nowrap">Tìm kiếm:</label>
+                                    <div className="relative w-full md:w-64">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                        <input
+                                            type="text"
+                                            value={searchQuery}
+                                            onChange={(e) => setSearchQuery(e.target.value)}
+                                            placeholder="Tên, vị trí, khoa, MST..."
+                                            className="w-full pl-9 pr-4 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-4 w-full md:w-auto justify-end">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-tight">Số dòng:</label>
+                                        <select
+                                            value={pageSize}
+                                            onChange={(e) => {
+                                                setPageSize(Number(e.target.value));
+                                                setCurrentPage(1);
+                                            }}
+                                            className="px-2 py-1 text-xs border border-gray-300 rounded bg-white font-bold text-blue-900 focus:ring-1 focus:ring-blue-500 outline-none"
+                                        >
+                                            {[10, 20, 30, 50, 100].map(size => (
+                                                <option key={size} value={size}>{size}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="text-xs text-gray-500 font-medium">
+                                        Hiển thị {paginatedStaff.length} / {filteredStaffList.length} bản ghi
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                            disabled={currentPage === 1}
+                                            className="p-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                                        >
+                                            <ChevronLeft className="h-4 w-4" />
+                                        </button>
+                                        <div className="text-sm font-bold text-blue-900 px-2">
+                                            Trang {currentPage} / {Math.max(1, totalPages)}
+                                        </div>
+                                        <button
+                                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                            disabled={currentPage >= totalPages}
+                                            className="p-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+                                        >
+                                            <ChevronRight className="h-4 w-4" />
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -791,44 +1165,47 @@ export const ConfigurationTab: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
-                                        {(config.staffList || []).length === 0 ? (
+                                        {paginatedStaff.length === 0 ? (
                                             <tr>
                                                 <td colSpan={6} className="px-4 py-10 text-center text-gray-400 italic">
-                                                    Chưa có nhân viên nào trong danh sách. Hãy thêm mới hoặc import từ file Excel.
+                                                    {searchQuery ? "Không tìm thấy nhân viên nào phù hợp." : "Chưa có nhân viên nào trong danh sách. Hãy thêm mới hoặc import từ file Excel."}
                                                 </td>
                                             </tr>
                                         ) : (
-                                            (config.staffList || []).map((staff, idx) => (
-                                                <tr
-                                                    key={staff.id}
-                                                    onClick={() => handleEditStaff(staff)}
-                                                    className={`cursor-pointer transition-all ${editingStaffId === staff.id ? 'bg-orange-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}
-                                                >
-                                                    <td className="px-4 py-3 text-center font-bold text-gray-400 border-r">{idx + 1}</td>
-                                                    <td className="px-4 py-3 font-bold text-gray-800 border-r">{staff.name}</td>
-                                                    <td className="px-4 py-3 text-center border-r">
-                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${staff.position === 'BS PT' ? 'bg-indigo-100 text-indigo-700' : staff.position === 'BS GMHS' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
-                                                            }`}>
-                                                            {staff.position}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-gray-600 font-mono border-r">{staff.taxId || "---"}</td>
-                                                    <td className="px-4 py-3 text-gray-600 border-r">{staff.department || "---"}</td>
-                                                    <td className="px-4 py-2">
-                                                        <div className="flex items-center justify-center">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleDeleteStaff(staff.id);
-                                                                }}
-                                                                className="p-1.5 rounded-md hover:bg-red-100 text-red-500"
-                                                            >
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
+                                            paginatedStaff.map((staff, pIdx) => {
+                                                const globalIdx = (currentPage - 1) * pageSize + pIdx;
+                                                return (
+                                                    <tr
+                                                        key={staff.id}
+                                                        onClick={() => handleEditStaff(staff)}
+                                                        className={`cursor-pointer transition-all ${editingStaffId === staff.id ? 'bg-orange-50' : globalIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}
+                                                    >
+                                                        <td className="px-4 py-3 text-center font-bold text-gray-400 border-r">{globalIdx + 1}</td>
+                                                        <td className="px-4 py-3 font-bold text-gray-800 border-r">{staff.name}</td>
+                                                        <td className="px-4 py-3 text-center border-r">
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${staff.position === 'BS PT' ? 'bg-indigo-100 text-indigo-700' : staff.position === 'BS GMHS' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                                                                }`}>
+                                                                {staff.position}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-600 font-mono border-r">{staff.taxId || "---"}</td>
+                                                        <td className="px-4 py-3 text-gray-600 border-r">{staff.department || "---"}</td>
+                                                        <td className="px-4 py-2">
+                                                            <div className="flex items-center justify-center">
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleDeleteStaff(staff.id);
+                                                                    }}
+                                                                    className="p-1.5 rounded-md hover:bg-red-100 text-red-500"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>

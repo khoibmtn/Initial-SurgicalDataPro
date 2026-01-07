@@ -12,6 +12,7 @@ export interface UISettings {
   rowsPerPage: number;
   dateFormat: string; // 'dd/mm/yyyy', 'dd/mm/yyyy hh:mm', etc.
   visibleColumns: Record<string, Record<string, boolean>>; // tableName -> colKey -> boolean
+  searchableColumns: Record<string, Record<string, boolean>>; // tableName -> colKey -> boolean
 }
 
 export interface Conflict {
