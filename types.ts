@@ -8,11 +8,22 @@ export interface ProcessedStats {
   violateMinTimeCount: number; // Num surgeries violating min time rule
 }
 
-export interface UISettings {
+export interface ReportUISettings {
   rowsPerPage: number;
-  dateFormat: string; // 'dd/mm/yyyy', 'dd/mm/yyyy hh:mm', etc.
+  dateFormat: string;
   visibleColumns: Record<string, Record<string, boolean>>; // tableName -> colKey -> boolean
   searchableColumns: Record<string, Record<string, boolean>>; // tableName -> colKey -> boolean
+}
+
+export interface UISettings {
+  rowsPerPage: number;
+  dateFormat: string;
+  visibleColumns: Record<string, Record<string, boolean>>; // tableName -> colKey -> boolean
+  searchableColumns: Record<string, Record<string, boolean>>; // tableName -> colKey -> boolean
+  perReport?: {
+    daily?: ReportUISettings;
+    monthly?: ReportUISettings;
+  };
 }
 
 export interface Conflict {

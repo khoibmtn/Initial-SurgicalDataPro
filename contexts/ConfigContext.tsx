@@ -87,7 +87,22 @@ const DEFAULT_ROLE_ORDER: Record<string, number> = {
 const DEFAULT_UI_SETTINGS: UISettings = {
     rowsPerPage: 20,
     dateFormat: 'dd/mm/yyyy hh:mm',
-    visibleColumns: {}
+    visibleColumns: {},
+    searchableColumns: {},
+    perReport: {
+        daily: {
+            rowsPerPage: 20,
+            dateFormat: 'dd/mm/yyyy hh:mm',
+            visibleColumns: {},
+            searchableColumns: {}
+        },
+        monthly: {
+            rowsPerPage: 20,
+            dateFormat: 'dd/mm/yyyy hh:mm',
+            visibleColumns: {},
+            searchableColumns: {}
+        }
+    }
 };
 
 const DEFAULT_STAFF_LIMITS: StaffLimitConfig = {
@@ -221,7 +236,27 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
 
         if (newPart.uiSettings) {
-            fullNewConfig.uiSettings = { ...config.uiSettings, ...newPart.uiSettings };
+            fullNewConfig.uiSettings = {
+                ...config.uiSettings,
+                ...newPart.uiSettings,
+                perReport: {
+                    ...config.uiSettings?.perReport,
+                    ...newPart.uiSettings?.perReport
+                }
+            };
+            // Deep merge daily/monthly if they exist in newPart
+            if (newPart.uiSettings.perReport?.daily) {
+                fullNewConfig.uiSettings.perReport.daily = {
+                    ...config.uiSettings?.perReport?.daily as any,
+                    ...newPart.uiSettings.perReport.daily
+                };
+            }
+            if (newPart.uiSettings.perReport?.monthly) {
+                fullNewConfig.uiSettings.perReport.monthly = {
+                    ...config.uiSettings?.perReport?.monthly as any,
+                    ...newPart.uiSettings.perReport.monthly
+                };
+            }
         }
 
         if (newPart.staffLimits) {

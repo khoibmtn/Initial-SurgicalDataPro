@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx';
 import { processSurgicalFiles } from "./services/excelProcessor";
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
-import { ConfigProvider, useConfig } from './contexts/ConfigContext';
+import { ConfigProvider, useConfig, DEFAULT_CONFIG } from './contexts/ConfigContext';
 import { analyzeReport } from './services/geminiService';
 import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict } from './types';
 import { FileUpload } from './components/FileUpload';
@@ -11,6 +11,7 @@ import {
   Activity,
   AlertTriangle,
   Clock,
+  Cpu,
   Database,
   Download,
   Users,
@@ -34,7 +35,8 @@ import {
   CreditCard,
   RefreshCw,
   CheckCircle2,
-  Search
+  Search,
+  Calendar
 } from 'lucide-react';
 import { format, parse, isValid } from 'date-fns';
 
@@ -431,44 +433,137 @@ const DynamicTable = <T extends Record<string, any>>({
     </div>
   );
 };
-
-const InnerApp: React.FC = () => {
-  const { config, updateConfig } = useConfig();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'reports' | 'config'>('dashboard');
-
-  // Config Extraction
-  const rowsPerPage = config.uiSettings?.rowsPerPage || 20;
-  const dateFormat = config.uiSettings?.dateFormat || 'dd/mm/yyyy hh:mm';
-  const visibleCols = config.uiSettings?.visibleColumns || {};
-
-  const searchableCols = config.uiSettings?.searchableColumns || {};
-
-  const updateRowsPerPage = (n: number) => updateConfig({ uiSettings: { ...config.uiSettings, rowsPerPage: n } });
-  const updateDateFormat = (f: string) => updateConfig({ uiSettings: { ...config.uiSettings, dateFormat: f } });
-  const updateVisibleCols = (table: string, cols: Record<string, boolean>) => {
-    updateConfig({ uiSettings: { ...config.uiSettings, visibleColumns: { ...config.uiSettings.visibleColumns, [table]: cols } } });
+interface ReportState {
+  result: ProcessingResult | null;
+  stats: ProcessedStats | null;
+  isProcessing: boolean;
+  listFile: File | null;
+  detailFile: File | null;
+  activeTable: 'list' | 'staff' | 'machine' | 'missing' | 'payment' | null;
+  searchTerms: {
+    list: string;
+    staff: string;
+    machine: string;
+    missing: string;
+    payment: string;
   };
-  const updateSearchableCols = (table: string, cols: Record<string, boolean>) => {
-    updateConfig({ uiSettings: { ...config.uiSettings, searchableColumns: { ...(config.uiSettings?.searchableColumns || {}), [table]: cols } } });
-  };
+  listDateRange: string;
+  detailDateRange: string;
+}
 
-  // State
-  const [result, setResult] = useState<ProcessingResult | null>(null);
-  const [stats, setStats] = useState<ProcessedStats | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [listFile, setListFile] = useState<File | null>(null);
-  const [detailFile, setDetailFile] = useState<File | null>(null);
-  const [activeTable, setActiveTable] = useState<'list' | 'staff' | 'machine' | 'missing' | 'payment' | null>(null);
-  const [searchTerms, setSearchTerms] = useState({
+const initialReportState: ReportState = {
+  result: null,
+  stats: null,
+  isProcessing: false,
+  listFile: null,
+  detailFile: null,
+  activeTable: null,
+  searchTerms: {
     list: '',
     staff: '',
     machine: '',
     missing: '',
     payment: ''
-  });
-  const updateSearchTerm = (key: keyof typeof searchTerms, val: string) => {
-    setSearchTerms(prev => ({ ...prev, [key]: val }));
+  },
+  listDateRange: "",
+  detailDateRange: ""
+};
+
+const InnerApp: React.FC = () => {
+  const { config, updateConfig } = useConfig();
+  const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'config'>('daily');
+
+  // Independent states for Daily and Monthly reports
+  const [dailyState, setDailyState] = useState<ReportState>(initialReportState);
+  const [monthlyState, setMonthlyState] = useState<ReportState>(initialReportState);
+
+  const currentType = (activeTab === 'monthly') ? 'monthly' : 'daily';
+  const currentReport = useMemo(() => {
+    return currentType === 'daily' ? dailyState : monthlyState;
+  }, [currentType, dailyState, monthlyState]);
+
+  const updateReportState = (type: 'daily' | 'monthly', patch: Partial<ReportState>) => {
+    const setter = type === 'daily' ? setDailyState : setMonthlyState;
+    setter(prev => ({ ...prev, ...patch }));
   };
+
+  const updateCurrentReport = (updates: Partial<ReportState>) => {
+    updateReportState(currentType, updates);
+  };
+
+  // Per-Report UI settings from Config (with fallbacks to global or defaults)
+  const reportConfig = config.uiSettings?.perReport?.[currentType];
+  const rowsPerPage = reportConfig?.rowsPerPage || config.uiSettings?.rowsPerPage || 20;
+  const dateFormat = reportConfig?.dateFormat || config.uiSettings?.dateFormat || 'dd/mm/yyyy hh:mm';
+  const visibleCols = reportConfig?.visibleColumns || config.uiSettings?.visibleColumns || {};
+  const searchableCols = reportConfig?.searchableColumns || config.uiSettings?.searchableColumns || {};
+
+  const updateRowsPerPage = (n: number) => {
+    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
+    updateConfig({
+      uiSettings: {
+        ...currentUISettings,
+        perReport: {
+          ...currentUISettings.perReport,
+          [currentType]: {
+            ...(currentUISettings.perReport?.[currentType] as any),
+            rowsPerPage: n
+          }
+        }
+      }
+    });
+  };
+
+  const updateDateFormat = (f: string) => {
+    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
+    updateConfig({
+      uiSettings: {
+        ...currentUISettings,
+        perReport: {
+          ...currentUISettings.perReport,
+          [currentType]: {
+            ...(currentUISettings.perReport?.[currentType] as any),
+            dateFormat: f
+          }
+        }
+      }
+    });
+  };
+
+  const updateVisibleCols = (table: string, cols: Record<string, boolean>) => {
+    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
+    const currentReportUI = currentUISettings.perReport?.[currentType] || { rowsPerPage, dateFormat, visibleColumns: {}, searchableColumns: {} };
+    updateConfig({
+      uiSettings: {
+        ...currentUISettings,
+        perReport: {
+          ...currentUISettings.perReport,
+          [currentType]: {
+            ...currentReportUI,
+            visibleColumns: { ...(currentReportUI.visibleColumns || {}), [table]: cols }
+          }
+        }
+      }
+    });
+  };
+
+  const updateSearchableCols = (table: string, cols: Record<string, boolean>) => {
+    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
+    const currentReportUI = currentUISettings.perReport?.[currentType] || { rowsPerPage, dateFormat, visibleColumns: {}, searchableColumns: {} };
+    updateConfig({
+      uiSettings: {
+        ...currentUISettings,
+        perReport: {
+          ...currentUISettings.perReport,
+          [currentType]: {
+            ...currentReportUI,
+            searchableColumns: { ...(currentReportUI.searchableColumns || {}), [table]: cols }
+          }
+        }
+      }
+    });
+  };
+
   const [toasts, setToasts] = useState<{ id: string, message: string, type: 'error' | 'success' }[]>([]);
 
   const addToast = (message: string, type: 'error' | 'success') => {
@@ -489,83 +584,84 @@ const InnerApp: React.FC = () => {
     return true;
   };
 
-  // State for date range from files
-  const [listDateRange, setListDateRange] = useState<string>("");
-  const [detailDateRange, setDetailDateRange] = useState<string>("");
-
   const handleListFileSelect = async (f: File | null) => {
-    if (!f) { setListFile(null); setListDateRange(""); return; }
+    if (!f) { updateCurrentReport({ listFile: null, listDateRange: "" }); return; }
     if (!checkFile(f)) return;
 
-    // Validate file format immediately
     const { validateListFile } = await import('./services/excelProcessor');
-    const result = await validateListFile(f);
+    const res = await validateListFile(f);
 
-    if (!result.valid) {
-      addToast(result.error || "File không hợp lệ", 'error');
+    if (!res.valid) {
+      addToast(res.error || "File không hợp lệ", 'error');
       return;
     }
 
-    setListFile(f);
-    setListDateRange(result.dateRangeText || "");
+    updateCurrentReport({
+      listFile: f,
+      listDateRange: res.dateRangeText || ""
+    });
     addToast(`✓ File "${f.name}" hợp lệ`, 'success');
 
-    // Check if both files have matching date ranges
-    if (detailDateRange && result.dateRangeText && detailDateRange !== result.dateRangeText) {
-      addToast(`⚠ Thời gian của 2 file không khớp:\n- Danh sách PT: "${result.dateRangeText}"\n- Chi tiết PT: "${detailDateRange}"`, 'error');
+    if (currentReport.detailDateRange && res.dateRangeText && currentReport.detailDateRange !== res.dateRangeText) {
+      addToast(`⚠ Thời gian của 2 file không khớp:\n- Danh sách PT: "${res.dateRangeText}"\n- Chi tiết PT: "${currentReport.detailDateRange}"`, 'error');
     }
   };
 
   const handleDetailFileSelect = async (f: File | null) => {
-    if (!f) { setDetailFile(null); setDetailDateRange(""); return; }
+    if (!f) { updateCurrentReport({ detailFile: null, detailDateRange: "" }); return; }
     if (!checkFile(f)) return;
 
-    // Validate file format immediately
     const { validateDetailFile } = await import('./services/excelProcessor');
-    const result = await validateDetailFile(f);
+    const res = await validateDetailFile(f);
 
-    if (!result.valid) {
-      addToast(result.error || "File không hợp lệ", 'error');
+    if (!res.valid) {
+      addToast(res.error || "File không hợp lệ", 'error');
       return;
     }
 
-    setDetailFile(f);
-    setDetailDateRange(result.dateRangeText || "");
+    updateCurrentReport({
+      detailFile: f,
+      detailDateRange: res.dateRangeText || ""
+    });
     addToast(`✓ File "${f.name}" hợp lệ`, 'success');
 
-    // Check if both files have matching date ranges
-    if (listDateRange && result.dateRangeText && listDateRange !== result.dateRangeText) {
-      addToast(`⚠ Thời gian của 2 file không khớp:\n- Danh sách PT: "${listDateRange}"\n- Chi tiết PT: "${result.dateRangeText}"`, 'error');
+    if (currentReport.listDateRange && res.dateRangeText && currentReport.listDateRange !== res.dateRangeText) {
+      addToast(`⚠ Thời gian của 2 file không khớp:\n- Danh sách PT: "${currentReport.listDateRange}"\n- Chi tiết PT: "${res.dateRangeText}"`, 'error');
     }
   };
 
-  const handleProcess = async () => {
-    if (!listFile) return;
-    setIsProcessing(true);
+  const handleProcess = async (type: 'daily' | 'monthly') => {
+    const report = type === 'daily' ? dailyState : monthlyState;
+    if (!report.listFile) return;
+
+    updateReportState(type, { isProcessing: true });
     try {
-      const res = await processSurgicalFiles(listFile, detailFile, config);
-      setStats(res.stats);
-      setResult(res);
-      setActiveTable('list');
-      // Only show success toast if it's the first time processing or both files are present
-      if (detailFile) {
+      const res = await processSurgicalFiles(report.listFile, report.detailFile, config);
+      updateReportState(type, {
+        stats: res.stats,
+        result: res,
+        activeTable: 'list',
+        isProcessing: false
+      });
+      if (report.detailFile) {
         addToast("Xử lý dữ liệu thành công với đầy đủ mã máy.", 'success');
       }
     } catch (error: any) {
       console.error(error);
       addToast(error.message || "Có lỗi xử lý", 'error');
-      setStats(null);
-      setResult(null);
-    } finally {
-      setIsProcessing(false);
+      updateReportState(type, {
+        stats: null,
+        result: null,
+        isProcessing: false
+      });
     }
   };
 
   const handleDownload = () => {
-    if (!result?.wb) { addToast("Chưa có file kết quả.", 'error'); return; }
+    if (!currentReport.result?.wb) { addToast("Chưa có file kết quả.", 'error'); return; }
     try {
-      const filename = `Ket_qua_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(result.wb, filename); addToast("Đã tải xuống file Excel.", 'success');
+      const filename = `Ket_qua_${currentType}_${new Date().toISOString().split('T')[0]}.xlsx`;
+      XLSX.writeFile(currentReport.result.wb, filename); addToast("Đã tải xuống file Excel.", 'success');
     } catch (e: any) { console.error("Download failed:", e); addToast("Lỗi khi tải file: " + e.message, 'error'); }
   };
 
@@ -578,38 +674,36 @@ const InnerApp: React.FC = () => {
     ignoredMachineNames: config.ignoredMachineNames
   }), [config]);
 
-  // Auto re-process when files or config changes
   useEffect(() => {
-    if (listFile) {
-      const timer = setTimeout(() => {
-        handleProcess();
-      }, 300); // 300ms debounce
-      return () => clearTimeout(timer);
-    }
-  }, [listFile, detailFile, processingConfigHash]);
+    const processReports = () => {
+      if (dailyState.listFile) handleProcess('daily');
+      if (monthlyState.listFile) handleProcess('monthly');
+    };
 
-  // Columns
-  // Calculate violateMinTimeCount dynamically based on current config
+    const timer = setTimeout(processReports, 300);
+    return () => clearTimeout(timer);
+  }, [processingConfigHash, dailyState.listFile, dailyState.detailFile, monthlyState.listFile, monthlyState.detailFile]);
+
   const dynamicViolateMinTimeCount = useMemo(() => {
-    if (!result?.validRecords) return 0;
-    return result.validRecords.filter(r => {
+    if (!currentReport.result?.validRecords) return 0;
+    return currentReport.result.validRecords.filter(r => {
       const minTime = config.timeRules[r.loaiPTTT]?.min;
       return minTime && r.timeMinutes < minTime;
     }).length;
-  }, [result?.validRecords, config.timeRules]);
+  }, [currentReport.result?.validRecords, config.timeRules]);
 
   // Split PT/TT counts for Tab UI
   const { ptCount, ttCount } = useMemo(() => {
-    if (!result?.validRecords) return { ptCount: 0, ttCount: 0 };
+    if (!currentReport.result?.validRecords) return { ptCount: 0, ttCount: 0 };
     return {
-      ptCount: result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length,
-      ttCount: result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length
+      ptCount: currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length,
+      ttCount: currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length
     };
-  }, [result?.validRecords]);
+  }, [currentReport.result?.validRecords]);
 
   // Combined stats from result and dynamic calculation
   const derivedStats = useMemo(() => {
-    if (!result?.stats) return {
+    if (!currentReport.result?.stats) return {
       totalSurgeries: 0,
       totalDurationMinutes: 0,
       staffConflicts: 0,
@@ -620,17 +714,17 @@ const InnerApp: React.FC = () => {
     };
 
     return {
-      ...result.stats,
+      ...currentReport.result.stats,
       violateMinTimeCount: dynamicViolateMinTimeCount
     };
-  }, [result?.stats, dynamicViolateMinTimeCount]);
+  }, [currentReport.result?.stats, dynamicViolateMinTimeCount]);
 
   // -- Memoized Payment Data for Reuse in Print --
   const paymentDataPrepared = useMemo(() => {
-    if (!result?.paymentData?.rows || !config) return null;
+    if (!currentReport.result?.paymentData?.rows || !config) return null;
 
-    const rawRows = result.paymentData.rows;
-    const cols = result.paymentData.columns;
+    const rawRows = currentReport.result.paymentData.rows;
+    const cols = currentReport.result.paymentData.columns;
 
     const GROUP_MAP: Record<string, string> = {
       "PĐB": "Phẫu thuật ĐB", "P1": "Phẫu thuật loại 1", "P2": "Phẫu thuật loại 2", "P3": "Phẫu thuật loại 3",
@@ -681,7 +775,7 @@ const InnerApp: React.FC = () => {
     });
 
     return { enrichedRows, groups, cols, footerTotals, columnTotals };
-  }, [result?.paymentData, config]);
+  }, [currentReport.result?.paymentData, config]);
 
   const columnsList = useMemo<ColumnDef<SurgeryRecord>[]>(() => [
     { key: 'stt', label: 'STT', align: 'center', width: 'w-[40px]' },
@@ -772,12 +866,12 @@ const InnerApp: React.FC = () => {
   ], [dateFormat]);
 
   const getPaymentColumns = (): ColumnDef<any>[] => {
-    if (!result?.paymentData?.columns) return [];
+    if (!currentReport.result?.paymentData?.columns) return [];
     return [
       { key: 'department', label: 'Khoa', width: 'min-w-[60px]', className: 'whitespace-nowrap' },
       { key: 'taxId', label: 'Mã số thuế', width: 'min-w-[90px]', className: 'whitespace-nowrap' },
       { key: 'name', label: 'Họ tên', width: 'min-w-[180px]', className: 'whitespace-nowrap' },
-      ...result.paymentData.columns.map(col => ({
+      ...currentReport.result.paymentData.columns.map(col => ({
         key: `val_${col}`,
         label: col.replace("PT_", "").replace("TT_", "").replace("-", " "),
         render: (row: any) => (row.values[col] || 0) > 0 ? (row.values[col] || 0) : '-',
@@ -789,19 +883,25 @@ const InnerApp: React.FC = () => {
     ];
   };
 
-  const renderTableContent = () => {
-    if (!result || !stats || !activeTable) return null;
+  // Add missing helpers
+  const updateSearchTerm = (key: keyof typeof initialReportState.searchTerms, val: string) => {
+    updateCurrentReport({ searchTerms: { ...currentReport.searchTerms, [key]: val } });
+  };
+  const setActiveTable = (table: ReportState['activeTable']) => updateCurrentReport({ activeTable: table });
 
-    if (activeTable === 'list') {
+  const renderTableContent = () => {
+    if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
+
+    if (currentReport.activeTable === 'list') {
       const listSearchableCols = searchableCols['list'] || {
         patientId: true, patientName: true, ngayBD: true, tenKT: true,
         loaiPTTT: true, ptChinh: true, ptPhu: true, bsGM: true,
         ktvGM: true, tdc: true, gv: true, reason: true
       };
-      const filtered = result.validRecords.filter(r => matchSearchQuery(r, searchTerms.list, listSearchableCols, columnsList, config.timeRules));
+      const filtered = currentReport.result.validRecords.filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules));
       const rowStyle = (r: SurgeryRecord) => (config.timeRules[r.loaiPTTT]?.min && r.timeMinutes < config.timeRules[r.loaiPTTT].min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
-      const ptCount = result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length;
-      const ttCount = result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length;
+      const ptCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length;
+      const ttCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length;
       const countLabel = `${ptCount} ca PT, ${ttCount} ca TT`;
       return <DynamicTable
         data={filtered}
@@ -815,38 +915,34 @@ const InnerApp: React.FC = () => {
         onVisibleColsChange={(cols) => updateVisibleCols('list', cols)}
         rowStyle={rowStyle}
         rowCountLabel={countLabel}
-        searchTerm={searchTerms.list}
+        searchTerm={currentReport.searchTerms.list}
         onSearchChange={(val) => updateSearchTerm('list', val)}
         searchableCols={listSearchableCols}
         onSearchableColsChange={(cols) => updateSearchableCols('list', cols)}
         showSearchSettings
       />;
     }
-    if (activeTable === 'staff') {
-      const filtered = result.staffConflicts.filter(r => matchSearchQuery(r, searchTerms.staff, undefined, columnsStaff));
+    if (currentReport.activeTable === 'staff') {
+      const filtered = currentReport.result.staffConflicts.filter(r => matchSearchQuery(r, currentReport.searchTerms.staff, undefined, columnsStaff));
       const staffRowStyle = (r: StaffConflict) => r.violationType === 'max2' ? 'text-red-600 font-bold bg-red-50' : '';
-      return <DynamicTable data={filtered} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} />;
+      return <DynamicTable data={filtered} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={currentReport.searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} />;
     }
-    if (activeTable === 'machine') {
-      const filtered = result.machineConflicts.filter(r => matchSearchQuery(r, searchTerms.machine, undefined, columnsMachine));
-      return <DynamicTable data={filtered} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} />;
+    if (currentReport.activeTable === 'machine') {
+      const filtered = currentReport.result.machineConflicts.filter(r => matchSearchQuery(r, currentReport.searchTerms.machine, undefined, columnsMachine));
+      return <DynamicTable data={filtered} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={currentReport.searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} />;
     }
-    if (activeTable === 'missing') {
-      const rawData = detailFile ? (result.missingRecords || []) : [];
-      const filtered = rawData.filter(r => matchSearchQuery(r, searchTerms.missing, undefined, columnsMissing));
-      return <DynamicTable data={filtered} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} />;
+    if (currentReport.activeTable === 'missing') {
+      const rawData = currentReport.detailFile ? (currentReport.result.missingRecords || []) : [];
+      const filtered = rawData.filter(r => matchSearchQuery(r, currentReport.searchTerms.missing, undefined, columnsMissing));
+      return <DynamicTable data={filtered} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={currentReport.searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} />;
     }
-    if (activeTable === 'payment') {
+    if (currentReport.activeTable === 'payment') {
       if (!paymentDataPrepared) return null;
       const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentDataPrepared;
       const paymentCols = getPaymentColumns();
       const paymentSearchableCols = { department: true, taxId: true, name: true };
-      const filtered = enrichedRows.filter((r: any) => matchSearchQuery(r, searchTerms.payment, paymentSearchableCols, paymentCols));
+      const filtered = enrichedRows.filter((r: any) => matchSearchQuery(r, currentReport.searchTerms.payment, paymentSearchableCols, paymentCols));
 
-      // Keep the existing CustomThead/ExtraHeader/ExtraFooter logic...
-      // I need to be careful with the context where they are defined.
-      // They are defined within renderTableContent but I truncated the view.
-      // I'll assume they are available if I use multi_replace_file_content carefully.
       const currentVisible = visibleCols['payment'] || {};
       const isVisible = (key: string) => currentVisible[key] !== false;
 
@@ -950,7 +1046,7 @@ const InnerApp: React.FC = () => {
         </tr>
       );
 
-      return <DynamicTable data={filtered} columns={paymentCols} tableName="Bảng Thanh toán phẫu thuật, thủ thuật" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['payment']} onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)} extraHeaderRow={ExtraHeader} extraFooterRow={ExtraFooter} customThead={CustomThead} searchTerm={searchTerms.payment} onSearchChange={(val) => updateSearchTerm('payment', val)} />;
+      return <DynamicTable data={filtered} columns={paymentCols} tableName="Bảng Thanh toán phẫu thuật, thủ thuật" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['payment']} onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)} extraHeaderRow={ExtraHeader} extraFooterRow={ExtraFooter} customThead={CustomThead} searchTerm={currentReport.searchTerms.payment} onSearchChange={(val) => updateSearchTerm('payment', val)} />;
     }
     return null;
   };
@@ -979,8 +1075,8 @@ const InnerApp: React.FC = () => {
       setPrintConfig({
         type: 'list',
         title: 'DANH SÁCH PHẪU THUẬT',
-        dateRange: result?.dateRangeText || '',
-        data: result?.validRecords || [],
+        dateRange: currentReport.result?.dateRangeText || '',
+        data: currentReport.result?.validRecords || [],
         columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false), // Respect visibility
       });
       setIsPrintOpen(true);
@@ -1089,7 +1185,7 @@ const InnerApp: React.FC = () => {
       setPrintConfig({
         type: 'payment',
         title: 'BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT',
-        dateRange: result?.dateRangeText || '',
+        dateRange: currentReport.result?.dateRangeText || '',
         data: enrichedRows,
         columns: paymentCols,
         customThead: PrintThead,
@@ -1124,16 +1220,46 @@ const InnerApp: React.FC = () => {
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">Quản lý danh sách phẫu thuật, thủ thuật</h1>
           </div>
           <div className="flex items-center gap-4">
-            <nav className="flex items-center gap-2">
-              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-sm ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white border-2 border-indigo-700 shadow-indigo-200' : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'}`}>Tổng quan</button>
-              <button onClick={() => setActiveTab('config')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all shadow-sm ${activeTab === 'config' ? 'bg-emerald-600 text-white border-2 border-emerald-700 shadow-emerald-200' : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-emerald-400 hover:bg-emerald-50'}`}>Cấu hình</button>
+            <nav className="flex items-center gap-1.5 bg-gray-100/50 p-1 rounded-full border border-gray-200 shadow-inner">
+              <button
+                onClick={() => setActiveTab('daily')}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${activeTab === 'daily'
+                  ? 'bg-blue-600 text-white shadow-md transform scale-105'
+                  : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+              >
+                <LayoutDashboard className={`h-3.5 w-3.5 ${activeTab === 'daily' ? 'text-white' : 'text-gray-400'}`} />
+                BC hàng ngày
+              </button>
+
+              <button
+                onClick={() => setActiveTab('monthly')}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${activeTab === 'monthly'
+                  ? 'bg-blue-600 text-white shadow-md transform scale-105'
+                  : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+              >
+                <Calendar className={`h-3.5 w-3.5 ${activeTab === 'monthly' ? 'text-white' : 'text-gray-400'}`} />
+                BC tháng
+              </button>
+
+              <button
+                onClick={() => setActiveTab('config')}
+                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${activeTab === 'config'
+                  ? 'bg-blue-600 text-white shadow-md transform scale-105'
+                  : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+              >
+                <Settings className={`h-3.5 w-3.5 ${activeTab === 'config' ? 'text-white' : 'text-gray-400'}`} />
+                Cấu hình
+              </button>
             </nav>
           </div>
         </div>
       </header>
 
       <main className="w-full px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
-        {activeTab === 'dashboard' && (
+        {(activeTab === 'daily' || activeTab === 'monthly') && (
           <div className="space-y-6 animate-fade-in relative w-full mx-auto">
 
             <div className="max-w-7xl mx-auto">
@@ -1148,7 +1274,7 @@ const InnerApp: React.FC = () => {
                       <p className="text-indigo-700 text-xs ml-8">Báo cáo &rarr; BC Cận lâm sàng &rarr; 10. Danh sách PT</p>
                     </div>
                     <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-indigo-300">
-                      <FileUpload label="" file={listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
+                      <FileUpload label="" file={currentReport.listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
                     </div>
                   </div>
 
@@ -1162,29 +1288,29 @@ const InnerApp: React.FC = () => {
                       <p className="text-red-700 font-bold text-xs ml-8 mt-1 select-none">Chọn nhóm theo thứ tự: Họ tên &rarr; Ngày làm &rarr; Máy làm</p>
                     </div>
                     <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-emerald-300">
-                      <FileUpload label="" file={detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
+                      <FileUpload label="" file={currentReport.detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-center gap-4 mt-4">
-                  {isProcessing && (
+                  {currentReport.isProcessing && (
                     <div className="flex items-center gap-3 px-6 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 shadow-sm animate-pulse">
                       <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
                       <span className="font-bold text-xs uppercase tracking-wide">Đang xử lý dữ liệu...</span>
                     </div>
                   )}
 
-                  {!listFile && (
+                  {!currentReport.listFile && (
                     <div className="flex items-center gap-3 px-6 py-2 rounded-xl bg-gray-50 border border-gray-100 text-gray-400 opacity-60 shadow-sm">
                       <Activity className="h-4 w-4 text-gray-400" />
                       <span className="font-bold text-xs uppercase tracking-wide">Chờ tải file Danh sách PT...</span>
                     </div>
                   )}
 
-                  {listFile && !isProcessing && (
+                  {currentReport.listFile && !currentReport.isProcessing && (
                     <button
-                      onClick={handleProcess}
+                      onClick={() => handleProcess(currentType)}
                       className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-indigo-700 hover:shadow-indigo-200 transition-all border-2 border-indigo-500 active:scale-95"
                     >
                       <Zap className="h-4 w-4 fill-current" />
@@ -1195,301 +1321,348 @@ const InnerApp: React.FC = () => {
               </div>
             </div>
 
-            {stats && result && (
+            {currentReport.stats && currentReport.result && (
               <>
                 <div className="max-w-7xl mx-auto mt-6">
                   <div id="results-section" className="space-y-6 animate-fade-in bg-gradient-to-b from-indigo-50/50 to-white rounded-xl p-6 border border-indigo-100 shadow-sm">
 
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      <div className="flex-1">
-                        <h2 className="text-lg font-bold text-gray-900">Kết quả xử lý</h2>
-                      </div>
-                      <div className="flex gap-2 items-center">
-                        {/* Print Dropdown */}
-                        <div className="relative" ref={printDropdownRef}>
-                          <button
-                            onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm"
-                          >
-                            <Printer className="h-4 w-4" /> In Báo Cáo
-                            <svg className="h-4 w-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </button>
-
-                          {isPrintDropdownOpen && (
-                            <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-3 z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden">
-                              <div className="px-4 pb-2 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                                CHỌN BÁO CÁO VÀ HƯỚNG IN
-                              </div>
-
-                              <button
-                                onClick={() => {
-                                  handlePrintClick('list', 'landscape');
-                                  setIsPrintDropdownOpen(false);
-                                }}
-                                className="w-full text-left px-4 py-3 hover:bg-indigo-50 flex items-center gap-4 transition-all group relative overflow-hidden"
-                              >
-                                <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100 group-hover:scale-110 transition-all border border-indigo-100/50">
-                                  <FileText className="h-5 w-5" />
-                                </div>
-                                <div className="flex-1">
-                                  <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Danh sách PT</div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
-                                    <span className="text-[10px] text-gray-400 italic font-medium">Khuyên dùng</span>
-                                  </div>
-                                </div>
-                                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  handlePrintClick('payment', 'portrait');
-                                  setIsPrintDropdownOpen(false);
-                                }}
-                                className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center gap-4 transition-all group relative overflow-hidden mt-1"
-                              >
-                                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 group-hover:scale-110 transition-all border border-emerald-100/50">
-                                  <CreditCard className="h-5 w-5" />
-                                </div>
-                                <div className="flex-1">
-                                  <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Bảng thanh toán</div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Dọc</span>
-                                  </div>
-                                </div>
-                                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  handlePrintClick('payment', 'landscape');
-                                  setIsPrintDropdownOpen(false);
-                                }}
-                                className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center gap-4 transition-all group relative overflow-hidden mt-1"
-                              >
-                                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 group-hover:scale-110 transition-all border border-emerald-100/50">
-                                  <CreditCard className="h-5 w-5" />
-                                </div>
-                                <div className="flex-1">
-                                  <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Bảng thanh toán</div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
-                                  </div>
-                                </div>
-                                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <button className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded text-sm hover:bg-indigo-100 transition-colors border border-indigo-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
-                        <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
-                      </div>
+                    <div className="flex items-center gap-4 mb-6">
+                      <h2 className="text-lg font-bold text-gray-900">Kết quả xử lý</h2>
+                      {currentReport.result.dateRangeText && (
+                        <p className="text-lg font-bold text-blue-800">
+                          {currentReport.result.dateRangeText}
+                        </p>
+                      )}
                     </div>
-
-                    {result.dateRangeText && (
-                      <p className="text-lg font-bold text-blue-800 text-center mt-4">
-                        {result.dateRangeText}
-                      </p>
-                    )}
 
                     <div className="h-px bg-indigo-100/50 w-full my-6"></div>
 
-                    {/* Quick Stats Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                      {/* Card 1: Tổng số PTTT */}
-                      <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
-                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Database className="h-6 w-6" /></div>
-                          <div>
-                            <p className="text-xs font-semibold text-indigo-100 uppercase tracking-wide">Tổng số PTTT</p>
-                            <p className="text-3xl font-bold text-white">{derivedStats.totalSurgeries}</p>
-                          </div>
-                        </div>
-                      </div>
 
-                      {/* Card 2: Tỷ lệ TT <100% */}
-                      <div className="relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-xl shadow-lg border-2 border-purple-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
-                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Percent className="h-6 w-6" /></div>
-                          <div>
-                            <p className="text-xs font-semibold text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
-                            <p className="text-3xl font-bold text-white">{derivedStats.lowPaymentCount || 0}</p>
+                    {currentType === 'daily' ? (
+                      // Daily Report - Simple Flat Design - 6 Cards
+                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                        {/* Card 1: Tổng số PTTT - Blue */}
+                        <div className="bg-blue-600 rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                          <div className="flex-1 z-10">
+                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.totalSurgeries}</p>
+                            <p className="text-xs font-medium text-blue-100 uppercase tracking-wide">Tổng số PTTT</p>
                           </div>
+                          <Database className="h-8 w-8 text-blue-400/80 group-hover:scale-110 transition-transform" />
                         </div>
-                      </div>
 
-                      {/* Card 3: Trùng nhân viên */}
-                      <div className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 p-4 rounded-xl shadow-lg border-2 border-red-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
-                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Users className="h-6 w-6" /></div>
-                          <div>
-                            <p className="text-xs font-semibold text-red-100 uppercase tracking-wide">Trùng nhân viên</p>
-                            <p className="text-3xl font-bold text-white">{derivedStats.staffConflicts}</p>
+                        {/* Card 2: Tỷ lệ TT <100% - Purple */}
+                        <div className="bg-purple-600 rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                          <div className="flex-1 z-10">
+                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.lowPaymentCount || 0}</p>
+                            <p className="text-xs font-medium text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
                           </div>
+                          <Percent className="h-8 w-8 text-purple-400/80 group-hover:scale-110 transition-transform" />
                         </div>
-                      </div>
 
-                      {/* Card 4: Trùng máy */}
-                      <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.machineConflicts > 0
-                        ? 'bg-gradient-to-br from-orange-500 to-orange-600 border-orange-400'
-                        : 'bg-gradient-to-br from-emerald-500 to-emerald-600 border-emerald-400'
-                        }`}>
-                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        {derivedStats.machineConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Zap className="h-6 w-6" /></div>
-                          <div>
-                            <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
-                            <p className="text-3xl font-bold text-white">{derivedStats.machineConflicts}</p>
+                        {/* Card 3: Trùng nhân viên - Red (if > 0) */}
+                        <div className={`${derivedStats.staffConflicts > 0 ? 'bg-red-600' : 'bg-emerald-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                          <div className="flex-1 z-10">
+                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.staffConflicts}</p>
+                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.staffConflicts > 0 ? 'text-red-100' : 'text-emerald-100'}`}>Trùng nhân viên</p>
                           </div>
+                          <Users className={`h-8 w-8 ${derivedStats.staffConflicts > 0 ? 'text-red-800/80' : 'text-emerald-800/60'} group-hover:scale-110 transition-transform`} />
+                          {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
                         </div>
-                      </div>
 
-                      {/* Card 5: Thiếu mã máy */}
-                      <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.missingMachines > 0
-                        ? 'bg-gradient-to-br from-amber-500 to-amber-600 border-amber-400'
-                        : 'bg-gradient-to-br from-teal-500 to-teal-600 border-teal-400'
-                        }`}>
-                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        {derivedStats.missingMachines > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-6 w-6" /></div>
-                          <div>
-                            <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
-                            <p className="text-3xl font-bold text-white">{detailFile ? derivedStats.missingMachines : '--'}</p>
+                        {/* Card 4: Trùng máy - Orange (if > 0) */}
+                        <div className={`${derivedStats.machineConflicts > 0 ? 'bg-orange-600' : 'bg-emerald-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                          <div className="flex-1 z-10">
+                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.machineConflicts}</p>
+                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
                           </div>
+                          <Zap className={`h-8 w-8 ${derivedStats.machineConflicts > 0 ? 'text-orange-800/60' : 'text-emerald-800/60'} group-hover:scale-110 transition-transform`} />
+                          {derivedStats.machineConflicts > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
                         </div>
-                      </div>
 
-                      {/* Card 6: Vi phạm thời gian tối thiểu */}
-                      <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.violateMinTimeCount > 0
-                        ? 'bg-gradient-to-br from-pink-500 to-pink-600 border-pink-400'
-                        : 'bg-gradient-to-br from-cyan-500 to-cyan-600 border-cyan-400'
-                        }`}>
-                        <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        {derivedStats.violateMinTimeCount > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
-                        <div className="flex items-center gap-3">
-                          <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Clock className="h-6 w-6" /></div>
-                          <div>
-                            <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
-                            <p className="text-3xl font-bold text-white">{derivedStats.violateMinTimeCount}</p>
+                        {/* Card 5: Thiếu mã máy - Amber (if > 0) */}
+                        <div className={`${derivedStats.missingMachines > 0 ? 'bg-amber-600' : 'bg-teal-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                          <div className="flex-1 z-10">
+                            <p className="text-3xl font-bold text-white mb-1">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
+                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>Thiếu mã máy</p>
+                          </div>
+                          <AlertTriangle className={`h-8 w-8 ${derivedStats.missingMachines > 0 ? 'text-amber-800/60' : 'text-teal-800/60'} group-hover:scale-110 transition-transform`} />
+                          {derivedStats.missingMachines > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
+                        </div>
+
+                        {/* Card 6: Lỗi thời gian - Cyan (if > 0) */}
+                        <div className={`${derivedStats.violateMinTimeCount > 0 ? 'bg-pink-600' : 'bg-cyan-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                          <div className="flex-1 z-10">
+                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.violateMinTimeCount}</p>
+                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
+                          </div>
+                          <Clock className={`h-8 w-8 ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-800/60' : 'text-cyan-800/60'} group-hover:scale-110 transition-transform`} />
+                          {derivedStats.violateMinTimeCount > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
+                        </div>
+                      </div>
+                    ) : (
+                      // Monthly Report - Existing Gradient Design
+                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                        {/* Card 1: Tổng số PTTT */}
+                        <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Database className="h-6 w-6" /></div>
+                            <div>
+                              <p className="text-xs font-semibold text-indigo-100 uppercase tracking-wide">Tổng số PTTT</p>
+                              <p className="text-3xl font-bold text-white">{derivedStats.totalSurgeries}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card 2: Tỷ lệ TT <100% */}
+                        <div className="relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-xl shadow-lg border-2 border-purple-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Percent className="h-6 w-6" /></div>
+                            <div>
+                              <p className="text-xs font-semibold text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
+                              <p className="text-3xl font-bold text-white">{derivedStats.lowPaymentCount || 0}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card 3: Trùng nhân viên */}
+                        <div className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 p-4 rounded-xl shadow-lg border-2 border-red-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                          {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Users className="h-6 w-6" /></div>
+                            <div>
+                              <p className="text-xs font-semibold text-red-100 uppercase tracking-wide">Trùng nhân viên</p>
+                              <p className="text-3xl font-bold text-white">{derivedStats.staffConflicts}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card 4: Trùng máy */}
+                        <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.machineConflicts > 0
+                          ? 'bg-gradient-to-br from-orange-500 to-orange-600 border-orange-400'
+                          : 'bg-gradient-to-br from-emerald-500 to-emerald-600 border-emerald-400'
+                          }`}>
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                          {derivedStats.machineConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Zap className="h-6 w-6" /></div>
+                            <div>
+                              <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
+                              <p className="text-3xl font-bold text-white">{derivedStats.machineConflicts}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card 5: Thiếu mã máy */}
+                        <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.missingMachines > 0
+                          ? 'bg-gradient-to-br from-amber-500 to-amber-600 border-amber-400'
+                          : 'bg-gradient-to-br from-teal-500 to-teal-600 border-teal-400'
+                          }`}>
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                          {derivedStats.missingMachines > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-6 w-6" /></div>
+                            <div>
+                              <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
+                              <p className="text-3xl font-bold text-white">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card 6: Vi phạm thời gian tối thiểu */}
+                        <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.violateMinTimeCount > 0
+                          ? 'bg-gradient-to-br from-pink-500 to-pink-600 border-pink-400'
+                          : 'bg-gradient-to-br from-cyan-500 to-cyan-600 border-cyan-400'
+                          }`}>
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                          {derivedStats.violateMinTimeCount > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                          <div className="flex items-center gap-3">
+                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Clock className="h-6 w-6" /></div>
+                            <div>
+                              <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
+                              <p className="text-3xl font-bold text-white">{derivedStats.violateMinTimeCount}</p>
+                            </div>
                           </div>
                         </div>
                       </div>
+                    )}
+                  </div>
+
+
+                  <div className="flex justify-end mt-4 px-1">
+                    <div className="flex gap-2 items-center">
+                      {/* Print Dropdown */}
+                      <div className="relative" ref={printDropdownRef}>
+                        <button
+                          onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm"
+                        >
+                          <Printer className="h-4 w-4" /> In Báo Cáo
+                          <svg className="h-4 w-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+
+                        {isPrintDropdownOpen && (
+                          <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-3 z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden">
+                            <div className="px-4 pb-2 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                              CHỌN BÁO CÁO VÀ HƯỚNG IN
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                handlePrintClick('list', 'landscape');
+                                setIsPrintDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-3 hover:bg-indigo-50 flex items-center gap-4 transition-all group relative overflow-hidden"
+                            >
+                              <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100 group-hover:scale-110 transition-all border border-indigo-100/50">
+                                <FileText className="h-5 w-5" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Danh sách PT</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
+                                  <span className="text-[10px] text-gray-400 italic font-medium">Khuyên dùng</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                handlePrintClick('payment', 'portrait');
+                                setIsPrintDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center gap-4 transition-all group relative overflow-hidden mt-1"
+                            >
+                              <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 group-hover:scale-110 transition-all border border-emerald-100/50">
+                                <CreditCard className="h-5 w-5" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Bảng thanh toán</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Dọc</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                handlePrintClick('payment', 'landscape');
+                                setIsPrintDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center gap-4 transition-all group relative overflow-hidden mt-1"
+                            >
+                              <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 group-hover:scale-110 transition-all border border-emerald-100/50">
+                                <CreditCard className="h-5 w-5" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Bảng thanh toán</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <button className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded text-sm hover:bg-indigo-100 transition-colors border border-indigo-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
+                      <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
                     </div>
                   </div>
 
                   {/* Modern Tab Switcher - Attached to content area */}
                   <div className="flex flex-col mt-6">
-                    <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 gap-2 ${activeTable === 'list' ? 'border-b-indigo-600' :
-                      activeTable === 'staff' ? 'border-b-red-600' :
-                        activeTable === 'machine' ? 'border-b-orange-600' :
-                          activeTable === 'missing' ? 'border-b-amber-600' :
+                    <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 gap-2 ${currentReport.activeTable === 'list' ? 'border-b-indigo-600' :
+                      currentReport.activeTable === 'staff' ? 'border-b-red-600' :
+                        currentReport.activeTable === 'machine' ? 'border-b-orange-600' :
+                          currentReport.activeTable === 'missing' ? 'border-b-amber-600' :
                             'border-b-emerald-600'
                       }`}>
                       {/* Tab 1: DS Phẫu thuật */}
                       <button
                         onClick={() => setActiveTable('list')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'list'
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'list'
                           ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
                           : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
-                          }`}
-                      >
-                        <ListChecks className={`h-4 w-4 ${activeTable === 'list' ? 'text-indigo-600' : ''}`} />
+                          }`}>
+                        <ListChecks className={`h-4 w-4 ${currentReport.activeTable === 'list' ? 'text-indigo-600' : ''}`} />
                         <span>DS Phẫu thuật</span>
-                        <div className="flex items-center gap-1.5 ml-1">
-                          {ptCount > 0 && (
-                            <div className="flex items-center gap-1">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'list' ? 'bg-indigo-100 text-indigo-700' : 'bg-indigo-500 text-white'}`}>{ptCount}</span>
-                              <span className="text-[10px] opacity-70">PT</span>
-                            </div>
-                          )}
-                          {ttCount > 0 && (
-                            <div className="flex items-center gap-1">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'list' ? 'bg-indigo-100 text-indigo-700' : 'bg-indigo-500 text-white'}`}>{ttCount}</span>
-                              <span className="text-[10px] opacity-70">TT</span>
-                            </div>
-                          )}
-                        </div>
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'list' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                          {ptCount > 0 || ttCount > 0 ? `${ptCount} PT${ttCount > 0 ? ` ${ttCount} TT` : ''}` : '0'}
+                        </span>
                       </button>
 
                       {/* Tab 2: Trùng giờ NV */}
                       <button
                         onClick={() => setActiveTable('staff')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'staff'
-                          ? 'bg-white text-red-700 border-red-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-red-600'
-                          }`}
-                      >
-                        <Users className={`h-4 w-4 ${activeTable === 'staff' ? 'text-red-600' : ''}`} />
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'staff'
+                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          }`}>
+                        <Users className={`h-4 w-4 ${currentReport.activeTable === 'staff' ? 'text-indigo-600' : ''}`} />
                         <span>Trùng giờ NV</span>
-                        {stats.staffConflicts > 0 && (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'staff' ? 'bg-red-100 text-red-700' : 'bg-red-500 text-white'
-                            }`}>{stats.staffConflicts}</span>
-                        )}
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'staff' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700'}`}>
+                          {currentReport.stats.staffConflicts}
+                        </span>
                       </button>
 
                       {/* Tab 3: Trùng máy */}
                       <button
                         onClick={() => setActiveTable('machine')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'machine'
-                          ? 'bg-white text-orange-700 border-orange-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-orange-600'
-                          }`}
-                      >
-                        <Zap className={`h-4 w-4 ${activeTable === 'machine' ? 'text-orange-600' : ''}`} />
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'machine'
+                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          }`}>
+                        <Cpu className={`h-4 w-4 ${currentReport.activeTable === 'machine' ? 'text-indigo-600' : ''}`} />
                         <span>Trùng máy</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'machine' ? 'bg-orange-100 text-orange-700' : 'bg-orange-500 text-white'
-                          }`}>{stats.machineConflicts}</span>
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'machine' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700'}`}>
+                          {currentReport.stats.machineConflicts}
+                        </span>
                       </button>
 
                       {/* Tab 4: Thiếu mã máy */}
                       <button
                         onClick={() => setActiveTable('missing')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'missing'
-                          ? 'bg-white text-amber-700 border-amber-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-amber-600'
-                          }`}
-                      >
-                        <AlertTriangle className={`h-4 w-4 ${activeTable === 'missing' ? 'text-amber-600' : ''}`} />
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'missing'
+                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          }`}>
+                        <AlertTriangle className={`h-4 w-4 ${currentReport.activeTable === 'missing' ? 'text-indigo-600' : ''}`} />
                         <span>Thiếu mã máy</span>
-                        {stats.missingMachines > 0 && (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'missing' ? 'bg-amber-100 text-amber-700' : 'bg-amber-500 text-white'
-                            }`}>{detailFile ? stats.missingMachines : '--'}</span>
-                        )}
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'missing' ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'}`}>
+                          {currentReport.detailFile ? currentReport.stats.missingMachines : '--'}
+                        </span>
                       </button>
 
                       {/* Tab 5: Bảng thanh toán */}
                       <button
                         onClick={() => setActiveTable('payment')}
-                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${activeTable === 'payment'
-                          ? 'bg-white text-emerald-700 border-emerald-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-emerald-600'
-                          }`}
-                      >
-                        <DollarSign className={`h-4 w-4 ${activeTable === 'payment' ? 'text-emerald-600' : ''}`} />
-                        <span>Bảng thanh toán PTTT</span>
-                        {paymentDataPrepared && paymentDataPrepared.enrichedRows.length > 0 && (
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${activeTable === 'payment' ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500 text-white'
-                            }`}>{paymentDataPrepared.enrichedRows.length}</span>
-                        )}
+                        className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'payment'
+                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          }`}>
+                        <DollarSign className={`h-4 w-4 ${currentReport.activeTable === 'payment' ? 'text-indigo-600' : ''}`} />
+                        <span>Bảng thanh toán</span>
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'payment' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {currentReport.result.paymentData?.rows?.length || 0}
+                        </span>
                       </button>
                     </div>
 
-                    <div className={`w-full animate-fade-in bg-white border-2 p-6 pb-12 rounded-b-xl relative z-10 ${activeTable === 'list' ? 'border-indigo-600' :
-                      activeTable === 'staff' ? 'border-red-600' :
-                        activeTable === 'machine' ? 'border-orange-600' :
-                          activeTable === 'missing' ? 'border-amber-600' :
+                    <div className={`w-full animate-fade-in bg-white border-2 p-6 pb-12 rounded-b-xl relative z-10 ${currentReport.activeTable === 'list' ? 'border-indigo-600' :
+                      currentReport.activeTable === 'staff' ? 'border-red-600' :
+                        currentReport.activeTable === 'machine' ? 'border-orange-600' :
+                          currentReport.activeTable === 'missing' ? 'border-amber-600' :
                             'border-emerald-600'
                       }`}>
-                      {renderTableContent()}
+                      {currentReport.listFile && renderTableContent()}
                     </div>
                   </div>
                 </div>
@@ -1499,7 +1672,8 @@ const InnerApp: React.FC = () => {
         )}
 
         {activeTab === 'config' && <ConfigurationTab onConfigUpdate={() => {
-          if (listFile) handleProcess();
+          if (dailyState.listFile) handleProcess('daily');
+          if (monthlyState.listFile) handleProcess('monthly');
         }} />}
       </main>
     </div>

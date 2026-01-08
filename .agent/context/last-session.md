@@ -1,53 +1,33 @@
-# Surgical Data Pro - Session Context Snapshot
-Generated: 07/01/2026 20:40 (Local Time)
+# Last Session Summary: Dashboard UI & Search Refinement
 
-## 1. Current Progress Summary
-- **Phase 1-15**: Completed. Core medical staff list management (Section 2), Excel import/export (single/multi-sheet), pricing role mapping, and payment table visualization (UI/Print) are fully functional.
-- **Phase 16**: Workflow Automation. Added `/sync` command with custom commit messages and timestamp-based branching (`temp-dd-mm-yyyy-HHhMM`).
-- **Phase 17**: Context Management. Added `/save-context` and `/load-context`.
+## GIT Status
+- **Current Branch**: `temp-07-01-2026-23h25`
+- **Last Sync Commit**: "bổ chỉ sửa giao diện tab cấu hình và tổng quan, thêm 1 số tìm kiếm"
 
-## 2. Key Data Structures (Schemas)
-### StaffMember (contexts/ConfigContext.tsx)
-```typescript
-interface StaffMember {
-  id: string;
-  name: string;
-  taxId: string;
-  department: string;
-  position: string; // BS PT, BS GMHS, Phụ, etc.
-  stt?: number;
-}
-```
+## Accomplishments (Checkpoint 37)
+- **Sequential Search & Settings**:
+    - Implemented regex-based sequential search (`word1.*word2`).
+    - Added a Search Settings dropdown to `DynamicTable` to toggle searchable columns.
+    - Persisted `searchableColumns` in `UISettings`.
+    - Restricted Payment Table search to "Khoa", "MST", and "Họ tên".
+- **Interaction Logic**:
+    - Implemented "Click Outside to Close" for all menus:
+        - `DynamicTable`: Columns, Search, and Date dropdowns.
+        - `InnerApp`: "In Báo Cáo" (Print) menu.
+- **UI Refinements**:
+    - Renamed Configuration sub-tab "Danh sách NVYT" to "**Thông tin hành chính, nhân sự**".
+    - Added bold red grouping instructions to "Chi tiết theo khoa" upload section.
 
-### AppConfig
-```typescript
-interface AppConfig {
-  departments: string[];
-  staffList: StaffMember[];
-  hospitalName: string;
-  priceConfig: Record<string, Record<string, number>>;
-}
-```
+## Key Data Structures (`types.ts`)
+- **`SurgeryRecord`**: The core data object for surgical procedures.
+- **`UISettings`**: Includes `visibleColumns` and `searchableColumns` maps for persistence.
+- **`StaffConflict` / `MachineConflict`**: Models for overlap violations.
+- **`ProcessingResult`**: The aggregate output of `excelProcessor.ts`.
 
-## 3. Critical Business Logic
-### Payment Table Sorting
-Sorted by:
-1. **Tier**: `BS PT` (1) > `BS GMHS` (2) > `Phụ` (3).
-2. **Department (Special)**: In `Phụ` tier, `GMHS` department is prioritized (weight -1). Others follow `config.departments` index.
-3. **Role Tier**: `Chính` > `Phụ` > `Giúp việc`.
-4. **Quantities**: Descending `totalQty` (Staff with more cases appear higher).
-5. **Sub-role (Phụ group)**: `bestSubRoleWeight`: `KTV GMHS` (0) > `Tít DC` (1) > `GV` (2).
-6. **Name**: Alphabetical.
+## Deployment & Verification
+- **Internal State**: The application uses `ConfigContext` for managing hospital identity, pricing, and UI persistence.
+- **Print Logic**: Orientation is dynamically managed and passed to `PrintPreview`.
 
-### Print Layout
-- **Margins**: Strictly **1cm**.
-- **Sizing**: `table-layout: auto` + `width: 1%` on small columns (STT, Khoa, MS Thuế, Thành Tiền) + `white-space: nowrap` on 'Họ tên' to ensure a tight, balanced fit.
-- **Separators**: Indigo-600 (`border-t-2`) rows for new departments.
-
-## 4. Pending Tasks & Security
-- **Firebase Security**: Realtime Database "Test Mode" is expiring in 1 day. Need to update Rules to `auth != null` or similar to prevent access denial.
-- **Search Feature**: Planned next: Add search box in Surgical List.
-
-## 5. Environment
-- **Current Branch**: `temp-07-01-2026-20h33`
-- **Slash Commands**: `/sync mess="..."`, `/save-context`, `/load-context`.
+## Next Steps
+- Continue with any further UI/UX improvements or logic refinements as requested.
+- Monitor for any edge cases in sequential search regex matching.
