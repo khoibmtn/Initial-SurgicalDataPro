@@ -36,7 +36,8 @@ import {
   RefreshCw,
   CheckCircle2,
   Search,
-  Calendar
+  Calendar,
+  UserMinus
 } from 'lucide-react';
 import { format, parse, isValid } from 'date-fns';
 
@@ -701,6 +702,12 @@ const InnerApp: React.FC = () => {
     };
   }, [currentReport.result?.validRecords]);
 
+  // Calculate Missing Assistant Count
+  const missingAssistantCount = useMemo(() => {
+    if (!currentReport.result?.validRecords) return 0;
+    return currentReport.result.validRecords.filter(r => !r.gv || r.gv.trim() === '').length;
+  }, [currentReport.result?.validRecords]);
+
   // Combined stats from result and dynamic calculation
   const derivedStats = useMemo(() => {
     if (!currentReport.result?.stats) return {
@@ -710,14 +717,16 @@ const InnerApp: React.FC = () => {
       machineConflicts: 0,
       missingMachines: 0,
       lowPaymentCount: 0,
-      violateMinTimeCount: 0
+      violateMinTimeCount: 0,
+      missingAssistantCount: 0
     };
 
     return {
       ...currentReport.result.stats,
-      violateMinTimeCount: dynamicViolateMinTimeCount
+      violateMinTimeCount: dynamicViolateMinTimeCount,
+      missingAssistantCount: missingAssistantCount
     };
-  }, [currentReport.result?.stats, dynamicViolateMinTimeCount]);
+  }, [currentReport.result?.stats, dynamicViolateMinTimeCount, missingAssistantCount]);
 
   // -- Memoized Payment Data for Reuse in Print --
   const paymentDataPrepared = useMemo(() => {
@@ -1339,150 +1348,176 @@ const InnerApp: React.FC = () => {
 
 
                     {currentType === 'daily' ? (
-                      // Daily Report - Simple Flat Design - 6 Cards
-                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                      // Daily Report - Simple Flat Design - 7 Cards
+                      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
                         {/* Card 1: Tổng số PTTT - Blue */}
-                        <div className="bg-blue-600 rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                        <div className="bg-blue-600 rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
                           <div className="flex-1 z-10">
-                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.totalSurgeries}</p>
-                            <p className="text-xs font-medium text-blue-100 uppercase tracking-wide">Tổng số PTTT</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.totalSurgeries}</p>
+                            <p className="text-[10px] lg:text-xs font-medium text-blue-100 uppercase tracking-wide">Tổng số PTTT</p>
                           </div>
-                          <Database className="h-8 w-8 text-blue-400/80 group-hover:scale-110 transition-transform" />
+                          <Database className="h-6 w-6 lg:h-8 lg:w-8 text-blue-400/80 group-hover:scale-110 transition-transform" />
                         </div>
 
                         {/* Card 2: Tỷ lệ TT <100% - Purple */}
-                        <div className="bg-purple-600 rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                        <div className="bg-purple-600 rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
                           <div className="flex-1 z-10">
-                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.lowPaymentCount || 0}</p>
-                            <p className="text-xs font-medium text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.lowPaymentCount || 0}</p>
+                            <p className="text-[10px] lg:text-xs font-medium text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
                           </div>
-                          <Percent className="h-8 w-8 text-purple-400/80 group-hover:scale-110 transition-transform" />
+                          <Percent className="h-6 w-6 lg:h-8 lg:w-8 text-purple-400/80 group-hover:scale-110 transition-transform" />
                         </div>
 
                         {/* Card 3: Trùng nhân viên - Red (if > 0) */}
-                        <div className={`${derivedStats.staffConflicts > 0 ? 'bg-red-600' : 'bg-emerald-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                        <div className={`${derivedStats.staffConflicts > 0 ? 'bg-red-600' : 'bg-emerald-600'} rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
                           <div className="flex-1 z-10">
-                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.staffConflicts}</p>
-                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.staffConflicts > 0 ? 'text-red-100' : 'text-emerald-100'}`}>Trùng nhân viên</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.staffConflicts}</p>
+                            <p className={`text-[10px] lg:text-xs font-medium uppercase tracking-wide ${derivedStats.staffConflicts > 0 ? 'text-red-100' : 'text-emerald-100'}`}>Trùng nhân viên</p>
                           </div>
-                          <Users className={`h-8 w-8 ${derivedStats.staffConflicts > 0 ? 'text-red-800/80' : 'text-emerald-800/60'} group-hover:scale-110 transition-transform`} />
+                          <Users className={`h-6 w-6 lg:h-8 lg:w-8 ${derivedStats.staffConflicts > 0 ? 'text-red-800/80' : 'text-emerald-800/60'} group-hover:scale-110 transition-transform`} />
                           {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
                         </div>
 
                         {/* Card 4: Trùng máy - Orange (if > 0) */}
-                        <div className={`${derivedStats.machineConflicts > 0 ? 'bg-orange-600' : 'bg-emerald-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                        <div className={`${derivedStats.machineConflicts > 0 ? 'bg-orange-600' : 'bg-emerald-600'} rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
                           <div className="flex-1 z-10">
-                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.machineConflicts}</p>
-                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.machineConflicts}</p>
+                            <p className={`text-[10px] lg:text-xs font-medium uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
                           </div>
-                          <Zap className={`h-8 w-8 ${derivedStats.machineConflicts > 0 ? 'text-orange-800/60' : 'text-emerald-800/60'} group-hover:scale-110 transition-transform`} />
+                          <Zap className={`h-6 w-6 lg:h-8 lg:w-8 ${derivedStats.machineConflicts > 0 ? 'text-orange-800/60' : 'text-emerald-800/60'} group-hover:scale-110 transition-transform`} />
                           {derivedStats.machineConflicts > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
                         </div>
 
                         {/* Card 5: Thiếu mã máy - Amber (if > 0) */}
-                        <div className={`${derivedStats.missingMachines > 0 ? 'bg-amber-600' : 'bg-teal-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                        <div className={`${derivedStats.missingMachines > 0 ? 'bg-amber-600' : 'bg-teal-600'} rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
                           <div className="flex-1 z-10">
-                            <p className="text-3xl font-bold text-white mb-1">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
-                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>Thiếu mã máy</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
+                            <p className={`text-[10px] lg:text-xs font-medium uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>Thiếu mã máy</p>
                           </div>
-                          <AlertTriangle className={`h-8 w-8 ${derivedStats.missingMachines > 0 ? 'text-amber-800/60' : 'text-teal-800/60'} group-hover:scale-110 transition-transform`} />
+                          <AlertTriangle className={`h-6 w-6 lg:h-8 lg:w-8 ${derivedStats.missingMachines > 0 ? 'text-amber-800/60' : 'text-teal-800/60'} group-hover:scale-110 transition-transform`} />
                           {derivedStats.missingMachines > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
                         </div>
 
-                        {/* Card 6: Lỗi thời gian - Cyan (if > 0) */}
-                        <div className={`${derivedStats.violateMinTimeCount > 0 ? 'bg-pink-600' : 'bg-cyan-600'} rounded-lg p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                        {/* Card 6: Chưa điền GV - Slate (if > 0) */}
+                        <div className={`${derivedStats.missingAssistantCount > 0 ? 'bg-slate-600' : 'bg-emerald-600'} rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
                           <div className="flex-1 z-10">
-                            <p className="text-3xl font-bold text-white mb-1">{derivedStats.violateMinTimeCount}</p>
-                            <p className={`text-xs font-medium uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.missingAssistantCount}</p>
+                            <p className={`text-[10px] lg:text-xs font-medium uppercase tracking-wide ${derivedStats.missingAssistantCount > 0 ? 'text-slate-100' : 'text-emerald-100'}`}>Chưa điền GV</p>
                           </div>
-                          <Clock className={`h-8 w-8 ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-800/60' : 'text-cyan-800/60'} group-hover:scale-110 transition-transform`} />
+                          <UserMinus className={`h-6 w-6 lg:h-8 lg:w-8 ${derivedStats.missingAssistantCount > 0 ? 'text-slate-800/60' : 'text-emerald-800/60'} group-hover:scale-110 transition-transform`} />
+                          {derivedStats.missingAssistantCount > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
+                        </div>
+
+                        {/* Card 7: Lỗi thời gian - Cyan (if > 0) */}
+                        <div className={`${derivedStats.violateMinTimeCount > 0 ? 'bg-pink-600' : 'bg-cyan-600'} rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
+                          <div className="flex-1 z-10">
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.violateMinTimeCount}</p>
+                            <p className={`text-[10px] lg:text-xs font-medium uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
+                          </div>
+                          <Clock className={`h-6 w-6 lg:h-8 lg:w-8 ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-800/60' : 'text-cyan-800/60'} group-hover:scale-110 transition-transform`} />
                           {derivedStats.violateMinTimeCount > 0 && <div className="absolute top-2 right-2 w-2 h-2 bg-white rounded-full animate-ping"></div>}
                         </div>
                       </div>
                     ) : (
-                      // Monthly Report - Existing Gradient Design
-                      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                      // Monthly Report - Existing Gradient Design - 7 Cards
+                      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
                         {/* Card 1: Tổng số PTTT */}
-                        <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                        <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-3 lg:p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
                           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                           <div className="flex items-center gap-3">
-                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Database className="h-6 w-6" /></div>
+                            <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Database className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
-                              <p className="text-xs font-semibold text-indigo-100 uppercase tracking-wide">Tổng số PTTT</p>
-                              <p className="text-3xl font-bold text-white">{derivedStats.totalSurgeries}</p>
+                              <p className="text-[10px] lg:text-xs font-semibold text-indigo-100 uppercase tracking-wide">Tổng số PTTT</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.totalSurgeries}</p>
                             </div>
                           </div>
                         </div>
 
                         {/* Card 2: Tỷ lệ TT <100% */}
-                        <div className="relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-xl shadow-lg border-2 border-purple-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                        <div className="relative overflow-hidden bg-gradient-to-br from-purple-500 to-purple-600 p-3 lg:p-4 rounded-xl shadow-lg border-2 border-purple-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
                           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                           <div className="flex items-center gap-3">
-                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Percent className="h-6 w-6" /></div>
+                            <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Percent className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
-                              <p className="text-xs font-semibold text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
-                              <p className="text-3xl font-bold text-white">{derivedStats.lowPaymentCount || 0}</p>
+                              <p className="text-[10px] lg:text-xs font-semibold text-purple-100 uppercase tracking-wide">Tỷ lệ TT &lt;100%</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.lowPaymentCount || 0}</p>
                             </div>
                           </div>
                         </div>
 
                         {/* Card 3: Trùng nhân viên */}
-                        <div className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 p-4 rounded-xl shadow-lg border-2 border-red-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                        <div className="relative overflow-hidden bg-gradient-to-br from-red-500 to-red-600 p-3 lg:p-4 rounded-xl shadow-lg border-2 border-red-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
                           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                           {derivedStats.staffConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
                           <div className="flex items-center gap-3">
-                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Users className="h-6 w-6" /></div>
+                            <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Users className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
-                              <p className="text-xs font-semibold text-red-100 uppercase tracking-wide">Trùng nhân viên</p>
-                              <p className="text-3xl font-bold text-white">{derivedStats.staffConflicts}</p>
+                              <p className="text-[10px] lg:text-xs font-semibold text-red-100 uppercase tracking-wide">Trùng nhân viên</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.staffConflicts}</p>
                             </div>
                           </div>
                         </div>
 
                         {/* Card 4: Trùng máy */}
-                        <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.machineConflicts > 0
+                        <div className={`relative overflow-hidden p-3 lg:p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.machineConflicts > 0
                           ? 'bg-gradient-to-br from-orange-500 to-orange-600 border-orange-400'
                           : 'bg-gradient-to-br from-emerald-500 to-emerald-600 border-emerald-400'
                           }`}>
                           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                           {derivedStats.machineConflicts > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
                           <div className="flex items-center gap-3">
-                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Zap className="h-6 w-6" /></div>
+                            <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Zap className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
-                              <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
-                              <p className="text-3xl font-bold text-white">{derivedStats.machineConflicts}</p>
+                              <p className={`text-[10px] lg:text-xs font-semibold uppercase tracking-wide ${derivedStats.machineConflicts > 0 ? 'text-orange-100' : 'text-emerald-100'}`}>Trùng máy</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.machineConflicts}</p>
                             </div>
                           </div>
                         </div>
 
                         {/* Card 5: Thiếu mã máy */}
-                        <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.missingMachines > 0
+                        <div className={`relative overflow-hidden p-3 lg:p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.missingMachines > 0
                           ? 'bg-gradient-to-br from-amber-500 to-amber-600 border-amber-400'
                           : 'bg-gradient-to-br from-teal-500 to-teal-600 border-teal-400'
                           }`}>
                           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                           {derivedStats.missingMachines > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
                           <div className="flex items-center gap-3">
-                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-6 w-6" /></div>
+                            <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
-                              <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
-                              <p className="text-3xl font-bold text-white">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
+                              <p className={`text-[10px] lg:text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
                             </div>
                           </div>
                         </div>
 
-                        {/* Card 6: Vi phạm thời gian tối thiểu */}
-                        <div className={`relative overflow-hidden p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.violateMinTimeCount > 0
+                        {/* Card 6: Chưa điền GV - NEW */}
+                        <div className={`relative overflow-hidden p-3 lg:p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.missingAssistantCount > 0
+                          ? 'bg-gradient-to-br from-slate-500 to-slate-600 border-slate-400'
+                          : 'bg-gradient-to-br from-emerald-500 to-emerald-600 border-emerald-400'
+                          }`}>
+                          <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                          {derivedStats.missingAssistantCount > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><UserMinus className="h-5 w-5 lg:h-6 lg:w-6" /></div>
+                            <div>
+                              <p className={`text-[10px] lg:text-xs font-semibold uppercase tracking-wide ${derivedStats.missingAssistantCount > 0 ? 'text-slate-100' : 'text-emerald-100'}`}>Chưa điền GV</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.missingAssistantCount}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card 7: Vi phạm thời gian tối thiểu */}
+                        <div className={`relative overflow-hidden p-3 lg:p-4 rounded-xl shadow-lg border-2 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group ${derivedStats.violateMinTimeCount > 0
                           ? 'bg-gradient-to-br from-pink-500 to-pink-600 border-pink-400'
                           : 'bg-gradient-to-br from-cyan-500 to-cyan-600 border-cyan-400'
                           }`}>
                           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                           {derivedStats.violateMinTimeCount > 0 && <div className="absolute top-2 right-2 w-3 h-3 bg-white rounded-full animate-ping"></div>}
                           <div className="flex items-center gap-3">
-                            <div className="p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Clock className="h-6 w-6" /></div>
+                            <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Clock className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
-                              <p className={`text-xs font-semibold uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
-                              <p className="text-3xl font-bold text-white">{derivedStats.violateMinTimeCount}</p>
+                              <p className={`text-[10px] lg:text-xs font-semibold uppercase tracking-wide ${derivedStats.violateMinTimeCount > 0 ? 'text-pink-100' : 'text-cyan-100'}`}>Lỗi thời gian</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.violateMinTimeCount}</p>
                             </div>
                           </div>
                         </div>

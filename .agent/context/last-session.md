@@ -1,33 +1,32 @@
-# Last Session Summary: Dashboard UI & Search Refinement
+# Session Context Snapshot
 
-## GIT Status
-- **Current Branch**: `temp-07-01-2026-23h25`
-- **Last Sync Commit**: "bổ chỉ sửa giao diện tab cấu hình và tổng quan, thêm 1 số tìm kiếm"
+**Date**: 2026-01-08
+**Git Branch**: `temp-08-01-2026-18h03`
 
-## Accomplishments (Checkpoint 37)
-- **Sequential Search & Settings**:
-    - Implemented regex-based sequential search (`word1.*word2`).
-    - Added a Search Settings dropdown to `DynamicTable` to toggle searchable columns.
-    - Persisted `searchableColumns` in `UISettings`.
-    - Restricted Payment Table search to "Khoa", "MST", and "Họ tên".
-- **Interaction Logic**:
-    - Implemented "Click Outside to Close" for all menus:
-        - `DynamicTable`: Columns, Search, and Date dropdowns.
-        - `InnerApp`: "In Báo Cáo" (Print) menu.
-- **UI Refinements**:
-    - Renamed Configuration sub-tab "Danh sách NVYT" to "**Thông tin hành chính, nhân sự**".
-    - Added bold red grouping instructions to "Chi tiết theo khoa" upload section.
+## 🎯 Accomplishments
+1.  **Report Type Separation**:
+    -   Refactored `App.tsx` to maintain distinct `dailyState` and `monthlyState`.
+    -   Implemented `ReportState` interface ensuring independent data processing and active tabs for Daily vs Monthly views.
+    -   Separated UI Settings (pagination, etc.) so changes in one mode do not affect the other.
 
-## Key Data Structures (`types.ts`)
-- **`SurgeryRecord`**: The core data object for surgical procedures.
-- **`UISettings`**: Includes `visibleColumns` and `searchableColumns` maps for persistence.
-- **`StaffConflict` / `MachineConflict`**: Models for overlap violations.
-- **`ProcessingResult`**: The aggregate output of `excelProcessor.ts`.
+2.  **Daily Report Dashboard Refinement**:
+    -   **Stat Cards**: Reverted "BC hàng ngày" to use 6 cards (matching Monthly).
+    -   **Design**: Implemented a "Flat Design" with semantic colors (Blue, Purple, Red, Orange, Amber, Cyan) for Daily cards, while preserving the "Gradient Design" for Monthly cards (Project Invariant).
+    -   **Layout**: Rearranged dashboard to place action buttons (Print, AI, Download) distinctively below stat cards.
 
-## Deployment & Verification
-- **Internal State**: The application uses `ConfigContext` for managing hospital identity, pricing, and UI persistence.
-- **Print Logic**: Orientation is dynamically managed and passed to `PrintPreview`.
+3.  **Tab & Badge Enhancements**:
+    -   **"DS Phẫu thuật" Label**: Updated to show disjoint counts: "X PT Y TT" (e.g., "108 PT 1 TT").
+    -   **Tab Badges**:
+        -   forced visibility of "0" counts instead of hiding them.
+        -   Implemented "--" display for "Thiếu mã máy" when no detail file is uploaded.
+        -   Enhanced styling: Inactive tabs now show prominent colored badges (Light BG + Dark Text) instead of gray.
 
-## Next Steps
-- Continue with any further UI/UX improvements or logic refinements as requested.
-- Monitor for any edge cases in sequential search regex matching.
+## 🏗 Key Logic & Architecture
+-   **State Isolation**: `currentReport` useMemo hook switches context based on `activeTab` ('daily' vs 'monthly').
+-   **Shared Config**: `ConfigContext` provides global settings (hospital name, time limits) but `UISettings` are now per-report-type.
+-   **Mock Verification**: Used temporary in-code mock injection to verify UI states (badges, counts) that depend on specific data conditions (like missing files or specific P/T counts).
+
+## 📝 Next Steps
+-   Continue refining the "BC hàng ngày" specific logic if needed.
+-   Monitor user feedback on the new "Flat Design" vs "Gradient" contrast.
+-   Proceed with any new feature requests around data exports or reporting.

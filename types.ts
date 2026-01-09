@@ -6,6 +6,7 @@ export interface ProcessedStats {
   missingMachines: number;
   lowPaymentCount: number; // Num surgeries with soLuong < 1
   violateMinTimeCount: number; // Num surgeries violating min time rule
+  missingAssistantCount?: number; // Num surgeries missing 'gv'
 }
 
 export interface ReportUISettings {
