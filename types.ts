@@ -130,6 +130,8 @@ export interface ProcessingResult {
   missingRecords: SurgeryRecord[];
   paymentData: PaymentData;
   dateRangeText?: string; // Extracted from A5 of list file / A3 of detail file
+  minDate?: Date;
+  maxDate?: Date;
 }
 
 export interface FileState {
@@ -143,4 +145,48 @@ export enum AppStatus {
   ANALYZING = 'ANALYZING',
   COMPLETE = 'COMPLETE',
   ERROR = 'ERROR',
+}
+
+// ================= FIRESTORE PERSISTENCE MODELS =================
+
+export interface ReportMetadata {
+  id: string;               // ID báo cáo
+  type: 'DAILY' | 'MONTHLY'; // Phân loại
+  date: string;             // Ngày tạo (ISO String)
+
+  // Các thông tin quản lý cơ bản
+  createdAt: number;        // Timestamp
+  createdBy: string;        // User ID
+}
+
+export interface PersistedSurgeryRecord {
+  // === 1. NHÓM HÀNH CHÍNH (Từ Excel gốc) ===
+  stt: number | string;
+  patientId: string;        // Mã BN
+  patientName: string;
+  gender: string;
+  yob: string;              // Năm sinh
+  bhyt: string;             // Số thẻ BHYT
+
+  // === 2. NHÓM THỜI GIAN (Đã chuẩn hóa sang ISO/Timestamp) ===
+  ngayCD: string;           // Ngày chỉ định
+  ngayBD: string;           // Ngày bắt đầu (quan trọng nhất)
+  ngayKT: string;           // Ngày kết thúc (quan trọng nhất)
+  timeMinutes: number;      // Thời lượng (phút) - Lưu luôn để không phải tính lại
+
+  // === 3. NHÓM CHUYÊN MÔN ===
+  tenKT: string;            // Tên kỹ thuật
+  loaiPTTT: string;         // Mã loại: "P1", "TĐB", "TKPL"... (Quan trọng cho tính tiền)
+  soLuong: number;          // Số lượng quy đổi (đã nhân tỷ lệ %)
+
+  // === 4. NHÓM NHÂN SỰ (Kíp mổ) ===
+  ptChinh: string;
+  ptPhu: string;
+  bsGM: string;
+  ktvGM: string;
+  tdc: string;
+  gv: string;
+
+  // === 5. NHÓM TÀI NGUYÊN (Từ file Chi tiết PT) ===
+  machine: string;          // Mã máy (Quan trọng để kiểm tra trùng máy)
 }

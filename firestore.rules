@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Explicit Collection Group query for processed_records
+    match /{document=**} {
+      match /processed_records/{recordId} {
+        allow read, write: if true;
+      }
+    }
+
+    // Standard hierarchy access
+    match /reports/{reportId} {
+      allow read, write: if true;
+
+      match /processed_records/{recordId} {
+        allow read, write: if true;
+      }
+    }
+  }
+}

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { processSurgicalFiles } from "./services/excelProcessor";
+import { processSurgicalFiles, reprocessSurgicalRecords } from "./services/excelProcessor";
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
 import { ConfigProvider, useConfig, DEFAULT_CONFIG } from './contexts/ConfigContext';
 import { analyzeReport } from './services/geminiService';
-import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict } from './types';
+import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord } from './types';
 import { FileUpload } from './components/FileUpload';
 import {
   Activity,
@@ -37,9 +37,13 @@ import {
   CheckCircle2,
   Search,
   Calendar,
-  UserMinus
+  UserMinus,
+  Save,
 } from 'lucide-react';
+import { reportService } from './services/reportService';
 import { format, parse, isValid } from 'date-fns';
+import { auth } from './lib/firebase';
+import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider, User } from 'firebase/auth';
 
 // --- Helper: Sequential Search Logic ---
 const matchSearchQuery = (row: any, query: string, searchableCols: Record<string, boolean> | undefined, columns: ColumnDef<any>[], timeRules?: any) => {
@@ -95,7 +99,15 @@ interface ColumnDef<T> {
 const parseDateString = (val: any): Date | null => {
   if (val instanceof Date) return val;
   if (typeof val !== 'string') return null;
-  const formats = ['dd/MM/yyyy', 'dd/MM/yyyy HH:mm', 'MM/dd/yyyy', 'yyyy-MM-dd'];
+  const formats = [
+    'dd/MM/yyyy',
+    'dd/MM/yyyy HH:mm',
+    'MM/dd/yyyy',
+    'yyyy-MM-dd',
+    "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+    "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+    "yyyy-MM-dd'T'HH:mm:ss"
+  ];
   for (const f of formats) {
     const d = parse(val, f, new Date());
     if (isValid(d)) return d;
@@ -448,8 +460,16 @@ interface ReportState {
     missing: string;
     payment: string;
   };
+  // UI State for Date Range Pickers (Independent per tab)
+  dateFrom: string;
+  timeFrom: string;
+  dateTo: string;
+  timeTo: string;
+  // File Meta (Legacy Strings from Validator)
   listDateRange: string;
   detailDateRange: string;
+  dataSource: 'EXCEL' | 'STORAGE' | null;
+  queryDateRangeText?: string;
 }
 
 const initialReportState: ReportState = {
@@ -466,12 +486,48 @@ const initialReportState: ReportState = {
     missing: '',
     payment: ''
   },
+  dateFrom: format(new Date(), 'yyyy-MM-dd'),
+  timeFrom: '00:00',
+  dateTo: format(new Date(), 'yyyy-MM-dd'),
+  timeTo: '23:59',
   listDateRange: "",
-  detailDateRange: ""
+  detailDateRange: "",
+  dataSource: null
 };
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
+
+  // --- Auth State ---
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      addToast('Đăng nhập thành công!', 'success');
+    } catch (error) {
+      console.error(error);
+      addToast('Đăng nhập thất bại.', 'error');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      addToast('Đăng xuất thành công.', 'success');
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'config'>('daily');
 
   // Independent states for Daily and Monthly reports
@@ -642,7 +698,8 @@ const InnerApp: React.FC = () => {
         stats: res.stats,
         result: res,
         activeTable: 'list',
-        isProcessing: false
+        isProcessing: false,
+        dataSource: 'EXCEL'
       });
       if (report.detailFile) {
         addToast("Xử lý dữ liệu thành công với đầy đủ mã máy.", 'success');
@@ -657,6 +714,9 @@ const InnerApp: React.FC = () => {
       });
     }
   };
+
+  const [isSaving, setIsSaving] = useState(false);
+
 
   const handleDownload = () => {
     if (!currentReport.result?.wb) { addToast("Chưa có file kết quả.", 'error'); return; }
@@ -684,6 +744,11 @@ const InnerApp: React.FC = () => {
     const timer = setTimeout(processReports, 300);
     return () => clearTimeout(timer);
   }, [processingConfigHash, dailyState.listFile, dailyState.detailFile, monthlyState.listFile, monthlyState.detailFile]);
+
+  const formatDateForDisplay = (dateStr: string, timeStr: string) => {
+    const [y, m, d] = dateStr.split('-');
+    return `${d}/${m}/${y} ${timeStr}`;
+  };
 
   const dynamicViolateMinTimeCount = useMemo(() => {
     if (!currentReport.result?.validRecords) return 0;
@@ -941,7 +1006,10 @@ const InnerApp: React.FC = () => {
       return <DynamicTable data={filtered} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={currentReport.searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} />;
     }
     if (currentReport.activeTable === 'missing') {
-      const rawData = currentReport.detailFile ? (currentReport.result.missingRecords || []) : [];
+      // Allow if detailFile exists OR if using stored data (where detailFile is null but result is present)
+      const rawData = (currentReport.detailFile || currentReport.dataSource === 'STORAGE')
+        ? (currentReport.result.missingRecords || [])
+        : [];
       const filtered = rawData.filter(r => matchSearchQuery(r, currentReport.searchTerms.missing, undefined, columnsMissing));
       return <DynamicTable data={filtered} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={currentReport.searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} />;
     }
@@ -1208,6 +1276,128 @@ const InnerApp: React.FC = () => {
     }
   };
 
+  const handleGetReport = async () => {
+    // Construct Date Range from State
+    const dateFromStr = `${currentReport.dateFrom}T${currentReport.timeFrom}:00.000`;
+    const dateToStr = `${currentReport.dateTo}T${currentReport.timeTo}:59.999`;
+
+    // Validate
+    const paramsValid = new Date(dateFromStr) <= new Date(dateToStr);
+    if (!paramsValid) {
+      addToast("Thời gian 'Đến' phải lớn hơn hoặc bằng Thời gian 'Từ'", 'error');
+      return;
+    }
+
+    try {
+      addToast('Đang tải dữ liệu lưu trữ...', 'success'); // Treating as success/info
+
+      const fromISO = new Date(dateFromStr).toISOString();
+      const toISO = new Date(dateToStr).toISOString();
+
+      const records = await reportService.getReports(fromISO, toISO);
+
+      if (!records || records.length === 0) {
+        addToast('Không tìm thấy dữ liệu trong khoảng thời gian này.', 'error'); // Treating warning as error for visibility
+        return;
+      }
+
+      // Convert Persisted Record -> App Record (Dates)
+      const convertedRecords: SurgeryRecord[] = records.map(r => ({
+        ...r,
+        stt: typeof r.stt === 'number' ? r.stt : parseInt(r.stt as string) || 0,
+        start: r.ngayBD ? new Date(r.ngayBD) : null,
+        end: r.ngayKT ? new Date(r.ngayKT) : null,
+        // Ensure other fields are mapped if needed, mostly they match
+      }));
+
+      const res = await reprocessSurgicalRecords(convertedRecords, config);
+
+      if (res.success) {
+        updateCurrentReport({
+          result: res,
+          stats: res.stats,
+          activeTable: 'list',
+          isProcessing: false,
+          dataSource: 'STORAGE',
+          queryDateRangeText: `Từ ngày ${formatDateForDisplay(currentReport.dateFrom, currentReport.timeFrom)} đến ngày ${formatDateForDisplay(currentReport.dateTo, currentReport.timeTo)}`
+        });
+        addToast(`Đã tải ${records.length} bản ghi thành công.`, 'success');
+      } else {
+        addToast(res.message, 'error');
+      }
+
+    } catch (error) {
+      console.error("Error getting report:", error);
+      addToast('Có lỗi xảy ra khi lấy dữ liệu.', 'error');
+    }
+  };
+
+  const handleSaveData = async () => {
+    if (!currentReport.result || !currentReport.result.validRecords) {
+      addToast("Không có dữ liệu hợp lệ để lưu.", "error"); // warning -> error
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
+
+      const userId = currentUser ? currentUser.uid : "anonymous_user";
+
+      const { savedCount, skippedCount } = await reportService.saveReport(
+        currentReport.result.validRecords,
+        type,
+        userId,
+        currentReport.dataSource || 'EXCEL'
+      );
+
+      let msg = `Lưu dữ liệu thành công! Đã lưu ${savedCount} bản ghi.`;
+      if (skippedCount > 0) {
+        msg += ` Bỏ qua ${skippedCount} bản ghi trùng lặp.`;
+      }
+
+      if (savedCount === 0 && skippedCount > 0) {
+        addToast(msg, 'error'); // Yellow toast for "All duplicates" -> error (or maybe success depending on preference, but staying safe with error type)
+      } else {
+        addToast(msg, 'success');
+      }
+
+    } catch (error) {
+      console.error(error);
+      addToast("Lỗi khi lưu dữ liệu. Vui lòng thử lại.", "error");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleTimeChange = (val: string, setter: (v: string) => void) => {
+    // 1. Remove non-digits and limit length
+    let clean = val.replace(/[^0-9]/g, '');
+    if (clean.length > 4) clean = clean.substring(0, 4);
+
+    // 2. Extract parts
+    let hh = clean.substring(0, 2);
+    let mm = clean.substring(2, 4);
+
+    // 3. Validate Hours (00-23)
+    if (hh.length === 2 && parseInt(hh, 10) > 23) {
+      hh = '23';
+    }
+
+    // 4. Validate Minutes (00-59)
+    if (mm.length === 2 && parseInt(mm, 10) > 59) {
+      mm = '59';
+    }
+
+    // 5. Format Output
+    let formatted = hh;
+    if (clean.length >= 3) {
+      formatted = `${hh}:${mm}`;
+    }
+
+    setter(formatted);
+  };
+
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-20 font-inter">
@@ -1229,6 +1419,33 @@ const InnerApp: React.FC = () => {
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">Quản lý danh sách phẫu thuật, thủ thuật</h1>
           </div>
           <div className="flex items-center gap-4">
+            {currentUser ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 rounded-full border border-gray-200">
+                  {currentUser.photoURL ? (
+                    <img src={currentUser.photoURL} alt="Avatar" className="w-5 h-5 rounded-full" />
+                  ) : (
+                    <Users className="w-4 h-4 text-gray-500" />
+                  )}
+                  <span className="text-xs font-semibold text-gray-700 max-w-[100px] truncate">{currentUser.displayName || currentUser.email}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="text-xs font-bold text-gray-500 hover:text-red-500 transition-colors"
+                >
+                  Đăng xuất
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleLogin}
+                className="flex items-center gap-2 px-4 py-1.5 bg-indigo-600 text-white rounded-full text-xs font-bold shadow hover:bg-indigo-700 transition-all"
+              >
+                <Users className="h-3.5 w-3.5" />
+                Đăng nhập
+              </button>
+            )}
+
             <nav className="flex items-center gap-1.5 bg-gray-100/50 p-1 rounded-full border border-gray-200 shadow-inner">
               <button
                 onClick={() => setActiveTab('daily')}
@@ -1272,61 +1489,132 @@ const InnerApp: React.FC = () => {
           <div className="space-y-6 animate-fade-in relative w-full mx-auto">
 
             <div className="max-w-7xl mx-auto">
-              <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 relative overflow-hidden">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="flex flex-row items-center gap-4 p-4 bg-gradient-to-r from-indigo-50 to-indigo-100 rounded-lg border-2 border-indigo-200 hover:border-indigo-300 transition-colors shadow-sm">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">1</span>
-                        <span className="font-bold text-indigo-900 text-sm truncate">Danh sách PT</span>
-                      </div>
-                      <p className="text-indigo-700 text-xs ml-8">Báo cáo &rarr; BC Cận lâm sàng &rarr; 10. Danh sách PT</p>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                {/* LEFT COLUMN: Dữ liệu lưu trữ (Storage Data) */}
+                <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 flex flex-col h-full">
+                  <div className="flex items-center gap-2 mb-4 border-b pb-3">
+                    <div className="bg-indigo-100 p-1.5 rounded-lg">
+                      <Database className="h-4 w-4 text-indigo-700" />
                     </div>
-                    <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-indigo-300">
-                      <FileUpload label="" file={currentReport.listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Dữ liệu lưu trữ</h2>
+                  </div>
+
+                  <div className="space-y-4 flex-1">
+                    {/* Row 1: From */}
+                    <div className="flex items-center gap-3">
+                      <label className="w-10 text-xs font-semibold text-gray-600">Từ:</label>
+                      <input
+                        type="date"
+                        value={currentReport.dateFrom}
+                        onChange={(e) => updateCurrentReport({ dateFrom: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="HH:mm"
+                        value={currentReport.timeFrom}
+                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeFrom: val }))}
+                        maxLength={5}
+                        className="w-24 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
+                      />
+                    </div>
+
+                    {/* Row 2: To */}
+                    <div className="flex items-center gap-3">
+                      <label className="w-10 text-xs font-semibold text-gray-600">Đến:</label>
+                      <input
+                        type="date"
+                        value={currentReport.dateTo}
+                        onChange={(e) => updateCurrentReport({ dateTo: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="HH:mm"
+                        value={currentReport.timeTo}
+                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeTo: val }))}
+                        maxLength={5}
+                        className="w-24 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
+                      />
                     </div>
                   </div>
 
-                  <div className="flex flex-row items-center gap-4 p-4 bg-gradient-to-r from-emerald-50 to-emerald-100 rounded-lg border-2 border-emerald-200 hover:border-emerald-300 transition-colors shadow-sm">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">2</span>
-                        <span className="font-bold text-emerald-900 text-sm truncate">Chi tiết theo khoa</span>
-                      </div>
-                      <p className="text-emerald-700 text-xs ml-8">Báo cáo &rarr; BC CLS &rarr; Chi tiết PT theo khoa</p>
-                      <p className="text-red-700 font-bold text-xs ml-8 mt-1 select-none">Chọn nhóm theo thứ tự: Họ tên &rarr; Ngày làm &rarr; Máy làm</p>
+                  <div className="mt-6 flex flex-col gap-3">
+                    <div className="flex items-center gap-3 pt-3 mt-auto">
+                      <button
+                        onClick={handleGetReport}
+                        className="flex-1 px-4 py-2 rounded-lg font-medium shadow-sm transition-all text-sm flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                      >
+                        <Download className="h-4 w-4" />
+                        Lấy dữ liệu
+                      </button>
                     </div>
-                    <div className="w-[100px] h-[70px] bg-white rounded-lg shadow-sm border-2 border-dashed border-emerald-300">
-                      <FileUpload label="" file={currentReport.detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-center gap-4 mt-4">
-                  {currentReport.isProcessing && (
-                    <div className="flex items-center gap-3 px-6 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 shadow-sm animate-pulse">
-                      <RefreshCw className="h-4 w-4 animate-spin text-blue-600" />
-                      <span className="font-bold text-xs uppercase tracking-wide">Đang xử lý dữ liệu...</span>
-                    </div>
-                  )}
-
-                  {!currentReport.listFile && (
-                    <div className="flex items-center gap-3 px-6 py-2 rounded-xl bg-gray-50 border border-gray-100 text-gray-400 opacity-60 shadow-sm">
-                      <Activity className="h-4 w-4 text-gray-400" />
-                      <span className="font-bold text-xs uppercase tracking-wide">Chờ tải file Danh sách PT...</span>
-                    </div>
-                  )}
-
-                  {currentReport.listFile && !currentReport.isProcessing && (
-                    <button
-                      onClick={() => handleProcess(currentType)}
-                      className="flex items-center gap-2 px-8 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-xs uppercase tracking-widest shadow-lg hover:bg-indigo-700 hover:shadow-indigo-200 transition-all border-2 border-indigo-500 active:scale-95"
-                    >
-                      <Zap className="h-4 w-4 fill-current" />
-                      Xử lý dữ liệu
+                    <button className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 border-2 border-indigo-100 font-bold text-sm hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-[0.98]">
+                      <Zap className="h-4 w-4" />
+                      Lấy dữ liệu trực
                     </button>
-                  )}
+                  </div>
                 </div>
+
+
+                {/* RIGHT COLUMN: Xử lý dữ liệu mới (New Processing) */}
+                <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 flex flex-col h-full relative overflow-hidden">
+                  <div className="flex items-center gap-2 mb-4 border-b pb-3">
+                    <div className="bg-emerald-100 p-1.5 rounded-lg">
+                      <Sparkles className="h-4 w-4 text-emerald-700" />
+                    </div>
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Xử lý dữ liệu từ Minh Lộ</h2>
+                  </div>
+
+                  <div className="space-y-4 flex-1">
+                    {/* Item 1: Danh sách PT */}
+                    <div className="flex flex-row items-center gap-3 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 hover:border-indigo-300 transition-colors">
+                      <div className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">1</div>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-bold text-indigo-900 text-sm block">Danh sách PT</span>
+                        <p className="text-indigo-600/70 text-[10px] truncate">10. Danh sách PT</p>
+                      </div>
+                      <div className="w-[100px] h-10">
+                        <FileUpload label="" file={currentReport.listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
+                      </div>
+                    </div>
+
+                    {/* Item 2: Chi tiết PT */}
+                    <div className="flex flex-row items-center gap-3 p-3 bg-emerald-50/50 rounded-lg border border-emerald-100 hover:border-emerald-300 transition-colors">
+                      <div className="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">2</div>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-bold text-emerald-900 text-sm block">Chi tiết theo khoa</span>
+                        <p className="text-emerald-600/70 text-[10px] truncate">Chi tiết PT theo khoa</p>
+                      </div>
+                      <div className="w-[100px] h-10">
+                        <FileUpload label="" file={currentReport.detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    {currentReport.isProcessing ? (
+                      <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-bold text-sm animate-pulse">
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Đang xử lý...
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleProcess(currentType)}
+                        disabled={!currentReport.listFile}
+                        className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-[0.98] ${currentReport.listFile
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-200'
+                          : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
+                          }`}
+                      >
+                        <Zap className="h-4 w-4 fill-current" />
+                        Xử lý dữ liệu
+                      </button>
+                    )}
+                  </div>
+                </div>
+
               </div>
             </div>
 
@@ -1336,7 +1624,10 @@ const InnerApp: React.FC = () => {
                   <div id="results-section" className="space-y-6 animate-fade-in bg-gradient-to-b from-indigo-50/50 to-white rounded-xl p-6 border border-indigo-100 shadow-sm">
 
                     <div className="flex items-center gap-4 mb-6">
-                      <h2 className="text-lg font-bold text-gray-900">Kết quả xử lý</h2>
+                      <h2 className="text-lg font-bold text-gray-900">
+                        {currentReport.dataSource === 'EXCEL' ? 'Kết quả xử lý: Dữ liệu từ Minh Lộ' :
+                          currentReport.dataSource === 'STORAGE' ? 'Dữ liệu lưu trữ' : 'Kết quả xử lý'}
+                      </h2>
                       {currentReport.result.dateRangeText && (
                         <p className="text-lg font-bold text-blue-800">
                           {currentReport.result.dateRangeText}
@@ -1391,7 +1682,7 @@ const InnerApp: React.FC = () => {
                         {/* Card 5: Thiếu mã máy - Amber (if > 0) */}
                         <div className={`${derivedStats.missingMachines > 0 ? 'bg-amber-600' : 'bg-teal-600'} rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
                           <div className="flex-1 z-10">
-                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{(currentReport.detailFile || currentReport.dataSource === 'STORAGE') ? derivedStats.missingMachines : '--'}</p>
                             <p className={`text-[10px] lg:text-xs font-medium uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>Thiếu mã máy</p>
                           </div>
                           <AlertTriangle className={`h-6 w-6 lg:h-8 lg:w-8 ${derivedStats.missingMachines > 0 ? 'text-amber-800/60' : 'text-teal-800/60'} group-hover:scale-110 transition-transform`} />
@@ -1485,7 +1776,7 @@ const InnerApp: React.FC = () => {
                             <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
                               <p className={`text-[10px] lg:text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
-                              <p className="text-2xl lg:text-3xl font-bold text-white">{currentReport.detailFile ? derivedStats.missingMachines : '--'}</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{(currentReport.detailFile || currentReport.dataSource === 'STORAGE') ? derivedStats.missingMachines : '--'}</p>
                             </div>
                           </div>
                         </div>
@@ -1609,6 +1900,14 @@ const InnerApp: React.FC = () => {
                       </div>
                       <button className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded text-sm hover:bg-indigo-100 transition-colors border border-indigo-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
                       <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
+                      <button
+                        onClick={handleSaveData}
+                        disabled={isSaving}
+                        className={`flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      >
+                        {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        {isSaving ? 'Đang lưu...' : 'Lưu dữ liệu'}
+                      </button>
                     </div>
                   </div>
 
@@ -1672,7 +1971,7 @@ const InnerApp: React.FC = () => {
                         <AlertTriangle className={`h-4 w-4 ${currentReport.activeTable === 'missing' ? 'text-indigo-600' : ''}`} />
                         <span>Thiếu mã máy</span>
                         <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'missing' ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'}`}>
-                          {currentReport.detailFile ? currentReport.stats.missingMachines : '--'}
+                          {(currentReport.detailFile || currentReport.dataSource === 'STORAGE') ? currentReport.stats.missingMachines : '--'}
                         </span>
                       </button>
 
@@ -1697,7 +1996,7 @@ const InnerApp: React.FC = () => {
                           currentReport.activeTable === 'missing' ? 'border-amber-600' :
                             'border-emerald-600'
                       }`}>
-                      {currentReport.listFile && renderTableContent()}
+                      {(currentReport.listFile || currentReport.dataSource === 'STORAGE') && renderTableContent()}
                     </div>
                   </div>
                 </div>

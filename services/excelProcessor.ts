@@ -1639,3 +1639,269 @@ export async function processSurgicalFiles(
 
 
 }
+
+// ────────────── 5. Reprocess Records from Storage ──────────────
+export async function reprocessSurgicalRecords(
+  records: SurgeryRecord[],
+  config: AppConfig
+): Promise<ProcessingResult> {
+
+  console.log(">>> RE-PROCESSING RECORDS FROM STORAGE <<<");
+
+  // 0. Regenerate Keys (Critical for Conflict Detection) and map Types
+  records.forEach(r => {
+    if (!r.key) {
+      const dateKey = r.end ? toDateKey(r.end) : "";
+      r.key = `${r.patientId}-${r.patientName}-${dateKey}-${r.tenKT}`;
+    }
+  });
+
+  function toConflictFormat(
+    staffConflicts: StaffConflict[],
+    machineConflicts: MachineConflict[]
+  ) {
+    const result: any[] = [];
+
+    for (const c of staffConflicts) {
+      const overlapMinutes =
+        Math.min(c.end1.getTime(), c.end2.getTime()) -
+        Math.max(c.start1.getTime(), c.start2.getTime());
+
+      result.push({
+        id: crypto.randomUUID(),
+        resourceName: c.staffName,
+        type: "STAFF",
+        surgeryA: c.tenKT1,
+        surgeryB: c.tenKT2,
+        startTimeA: c.start1,
+        endTimeA: c.end1,
+        startTimeB: c.start2,
+        endTimeB: c.end2,
+        durationOverlap: Math.round(overlapMinutes / 60000),
+      });
+    }
+
+    for (const c of machineConflicts) {
+      const overlapMinutes =
+        Math.min(c.end1.getTime(), c.end2.getTime()) -
+        Math.max(c.start1.getTime(), c.start2.getTime());
+
+      result.push({
+        id: crypto.randomUUID(),
+        resourceName: c.machine,
+        type: "MACHINE",
+        surgeryA: c.tenKT1,
+        surgeryB: c.tenKT2,
+        startTimeA: c.start1,
+        endTimeA: c.end1,
+        startTimeB: c.start2,
+        endTimeB: c.end2,
+        durationOverlap: Math.round(overlapMinutes / 60000),
+      });
+    }
+
+    return result;
+  }
+
+  // 1. Detect Conflicts
+  const staffConflicts = detectStaffConflicts(records, config);
+  const machineConflicts = detectMachineConflicts(records);
+  const missingMachine = records.filter((r) => {
+    // Nếu có mã máy thì OK
+    if (r.machine) return false;
+
+    // Nếu không có mã máy, kiểm tra xem có được cấu hình "Không cần máy" không
+    if (config.ignoredMachineNames && config.ignoredMachineNames.includes(r.tenKT)) {
+      return false; // Bỏ qua, không coi là lỗi thiếu máy
+    }
+
+    return true; // Vẫn tính là lỗi thiếu máy
+  });
+
+  // 2. Payment Data Logic
+  const ROLE_ORDER: Record<string, number> = {
+    "PT Chính": 1, "PT Phụ": 2, "BS GM": 3, "KTV GM": 4, "TDC": 5, "GV": 6
+  };
+  const staffOrder = new Map<string, number>();
+  let globalOrderCounter = 1;
+  function registerStaffAppearance(name: string | undefined, roleLabel: string) {
+    if (!name) return;
+    if (!staffOrder.has(name)) {
+      const base = (ROLE_ORDER[roleLabel] || 99) * 100000;
+      staffOrder.set(name, base + globalOrderCounter);
+      globalOrderCounter++;
+    }
+  }
+
+  function collectThanhToanData(records: SurgeryRecord[], config: AppConfig) {
+    const map = new Map<string, { values: Record<string, number>, taxId: string, department: string, bestRoleWeight: number, bestSubRoleWeight: number }>();
+    const ROLE_WEIGHTS: Record<string, number> = { "Chính": 1, "Phụ": 2, "Giúp việc": 3 };
+    const SUB_ROLE_WEIGHTS: Record<string, number> = { "KTV GM": 1, "TDC": 2, "GV": 3 };
+
+    function getDerivedPosition(roleLabel: string): string {
+      if (roleLabel === "PT Chính" || roleLabel === "PT Phụ") return "BS PT";
+      if (roleLabel === "BS GM") return "BS GMHS";
+      if (roleLabel === "KTV GM" || roleLabel === "TDC" || roleLabel === "GV") return "Phụ";
+      return "";
+    }
+
+    function add(name: string | undefined, role: string, loai: string, sl: number, roleLabel: string) {
+      if (!name || !loai) return;
+      const derivedPos = getDerivedPosition(roleLabel);
+      const staffList = config.staffList || [];
+      const currentRoleWeight = ROLE_WEIGHTS[role] || 99;
+      const currentSubRoleWeight = SUB_ROLE_WEIGHTS[roleLabel] || 99;
+      const matchedStaff = staffList.find(s => s.name === name && s.position === derivedPos);
+      const staffKey = `${name}|${derivedPos}`;
+      registerStaffAppearance(name, roleLabel);
+
+      if (!map.has(staffKey)) {
+        map.set(staffKey, {
+          values: {},
+          taxId: matchedStaff?.taxId || "",
+          department: matchedStaff?.department || "",
+          bestRoleWeight: currentRoleWeight,
+          bestSubRoleWeight: currentSubRoleWeight
+        });
+      }
+      const item = map.get(staffKey)!;
+      const key = `${loai}-${role}`;
+      item.values[key] = (item.values[key] || 0) + (Number(sl) || 0);
+
+      if (currentRoleWeight < item.bestRoleWeight) item.bestRoleWeight = currentRoleWeight;
+      if (currentSubRoleWeight < item.bestSubRoleWeight) item.bestSubRoleWeight = currentSubRoleWeight;
+    }
+
+    const POS_WEIGHTS: Record<string, number> = { "BS PT": 1, "BS GMHS": 2, "Phụ": 3 };
+    const departmentOrder = new Map<string, number>();
+    (config.departments || []).forEach((dept, idx) => departmentOrder.set(dept, idx));
+
+    for (const r of records) {
+      const loai = r.loaiPTTT;
+      if (!loai) continue;
+      add(r.ptChinh, "Chính", loai, r.soLuong, "PT Chính");
+      add(r.ptPhu, "Phụ", loai, r.soLuong, "PT Phụ");
+      add(r.bsGM, "Chính", loai, r.soLuong, "BS GM");
+      add(r.ktvGM, "Phụ", loai, r.soLuong, "KTV GM");
+      add(r.tdc, "Phụ", loai, r.soLuong, "TDC");
+      add(r.gv, "Giúp việc", loai, r.soLuong, "GV");
+    }
+
+    return Array.from(map.entries())
+      .map(([staffKey, item]) => {
+        const [name, derivedPos] = staffKey.split('|');
+        const totalQty = Object.values(item.values).reduce((sum, val) => sum + val, 0);
+        return {
+          name, derivedPos, taxId: item.taxId, department: item.department, values: item.values,
+          bestRoleWeight: item.bestRoleWeight, bestSubRoleWeight: item.bestSubRoleWeight, totalQty
+        };
+      })
+      .sort((a, b) => {
+        const posA = POS_WEIGHTS[a.derivedPos] || 99;
+        const posB = POS_WEIGHTS[b.derivedPos] || 99;
+        if (posA !== posB) return posA - posB;
+        let weightA = departmentOrder.get(a.department) ?? 999;
+        let weightB = departmentOrder.get(b.department) ?? 999;
+        if (a.derivedPos === "Phụ" && a.department === "GMHS") weightA = -1;
+        if (b.derivedPos === "Phụ" && b.department === "GMHS") weightB = -1;
+        if (weightA !== weightB) return weightA - weightB;
+        const orderA = staffOrder.get(a.name) || 999999;
+        const orderB = staffOrder.get(b.name) || 999999;
+        return orderA - orderB;
+      });
+  }
+
+  const ttData = collectThanhToanData(records, config);
+
+  // 3. Stats Calculation
+  const violateMinTimeCount = records.filter(r => {
+    const minTime = config.timeRules[r.loaiPTTT]?.min;
+    return minTime && r.timeMinutes < minTime;
+  }).length;
+
+  const stats: ProcessedStats = {
+    totalSurgeries: records.length,
+    totalDurationMinutes: records.reduce((acc, r) => acc + r.timeMinutes, 0),
+    staffConflicts: staffConflicts.length,
+    machineConflicts: machineConflicts.length,
+    missingMachines: missingMachine.length,
+    lowPaymentCount: records.filter((r) => r.soLuong < 1).length,
+    violateMinTimeCount,
+  };
+
+  // 4. Determine Date Range
+  const dates = records.map(r => r.ngayBD).filter(Boolean).sort();
+  const minDate = dates.length > 0 ? new Date(dates[0]) : new Date();
+  const maxDate = dates.length > 0 ? new Date(dates[dates.length - 1]) : new Date();
+
+  const formatDateStr = (d: Date) => {
+    const dd = d.getDate().toString().padStart(2, '0');
+    const mm = (d.getMonth() + 1).toString().padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = d.getHours().toString().padStart(2, '0');
+    const mi = d.getMinutes().toString().padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${mi}`;
+  };
+  const dateRangeText = dates.length > 0 ? `Từ ngày ${formatDateStr(minDate)} đến ngày ${formatDateStr(maxDate)}` : "";
+
+  // 5. Payment Amount Calculation
+  let totalPayment = 0;
+  const PRICE_CONFIG = config.priceConfig;
+  for (const item of ttData) {
+    for (const colKey of Object.keys(item.values)) {
+      const qty = item.values[colKey] || 0;
+      if (qty > 0) {
+        const [loai, role] = colKey.split("-");
+        let configRole: any = "Giúp việc";
+        if (role === "Chính") configRole = "Chính";
+        else if (role === "Phụ") configRole = "Phụ";
+        else if (role === "Giúp việc") configRole = "Giúp việc";
+        const typeConfig = PRICE_CONFIG[loai];
+        const price = (typeConfig && typeConfig[configRole]) ? typeConfig[configRole] : 20000;
+        totalPayment += qty * price;
+      }
+    }
+  }
+
+  // 6. Define COLS_RUTGON for result
+  const loaiMap: any = { "PT_ĐB": "PĐB", "PT_1": "P1", "PT_2": "P2", "PT_3": "P3", "TT_ĐB": "TĐB", "TT_1": "T1", "TT_2": "T2", "TT_3": "T3", "TT_KPL": "TKPL" };
+  const potentialCols: string[] = [];
+  const roles = ["Chính", "Phụ", "Giúp việc"];
+
+  ALL_COL_KEYS.forEach(k => {
+    const shortLoai = loaiMap[k];
+    roles.forEach(role => potentialCols.push(`${shortLoai}-${role}`));
+  });
+
+  // Filter cols with value > 0
+  const COLS_RUTGON = potentialCols.filter(colKey => {
+    return ttData.some(item => (item.values[colKey] || 0) > 0);
+  });
+
+  const wb = XLSX.utils.book_new(); // Empty workbook for now
+
+  return {
+    success: true,
+    message: "Đã tải dữ liệu lưu trữ.",
+    wb,
+    stats,
+    paymentStats: { totalAmount: totalPayment },
+    conflicts: toConflictFormat(staffConflicts, machineConflicts),
+
+    validRecords: records,
+    staffConflicts,
+    machineConflicts,
+    missingRecords: missingMachine,
+    paymentData: {
+      columns: COLS_RUTGON,
+      rows: ttData.map(item => ({
+        ...item,
+        total: COLS_RUTGON.reduce((sum, col) => sum + (item.values[col] || 0), 0)
+      }))
+    },
+    dateRangeText,
+    minDate,
+    maxDate
+  };
+}
+

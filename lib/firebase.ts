@@ -1,5 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
+import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 // Validate env vars exist
 const requiredEnvs = [
@@ -28,6 +30,8 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+const db = getDatabase(app);        // Realtime Database
+const firestore = getFirestore(app); // Firestore
+const auth = getAuth(app);          // Authentication
 
-export { db };
+export { db, firestore, auth };
