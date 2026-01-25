@@ -44,6 +44,14 @@ export interface PaymentStats {
   totalAmount: number;
 }
 
+export interface StaffMember {
+  id: string; // Internal unique ID or Full Name + Position key
+  name: string;
+  position: 'BS PT' | 'BS GMHS' | 'Phụ' | '';
+  taxId: string;
+  department: string;
+}
+
 export interface SurgeryRecord {
   stt: any;
   patientId: string;
@@ -68,6 +76,8 @@ export interface SurgeryRecord {
   start: Date | null;
   end: Date | null;
   key?: string;
+  id?: string; // Firestore ID
+  firestorePath?: string;
 }
 
 export type StaffRole = "PT_CHINH" | "PT_PHU" | "BS_GM" | "KTV_GM" | "TDC" | "GV";
@@ -132,6 +142,7 @@ export interface ProcessingResult {
   dateRangeText?: string; // Extracted from A5 of list file / A3 of detail file
   minDate?: Date;
   maxDate?: Date;
+  extractedStaff?: StaffMember[];
 }
 
 export interface FileState {
@@ -189,4 +200,7 @@ export interface PersistedSurgeryRecord {
 
   // === 5. NHÓM TÀI NGUYÊN (Từ file Chi tiết PT) ===
   machine: string;          // Mã máy (Quan trọng để kiểm tra trùng máy)
+  type: 'DAILY' | 'MONTHLY'; // Phân loại báo cáo
+  id?: string;              // Firestore Document ID (để xóa)
+  firestorePath?: string;   // Full Path
 }

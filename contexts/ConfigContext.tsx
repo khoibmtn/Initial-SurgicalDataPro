@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ref, onValue, set } from "firebase/database";
 import { db } from "../lib/firebase";
-import { UISettings } from "../types";
+import { UISettings, StaffMember } from "../types";
 
 export interface TimeRule {
     min: number;
@@ -21,16 +21,24 @@ export type StaffLimitOption = 0 | 1 | 2; // 0: No Check, 1: Max 1 table, 2: Max
 export interface StaffLimitConfig {
     surgeons: StaffLimitOption;        // PT Chính, PT Phụ
     anesthesiologists: StaffLimitOption; // BS GM
-    support: StaffLimitOption;           // KTV GM, TDC, Giúp việc
+    support: StaffLimitOption;           // KTV GM, TDC
+    assistants: StaffLimitOption;        // Giúp việc (Group 4)
 }
 
-export interface StaffMember {
-    id: string; // Internal unique ID or Full Name + Position key
-    name: string;
-    position: 'BS PT' | 'BS GMHS' | 'Phụ' | '';
-    taxId: string;
-    department: string;
+export interface SeasonSchedule {
+    dateFrom: string;      // DD-MM format
+    dateTo: string;        // DD-MM format
+    morningFrom: string;   // HH:mm format (24h)
+    morningTo: string;     // HH:mm format (24h)
+    afternoonFrom: string; // HH:mm format (24h)
+    afternoonTo: string;   // HH:mm format (24h)
 }
+
+export interface WorkingHours {
+    summer: SeasonSchedule;
+    winter: SeasonSchedule;
+}
+
 
 export interface AppConfig {
     priceConfig: { [key: string]: RolePrice };
@@ -43,6 +51,7 @@ export interface AppConfig {
     uiSettings: UISettings;
     staffLimits: StaffLimitConfig;
     hospitalName: string;
+    workingHours?: WorkingHours;
 }
 
 interface ConfigContextType {
@@ -108,8 +117,29 @@ const DEFAULT_UI_SETTINGS: UISettings = {
 const DEFAULT_STAFF_LIMITS: StaffLimitConfig = {
     surgeons: 1,        // Default: Max 1 table
     anesthesiologists: 1, // Default: Max 1 table
-    support: 1          // Default: Max 1 table
+    support: 2,          // Default: Max 2 tables
+    assistants: 2        // Default: Max 2 tables
 };
+
+const DEFAULT_WORKING_HOURS: WorkingHours = {
+    summer: {
+        dateFrom: "01/05",      // May 1st
+        dateTo: "30/09",        // September 30th
+        morningFrom: "07:00",
+        morningTo: "11:30",
+        afternoonFrom: "13:30",
+        afternoonTo: "17:00"
+    },
+    winter: {
+        dateFrom: "01/10",      // October 1st
+        dateTo: "30/04",        // April 30th
+        morningFrom: "07:30",
+        morningTo: "12:00",
+        afternoonFrom: "13:30",
+        afternoonTo: "17:00"
+    }
+};
+
 
 export const DEFAULT_CONFIG: AppConfig = {
     priceConfig: DEFAULT_PRICE_CONFIG,
@@ -121,7 +151,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     staffList: [],
     uiSettings: DEFAULT_UI_SETTINGS,
     staffLimits: DEFAULT_STAFF_LIMITS,
-    hospitalName: "Trung tâm Y tế Thủy Nguyên"
+    hospitalName: "Trung tâm Y tế Thủy Nguyên",
+    workingHours: DEFAULT_WORKING_HOURS
 };
 
 // --- Context ---
@@ -188,6 +219,35 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
                     // Deep merge for staffLimits
                     if (data.staffLimits) {
                         merged.staffLimits = { ...DEFAULT_STAFF_LIMITS, ...data.staffLimits };
+                    }
+
+                    // Deep merge for workingHours
+                    if (data.workingHours) {
+                        merged.workingHours = {
+                            summer: { ...DEFAULT_WORKING_HOURS.summer, ...data.workingHours.summer },
+                            winter: { ...DEFAULT_WORKING_HOURS.winter, ...data.workingHours.winter }
+                        };
+                    }
+
+
+                    // Migrate old date format (DD-MM) to new format (DD/MM)
+                    if (merged.workingHours) {
+                        if (merged.workingHours.summer) {
+                            if (merged.workingHours.summer.dateFrom) {
+                                merged.workingHours.summer.dateFrom = merged.workingHours.summer.dateFrom.replace(/-/g, '/');
+                            }
+                            if (merged.workingHours.summer.dateTo) {
+                                merged.workingHours.summer.dateTo = merged.workingHours.summer.dateTo.replace(/-/g, '/');
+                            }
+                        }
+                        if (merged.workingHours.winter) {
+                            if (merged.workingHours.winter.dateFrom) {
+                                merged.workingHours.winter.dateFrom = merged.workingHours.winter.dateFrom.replace(/-/g, '/');
+                            }
+                            if (merged.workingHours.winter.dateTo) {
+                                merged.workingHours.winter.dateTo = merged.workingHours.winter.dateTo.replace(/-/g, '/');
+                            }
+                        }
                     }
 
                     return merged;
@@ -262,6 +322,14 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         if (newPart.staffLimits) {
             fullNewConfig.staffLimits = { ...config.staffLimits, ...newPart.staffLimits };
         }
+
+        if (newPart.workingHours) {
+            fullNewConfig.workingHours = {
+                summer: { ...config.workingHours?.summer, ...newPart.workingHours.summer },
+                winter: { ...config.workingHours?.winter, ...newPart.workingHours.winter }
+            };
+        }
+
 
         // Write to Firebase
         const configRef = ref(db, 'app_config');

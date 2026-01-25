@@ -123,9 +123,9 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                     {customThead ? customThead : (
                         <thead>
                             <tr className="bg-gray-100 print:bg-transparent">
-                                <th className="border border-black text-center col-stt">STT</th>
                                 {columns.map((col) => {
                                     let extraClass = "";
+                                    if (col.key === 'stt') extraClass = "col-stt";
                                     if (col.key === 'taxId') extraClass = "col-tax";
                                     if (col.key === 'name') extraClass = "col-name";
                                     if (col.key === 'total_amount') extraClass = "col-total";
@@ -146,10 +146,9 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
 
                             return (
                                 <tr key={idx} className="break-inside-avoid border-b border-black">
-                                    <td className={`border border-black text-center col-stt ${deptBorderClass}`}>{idx + 1}</td>
-
                                     {columns.map((col) => {
                                         let extraClass = "";
+                                        if (col.key === 'stt') extraClass = "col-stt";
                                         if (col.key === 'department') extraClass = "col-dept";
                                         if (col.key === 'taxId') extraClass = "col-tax";
                                         if (col.key === 'name') extraClass = "col-name";

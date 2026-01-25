@@ -1,14 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { doc, updateDoc } from 'firebase/firestore';
-import { firestore } from './lib/firebase';
-import { processSurgicalFiles } from "./services/excelProcessor";
-import { reprocessSurgicalRecords, recalculateResultFromRecords } from "./services/reprocess";
+import { processSurgicalFiles, reprocessSurgicalRecords } from "./services/excelProcessor";
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
 import { ConfigProvider, useConfig, DEFAULT_CONFIG } from './contexts/ConfigContext';
 import { analyzeReport } from './services/geminiService';
-import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember } from './types';
+import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord } from './types';
 import { FileUpload } from './components/FileUpload';
 import {
   Activity,
@@ -191,16 +188,6 @@ interface DynamicTableProps<T> {
   selectedIds?: string[];
   onSelect?: (id: string, selected: boolean) => void;
   onSelectAll?: (selected: boolean) => void;
-  onDelete?: () => void;
-  customTfoot?: React.ReactNode;
-  customRowRender?: (row: T, index: number, allRows: T[]) => React.ReactNode;
-
-  // External Page Control (Optional, falls back to internal)
-  currentPage?: number;
-  onPageChange?: (page: number) => void;
-
-  // Assistant Input Callback
-  onSaveAssistant?: (val: string) => void;
 }
 
 const DynamicTable = <T extends Record<string, any>>({
@@ -217,8 +204,6 @@ const DynamicTable = <T extends Record<string, any>>({
   extraHeaderRow,
   extraFooterRow,
   customThead,
-  customTfoot,
-  customRowRender, // DESTRUCTURED HERE
   rowCountLabel,
   searchTerm,
   onSearchChange,
@@ -228,26 +213,14 @@ const DynamicTable = <T extends Record<string, any>>({
   enableSelection,
   selectedIds = [],
   onSelect,
-  onSelectAll,
-  onDelete,
-  onSaveAssistant,
-  currentPage: externalPage,
-  onPageChange: externalOnPageChange
+  onSelectAll
 }: DynamicTableProps<T>) => {
   const { config } = useConfig();
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({});
   const [isConfigDropdownOpen, setIsConfigDropdownOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
   const configDropdownRef = useRef<HTMLDivElement>(null);
-
-  const [internalPage, setInternalPage] = useState(1);
-  const currentPage = externalPage !== undefined ? externalPage : internalPage;
-
-  const setCurrentPage = (page: number) => {
-    if (externalOnPageChange) externalOnPageChange(page);
-    else setInternalPage(page);
-  };
-  // ... rest of component
+  const [currentPage, setCurrentPage] = useState(1);
 
   // --- Autocomplete State ---
   const [assistantInput, setAssistantInput] = useState("");
@@ -302,17 +275,6 @@ const DynamicTable = <T extends Record<string, any>>({
 
   // --- Keyboard Navigation State & Handlers ---
   const [selectedIndex, setSelectedIndex] = useState(-1);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Auto-focus input when selection changes
-  useEffect(() => {
-    if (selectedIds.length > 0 && inputRef.current) {
-      // Small timeout to ensure DOM is ready and prevent fighting with other focus events
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-    }
-  }, [selectedIds]);
 
   // Handle Input Changes
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -324,13 +286,7 @@ const DynamicTable = <T extends Record<string, any>>({
   // Keyboard Navigation
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showSuggestions) {
-      if (e.key === 'ArrowDown') setShowSuggestions(true);
-      if (e.key === 'Enter') {
-        // If Enter is pressed and suggestions are closed (or we just closed them),
-        // TRIGGER SAVE if input is not empty
-        e.preventDefault();
-        onSaveAssistant && onSaveAssistant(assistantInput);
-      }
+      if (e.key === 'ArrowDown' || e.key === 'Enter') setShowSuggestions(true);
       return;
     }
 
@@ -352,17 +308,9 @@ const DynamicTable = <T extends Record<string, any>>({
         // Auto-select single match
         setAssistantInput(filteredSuggestions[0].name);
         setShowSuggestions(false);
-        setSelectedIndex(-1);
       } else if (filteredSuggestions.length > 1) {
-        // If multiple matches and no selection, just save what's there?
-        // NO, let's select first item for convenience OR just close
-        // For now: Select first item to be helpful
-        setAssistantInput(filteredSuggestions[0].name);
-        setShowSuggestions(false);
-        setSelectedIndex(-1);
-      } else {
-        // No suggestions (empty list), just close
-        setShowSuggestions(false);
+        // Move focus to first item if none selected
+        setSelectedIndex(0);
       }
     } else if (e.key === 'Escape') {
       setShowSuggestions(false);
@@ -408,7 +356,7 @@ const DynamicTable = <T extends Record<string, any>>({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Removed auto-reset useEffect to allow parent control via onPageChange props (e.g. for auto-navigation)
+  useEffect(() => { setCurrentPage(1); }, [data]);
 
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
@@ -555,7 +503,7 @@ const DynamicTable = <T extends Record<string, any>>({
         </div>
 
         {onSearchChange !== undefined ? (
-          <div className="flex items-center gap-3 flex-1 max-w-xs">
+          <div className="flex items-center gap-3 flex-1 max-w-md">
             <span className="text-sm font-bold text-gray-700 whitespace-nowrap flex items-center gap-2">
               Tìm kiếm:
             </span>
@@ -625,7 +573,6 @@ const DynamicTable = <T extends Record<string, any>>({
             <div className={`flex items-center gap-2 shrink-0 relative ${selectedIds.length === 0 ? 'opacity-50 pointer-events-none' : ''}`}>
               <div className="relative group">
                 <input
-                  ref={inputRef}
                   type="text"
                   autoComplete="off"
                   disabled={selectedIds.length === 0}
@@ -686,18 +633,12 @@ const DynamicTable = <T extends Record<string, any>>({
               <button
                 className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-sm transition-colors active:scale-95"
                 title="Lưu"
-                onClick={() => onSaveAssistant && onSaveAssistant(assistantInput)}
               >
                 <Save className="h-4 w-4" />
               </button>
               <button
-                onClick={onDelete}
-                disabled={!onDelete || !selectedIds || selectedIds.length === 0}
-                className={`p-1.5 border rounded-lg shadow-sm transition-colors active:scale-95 ${onDelete && selectedIds && selectedIds.length > 0
-                  ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:border-red-300'
-                  : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
-                  }`}
-                title={selectedIds && selectedIds.length > 0 ? "Xóa dòng đã chọn" : "Chọn dòng để xóa"}
+                className="p-1.5 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 shadow-sm transition-colors active:scale-95"
+                title="Xóa giúp việc (Chưa khả dụng)"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -763,12 +704,11 @@ const DynamicTable = <T extends Record<string, any>>({
 
               return (
                 <tr
-                  key={row.key || row.id || idx}
-                  className={`border-b-2 border-gray-100 group hover:bg-indigo-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-indigo-200' : ''}`}
+                  key={row.key || idx}
+                  className={`border-b-2 border-gray-100 group hover:bg-indigo-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && selectedIds.includes(row.key) ? '!bg-indigo-200' : ''}`}
                   onClick={() => {
-                    if (enableSelection && onSelect) {
-                      const rId = row.key || row.id;
-                      if (rId) onSelect(rId, !selectedIds.includes(rId));
+                    if (enableSelection && onSelect && row.key) {
+                      onSelect(row.key, !selectedIds.includes(row.key));
                     }
                   }}
                 >
@@ -776,7 +716,7 @@ const DynamicTable = <T extends Record<string, any>>({
                     <td className="px-2 py-1 border-r text-center align-top sticky left-0 bg-inherit z-10 w-[40px]">
                       <input
                         type="checkbox"
-                        checked={selectedIds.includes(row.key) || (!!row.id && selectedIds.includes(row.id))}
+                        checked={selectedIds.includes(row.key)}
                         onChange={() => { }} // Handle click on row
                         className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer mt-1"
                       />
@@ -791,7 +731,6 @@ const DynamicTable = <T extends Record<string, any>>({
               );
             })}
             {extraFooterRow}
-            {customTfoot}
             {data.length === 0 && (
               <tr>
                 <td colSpan={visibleColumnsList.length} className="px-4 py-8 text-center text-gray-500 italic">Không có dữ liệu.</td>
@@ -850,7 +789,6 @@ interface ReportState {
   detailDateRange: string;
   dataSource: 'EXCEL' | 'STORAGE' | null;
   queryDateRangeText?: string;
-  hasAutoFilledData?: boolean; // Track if auto-fill succeeded for enabling save button
 }
 
 const initialReportState: ReportState = {
@@ -874,15 +812,13 @@ const initialReportState: ReportState = {
   timeTo: '23:59',
   listDateRange: "",
   detailDateRange: "",
-  dataSource: null,
-  hasAutoFilledData: false
+  dataSource: null
 };
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
 
   const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'config'>('daily');
-  const [activeDataTab, setActiveDataTab] = useState<'storage' | 'upload'>('storage');
 
   // Independent states for Daily and Monthly reports
   const [dailyState, setDailyState] = useState<ReportState>(initialReportState);
@@ -902,89 +838,24 @@ const InnerApp: React.FC = () => {
     updateReportState(currentType, updates);
   };
 
-  const handleDeleteSelected = async () => {
-    const selectedIds = currentReport.selectedRecordIds || [];
-    if (selectedIds.length === 0) return;
-
-    if (window.confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đã chọn?`)) {
-      try {
-        if (!currentReport.result) return;
-
-        // Match using key or id
-        const recordsToDelete = currentReport.result.validRecords.filter(r =>
-          selectedIds.includes(r.key || r.id || "")
-        );
-
-        if (recordsToDelete.length === 0) {
-          addToast("Không tìm thấy dòng tương ứng để xóa", "error");
-          return;
-        }
-
-        // 1. Storage Delete
-        if (currentReport.dataSource === 'STORAGE') {
-          try {
-            const deletedCount = await reportService.deleteRecords(recordsToDelete);
-            if (deletedCount > 0) {
-              addToast(`Đã xóa vĩnh viễn ${deletedCount} dòng từ cơ sở dữ liệu`, "success");
-            }
-          } catch (e) {
-            console.error("Delete failed", e);
-            addToast("Lỗi khi xóa từ Firestore. Vui lòng thử lại.", "error");
-            return;
-          }
-        }
-
-        // 2. Local Update & Reprocess
-        const remainingRecords = currentReport.result.validRecords.filter(r =>
-          !selectedIds.includes(r.key || r.id || "")
-        );
-
-        // Reprocess to update ALL derived data
-        const newResult = reprocessSurgicalRecords(
-          remainingRecords,
-          config,
-          currentReport.result.dateRangeText || ""
-        );
-
-        updateCurrentReport({
-          result: newResult,
-          selectedRecordIds: []
-        });
-
-        if (currentReport.dataSource !== 'STORAGE') {
-          addToast("Đã xóa khỏi danh sách hiện tại", "success");
-        }
-
-      } catch (error) {
-        console.error("Handle delete error:", error);
-        addToast("Có lỗi xảy ra khi xử lý xóa.", "error");
-      }
-    }
-  };
-
   const handleRowSelect = (id: string, selected: boolean) => {
     const currentIds = currentReport.selectedRecordIds || [];
-    console.log(`[handleRowSelect] Toggling ID: "${id}" to ${selected}. Current IDs:`, currentIds);
     let newIds;
     if (selected) {
       newIds = [...currentIds, id];
     } else {
       newIds = currentIds.filter(selectedId => selectedId !== id);
     }
-    console.log(`[handleRowSelect] New IDs:`, newIds);
     updateCurrentReport({ selectedRecordIds: newIds });
   };
 
   const handleSelectAll = (selected: boolean) => {
     const records = currentReport.result?.validRecords || [];
     if (selected) {
-      // Filter out records without keys/ids if any (shouldn't happen based on processor)
-      // Support both key (Excel) and id (Storage)
-      const allIds = records.map(r => r.key || r.id).filter(k => k) as string[];
-      console.log(`[handleSelectAll] Selecting ${allIds.length} records`);
+      // Filter out records without keys if any (shouldn't happen based on processor)
+      const allIds = records.map(r => r.key).filter(k => k) as string[];
       updateCurrentReport({ selectedRecordIds: allIds });
     } else {
-      console.log(`[handleSelectAll] Deselecting all`);
       updateCurrentReport({ selectedRecordIds: [] });
     }
   };
@@ -1135,96 +1006,6 @@ const InnerApp: React.FC = () => {
     updateReportState(type, { isProcessing: true });
     try {
       const res = await processSurgicalFiles(report.listFile, report.detailFile, config);
-
-      // Update config with learned staff info (Merge logic)
-      if (res.extractedStaff && res.extractedStaff.length > 0) {
-        const currentStaff: StaffMember[] = config.staffList || [];
-        const newStaff: StaffMember[] = res.extractedStaff;
-
-        const merged: StaffMember[] = [...currentStaff];
-        const existingMap = new Map<string, StaffMember>(currentStaff.map(s => [`${s.name}-${s.position}`, s]));
-        let hasUpdates = false;
-
-        newStaff.forEach(s => {
-          const key = `${s.name}-${s.position}`;
-          if (!existingMap.has(key)) {
-            merged.push(s);
-            existingMap.set(key, s);
-            hasUpdates = true;
-          } else {
-            const exist = existingMap.get(key)!;
-            // Use mutable update on clone? No, 'merged' contains objects. 
-            // 'exist' is a reference to an object in 'merged'.
-            // Need to be careful with React state immutability, but updateConfig creates new object.
-            // Let's create new object if updating.
-            if ((!exist.taxId && s.taxId) || (!exist.department && s.department)) {
-              // Find index and replace
-              const idx = merged.findIndex(m => m.name === s.name && m.position === s.position);
-              if (idx > -1) {
-                merged[idx] = {
-                  ...exist,
-                  taxId: exist.taxId || s.taxId,
-                  department: exist.department || s.department
-                };
-                hasUpdates = true;
-              }
-            }
-          }
-        });
-
-        if (hasUpdates) {
-          updateConfig({ staffList: merged });
-          addToast(`Đã cập nhật thông tin ${newStaff.length} nhân viên từ file.`, 'success');
-        }
-      }
-
-      // Auto-fill assistant data for monthly reports from daily reports
-      if (type === 'monthly' && res.validRecords) {
-        try {
-          const assistantMap = await reportService.getAssistantDataFromDaily(res.validRecords);
-
-          if (assistantMap.size > 0) {
-            let updateCount = 0;
-            res.validRecords.forEach(r => {
-              if (!r.gv || r.gv.trim() === '') {
-                const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
-                const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
-                const dailyGv = assistantMap.get(key);
-                if (dailyGv) {
-                  r.gv = dailyGv;
-                  updateCount++;
-                }
-              }
-            });
-
-            if (updateCount > 0) {
-              // Recalculate with updated data
-              const freshResult = reprocessSurgicalRecords(
-                res.validRecords,
-                config,
-                res.dateRangeText || ''
-              );
-
-              // Update the result with fresh calculations
-              updateReportState(type, {
-                stats: freshResult.stats,
-                result: freshResult,
-                activeTable: 'list',
-                isProcessing: false,
-                dataSource: 'EXCEL',
-                hasAutoFilledData: true // Enable save button
-              });
-
-              addToast(`Đã tự động điền ${updateCount} giúp việc từ báo cáo hàng ngày.`, 'success');
-              return; // Exit early since we already updated state
-            }
-          }
-        } catch (error) {
-          console.error('Error auto-filling assistant data:', error);
-          // Continue with normal flow if auto-fill fails
-        }
-      }
-
       updateReportState(type, {
         stats: res.stats,
         result: res,
@@ -1233,7 +1014,7 @@ const InnerApp: React.FC = () => {
         dataSource: 'EXCEL'
       });
       if (report.detailFile) {
-        addToast("Xử lý dữ liệu thành công với đầy đủ mã máy/nhân sự.", 'success');
+        addToast("Xử lý dữ liệu thành công với đầy đủ mã máy.", 'success');
       }
     } catch (error: any) {
       console.error(error);
@@ -1250,33 +1031,11 @@ const InnerApp: React.FC = () => {
 
 
   const handleDownload = () => {
-    if (!currentReport.result?.validRecords) {
-      addToast("Chưa có dữ liệu để tải xuống.", 'error');
-      return;
-    }
-
+    if (!currentReport.result?.wb) { addToast("Chưa có file kết quả.", 'error'); return; }
     try {
-      // Regenerate workbook with current data (including any updates made after initial processing)
-      addToast("Đang tạo file Excel...", 'success');
-
-      const freshResult = reprocessSurgicalRecords(
-        currentReport.result.validRecords,
-        config,
-        currentReport.result.dateRangeText || ''
-      );
-
-      if (!freshResult.wb) {
-        addToast("Lỗi khi tạo file Excel.", 'error');
-        return;
-      }
-
       const filename = `Ket_qua_${currentType}_${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(freshResult.wb, filename);
-      addToast("Đã tải xuống file Excel.", 'success');
-    } catch (e: any) {
-      console.error("Download failed:", e);
-      addToast("Lỗi khi tải file: " + e.message, 'error');
-    }
+      XLSX.writeFile(currentReport.result.wb, filename); addToast("Đã tải xuống file Excel.", 'success');
+    } catch (e: any) { console.error("Download failed:", e); addToast("Lỗi khi tải file: " + e.message, 'error'); }
   };
 
   // Create a hash of the config that strictly affects processing results (excluding UI settings)
@@ -1453,7 +1212,6 @@ const InnerApp: React.FC = () => {
     { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
     { key: 'ktvGM1', label: 'KTV GM 1', render: (c) => c.rec1.ktvGM || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
     { key: 'bsGM', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
-    { key: 'gv1', label: 'GV 1', render: (c) => c.rec1.gv || '-', width: 'min-w-[100px]', headerClassName: 'text-center' },
     { key: 'start1', label: 'BĐ 1', render: (c) => formatDate(c.start1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
     { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
 
@@ -1468,7 +1226,6 @@ const InnerApp: React.FC = () => {
     { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
     { key: 'ktvGM2', label: 'KTV GM 2', render: (c) => c.rec2.ktvGM || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
     { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'gv2', label: 'GV 2', render: (c) => c.rec2.gv || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
   ], [dateFormat]);
 
   const columnsMachine = useMemo<ColumnDef<MachineConflict>[]>(() => [
@@ -1518,211 +1275,25 @@ const InnerApp: React.FC = () => {
   // Add missing helpers
   const updateSearchTerm = (key: keyof typeof initialReportState.searchTerms, val: string) => {
     updateCurrentReport({ searchTerms: { ...currentReport.searchTerms, [key]: val } });
-    if (key === 'list') setListPage(1);
   };
   const setActiveTable = (table: ReportState['activeTable']) => updateCurrentReport({ activeTable: table });
-
-  // --- Data FIltering Memos (Moved to Top Level Scope for handleSaveAssistant) ---
-  const listSearchableCols = useMemo(() => searchableCols['list'] || {
-    patientId: true, patientName: true, ngayBD: true, tenKT: true,
-    loaiPTTT: true, ptChinh: true, ptPhu: true, bsGM: true,
-    ktvGM: true, tdc: true, gv: true, reason: true
-  }, [searchableCols]);
-
-  const filteredList = useMemo(() => {
-    return (currentReport.result?.validRecords || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules));
-  }, [currentReport.result?.validRecords, currentReport.searchTerms.list, config.timeRules, listSearchableCols]);
-
-  const filteredStaff = useMemo(() => {
-    return (currentReport.result?.staffConflicts || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.staff, undefined, columnsStaff));
-  }, [currentReport.result?.staffConflicts, currentReport.searchTerms.staff]);
-
-  const filteredMachine = useMemo(() => {
-    return (currentReport.result?.machineConflicts || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.machine, undefined, columnsMachine));
-  }, [currentReport.result?.machineConflicts, currentReport.searchTerms.machine]);
-
-  const filteredMissing = useMemo(() => {
-    const rawData = (currentReport.detailFile || currentReport.dataSource === 'STORAGE')
-      ? (currentReport.result?.missingRecords || [])
-      : [];
-    return rawData.filter(r => matchSearchQuery(r, currentReport.searchTerms.missing, undefined, columnsMissing));
-  }, [currentReport.detailFile, currentReport.dataSource, currentReport.result?.missingRecords, currentReport.searchTerms.missing]);
-
-  const [listPage, setListPage] = useState(1);
-
-  const handleSaveAssistant = async (val: string) => {
-    const cleanVal = val ? val.trim() : '';
-    console.log(`[SaveAssistant] Called with Value: "${val}" (Clean: "${cleanVal}")`);
-    console.log(`[SaveAssistant] Config Staff List Size: ${(config.staffList || []).length}`);
-
-    // 0. Strict Validation (Server-side like check)
-    // If value is not empty, it MUST match a valid staff member with an assistant role
-    if (cleanVal !== '') {
-      const validRoles = ["Phụ", "GV", "TDC", "KTV GM", "KTV", "Tit DC", "Tít DC"];
-
-      const exactMatch = (config.staffList || []).find(s => s.name === cleanVal);
-      if (exactMatch) {
-        console.log(`[SaveAssistant] Found staff "${cleanVal}" with position: "${exactMatch.position}"`);
-      } else {
-        console.log(`[SaveAssistant] Staff "${cleanVal}" NOT found in list.`);
-      }
-
-      const isValidStaff = exactMatch && (
-        validRoles.includes(exactMatch.position) ||
-        exactMatch.position === "Phụ" ||
-        exactMatch.name.includes("(Phụ)")
-      );
-
-      console.log(`[SaveAssistant] Validation check result: ${isValidStaff ? 'PASS' : 'FAIL'}`);
-
-      if (!isValidStaff) {
-        let msg = `Tên "${cleanVal}" không có trong danh sách nhân viên.`;
-        if (exactMatch) {
-          msg = `Nhân viên "${cleanVal}" (chức vụ: ${exactMatch.position}) không được phép làm Giúp việc.`;
-        }
-        addToast(msg, 'error');
-        return; // BLOCK SAVE
-      }
-    } else {
-      console.log(`[SaveAssistant] Value is empty, clearing field.`);
-    }
-
-    if (!currentReport.result?.validRecords) return;
-    const { selectedRecordIds } = currentReport;
-    if (!selectedRecordIds || selectedRecordIds.length === 0) return;
-
-    // Use current visible list for navigation context
-    const workingList = (currentReport.activeTable === 'list') ? filteredList : currentReport.result.validRecords;
-    console.log(`[SaveAssistant] Working List Length: ${workingList.length}`);
-
-    const updatedIds: string[] = [];
-
-    // Phase 1: Update Data (Source of Truth)
-    const isStorage = currentReport.dataSource === 'STORAGE';
-    const batchUpdates: Promise<any>[] = [];
-
-    // We iterate the MAIN records to ensure we update everything selected
-    console.log(`[SaveAssistant] Selected IDs:`, selectedRecordIds);
-    if (!selectedRecordIds || selectedRecordIds.length === 0) return; // Verify explicitly again
-
-    currentReport.result.validRecords.forEach(r => {
-      // Robust check: dynamic table might use ID or Key depending on data source
-      const isSelected = (r.id && selectedRecordIds.includes(r.id)) || (r.key && selectedRecordIds.includes(r.key));
-
-      if (isSelected) {
-        const rId = r.id || r.key || '';
-        r.gv = cleanVal;
-        updatedIds.push(rId);
-
-        if (isStorage && r.id) {
-          const path = (r as any).firestorePath || `uploaded_surgeries/${r.id}`;
-          console.log(`[SaveAssistant] Updating ${r.id} at path: ${path} with Value: ${cleanVal}`);
-
-          const docRef = doc(firestore, path);
-          batchUpdates.push(
-            updateDoc(docRef, { gv: cleanVal })
-              .then(() => console.log(`[SaveAssistant] Success: ${path}`))
-              .catch(err => console.error(`[SaveAssistant] Failed: ${path}`, err))
-          );
-        }
-      }
-    });
-
-    // Prepare state updates
-    const stateUpdates: Partial<ReportState> = {};
-
-    if (updatedIds.length > 0) {
-      if (isStorage) {
-        try {
-          await Promise.all(batchUpdates);
-          // Toast managed by caller or we can show it here
-          addToast(`Đã lưu ${updatedIds.length} bản ghi.`, 'success');
-        } catch (e) {
-          console.error("Save failed", e);
-          addToast("Lỗi khi lưu dữ liệu (chi tiết trong console)", 'error');
-        }
-      }
-
-      // Phase 2: Recalculate Result (In-Memory)
-      const newResultPartial = recalculateResultFromRecords(currentReport.result.validRecords, config);
-      stateUpdates.result = { ...currentReport.result, ...newResultPartial };
-    }
-
-    // Phase 3: Smart Navigation (Find next empty GV in VISIBLE list)
-    let lastSelectedIndex = -1;
-    for (let i = workingList.length - 1; i >= 0; i--) {
-      const r = workingList[i];
-      const isSelected = (r.id && selectedRecordIds.includes(r.id)) || (r.key && selectedRecordIds.includes(r.key));
-      if (isSelected) {
-        lastSelectedIndex = i;
-        break;
-      }
-    }
-
-    console.log(`[AutoJump] Last Selected Index: ${lastSelectedIndex}`);
-
-    if (lastSelectedIndex !== -1) {
-      let nextIndex = -1;
-      // Search forward
-      for (let i = lastSelectedIndex + 1; i < workingList.length; i++) {
-        const r = workingList[i];
-        if (!r.gv || r.gv.trim() === '') {
-          nextIndex = i;
-          break;
-        }
-      }
-
-      console.log(`[AutoJump] Forward search found: ${nextIndex}`);
-
-      // Loop back
-      if (nextIndex === -1) {
-        for (let i = 0; i <= lastSelectedIndex; i++) {
-          const r = workingList[i];
-          if (!r.gv || r.gv.trim() === '') {
-            nextIndex = i;
-            break;
-          }
-        }
-        console.log(`[AutoJump] Loop-back search found: ${nextIndex}`);
-      }
-
-      if (nextIndex !== -1) {
-        const nextRecord = workingList[nextIndex];
-        // FIX: Must match DynamicTable precedence (key > id) to ensure consistent selection/deselection
-        const newId = nextRecord.key || nextRecord.id || '';
-        console.log(`[AutoJump] Moving selection to index ${nextIndex} (ID: ${newId})`);
-
-        stateUpdates.selectedRecordIds = [newId];
-
-        // Switch page
-        const targetPage = Math.ceil((nextIndex + 1) / rowsPerPage);
-        console.log(`[AutoJump] Target page: ${targetPage}, Current page: ${listPage}`);
-        if (targetPage !== listPage) {
-          console.log(`[AutoJump] Switching page to ${targetPage}`);
-          setListPage(targetPage);
-        }
-      } else {
-        console.log(`[AutoJump] No empty records found.`);
-        stateUpdates.selectedRecordIds = [];
-      }
-    }
-
-    // Apply all updates atomically
-    if (Object.keys(stateUpdates).length > 0) {
-      updateCurrentReport(stateUpdates);
-    }
-  };
 
   const renderTableContent = () => {
     if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
 
     if (currentReport.activeTable === 'list') {
+      const listSearchableCols = searchableCols['list'] || {
+        patientId: true, patientName: true, ngayBD: true, tenKT: true,
+        loaiPTTT: true, ptChinh: true, ptPhu: true, bsGM: true,
+        ktvGM: true, tdc: true, gv: true, reason: true
+      };
+      const filtered = currentReport.result.validRecords.filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules));
       const rowStyle = (r: SurgeryRecord) => (config.timeRules[r.loaiPTTT]?.min && r.timeMinutes < config.timeRules[r.loaiPTTT].min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
       const ptCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length;
       const ttCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length;
       const countLabel = `${ptCount} ca PT, ${ttCount} ca TT`;
       return <DynamicTable
-        data={filteredList}
+        data={filtered}
         columns={columnsList}
         tableName="Danh sách phẫu thuật"
         dateFormat={dateFormat}
@@ -1742,21 +1313,24 @@ const InnerApp: React.FC = () => {
         selectedIds={currentReport.selectedRecordIds}
         onSelect={handleRowSelect}
         onSelectAll={handleSelectAll}
-        onDelete={handleDeleteSelected}
-        currentPage={listPage}
-        onPageChange={setListPage}
-        onSaveAssistant={handleSaveAssistant}
       />;
     }
     if (currentReport.activeTable === 'staff') {
+      const filtered = currentReport.result.staffConflicts.filter(r => matchSearchQuery(r, currentReport.searchTerms.staff, undefined, columnsStaff));
       const staffRowStyle = (r: StaffConflict) => r.violationType === 'max2' ? 'text-red-600 font-bold bg-red-50' : '';
-      return <DynamicTable data={filteredStaff} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={currentReport.searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} />;
+      return <DynamicTable data={filtered} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={currentReport.searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} />;
     }
     if (currentReport.activeTable === 'machine') {
-      return <DynamicTable data={filteredMachine} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={currentReport.searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} />;
+      const filtered = currentReport.result.machineConflicts.filter(r => matchSearchQuery(r, currentReport.searchTerms.machine, undefined, columnsMachine));
+      return <DynamicTable data={filtered} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={currentReport.searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} />;
     }
     if (currentReport.activeTable === 'missing') {
-      return <DynamicTable data={filteredMissing} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={currentReport.searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} />;
+      // Allow if detailFile exists OR if using stored data (where detailFile is null but result is present)
+      const rawData = (currentReport.detailFile || currentReport.dataSource === 'STORAGE')
+        ? (currentReport.result.missingRecords || [])
+        : [];
+      const filtered = rawData.filter(r => matchSearchQuery(r, currentReport.searchTerms.missing, undefined, columnsMissing));
+      return <DynamicTable data={filtered} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={currentReport.searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} />;
     }
     if (currentReport.activeTable === 'payment') {
       if (!paymentDataPrepared) return null;
@@ -1837,7 +1411,7 @@ const InnerApp: React.FC = () => {
           <td className="px-2 py-1 border-r text-center bg-indigo-50 sticky left-0 z-10 font-bold"></td>
           {isVisible('department') && <td className="px-2 py-1 border-r text-right bg-indigo-50/50"></td>}
           {isVisible('taxId') && <td className="px-2 py-1 border-r text-right bg-indigo-50/50"></td>}
-          {isVisible('name') && <td className="px-2 py-1 border-r text-right font-bold text-indigo-500 italic">Đơn giá</td>}
+          {isVisible('name') && <td className="px-2 py-1 border-r text-right font-bold text-indigo-400 opacity-0">Đơn giá</td>}
           {cols.map(col => {
             if (!isVisible(`val_${col}`)) return null;
             const [loai, role] = col.split('-');
@@ -1846,7 +1420,7 @@ const InnerApp: React.FC = () => {
             else if (role === "Phụ") configRole = "Phụ";
             else if (role === "Giúp việc") configRole = "Giúp việc";
             const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
-            return <td key={col} className="px-2 py-1 border-r text-right text-indigo-600 font-medium">{price > 0 ? price.toLocaleString('en-US') : '-'}</td>
+            return <td key={col} className="px-2 py-1 border-r text-right">{price.toLocaleString('en-US')}</td>
           })}
           {isVisible('total_qty') && <td className="px-2 py-1 border-r bg-gray-50"></td>}
           {isVisible('total_amount') && <td className="px-2 py-1 border-r bg-gray-50"></td>}
@@ -1868,66 +1442,7 @@ const InnerApp: React.FC = () => {
         </tr>
       );
 
-      // Custom Row Renderer for Department Separators
-      const customRowRender = (row: any, index: number, allRows: any[]) => {
-        const isEndOfDept = index < allRows.length - 1 && row.department !== allRows[index + 1].department;
-        // Heavy blue border for department separation
-        const borderClass = isEndOfDept ? "border-b-2 border-blue-600" : "border-b";
-
-        return (
-          <tr key={index} className={`hover:bg-gray-50 text-xs text-gray-800 ${borderClass}`}>
-            <td className={`px-2 py-1 border-r text-center sticky left-0 bg-white z-10 font-medium`}>{index + 1}</td>
-            {isVisible('department') && <td className="px-2 py-1 border-r font-medium text-gray-600">{row.department}</td>}
-            {isVisible('taxId') && <td className="px-2 py-1 border-r">{row.taxId}</td>}
-            {isVisible('name') && <td className="px-2 py-1 border-r font-medium text-gray-700">{row.name}</td>}
-
-            {cols.map(col => {
-              if (!isVisible(`val_${col}`)) return null;
-              const val = row.values[col];
-              return <td key={col} className="px-2 py-1 border-r text-right text-gray-600">{val ? val : '-'}</td>
-            })}
-
-            {isVisible('total_qty') && <td className="px-2 py-1 border-r text-center font-bold">{row.totalQty}</td>}
-            {isVisible('total_amount') && (
-              <td className="px-2 py-1 border-r text-right font-bold text-blue-700">
-                {(() => {
-                  let total = 0;
-                  cols.forEach(col => {
-                    const val = row.values[col] || 0;
-                    const [loai, role] = col.split('-');
-                    let configRole: any = "Giúp việc";
-                    if (role === "Chính") configRole = "Chính";
-                    else if (role === "Phụ") configRole = "Phụ";
-                    else if (role === "Giúp việc") configRole = "Giúp việc";
-                    const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
-                    total += val * price;
-                  });
-                  return total.toLocaleString('en-US');
-                })()}
-              </td>
-            )}
-          </tr>
-        )
-      };
-
-      return <DynamicTable
-        data={filtered}
-        columns={paymentCols}
-        tableName="Bảng Thanh toán phẫu thuật, thủ thuật"
-        dateFormat={dateFormat}
-        onDateFormatChange={updateDateFormat}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={updateRowsPerPage}
-        defaultVisibleCols={visibleCols['payment']}
-        onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)}
-        searchableCols={paymentSearchableCols}
-        searchTerm={currentReport.searchTerms.payment}
-        onSearchChange={(val) => updateSearchTerm('payment', val)}
-        customThead={CustomThead}
-        customTfoot={ExtraFooter}
-        extraHeaderRow={ExtraHeader}
-        customRowRender={customRowRender}
-      />;
+      return <DynamicTable data={filtered} columns={paymentCols} tableName="Bảng Thanh toán phẫu thuật, thủ thuật" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['payment']} onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)} extraHeaderRow={ExtraHeader} extraFooterRow={ExtraFooter} customThead={CustomThead} searchTerm={currentReport.searchTerms.payment} onSearchChange={(val) => updateSearchTerm('payment', val)} />;
     }
     return null;
   };
@@ -2081,158 +1596,6 @@ const InnerApp: React.FC = () => {
     }
   };
 
-  // Helper function to determine season based on working hours config
-  const determineSeason = (checkDate: Date, workingHours: any): 'summer' | 'winter' => {
-    const checkMonth = checkDate.getMonth() + 1; // 1-12
-    const checkDay = checkDate.getDate(); // 1-31
-
-    // Parse summer config (DD/MM format)
-    const [summerFromDay, summerFromMonth] = workingHours.summer.dateFrom.split('/').map(Number);
-    const [summerToDay, summerToMonth] = workingHours.summer.dateTo.split('/').map(Number);
-
-    // Parse winter config (DD/MM format)
-    const [winterFromDay, winterFromMonth] = workingHours.winter.dateFrom.split('/').map(Number);
-    const [winterToDay, winterToMonth] = workingHours.winter.dateTo.split('/').map(Number);
-
-    // Check if range is cross-year
-    const summerCrossYear = summerFromMonth > summerToMonth ||
-      (summerFromMonth === summerToMonth && summerFromDay > summerToDay);
-    const winterCrossYear = winterFromMonth > winterToMonth ||
-      (winterFromMonth === winterToMonth && winterFromDay > winterToDay);
-
-    // Helper to check if date is in range
-    const isInRange = (checkM: number, checkD: number, fromM: number, fromD: number, toM: number, toD: number, crossYear: boolean): boolean => {
-      if (!crossYear) {
-        // Same year range
-        if (checkM < fromM || checkM > toM) return false;
-        if (checkM === fromM && checkD < fromD) return false;
-        if (checkM === toM && checkD > toD) return false;
-        return true;
-      } else {
-        // Cross-year range: early year (01/01 to toM/toD) OR late year (fromM/fromD to 31/12)
-        if (checkM <= toM) {
-          // Early year part
-          if (checkM < toM) return true;
-          if (checkM === toM && checkD <= toD) return true;
-          return false;
-        } else if (checkM >= fromM) {
-          // Late year part
-          if (checkM > fromM) return true;
-          if (checkM === fromM && checkD >= fromD) return true;
-          return false;
-        }
-        return false;
-      }
-    };
-
-    // Check summer first
-    if (isInRange(checkMonth, checkDay, summerFromMonth, summerFromDay, summerToMonth, summerToDay, summerCrossYear)) {
-      return 'summer';
-    }
-
-    // Otherwise winter
-    return 'winter';
-  };
-
-  // Handler for "Lấy dữ liệu trực" button
-  const handleAutoFill24hShift = () => {
-    // Step 1: Get dateFrom from current report (YYYY-MM-DD format)
-    const dateFromStr = currentReport.dateFrom;
-    if (!dateFromStr) {
-      addToast('Vui lòng chọn ngày bắt đầu trước', 'error');
-      return;
-    }
-
-    const dateFrom = new Date(dateFromStr);
-
-    // Step 2: Calculate dateTo = dateFrom + 1 day
-    const dateTo = new Date(dateFrom);
-    dateTo.setDate(dateTo.getDate() + 1);
-    const dateToStr = dateTo.toISOString().split('T')[0]; // YYYY-MM-DD
-
-    // Step 3: Determine season
-    const season = determineSeason(dateFrom, config.workingHours);
-
-    // Step 4: Get morningFrom time from matching season
-    const morningFrom = season === 'summer'
-      ? config.workingHours.summer.morningFrom
-      : config.workingHours.winter.morningFrom;
-
-    // Step 5: Calculate timeTo = morningFrom - 1 minute
-    const [hours, minutes] = morningFrom.split(':').map(Number);
-    let toMinutes = minutes - 1;
-    let toHours = hours;
-
-    if (toMinutes < 0) {
-      toMinutes = 59;
-      toHours = hours - 1;
-      if (toHours < 0) {
-        toHours = 23;
-      }
-    }
-
-    const timeTo = `${String(toHours).padStart(2, '0')}:${String(toMinutes).padStart(2, '0')}`;
-
-    // Step 6: Update currentReport with all 4 values
-    updateCurrentReport({
-      dateFrom: dateFromStr,
-      timeFrom: morningFrom,
-      dateTo: dateToStr,
-      timeTo: timeTo
-    });
-
-    // Step 7: Trigger data fetch immediately with computed values (no need to wait for state)
-    // Build ISO strings from computed values
-    const dateFromIso = `${dateFromStr}T${morningFrom}:00.000`;
-    const dateToIso = `${dateToStr}T${timeTo}:59.999`;
-
-    // Call handleGetReport logic inline
-    (async () => {
-      try {
-        addToast('Đang tải dữ liệu lưu trữ...', 'success');
-
-        const isoFrom = new Date(dateFromIso).toISOString();
-        const isoTo = new Date(dateToIso).toISOString();
-
-        const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
-        const persistedRecords = await reportService.getReports(isoFrom, isoTo, type);
-
-        if (persistedRecords.length === 0) {
-          addToast('Không có dữ liệu trong khoảng thời gian này', 'error');
-          return;
-        }
-
-        // Convert PersistedSurgeryRecord to SurgeryRecord
-        const convertedRecords: SurgeryRecord[] = persistedRecords.map(r => ({
-          ...r,
-          stt: typeof r.stt === 'number' ? r.stt : parseInt(r.stt as string) || 0,
-          start: r.ngayBD ? new Date(r.ngayBD) : null,
-          end: r.ngayKT ? new Date(r.ngayKT) : null,
-        }));
-
-        const result = recalculateResultFromRecords(convertedRecords, config);
-
-        updateCurrentReport({
-          dateFrom: dateFromStr,
-          timeFrom: morningFrom,
-          dateTo: dateToStr,
-          timeTo: timeTo,
-          result: result,
-          stats: result.stats,
-          activeTable: 'list',
-          queryDateRangeText: `Từ ngày ${formatDateForDisplay(dateFromStr, morningFrom)} đến ngày ${formatDateForDisplay(dateToStr, timeTo)}`,
-          dataSource: 'STORAGE',
-          records: persistedRecords
-        });
-
-        addToast(`Đã tải ${persistedRecords.length} ca phẫu thuật từ dữ liệu lưu trữ`, 'success');
-      } catch (error: any) {
-        console.error('Error fetching report:', error);
-        addToast(`Lỗi khi tải dữ liệu: ${error.message}`, 'error');
-      }
-    })();
-  };
-
   const handleGetReport = async () => {
     // Construct Date Range from State
     const dateFromStr = `${currentReport.dateFrom}T${currentReport.timeFrom}:00.000`;
@@ -2271,63 +1634,13 @@ const InnerApp: React.FC = () => {
       const res = await reprocessSurgicalRecords(convertedRecords, config);
 
       if (res.success) {
-        // Auto-fill assistant data for monthly reports from daily reports
-        if (type === 'MONTHLY' && res.validRecords) {
-          try {
-            const assistantMap = await reportService.getAssistantDataFromDaily(res.validRecords);
-
-            if (assistantMap.size > 0) {
-              let updateCount = 0;
-              res.validRecords.forEach(r => {
-                if (!r.gv || r.gv.trim() === '') {
-                  const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
-                  const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
-                  const dailyGv = assistantMap.get(key);
-                  if (dailyGv) {
-                    r.gv = dailyGv;
-                    updateCount++;
-                  }
-                }
-              });
-
-              if (updateCount > 0) {
-                // Recalculate with updated data
-                const freshResult = reprocessSurgicalRecords(
-                  res.validRecords,
-                  config,
-                  res.dateRangeText || ''
-                );
-
-                // Update state with fresh calculations
-                updateCurrentReport({
-                  result: freshResult,
-                  stats: freshResult.stats,
-                  activeTable: 'list',
-                  isProcessing: false,
-                  dataSource: 'STORAGE',
-                  queryDateRangeText: `Từ ngày ${formatDateForDisplay(currentReport.dateFrom, currentReport.timeFrom)} đến ngày ${formatDateForDisplay(currentReport.dateTo, currentReport.timeTo)}`,
-                  selectedRecordIds: [],
-                  hasAutoFilledData: true // Enable save button
-                });
-
-                addToast(`Đã tải ${persistedRecords.length} bản ghi. Tự động điền ${updateCount} giúp việc từ báo cáo hàng ngày.`, 'success');
-                return; // Exit early since we already updated state
-              }
-            }
-          } catch (error) {
-            console.error('Error auto-filling assistant data:', error);
-            // Continue with normal flow if auto-fill fails
-          }
-        }
-
         updateCurrentReport({
           result: res,
           stats: res.stats,
           activeTable: 'list',
           isProcessing: false,
           dataSource: 'STORAGE',
-          queryDateRangeText: `Từ ngày ${formatDateForDisplay(currentReport.dateFrom, currentReport.timeFrom)} đến ngày ${formatDateForDisplay(currentReport.dateTo, currentReport.timeTo)}`,
-          selectedRecordIds: [] // Reset selection
+          queryDateRangeText: `Từ ngày ${formatDateForDisplay(currentReport.dateFrom, currentReport.timeFrom)} đến ngày ${formatDateForDisplay(currentReport.dateTo, currentReport.timeTo)}`
         });
         addToast(`Đã tải ${persistedRecords.length} bản ghi thành công.`, 'success');
       } else {
@@ -2352,31 +1665,20 @@ const InnerApp: React.FC = () => {
 
       const userId = "anonymous_user";
 
-      const { savedCount, skippedCount, updatedCount } = await reportService.saveReport(
+      const { savedCount, skippedCount } = await reportService.saveReport(
         currentReport.result.validRecords,
         type,
         userId,
         currentReport.dataSource || 'EXCEL'
       );
 
-      // Build appropriate message based on results
-      let msg = '';
-      if (savedCount > 0 && updatedCount > 0) {
-        msg = `Lưu dữ liệu thành công! Đã lưu ${savedCount} bản ghi, cập nhật ${updatedCount} bản ghi.`;
-      } else if (savedCount > 0) {
-        msg = `Lưu dữ liệu thành công! Đã lưu ${savedCount} bản ghi.`;
-      } else if (updatedCount > 0) {
-        msg = `Cập nhật thành công! Đã cập nhật ${updatedCount} bản ghi giúp việc.`;
-      } else {
-        msg = `Tất cả bản ghi đã tồn tại hoặc không có giúp việc. Không có gì để lưu.`;
-      }
-
-      if (skippedCount > 0 && (savedCount > 0 || updatedCount > 0)) {
+      let msg = `Lưu dữ liệu thành công! Đã lưu ${savedCount} bản ghi.`;
+      if (skippedCount > 0) {
         msg += ` Bỏ qua ${skippedCount} bản ghi trùng lặp.`;
       }
 
-      if (savedCount === 0 && updatedCount === 0) {
-        addToast(msg, 'error');
+      if (savedCount === 0 && skippedCount > 0) {
+        addToast(msg, 'error'); // Yellow toast for "All duplicates" -> error (or maybe success depending on preference, but staying safe with error type)
       } else {
         addToast(msg, 'success');
       }
@@ -2482,204 +1784,164 @@ const InnerApp: React.FC = () => {
           <div className="space-y-6 animate-fade-in relative w-full mx-auto">
 
             <div className="max-w-7xl mx-auto">
-              <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col font-inter text-sm max-w-6xl mx-auto w-full mb-8">
-                {/* Tabs */}
-                <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 ${activeDataTab === 'storage'
-                  ? 'border-b-indigo-600'
-                  : 'border-b-emerald-600'
-                  }`}>
-                  <button
-                    onClick={() => setActiveDataTab('storage')}
-                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeDataTab === 'storage'
-                      ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm'
-                      : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
-                      }`}
-                  >
-                    <Database className={`h-4 w-4 ${activeDataTab === 'storage' ? 'text-indigo-600' : ''}`} />
-                    Dữ liệu lưu trữ
-                  </button>
-                  <button
-                    onClick={() => setActiveDataTab('upload')}
-                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeDataTab === 'upload'
-                      ? 'bg-white text-emerald-700 border-emerald-600 z-30 shadow-sm'
-                      : 'bg-transparent text-gray-400 border-transparent hover:text-emerald-600'
-                      }`}
-                  >
-                    <Sparkles className={`h-4 w-4 ${activeDataTab === 'upload' ? 'text-emerald-600' : ''}`} />
-                    Xử lý dữ liệu từ Minh Lộ
-                  </button>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+                {/* LEFT COLUMN: Dữ liệu lưu trữ (Storage Data) */}
+                <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 flex flex-col h-full">
+                  <div className="flex items-center gap-2 mb-4 border-b pb-3">
+                    <div className="bg-indigo-100 p-1.5 rounded-lg">
+                      <Database className="h-4 w-4 text-indigo-700" />
+                    </div>
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Dữ liệu lưu trữ</h2>
+                  </div>
+
+                  <div className="space-y-4 flex-1">
+                    {/* Row 1: From */}
+                    <div className="flex items-center gap-3">
+                      <label className="w-10 text-xs font-semibold text-gray-600">Từ:</label>
+                      <input
+                        type="date"
+                        value={currentReport.dateFrom}
+                        onChange={(e) => updateCurrentReport({ dateFrom: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="HH:mm"
+                        value={currentReport.timeFrom}
+                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeFrom: val }))}
+                        maxLength={5}
+                        className="w-24 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
+                      />
+                    </div>
+
+                    {/* Row 2: To */}
+                    <div className="flex items-center gap-3">
+                      <label className="w-10 text-xs font-semibold text-gray-600">Đến:</label>
+                      <input
+                        type="date"
+                        value={currentReport.dateTo}
+                        onChange={(e) => updateCurrentReport({ dateTo: e.target.value })}
+                        className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="HH:mm"
+                        value={currentReport.timeTo}
+                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeTo: val }))}
+                        maxLength={5}
+                        className="w-24 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-col gap-3">
+                    <div className="flex items-center gap-3 pt-3 mt-auto">
+                      <button
+                        onClick={handleGetReport}
+                        className="flex-1 px-4 py-2 rounded-lg font-medium shadow-sm transition-all text-sm flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                      >
+                        <Download className="h-4 w-4" />
+                        Lấy dữ liệu
+                      </button>
+                    </div>
+                    <button className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 border-2 border-indigo-100 font-bold text-sm hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-[0.98]">
+                      <Zap className="h-4 w-4" />
+                      Lấy dữ liệu trực
+                    </button>
+                  </div>
                 </div>
 
-                {/* Content */}
-                <div className={`p-6 bg-white border-2 rounded-b-xl z-10 ${activeDataTab === 'storage' ? 'border-indigo-600' : 'border-emerald-600'
-                  }`}>
-                  {activeDataTab === 'storage' && (
-                    <div className="flex flex-col space-y-4 max-w-2xl mx-auto py-4">
 
-
-                      <div className="flex flex-col gap-6">
-                        {/* Two Columns for Date/Time */}
-                        <div className="grid grid-cols-2 gap-8 px-4">
-                          {/* Left Column: From */}
-                          <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold text-gray-600 italic">Chọn thời gian từ:</label>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="date"
-                                value={currentReport.dateFrom}
-                                onChange={(e) => updateCurrentReport({ dateFrom: e.target.value })}
-                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                              <input
-                                type="text"
-                                placeholder="HH:mm"
-                                value={currentReport.timeFrom}
-                                onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeFrom: val }))}
-                                maxLength={5}
-                                className="w-20 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Right Column: To */}
-                          <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold text-gray-600">Đến:</label>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="date"
-                                value={currentReport.dateTo}
-                                onChange={(e) => updateCurrentReport({ dateTo: e.target.value })}
-                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
-                              />
-                              <input
-                                type="text"
-                                placeholder="HH:mm"
-                                value={currentReport.timeTo}
-                                onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeTo: val }))}
-                                maxLength={5}
-                                className="w-20 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Buttons Area - Centered & Fixed Width */}
-                        <div className="flex flex-row items-center justify-center gap-4 mt-6">
-                          <button
-                            onClick={handleGetReport}
-                            className="w-64 px-4 py-2.5 rounded-lg font-bold shadow-md transition-all text-sm flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
-                          >
-                            <Download className="h-4 w-4" />
-                            Lấy dữ liệu
-                          </button>
-                          <button onClick={handleAutoFill24hShift} className="w-64 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 border-2 border-indigo-100 font-bold text-sm hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-[0.98]">
-                            <Zap className="h-4 w-4" />
-                            Lấy dữ liệu trực
-                          </button>
-                        </div>
-                      </div>
+                {/* RIGHT COLUMN: Xử lý dữ liệu mới (New Processing) */}
+                <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-100 flex flex-col h-full relative overflow-hidden">
+                  <div className="flex items-center gap-2 mb-4 border-b pb-3">
+                    <div className="bg-emerald-100 p-1.5 rounded-lg">
+                      <Sparkles className="h-4 w-4 text-emerald-700" />
                     </div>
-                  )}
+                    <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Xử lý dữ liệu từ Minh Lộ</h2>
+                  </div>
 
-                  {activeDataTab === 'upload' && (
-                    <div className="flex flex-col space-y-4 max-w-6xl mx-auto py-4">
-
-
-                      <div className="grid grid-cols-2 gap-4 flex-1">
-                        {/* Item 1: Danh sách PT */}
-                        <div className="flex flex-col gap-2">
-                          <div className="flex flex-row items-center gap-4 p-5 bg-indigo-50/50 rounded-lg border border-indigo-100 hover:border-indigo-300 transition-colors h-32">
-                            <div className="bg-indigo-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow">1</div>
-                            <div className="flex-1 min-w-0">
-                              <span className="font-bold text-indigo-900 text-base block mb-1">Danh sách PT</span>
-                              <p className="text-indigo-600/70 text-xs">10. Danh sách PT</p>
-                            </div>
-                            <div className="w-32 h-20">
-                              <FileUpload label="" file={currentReport.listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
-                            </div>
-                          </div>
-                          {currentReport.listFile && (
-                            <p className="text-indigo-600 font-medium text-xs italic px-1">
-                              File đã tải: {currentReport.listFile.name}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Item 2: Chi tiết PT */}
-                        <div className="flex flex-col gap-2">
-                          <div className="flex flex-row items-center gap-4 p-5 bg-emerald-50/50 rounded-lg border border-emerald-100 hover:border-emerald-300 transition-colors h-32">
-                            <div className="bg-emerald-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow">2</div>
-                            <div className="flex-1 min-w-0">
-                              <span className="font-bold text-emerald-900 text-base block mb-1">Chi tiết theo khoa</span>
-                              <p className="text-emerald-700 text-xs mt-0.5">Báo cáo → BC CLS → Chi tiết PT theo khoa</p>
-                              <p className="text-[#b91c1c] font-bold text-xs mt-1">Chọn nhóm theo thứ tự: Họ tên → Ngày làm → Máy làm</p>
-                            </div>
-                            <div className="w-32 h-20">
-                              <FileUpload label="" file={currentReport.detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
-                            </div>
-                          </div>
-                          {currentReport.detailFile && (
-                            <p className="text-emerald-600 font-medium text-xs italic px-1">
-                              File đã tải: {currentReport.detailFile.name}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="mt-6 flex justify-center">
-                        {currentReport.isProcessing ? (
-                          <div className="w-[600px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-bold text-sm animate-pulse">
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                            Đang xử lý...
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => handleProcess(currentType)}
-                            disabled={!currentReport.listFile}
-                            className={`w-[600px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-[0.98] ${currentReport.listFile
-                              ? 'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-200'
-                              : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                              }`}
-                          >
-                            <Zap className="h-4 w-4 fill-current" />
-                            Xử lý dữ liệu
-                          </button>
+                  <div className="space-y-4 flex-1">
+                    {/* Item 1: Danh sách PT */}
+                    <div className="flex flex-row items-center gap-3 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100 hover:border-indigo-300 transition-colors">
+                      <div className="bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">1</div>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-bold text-indigo-900 text-sm block">Danh sách PT</span>
+                        <p className="text-indigo-600/70 text-[10px] truncate">10. Danh sách PT</p>
+                        {currentReport.listFile && (
+                          <p className="text-indigo-600 font-medium text-[10px] mt-1 italic">
+                            File: {currentReport.listFile.name}
+                          </p>
                         )}
                       </div>
+                      <div className="w-[100px] h-10">
+                        <FileUpload label="" file={currentReport.listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
+                      </div>
                     </div>
-                  )}
+
+                    {/* Item 2: Chi tiết PT */}
+                    <div className="flex flex-row items-center gap-3 p-3 bg-emerald-50/50 rounded-lg border border-emerald-100 hover:border-emerald-300 transition-colors">
+                      <div className="bg-emerald-600 text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow">2</div>
+                      <div className="flex-1 min-w-0">
+                        <span className="font-bold text-emerald-900 text-sm block">Chi tiết theo khoa</span>
+                        <p className="text-emerald-700 text-[10px] mt-0.5">Báo cáo → BC CLS → Chi tiết PT theo khoa</p>
+                        <p className="text-[#b91c1c] font-bold text-[10px] mt-0.5">Chọn nhóm theo thứ tự: Họ tên → Ngày làm → Máy làm</p>
+                        {currentReport.detailFile && (
+                          <p className="text-emerald-600 font-medium text-[10px] mt-1 italic">
+                            File: {currentReport.detailFile.name}
+                          </p>
+                        )}
+                      </div>
+                      <div className="w-[100px] h-10">
+                        <FileUpload label="" file={currentReport.detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-6">
+                    {currentReport.isProcessing ? (
+                      <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-bold text-sm animate-pulse">
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Đang xử lý...
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleProcess(currentType)}
+                        disabled={!currentReport.listFile}
+                        className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-[0.98] ${currentReport.listFile
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-200'
+                          : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
+                          }`}
+                      >
+                        <Zap className="h-4 w-4 fill-current" />
+                        Xử lý dữ liệu
+                      </button>
+                    )}
+                  </div>
                 </div>
+
               </div>
             </div>
 
             {currentReport.stats && currentReport.result && (
               <>
                 <div className="max-w-7xl mx-auto mt-6">
-                  <div id="results-section" className={`space-y-6 animate-fade-in bg-gradient-to-b rounded-xl p-6 border shadow-sm ${currentReport.dataSource === 'EXCEL'
-                    ? 'from-emerald-50/50 to-white border-emerald-100'
-                    : 'from-indigo-50/50 to-white border-indigo-100'
-                    }`}>
+                  <div id="results-section" className="space-y-6 animate-fade-in bg-gradient-to-b from-indigo-50/50 to-white rounded-xl p-6 border border-indigo-100 shadow-sm">
 
                     <div className="flex items-center gap-4 mb-6">
-                      <div className={`p-2 rounded-lg ${currentReport.dataSource === 'EXCEL' ? 'bg-emerald-100' : 'bg-indigo-100'}`}>
-                        {currentReport.dataSource === 'EXCEL' ? (
-                          <Sparkles className={`h-6 w-6 ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-600' : 'text-indigo-600'}`} />
-                        ) : (
-                          <Database className="h-6 w-6 text-indigo-600" />
-                        )}
-                      </div>
-                      <h2 className={`text-lg font-bold ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-900' : 'text-indigo-900'}`}>
-                        {currentReport.dataSource === 'EXCEL' ? 'Dữ liệu từ Minh Lộ' :
+                      <h2 className="text-lg font-bold text-gray-900">
+                        {currentReport.dataSource === 'EXCEL' ? 'Kết quả xử lý: Dữ liệu từ Minh Lộ' :
                           currentReport.dataSource === 'STORAGE' ? 'Dữ liệu lưu trữ' : 'Kết quả xử lý'}
                       </h2>
                       {currentReport.result.dateRangeText && (
-                        <p className={`text-lg font-bold ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-800' : 'text-indigo-800'}`}>
+                        <p className="text-lg font-bold text-blue-800">
                           {currentReport.result.dateRangeText}
                         </p>
                       )}
                     </div>
 
-                    <div className={`h-px w-full my-6 ${currentReport.dataSource === 'EXCEL' ? 'bg-emerald-100/50' : 'bg-indigo-100/50'}`}></div>
+                    <div className="h-px bg-indigo-100/50 w-full my-6"></div>
 
 
                     {currentType === 'daily' ? (
@@ -2946,13 +2208,9 @@ const InnerApp: React.FC = () => {
                       <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
                       <button
                         onClick={handleSaveData}
-                        disabled={isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)}
-                        className={`flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm ${(isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)) ? 'opacity-70 cursor-not-allowed' : ''}`}
-                        title={
-                          currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData
-                            ? "Chức năng này chỉ khả dụng khi có dữ liệu mới hoặc cập nhật"
-                            : "Lưu dữ liệu vào hệ thống"
-                        }
+                        disabled={isSaving || currentReport.dataSource !== 'EXCEL'}
+                        className={`flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm ${(isSaving || currentReport.dataSource !== 'EXCEL') ? 'opacity-70 cursor-not-allowed' : ''}`}
+                        title={currentReport.dataSource !== 'EXCEL' ? "Chức năng này chỉ khả dụng khi nhập từ Excel" : "Lưu dữ liệu vào hệ thống"}
                       >
                         {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                         {isSaving ? 'Đang lưu...' : 'Lưu dữ liệu'}

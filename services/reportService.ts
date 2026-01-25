@@ -21,7 +21,7 @@ import {
 const BATCH_SIZE = 450; // Firestore batch limit is 500, keep safe margin
 
 // Helper: Convert App Record -> Persistence Record
-function toPersistedRecord(rec: SurgeryRecord): PersistedSurgeryRecord {
+function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): PersistedSurgeryRecord {
     return {
         stt: rec.stt,
         patientId: rec.patientId,
@@ -47,7 +47,8 @@ function toPersistedRecord(rec: SurgeryRecord): PersistedSurgeryRecord {
         tdc: rec.tdc,
         gv: rec.gv,
 
-        machine: rec.machine
+        machine: rec.machine,
+        type: type
     };
 }
 
@@ -63,13 +64,15 @@ export const reportService = {
         type: 'DAILY' | 'MONTHLY',
         userId: string,
         dataSource: 'EXCEL' | 'STORAGE' = 'EXCEL'
-    ): Promise<{ reportId: string, savedCount: number, skippedCount: number }> {
+    ): Promise<{ reportId: string, savedCount: number, skippedCount: number, updatedCount: number }> {
         try {
-            // 0. Deduplication (Only for EXCEL source)
-            let recordsToSave = records;
+            // 0. Deduplication and Update Logic
+            let recordsToSave: SurgeryRecord[] = [];
             let skippedCount = 0;
+            let updatedCount = 0;
+            const recordsToUpdate: Array<{ path: string, gv: string }> = [];
 
-            if (dataSource === 'EXCEL' && records.length > 0) {
+            if (records.length > 0) {
                 // Find min and max dates in the new batch
                 const sortedDates = records
                     .map(r => r.start ? r.start.toISOString() : '')
@@ -81,42 +84,70 @@ export const reportService = {
                     const maxDate = sortedDates[sortedDates.length - 1];
 
                     // Query existing records in this range
-                    // Note: This requires a composite index on processed_records if filtering by multiple fields,
-                    // but here we primarily filter by ngayBD.
                     const q = query(
                         collectionGroup(db, 'processed_records'),
+                        where('type', '==', type),
                         where('ngayBD', '>=', minDate),
                         where('ngayBD', '<=', maxDate)
                     );
 
                     const snapshot = await getDocs(q);
-                    const existingKeys = new Set<string>();
+                    const existingRecords = new Map<string, { id: string, path: string, gv: string }>();
 
-                    snapshot.forEach(doc => {
-                        const data = doc.data() as PersistedSurgeryRecord;
-                        // Composite Key: patientId + ngayBD + tenKT
+                    snapshot.forEach(docSnap => {
+                        const data = docSnap.data() as PersistedSurgeryRecord;
                         const key = `${data.patientId}_${data.ngayBD}_${data.tenKT}`;
-                        existingKeys.add(key);
+                        existingRecords.set(key, {
+                            id: docSnap.id,
+                            path: docSnap.ref.path,
+                            gv: data.gv || ''
+                        });
                     });
 
-                    // Filter duplicates
-                    recordsToSave = records.filter(rec => {
+                    console.log(`Found ${existingRecords.size} existing records in date range.`);
+
+                    // Process each record
+                    records.forEach(rec => {
                         const recDate = rec.start ? rec.start.toISOString() : '';
                         const key = `${rec.patientId}_${recDate}_${rec.tenKT}`;
-                        if (existingKeys.has(key)) {
-                            skippedCount++;
-                            return false;
+                        const existing = existingRecords.get(key);
+                        const newHasGv = rec.gv && rec.gv.trim() !== '';
+
+                        if (existing) {
+                            // Duplicate found
+                            const oldHasGv = existing.gv && existing.gv.trim() !== '';
+
+                            if (type === 'MONTHLY' && newHasGv && !oldHasGv) {
+                                // MONTHLY: Update case - new has gv, old doesn't
+                                recordsToUpdate.push({ path: existing.path, gv: rec.gv });
+                                updatedCount++;
+                                console.log(`Will update record ${key} with gv: ${rec.gv}`);
+                            } else {
+                                // Skip case (new has no gv, or both have gv, or DAILY type)
+                                skippedCount++;
+                            }
+                        } else {
+                            // New record - only save if it has gv (for MONTHLY) or always save (for DAILY)
+                            if (type === 'MONTHLY') {
+                                if (newHasGv) {
+                                    recordsToSave.push(rec);
+                                } else {
+                                    skippedCount++;
+                                }
+                            } else {
+                                // DAILY: save all new records
+                                recordsToSave.push(rec);
+                            }
                         }
-                        return true;
                     });
 
-                    console.log(`Deduplication: Found ${existingKeys.size} existing records. Skipped ${skippedCount} duplicates.`);
+                    console.log(`Deduplication complete: ${recordsToSave.length} to insert, ${updatedCount} to update, ${skippedCount} to skip.`);
                 }
             }
 
-            if (recordsToSave.length === 0 && records.length > 0) {
-                console.log("All records were duplicates. Nothing to save.");
-                return { reportId: '', savedCount: 0, skippedCount };
+            if (recordsToSave.length === 0 && recordsToUpdate.length === 0 && records.length > 0) {
+                console.log("All records were duplicates or have no gv. Nothing to save or update.");
+                return { reportId: '', savedCount: 0, skippedCount, updatedCount: 0 };
             }
 
             // 1. Create Report Metadata
@@ -133,7 +164,7 @@ export const reportService = {
 
             // 2. Prepare Batches for Records
             const recordsRef = collection(reportsRef, "processed_records");
-            const persistedRecords = recordsToSave.map(toPersistedRecord);
+            const persistedRecords = recordsToSave.map(r => toPersistedRecord(r, type));
 
             // We will perform multiple batches if needed
             const chunks = chunkArray(persistedRecords, BATCH_SIZE);
@@ -141,7 +172,7 @@ export const reportService = {
             // 3. Save Metadata first
             await setDoc(reportsRef, metadata);
 
-            // 4. Save Records in batches
+            // 4. Save new records in batches
             let savedCount = 0;
             for (const chunk of chunks) {
                 const batch = writeBatch(db);
@@ -154,8 +185,22 @@ export const reportService = {
                 console.log(`Saved batch of ${chunk.length} records. Total: ${savedCount}`);
             }
 
-            console.log(`Report ${reportId} saved successfully with ${savedCount} records.`);
-            return { reportId, savedCount, skippedCount };
+            // 5. Update existing records with gv (for MONTHLY reports)
+            if (recordsToUpdate.length > 0) {
+                const updateChunks = chunkArray(recordsToUpdate, BATCH_SIZE);
+                for (const chunk of updateChunks) {
+                    const batch = writeBatch(db);
+                    chunk.forEach(({ path, gv }) => {
+                        const docRef = doc(db, path);
+                        batch.update(docRef, { gv });
+                    });
+                    await batch.commit();
+                    console.log(`Updated batch of ${chunk.length} records with gv.`);
+                }
+            }
+
+            console.log(`Report ${reportId} saved successfully. Saved: ${savedCount}, Updated: ${updatedCount}, Skipped: ${skippedCount}`);
+            return { reportId, savedCount, skippedCount, updatedCount };
 
         } catch (error) {
             console.error("Error saving report:", error);
@@ -168,11 +213,12 @@ export const reportService = {
      * @param dateFrom ISO Start Date (YYYY-MM-DD...)
      * @param dateTo ISO End Date (YYYY-MM-DD...)
      */
-    async getReports(dateFrom: string, dateTo: string): Promise<PersistedSurgeryRecord[]> {
+    async getReports(dateFrom: string, dateTo: string, type: 'DAILY' | 'MONTHLY'): Promise<PersistedSurgeryRecord[]> {
         try {
-            console.log(`Fetching records from ${dateFrom} to ${dateTo}...`);
+            console.log(`Fetching ${type} records from ${dateFrom} to ${dateTo}...`);
             const q = query(
                 collectionGroup(db, 'processed_records'),
+                where('type', '==', type),
                 where('ngayBD', '>=', dateFrom),
                 where('ngayBD', '<=', dateTo)
             );
@@ -180,14 +226,179 @@ export const reportService = {
             const snapshot = await getDocs(q);
             const records: PersistedSurgeryRecord[] = [];
 
-            snapshot.forEach(doc => {
-                records.push(doc.data() as PersistedSurgeryRecord);
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data() as PersistedSurgeryRecord;
+                data.id = docSnap.id;
+                data.firestorePath = docSnap.ref.path;
+                records.push(data);
             });
 
             console.log(`Fetched ${records.length} records.`);
             return records;
         } catch (error) {
             console.error("Error fetching reports:", error);
+            throw error;
+        }
+    },
+
+    async migrateExistingRecords(): Promise<{ totalProcessed: number, totalUpdated: number }> {
+        try {
+            console.log("Starting migration of existing records...");
+            const q = query(collectionGroup(db, 'processed_records'));
+            const snapshot = await getDocs(q);
+
+            let totalProcessed = 0;
+            let totalUpdated = 0;
+            let batch = writeBatch(db);
+            let countInBatch = 0;
+
+            for (const docSnap of snapshot.docs) {
+                totalProcessed++;
+                const data = docSnap.data();
+                if (!data.type) {
+                    batch.update(docSnap.ref, { type: 'DAILY' });
+                    totalUpdated++;
+                    countInBatch++;
+                }
+
+                if (countInBatch >= BATCH_SIZE) {
+                    await batch.commit();
+                    batch = writeBatch(db);
+                    countInBatch = 0;
+                    console.log(`Migration: Committed batch. Total updated: ${totalUpdated}`);
+                }
+            }
+
+            if (countInBatch > 0) {
+                await batch.commit();
+            }
+
+            console.log(`Migration complete. Processed: ${totalProcessed}, Updated: ${totalUpdated}`);
+            return { totalProcessed, totalUpdated };
+        } catch (error) {
+            console.error("Error during migration:", error);
+            throw error;
+        }
+    },
+
+    /**
+     * Get assistant (gv) data from DAILY reports for auto-filling monthly reports
+     * @param records List of monthly records that need assistant data
+     * @returns Map with key = patientId_tenKT_ngayBD, value = gv
+     */
+    async getAssistantDataFromDaily(records: SurgeryRecord[]): Promise<Map<string, string>> {
+        try {
+            // Filter records with empty gv and create matching keys
+            const emptyGvRecords = records.filter(r => !r.gv || r.gv.trim() === '');
+
+            if (emptyGvRecords.length === 0) {
+                console.log('No records with empty gv. Skipping assistant auto-fill.');
+                return new Map();
+            }
+
+            console.log(`Querying assistant data for ${emptyGvRecords.length} records...`);
+
+            // Build unique set of matching keys to query
+            const matchingKeys = new Set<string>();
+            emptyGvRecords.forEach(r => {
+                const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
+                if (ngayBD) {
+                    const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
+                    matchingKeys.add(key);
+                }
+            });
+
+            console.log(`Built ${matchingKeys.size} unique matching keys.`);
+
+            // Query Firestore for DAILY reports
+            // Note: We need to query by date range to make it efficient
+            const dates = emptyGvRecords
+                .map(r => r.start ? r.start.toISOString() : r.ngayBD)
+                .filter(d => d)
+                .sort();
+
+            if (dates.length === 0) {
+                console.log('No valid dates found. Skipping query.');
+                return new Map();
+            }
+
+            const minDate = dates[0];
+            const maxDate = dates[dates.length - 1];
+
+            console.log(`Querying DAILY reports from ${minDate} to ${maxDate}...`);
+
+            const q = query(
+                collectionGroup(db, 'processed_records'),
+                where('type', '==', 'DAILY'),
+                where('ngayBD', '>=', minDate),
+                where('ngayBD', '<=', maxDate)
+            );
+
+            const snapshot = await getDocs(q);
+            const assistantMap = new Map<string, string>();
+            let matchCount = 0;
+
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data() as PersistedSurgeryRecord;
+
+                // Only process if it has gv
+                if (data.gv && data.gv.trim() !== '') {
+                    const key = `${data.patientId}_${data.tenKT}_${data.ngayBD}`;
+
+                    // Check if this key is in our matching set
+                    if (matchingKeys.has(key)) {
+                        // If multiple matches, keep the first one (or could use latest based on createdAt)
+                        if (!assistantMap.has(key)) {
+                            assistantMap.set(key, data.gv);
+                            matchCount++;
+                        }
+                    }
+                }
+            });
+
+            console.log(`Found ${matchCount} matching assistant records from ${snapshot.size} DAILY records.`);
+            return assistantMap;
+
+        } catch (error) {
+            console.error('Error fetching assistant data from daily reports:', error);
+            // Return empty map on error to allow process to continue
+            return new Map();
+        }
+    },
+
+    /**
+     * Delete multiple records from Firestore by their full path
+     * @param records List of SurgeryRecords to delete
+     */
+    async deleteRecords(records: SurgeryRecord[]): Promise<number> {
+        try {
+            // Filter only records that have a firestore path
+            const targets = records.filter(r => r.firestorePath);
+            if (targets.length === 0) return 0;
+
+            console.log(`Deleting ${targets.length} records from Firestore...`);
+
+            // Chunk into batches
+            const chunks = chunkArray(targets, BATCH_SIZE);
+            let deletedCount = 0;
+
+            for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(rec => {
+                    if (rec.firestorePath) {
+                        // Create doc ref from path
+                        const ref = doc(db, rec.firestorePath);
+                        batch.delete(ref);
+                    }
+                });
+                await batch.commit();
+                deletedCount += chunk.length;
+                console.log(`Deleted batch of ${chunk.length} records.`);
+            }
+
+            return deletedCount;
+        } catch (error) {
+            console.error("Error deleting records:", error);
             throw error;
         }
     }
