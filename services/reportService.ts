@@ -127,17 +127,9 @@ export const reportService = {
                                 skippedCount++;
                             }
                         } else {
-                            // New record - only save if it has gv (for MONTHLY) or always save (for DAILY)
-                            if (type === 'MONTHLY') {
-                                if (newHasGv) {
-                                    recordsToSave.push(rec);
-                                } else {
-                                    skippedCount++;
-                                }
-                            } else {
-                                // DAILY: save all new records
-                                recordsToSave.push(rec);
-                            }
+                            // New record - save for both DAILY and MONTHLY
+                            // (Previously MONTHLY only saved records with gv - this was a bug)
+                            recordsToSave.push(rec);
                         }
                     });
 
@@ -400,6 +392,157 @@ export const reportService = {
         } catch (error) {
             console.error("Error deleting records:", error);
             throw error;
+        }
+    },
+
+    /**
+     * Batch update machine codes for records in Firestore
+     * @param updates Array of { firestorePath, machine } objects
+     * @returns Number of successfully updated records
+     */
+    async batchUpdateMachineCodes(updates: Array<{ firestorePath: string, machine: string }>): Promise<number> {
+        try {
+            if (updates.length === 0) return 0;
+
+            console.log(`Updating machine codes for ${updates.length} records...`);
+
+            const chunks = chunkArray(updates, BATCH_SIZE);
+            let updatedCount = 0;
+
+            for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(({ firestorePath, machine }) => {
+                    const ref = doc(db, firestorePath);
+                    batch.update(ref, { machine });
+                });
+                await batch.commit();
+                updatedCount += chunk.length;
+                console.log(`Updated batch of ${chunk.length} machine codes. Total: ${updatedCount}`);
+            }
+
+            return updatedCount;
+        } catch (error) {
+            console.error("Error updating machine codes:", error);
+            throw error;
+        }
+    },
+
+    /**
+     * Batch update GV and/or machine codes for records in Firestore
+     * Used for auto-saving monthly report data filled from daily reports
+     * @param updates Array of { firestorePath, gv?, machine? } objects
+     * @returns Number of successfully updated records
+     */
+    async batchUpdateGvAndMachine(updates: Array<{ firestorePath: string, gv?: string, machine?: string }>): Promise<number> {
+        try {
+            if (updates.length === 0) return 0;
+
+            console.log(`Auto-saving ${updates.length} records with GV/machine updates...`);
+
+            const chunks = chunkArray(updates, BATCH_SIZE);
+            let updatedCount = 0;
+
+            for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(({ firestorePath, gv, machine }) => {
+                    const ref = doc(db, firestorePath);
+                    const updateData: { gv?: string, machine?: string } = {};
+                    if (gv !== undefined) updateData.gv = gv;
+                    if (machine !== undefined) updateData.machine = machine;
+                    if (Object.keys(updateData).length > 0) {
+                        batch.update(ref, updateData);
+                    }
+                });
+                await batch.commit();
+                updatedCount += chunk.length;
+            }
+
+            console.log(`Auto-saved ${updatedCount} records with GV/machine data.`);
+            return updatedCount;
+        } catch (error) {
+            console.error("Error auto-saving GV/machine data:", error);
+            throw error;
+        }
+    },
+
+    /**
+
+     * Get machine data from DAILY reports for auto-filling monthly reports
+     * Similar to getAssistantDataFromDaily but for machine codes
+     * @param records List of monthly records that need machine data
+     * @returns Map with key = patientId_tenKT_ngayBD, value = machine
+     */
+    async getMachineDataFromDaily(records: SurgeryRecord[]): Promise<Map<string, string>> {
+        try {
+            // Filter records with empty machine
+            const emptyMachineRecords = records.filter(r => !r.machine || r.machine.trim() === '');
+
+            if (emptyMachineRecords.length === 0) {
+                console.log('No records with empty machine. Skipping machine auto-fill.');
+                return new Map();
+            }
+
+            console.log(`Querying machine data for ${emptyMachineRecords.length} records...`);
+
+            // Build unique set of matching keys
+            const matchingKeys = new Set<string>();
+            emptyMachineRecords.forEach(r => {
+                const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
+                if (ngayBD) {
+                    const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
+                    matchingKeys.add(key);
+                }
+            });
+
+            console.log(`Built ${matchingKeys.size} unique matching keys for machine lookup.`);
+
+            // Get date range for query
+            const dates = emptyMachineRecords
+                .map(r => r.start ? r.start.toISOString() : r.ngayBD)
+                .filter(d => d)
+                .sort();
+
+            if (dates.length === 0) {
+                console.log('No valid dates found. Skipping machine query.');
+                return new Map();
+            }
+
+            const minDate = dates[0];
+            const maxDate = dates[dates.length - 1];
+
+            console.log(`Querying DAILY reports for machine data from ${minDate} to ${maxDate}...`);
+
+            const q = query(
+                collectionGroup(db, 'processed_records'),
+                where('type', '==', 'DAILY'),
+                where('ngayBD', '>=', minDate),
+                where('ngayBD', '<=', maxDate)
+            );
+
+            const snapshot = await getDocs(q);
+            const machineMap = new Map<string, string>();
+            let matchCount = 0;
+
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data() as PersistedSurgeryRecord;
+
+                // Only process if it has machine
+                if (data.machine && data.machine.trim() !== '') {
+                    const key = `${data.patientId}_${data.tenKT}_${data.ngayBD}`;
+
+                    if (matchingKeys.has(key) && !machineMap.has(key)) {
+                        machineMap.set(key, data.machine);
+                        matchCount++;
+                    }
+                }
+            });
+
+            console.log(`Found ${matchCount} matching machine records from ${snapshot.size} DAILY records.`);
+            return machineMap;
+
+        } catch (error) {
+            console.error('Error fetching machine data from daily reports:', error);
+            return new Map();
         }
     }
 

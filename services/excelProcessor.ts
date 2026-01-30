@@ -101,6 +101,43 @@ export async function validateDetailFile(file: File): Promise<FileValidationResu
 }
 
 
+// ================= EXPORTED: BUILD MACHINE MAP FROM FILE =================
+export interface MachineMapResult {
+  machineMap: Map<string, string>;
+  dateRangeText: string;
+  error?: string;
+}
+
+/**
+ * Parse Detail file and build a Machine Map for cross-referencing.
+ * Returns the map of [key] => [machine code] along with the date range.
+ */
+export async function buildMachineMapFromFile(file: File): Promise<MachineMapResult> {
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+
+    // Validate format first
+    const formatError = validateDetailFileFormat(data);
+    if (formatError) {
+      return { machineMap: new Map(), dateRangeText: "", error: formatError };
+    }
+
+    // Extract date range from A3
+    const dateRangeText = String(data?.[2]?.[0] ?? "").trim();
+
+    // Build the machine map using the internal function
+    const machineMap = buildMachineMap(data);
+
+    return { machineMap, dateRangeText };
+  } catch (e: any) {
+    return { machineMap: new Map(), dateRangeText: "", error: `Không thể đọc file: ${e.message}` };
+  }
+}
+
+
 function parseVNDateTime(value: any): Date | null {
   if (!value) return null;
   const s = String(value).trim();

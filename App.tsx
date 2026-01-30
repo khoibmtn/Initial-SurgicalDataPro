@@ -1109,23 +1109,205 @@ const InnerApp: React.FC = () => {
     if (!f) { updateCurrentReport({ detailFile: null, detailDateRange: "" }); return; }
     if (!checkFile(f)) return;
 
-    const { validateDetailFile } = await import('./services/excelProcessor');
-    const res = await validateDetailFile(f);
+    const { buildMachineMapFromFile } = await import('./services/excelProcessor');
+    const result = await buildMachineMapFromFile(f);
 
-    if (!res.valid) {
-      addToast(res.error || "File không hợp lệ", 'error');
+    if (result.error) {
+      addToast(result.error, 'error');
       return;
     }
 
+    const machineMap = result.machineMap;
+    const detailDateRange = result.dateRangeText;
+
     updateCurrentReport({
       detailFile: f,
-      detailDateRange: res.dateRangeText || ""
+      detailDateRange: detailDateRange
     });
-    addToast(`✓ File "${f.name}" hợp lệ`, 'success');
+    addToast(`✓ File "${f.name}" hợp lệ (${machineMap.size} mã máy)`, 'success');
 
-    if (currentReport.listDateRange && res.dateRangeText && currentReport.listDateRange !== res.dateRangeText) {
-      addToast(`⚠ Thời gian của 2 file không khớp:\n- Danh sách PT: "${currentReport.listDateRange}"\n- Chi tiết PT: "${res.dateRangeText}"`, 'error');
+    // ========== MAIN AUTO-FILL LOGIC ==========
+    const hasExistingData = currentReport.result && currentReport.result.validRecords && currentReport.result.validRecords.length > 0;
+
+    if (hasExistingData) {
+      // ===== Case 1: Data already loaded =====
+      const isStorage = currentReport.dataSource === 'STORAGE';
+      const records = [...currentReport.result!.validRecords];
+
+      // Check date range match (Decision #4: Report error if mismatch)
+      if (currentReport.listDateRange && detailDateRange && currentReport.listDateRange !== detailDateRange) {
+        addToast(`⚠ Thời gian không khớp:\n- Dữ liệu hiện tại: "${currentReport.listDateRange}"\n- File Chi tiết: "${detailDateRange}"`, 'error');
+        return;
+      }
+
+      // Fill machine codes (Decision #3: Only fill if empty)
+      let fillCount = 0;
+      const updatesForStorage: Array<{ firestorePath: string, machine: string }> = [];
+
+      records.forEach(rec => {
+        // Decision #5 (A): Ưu tiên file mới - ghi đè dữ liệu cũ
+        const ngayBD = rec.start ? rec.start.toISOString().split('T')[0] : '';
+        const key = `${rec.patientId}-${rec.patientName}-${ngayBD}-${rec.tenKT}`;
+        const machineCode = machineMap.get(key);
+
+        if (machineCode && machineCode !== rec.machine) {
+          rec.machine = machineCode;
+          fillCount++;
+
+          // For storage source, collect updates
+          if (isStorage && rec.firestorePath) {
+            updatesForStorage.push({ firestorePath: rec.firestorePath, machine: machineCode });
+          }
+        }
+      });
+
+      if (fillCount === 0) {
+        addToast('Không có dữ liệu mã máy nào khớp để cập nhật.', 'error');
+        return;
+      }
+
+      if (isStorage) {
+        // ===== Case 1.1: Storage source - Save to Firestore =====
+        addToast(`Đang cập nhật ${fillCount} mã máy vào Storage...`, 'success');
+
+        try {
+          const updatedCount = await reportService.batchUpdateMachineCodes(updatesForStorage);
+
+          // Recalculate and refresh UI
+          const freshResult = reprocessSurgicalRecords(records, config, currentReport.result!.dateRangeText || '');
+
+          updateCurrentReport({
+            result: freshResult,
+            stats: freshResult.stats,
+            hasAutoFilledData: true
+          });
+
+          addToast(`✓ Đã cập nhật ${updatedCount} mã máy vào dữ liệu lưu trữ.`, 'success');
+        } catch (error: any) {
+          console.error('Error saving machine codes:', error);
+          addToast(`Lỗi khi lưu: ${error.message}. Một số dữ liệu có thể đã được lưu.`, 'error');
+
+          // Still update UI with whatever we have
+          const freshResult = reprocessSurgicalRecords(records, config, currentReport.result!.dateRangeText || '');
+          updateCurrentReport({
+            result: freshResult,
+            stats: freshResult.stats
+          });
+        }
+      } else {
+        // ===== Case 1.2: Excel source - Update in memory only =====
+        const freshResult = reprocessSurgicalRecords(records, config, currentReport.result!.dateRangeText || '');
+
+        updateCurrentReport({
+          result: freshResult,
+          stats: freshResult.stats,
+          hasAutoFilledData: true
+        });
+
+        addToast(`✓ Đã điền ${fillCount} mã máy. Bấm "Lưu dữ liệu" để lưu vào Storage.`, 'success');
+      }
+    } else {
+      // ===== Case 2: No data loaded - Query Storage and auto-update =====
+      addToast(`Đang tìm kiếm dữ liệu trong Storage theo thời gian của file Chi tiết...`, 'success');
+
+      try {
+        // Parse date range from Detail file (Decision #1: Use Detail file date range)
+        // Expected format: "Từ ngày 01/01/2026 đến ngày 15/01/2026"
+        const dateMatch = detailDateRange.match(/(\d{2}\/\d{2}\/\d{4}).*?(\d{2}\/\d{2}\/\d{4})/);
+
+        if (!dateMatch) {
+          addToast('Không thể phân tích khoảng thời gian từ file Chi tiết.', 'error');
+          return;
+        }
+
+        const parseDate = (str: string) => {
+          const [dd, mm, yyyy] = str.split('/');
+          return new Date(`${yyyy}-${mm}-${dd}T00:00:00.000`);
+        };
+
+        const dateFrom = parseDate(dateMatch[1]);
+        const dateTo = parseDate(dateMatch[2]);
+        dateTo.setHours(23, 59, 59, 999);
+
+        const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
+        const persistedRecords = await reportService.getReports(dateFrom.toISOString(), dateTo.toISOString(), type);
+
+        if (!persistedRecords || persistedRecords.length === 0) {
+          addToast('Không tìm thấy dữ liệu trong Storage tương ứng với file Chi tiết.', 'error');
+          return;
+        }
+
+        // Fill machine codes (Decision #3: Only fill if empty)
+        let fillCount = 0;
+        const updatesForStorage: Array<{ firestorePath: string, machine: string }> = [];
+
+        persistedRecords.forEach(rec => {
+          // Decision #5 (A): Ưu tiên file mới - ghi đè dữ liệu cũ
+          const ngayBD = rec.ngayBD ? rec.ngayBD.split('T')[0] : '';
+          const key = `${rec.patientId}-${rec.patientName}-${ngayBD}-${rec.tenKT}`;
+          const machineCode = machineMap.get(key);
+
+          if (machineCode && rec.firestorePath && machineCode !== rec.machine) {
+            rec.machine = machineCode;
+            updatesForStorage.push({ firestorePath: rec.firestorePath, machine: machineCode });
+            fillCount++;
+          }
+        });
+
+        if (fillCount === 0) {
+          addToast('Không có dữ liệu mã máy nào khớp để cập nhật.', 'error');
+          return;
+        }
+
+        // Save to Storage (Decision #6: Toast before save)
+        addToast(`Đang cập nhật ${fillCount} mã máy vào Storage...`, 'success');
+
+        await reportService.batchUpdateMachineCodes(updatesForStorage);
+
+        // Decision #2: Display data after save
+        const convertedRecords: SurgeryRecord[] = persistedRecords.map(r => ({
+          ...r,
+          stt: typeof r.stt === 'number' ? r.stt : parseInt(r.stt as string) || 0,
+          start: r.ngayBD ? new Date(r.ngayBD) : null,
+          end: r.ngayKT ? new Date(r.ngayKT) : null,
+        }));
+
+        const res = reprocessSurgicalRecords(convertedRecords, config);
+
+        const formatDateForDisplay = (date: Date) => format(date, 'dd/MM/yyyy HH:mm');
+
+        updateCurrentReport({
+          result: res,
+          stats: res.stats,
+          activeTable: 'list',
+          dataSource: 'STORAGE',
+          queryDateRangeText: `Từ ngày ${formatDateForDisplay(dateFrom)} đến ngày ${formatDateForDisplay(dateTo)}`,
+          listDateRange: detailDateRange
+        });
+
+        addToast(`✓ Đã cập nhật ${fillCount} mã máy và hiển thị ${persistedRecords.length} bản ghi.`, 'success');
+
+      } catch (error: any) {
+        console.error('Error in Case 2 auto-fill:', error);
+        addToast(`Lỗi: ${error.message}`, 'error');
+      }
     }
+  };
+
+  // Reset file uploads và dữ liệu liên quan cho từng loại báo cáo
+  const handleResetUpload = (type: 'daily' | 'monthly') => {
+    updateReportState(type, {
+      listFile: null,
+      detailFile: null,
+      listDateRange: '',
+      detailDateRange: '',
+      result: undefined,
+      stats: undefined,
+      hasAutoFilledData: false,
+      dataSource: undefined,
+      isProcessing: false
+    });
+    addToast('Đã hủy tải lên, dữ liệu đã được xóa.', 'success');
   };
 
   const handleProcess = async (type: 'daily' | 'monthly') => {
@@ -1178,52 +1360,72 @@ const InnerApp: React.FC = () => {
         }
       }
 
-      // Auto-fill assistant data for monthly reports from daily reports
+      // Auto-fill assistant AND machine data for monthly reports from daily reports
       if (type === 'monthly' && res.validRecords) {
         try {
-          const assistantMap = await reportService.getAssistantDataFromDaily(res.validRecords);
+          // Get both assistant and machine data from Daily
+          const [assistantMap, machineMap] = await Promise.all([
+            reportService.getAssistantDataFromDaily(res.validRecords),
+            reportService.getMachineDataFromDaily(res.validRecords)
+          ]);
 
-          if (assistantMap.size > 0) {
-            let updateCount = 0;
-            res.validRecords.forEach(r => {
-              if (!r.gv || r.gv.trim() === '') {
-                const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
-                const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
-                const dailyGv = assistantMap.get(key);
-                if (dailyGv) {
-                  r.gv = dailyGv;
-                  updateCount++;
-                }
+          let updateGvCount = 0;
+          let updateMachineCount = 0;
+
+          res.validRecords.forEach(r => {
+            const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
+            const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
+
+            // Fill assistant if empty
+            if (!r.gv || r.gv.trim() === '') {
+              const dailyGv = assistantMap.get(key);
+              if (dailyGv) {
+                r.gv = dailyGv;
+                updateGvCount++;
               }
+            }
+
+            // Fill machine if empty (get from Daily reports)
+            if (!r.machine || r.machine.trim() === '') {
+              const dailyMachine = machineMap.get(key);
+              if (dailyMachine) {
+                r.machine = dailyMachine;
+                updateMachineCount++;
+              }
+            }
+          });
+
+          if (updateGvCount > 0 || updateMachineCount > 0) {
+            // Recalculate with updated data
+            const freshResult = reprocessSurgicalRecords(
+              res.validRecords,
+              config,
+              res.dateRangeText || ''
+            );
+
+            // Update the result with fresh calculations
+            updateReportState(type, {
+              stats: freshResult.stats,
+              result: freshResult,
+              activeTable: 'list',
+              isProcessing: false,
+              dataSource: 'EXCEL',
+              hasAutoFilledData: true // Enable save button
             });
 
-            if (updateCount > 0) {
-              // Recalculate with updated data
-              const freshResult = reprocessSurgicalRecords(
-                res.validRecords,
-                config,
-                res.dateRangeText || ''
-              );
+            const autoFillMsg = [];
+            if (updateGvCount > 0) autoFillMsg.push(`${updateGvCount} giúp việc`);
+            if (updateMachineCount > 0) autoFillMsg.push(`${updateMachineCount} mã máy`);
 
-              // Update the result with fresh calculations
-              updateReportState(type, {
-                stats: freshResult.stats,
-                result: freshResult,
-                activeTable: 'list',
-                isProcessing: false,
-                dataSource: 'EXCEL',
-                hasAutoFilledData: true // Enable save button
-              });
-
-              addToast(`Đã tự động điền ${updateCount} giúp việc từ báo cáo hàng ngày.`, 'success');
-              return; // Exit early since we already updated state
-            }
+            addToast(`Đã tự động điền ${autoFillMsg.join(' và ')} từ BC hàng ngày.`, 'success');
+            return; // Exit early since we already updated state
           }
         } catch (error) {
-          console.error('Error auto-filling assistant data:', error);
+          console.error('Error auto-filling from daily data:', error);
           // Continue with normal flow if auto-fill fails
         }
       }
+
 
       updateReportState(type, {
         stats: res.stats,
@@ -1956,7 +2158,7 @@ const InnerApp: React.FC = () => {
       setPrintConfig({
         type: 'list',
         title: 'DANH SÁCH PHẪU THUẬT',
-        dateRange: currentReport.result?.dateRangeText || '',
+        dateRange: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
         data: currentReport.result?.validRecords || [],
         columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false), // Respect visibility
       });
@@ -2067,7 +2269,7 @@ const InnerApp: React.FC = () => {
       setPrintConfig({
         type: 'payment',
         title: 'BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT',
-        dateRange: currentReport.result?.dateRangeText || '',
+        dateRange: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
         data: enrichedRows,
         columns: paymentCols,
         customThead: PrintThead,
@@ -2182,9 +2384,9 @@ const InnerApp: React.FC = () => {
     });
 
     // Step 7: Trigger data fetch immediately with computed values (no need to wait for state)
-    // Build ISO strings from computed values
-    const dateFromIso = `${dateFromStr}T${morningFrom}:00.000`;
-    const dateToIso = `${dateToStr}T${timeTo}:59.999`;
+    // Build ISO strings from computed values (with Vietnam timezone +07:00)
+    const dateFromIso = `${dateFromStr}T${morningFrom}:00.000+07:00`;
+    const dateToIso = `${dateToStr}T${timeTo}:59.999+07:00`;
 
     // Call handleGetReport logic inline
     (async () => {
@@ -2198,7 +2400,14 @@ const InnerApp: React.FC = () => {
         const persistedRecords = await reportService.getReports(isoFrom, isoTo, type);
 
         if (persistedRecords.length === 0) {
-          addToast('Không có dữ liệu trong khoảng thời gian này', 'error');
+          // Reset UI and show detailed message
+          updateCurrentReport({
+            result: undefined,
+            stats: undefined,
+            dataSource: undefined,
+            queryDateRangeText: ''
+          });
+          addToast(`Không có trường hợp phẫu thuật nào trong khoảng thời gian từ ${dateFromStr} ${morningFrom} đến ${dateToStr} ${timeTo}`, 'error');
           return;
         }
 
@@ -2210,7 +2419,7 @@ const InnerApp: React.FC = () => {
           end: r.ngayKT ? new Date(r.ngayKT) : null,
         }));
 
-        const result = recalculateResultFromRecords(convertedRecords, config);
+        const result = recalculateResultFromRecords(convertedRecords, config) as ProcessingResult;
 
         updateCurrentReport({
           dateFrom: dateFromStr,
@@ -2221,8 +2430,7 @@ const InnerApp: React.FC = () => {
           stats: result.stats,
           activeTable: 'list',
           queryDateRangeText: `Từ ngày ${formatDateForDisplay(dateFromStr, morningFrom)} đến ngày ${formatDateForDisplay(dateToStr, timeTo)}`,
-          dataSource: 'STORAGE',
-          records: persistedRecords
+          dataSource: 'STORAGE'
         });
 
         addToast(`Đã tải ${persistedRecords.length} ca phẫu thuật từ dữ liệu lưu trữ`, 'success');
@@ -2234,9 +2442,10 @@ const InnerApp: React.FC = () => {
   };
 
   const handleGetReport = async () => {
-    // Construct Date Range from State
-    const dateFromStr = `${currentReport.dateFrom}T${currentReport.timeFrom}:00.000`;
-    const dateToStr = `${currentReport.dateTo}T${currentReport.timeTo}:59.999`;
+    // Construct Date Range from State with explicit timezone (Vietnam = +07:00)
+    // This ensures the date-time is correctly parsed as local time before conversion to UTC
+    const dateFromStr = `${currentReport.dateFrom}T${currentReport.timeFrom}:00.000+07:00`;
+    const dateToStr = `${currentReport.dateTo}T${currentReport.timeTo}:59.999+07:00`;
 
     // Validate
     const paramsValid = new Date(dateFromStr) <= new Date(dateToStr);
@@ -2251,11 +2460,19 @@ const InnerApp: React.FC = () => {
       const isoFrom = new Date(dateFromStr).toISOString();
       const isoTo = new Date(dateToStr).toISOString();
 
+
       const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
       const persistedRecords = await reportService.getReports(isoFrom, isoTo, type);
 
       if (!persistedRecords || persistedRecords.length === 0) {
-        addToast('Không tìm thấy dữ liệu trong khoảng thời gian này.', 'error'); // Treating warning as error for visibility
+        // Reset UI and show detailed message
+        updateCurrentReport({
+          result: undefined,
+          stats: undefined,
+          dataSource: undefined,
+          queryDateRangeText: ''
+        });
+        addToast(`Không có trường hợp phẫu thuật nào trong khoảng thời gian từ ${currentReport.dateFrom} ${currentReport.timeFrom} đến ${currentReport.dateTo} ${currentReport.timeTo}`, 'error');
         return;
       }
 
@@ -2271,54 +2488,100 @@ const InnerApp: React.FC = () => {
       const res = await reprocessSurgicalRecords(convertedRecords, config);
 
       if (res.success) {
-        // Auto-fill assistant data for monthly reports from daily reports
+        // Auto-fill assistant AND machine data for monthly reports from daily reports
         if (type === 'MONTHLY' && res.validRecords) {
           try {
-            const assistantMap = await reportService.getAssistantDataFromDaily(res.validRecords);
+            // Get both assistant and machine data from Daily
+            const [assistantMap, machineMap] = await Promise.all([
+              reportService.getAssistantDataFromDaily(res.validRecords),
+              reportService.getMachineDataFromDaily(res.validRecords)
+            ]);
 
-            if (assistantMap.size > 0) {
-              let updateCount = 0;
-              res.validRecords.forEach(r => {
-                if (!r.gv || r.gv.trim() === '') {
-                  const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
-                  const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
-                  const dailyGv = assistantMap.get(key);
-                  if (dailyGv) {
-                    r.gv = dailyGv;
-                    updateCount++;
-                  }
+            let updateGvCount = 0;
+            let updateMachineCount = 0;
+            const updatesToSave: Array<{ firestorePath: string, gv?: string, machine?: string }> = [];
+
+            res.validRecords.forEach(r => {
+              const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
+              const key = `${r.patientId}_${r.tenKT}_${ngayBD}`;
+              let needsUpdate = false;
+              const updateData: { firestorePath: string, gv?: string, machine?: string } = {
+                firestorePath: r.firestorePath || ''
+              };
+
+              // Fill assistant if empty (only fill missing data)
+              if (!r.gv || r.gv.trim() === '') {
+                const dailyGv = assistantMap.get(key);
+                if (dailyGv) {
+                  r.gv = dailyGv;
+                  updateData.gv = dailyGv;
+                  updateGvCount++;
+                  needsUpdate = true;
                 }
+              }
+
+              // Fill machine if empty (only fill missing data)
+              if (!r.machine || r.machine.trim() === '') {
+                const dailyMachine = machineMap.get(key);
+                if (dailyMachine) {
+                  r.machine = dailyMachine;
+                  updateData.machine = dailyMachine;
+                  updateMachineCount++;
+                  needsUpdate = true;
+                }
+              }
+
+              // Add to updates list if has valid path and needs update
+              if (needsUpdate && updateData.firestorePath) {
+                updatesToSave.push(updateData);
+              }
+            });
+
+            if (updateGvCount > 0 || updateMachineCount > 0) {
+              // AUTO-SAVE: Persist the auto-filled data to Storage
+              if (updatesToSave.length > 0) {
+                try {
+                  await reportService.batchUpdateGvAndMachine(updatesToSave);
+                  console.log(`Auto-saved ${updatesToSave.length} records with GV/machine data to monthly storage.`);
+                } catch (saveError) {
+                  console.error('Error auto-saving to storage:', saveError);
+                  // Continue anyway - data is still in memory for display
+                }
+              }
+
+              // Recalculate with updated data
+              const freshResult = reprocessSurgicalRecords(
+                res.validRecords,
+                config,
+                res.dateRangeText || ''
+              );
+
+              // Update state with fresh calculations
+              updateCurrentReport({
+                result: freshResult,
+                stats: freshResult.stats,
+                activeTable: 'list',
+                isProcessing: false,
+                dataSource: 'STORAGE',
+                queryDateRangeText: `Từ ngày ${formatDateForDisplay(currentReport.dateFrom, currentReport.timeFrom)} đến ngày ${formatDateForDisplay(currentReport.dateTo, currentReport.timeTo)}`,
+                selectedRecordIds: [],
+                hasAutoFilledData: false // No need to show save button since already saved
               });
 
-              if (updateCount > 0) {
-                // Recalculate with updated data
-                const freshResult = reprocessSurgicalRecords(
-                  res.validRecords,
-                  config,
-                  res.dateRangeText || ''
-                );
+              const autoFillMsg = [];
+              if (updateGvCount > 0) autoFillMsg.push(`${updateGvCount} giúp việc`);
+              if (updateMachineCount > 0) autoFillMsg.push(`${updateMachineCount} mã máy`);
 
-                // Update state with fresh calculations
-                updateCurrentReport({
-                  result: freshResult,
-                  stats: freshResult.stats,
-                  activeTable: 'list',
-                  isProcessing: false,
-                  dataSource: 'STORAGE',
-                  queryDateRangeText: `Từ ngày ${formatDateForDisplay(currentReport.dateFrom, currentReport.timeFrom)} đến ngày ${formatDateForDisplay(currentReport.dateTo, currentReport.timeTo)}`,
-                  selectedRecordIds: [],
-                  hasAutoFilledData: true // Enable save button
-                });
-
-                addToast(`Đã tải ${persistedRecords.length} bản ghi. Tự động điền ${updateCount} giúp việc từ báo cáo hàng ngày.`, 'success');
-                return; // Exit early since we already updated state
-              }
+              addToast(`Đã tải ${persistedRecords.length} bản ghi. Tự động điền và lưu ${autoFillMsg.join(' và ')} từ BC hàng ngày.`, 'success');
+              return; // Exit early since we already updated state
             }
+
           } catch (error) {
-            console.error('Error auto-filling assistant data:', error);
+            console.error('Error auto-filling from daily data:', error);
             // Continue with normal flow if auto-fill fails
           }
         }
+
 
         updateCurrentReport({
           result: res,
@@ -2626,26 +2889,38 @@ const InnerApp: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="mt-6 flex justify-center">
+                      <div className="mt-6 flex justify-center gap-3">
                         {currentReport.isProcessing ? (
                           <div className="w-[600px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-bold text-sm animate-pulse">
                             <RefreshCw className="h-4 w-4 animate-spin" />
                             Đang xử lý...
                           </div>
                         ) : (
-                          <button
-                            onClick={() => handleProcess(currentType)}
-                            disabled={!currentReport.listFile}
-                            className={`w-[600px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-[0.98] ${currentReport.listFile
-                              ? 'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-200'
-                              : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
-                              }`}
-                          >
-                            <Zap className="h-4 w-4 fill-current" />
-                            Xử lý dữ liệu
-                          </button>
+                          <>
+                            <button
+                              onClick={() => handleProcess(currentType)}
+                              disabled={!currentReport.listFile}
+                              className={`flex-1 max-w-[450px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-[0.98] ${currentReport.listFile
+                                ? 'bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-emerald-200'
+                                : 'bg-gray-100 text-gray-400 cursor-not-allowed shadow-none'
+                                }`}
+                            >
+                              <Zap className="h-4 w-4 fill-current" />
+                              Xử lý dữ liệu
+                            </button>
+                            {(currentReport.listFile || currentReport.detailFile) && (
+                              <button
+                                onClick={() => handleResetUpload(currentType)}
+                                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-[0.98] bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300"
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                                Hủy tải lên
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
+
                     </div>
                   )}
                 </div>
