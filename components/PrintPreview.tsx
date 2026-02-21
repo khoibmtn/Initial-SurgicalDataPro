@@ -10,6 +10,17 @@ interface ColumnDef<T> {
     width?: string;
 }
 
+interface DailyPrintStats {
+    ptCount: number;
+    ttCount: number;
+    lowPaymentCount: number;
+    staffConflicts: number;
+    machineConflicts: number;
+    missingMachines: number;
+    missingAssistantCount: number;
+    violateMinTimeCount: number;
+}
+
 interface PrintPreviewProps {
     isOpen: boolean;
     onClose: () => void;
@@ -18,11 +29,13 @@ interface PrintPreviewProps {
     data: any[];
     columns: ColumnDef<any>[];
     type: 'list' | 'payment';
-    orientation: 'portrait' | 'landscape'; // NEW: Accept orientation prop
-    extraHeaderRow?: React.ReactNode; // For Unit Price row in Payment
-    extraFooterRow?: React.ReactNode; // For Totals in Payment
-    customThead?: React.ReactNode; // For Grouped headers in Payment
-    hospitalName?: string; // NEW: Hospital Name from config
+    orientation: 'portrait' | 'landscape';
+    extraHeaderRow?: React.ReactNode;
+    extraFooterRow?: React.ReactNode;
+    customThead?: React.ReactNode;
+    hospitalName?: string;
+    reportTab?: 'daily' | 'monthly'; // Which tab triggered the print
+    dailyStats?: DailyPrintStats; // Stats for daily report summary row
 }
 
 export const PrintPreview: React.FC<PrintPreviewProps> = ({
@@ -33,11 +46,13 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
     data,
     columns,
     type,
-    orientation, // NEW: Use prop instead of state
+    orientation,
     extraHeaderRow,
     extraFooterRow,
     customThead,
-    hospitalName = "BỆNH VIỆN ĐA KHOA THỦY NGUYÊN" // Default fallback
+    hospitalName = "BỆNH VIỆN ĐA KHOA THỦY NGUYÊN",
+    reportTab,
+    dailyStats
 }) => {
     // Auto-print when open
     React.useEffect(() => {
@@ -168,32 +183,60 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                     </tbody>
                 </table>
 
+                {/* DAILY LIST: Stats Summary Row */}
+                {reportTab === 'daily' && type === 'list' && dailyStats && (
+                    <div className="mt-2 mb-1 text-[10px] font-[Times_New_Roman] break-inside-avoid">
+                        <div className="flex justify-between px-1">
+                            <span><b>Tổng số PT:</b> {dailyStats.ptCount}&nbsp;&nbsp;&nbsp;<b>TT:</b> {dailyStats.ttCount}</span>
+                            <span><b>Tỷ lệ TT&lt;100%:</b> {dailyStats.lowPaymentCount}</span>
+                            <span><b>Trùng NV:</b> {dailyStats.staffConflicts}</span>
+                            <span><b>Trùng máy:</b> {dailyStats.machineConflicts}</span>
+                            <span><b>Thiếu mã máy:</b> {dailyStats.missingMachines}</span>
+                            <span><b>Chưa điền GV:</b> {dailyStats.missingAssistantCount}</span>
+                            <span><b>Lỗi thời gian:</b> {dailyStats.violateMinTimeCount}</span>
+                        </div>
+                    </div>
+                )}
+
                 {/* SIGNATURES */}
                 <div className="mt-6 text-center text-sm font-bold break-inside-avoid font-[Times_New_Roman]">
                     {/* Date above Người lập */}
                     <div className="flex justify-end mb-1 pr-8">
                         <p className="font-normal italic text-xs">{dateString}</p>
                     </div>
-                    {/* All signature titles aligned */}
-                    <div className="flex justify-between px-8">
-                        <div>
-                            <p className="uppercase">Giám đốc</p>
-                        </div>
-                        {type === 'list' && (
-                            <div>
-                                <p className="uppercase">KHTH</p>
+
+                    {/* Daily List: 2 signatures only */}
+                    {reportTab === 'daily' && type === 'list' ? (
+                        <div className="flex px-8">
+                            <div style={{ marginLeft: '30%' }}>
+                                <p className="uppercase">Điều dưỡng trưởng</p>
                             </div>
-                        )}
-                        <div>
-                            <p className="uppercase">TCKT</p>
+                            <div style={{ marginLeft: 'auto' }}>
+                                <p className="uppercase">Người lập</p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="uppercase">Trưởng khoa</p>
+                    ) : (
+                        /* Default: full 5 (or 4) signatures */
+                        <div className="flex justify-between px-8">
+                            <div>
+                                <p className="uppercase">Giám đốc</p>
+                            </div>
+                            {type === 'list' && (
+                                <div>
+                                    <p className="uppercase">KHTH</p>
+                                </div>
+                            )}
+                            <div>
+                                <p className="uppercase">TCKT</p>
+                            </div>
+                            <div>
+                                <p className="uppercase">Trưởng khoa</p>
+                            </div>
+                            <div>
+                                <p className="uppercase">Người lập</p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="uppercase">Người lập</p>
-                        </div>
-                    </div>
+                    )}
                 </div>
 
             </div>

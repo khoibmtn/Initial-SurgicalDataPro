@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock } from 'lucide-react';
+import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig, RolePrice, StaffMember } from '../contexts/ConfigContext';
 
@@ -58,6 +58,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'machines' | 'staff'>('norms');
     const [newMachineName, setNewMachineName] = useState("");
     const [editingMachineIndex, setEditingMachineIndex] = useState<number | null>(null);
+    const [editingPriceRow, setEditingPriceRow] = useState<string | null>(null);
     const [newDeptName, setNewDeptName] = useState("");
 
     // Section 2: Medical Staff State
@@ -499,7 +500,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
             {/* Tab Navigation */}
             <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 ${activeSubTab === 'norms'
-                ? 'border-b-indigo-600'
+                ? 'border-b-primary-700'
                 : activeSubTab === 'machines'
                     ? 'border-b-emerald-600'
                     : 'border-b-blue-600'
@@ -507,11 +508,11 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                 <button
                     onClick={() => setActiveSubTab('norms')}
                     className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'norms'
-                        ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm'
-                        : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                        ? 'bg-white text-primary-700 border-primary-700 z-30 shadow-sm'
+                        : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
                         }`}
                 >
-                    <ClipboardList className={`h-4 w-4 ${activeSubTab === 'norms' ? 'text-indigo-600' : ''}`} />
+                    <ClipboardList className={`h-4 w-4 ${activeSubTab === 'norms' ? 'text-primary-700' : ''}`} />
                     Định mức & Phụ cấp
                 </button>
                 <button
@@ -538,7 +539,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
             {/* Content area */}
             <div className={`p-6 flex-1 overflow-y-auto bg-white border-2 rounded-b-xl z-10 ${activeSubTab === 'norms'
-                ? 'border-indigo-600'
+                ? 'border-primary-700'
                 : activeSubTab === 'machines'
                     ? 'border-emerald-600'
                     : 'border-blue-600'
@@ -546,148 +547,157 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
                 {activeSubTab === 'norms' && (
                     <div className="animate-fade-in">
-                        <div className="overflow-x-auto border border-gray-200 rounded-lg">
-                            <table className="w-full text-sm text-left text-gray-700">
-                                <thead className="bg-indigo-900 text-white font-bold uppercase text-xs">
-                                    <tr>
-                                        <th rowSpan={2} className="px-4 py-3 border-r border-indigo-700 min-w-[150px] align-middle">Loại PTTT</th>
-                                        <th colSpan={3} className="px-4 py-2 border-r border-indigo-700 text-center bg-indigo-800">Phụ cấp PTTT (đồng)</th>
-                                        <th colSpan={2} className="px-4 py-2 border-indigo-700 text-center bg-indigo-800">Thời gian thực hiện (phút)</th>
+                        <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
+                            <table className="w-full text-sm text-gray-700">
+                                <thead>
+                                    <tr className="bg-primary-800 text-white text-xs font-bold uppercase">
+                                        <th rowSpan={2} className="px-5 py-3 text-left min-w-[180px] align-middle">Loại PTTT</th>
+                                        <th colSpan={3} className="px-4 py-2 text-center border-l border-primary-700/40">Phụ cấp PTTT (đồng)</th>
+                                        <th colSpan={2} className="px-4 py-2 text-center border-l border-primary-700/40">Thời gian (phút)</th>
+                                        <th rowSpan={2} className="px-3 py-3 w-[50px] border-l border-primary-700/40"></th>
                                     </tr>
-                                    <tr>
-                                        <th className="px-4 py-2 border-r border-indigo-700 w-[120px] text-center border-t border-indigo-700 bg-indigo-800/50">Chính</th>
-                                        <th className="px-4 py-2 border-r border-indigo-700 w-[120px] text-center border-t border-indigo-700 bg-indigo-800/50">Phụ</th>
-                                        <th className="px-4 py-2 border-r border-indigo-700 w-[120px] text-center border-t border-indigo-700 bg-indigo-800/50">Giúp việc</th>
-                                        <th className="px-4 py-2 border-r border-indigo-700 w-[100px] text-center border-t border-indigo-700 bg-indigo-800/50">Tối thiểu</th>
-                                        <th className="px-4 py-2 w-[100px] text-center border-t border-indigo-700 bg-indigo-800/50">Tối đa</th>
+                                    <tr className="bg-primary-700/80 text-white text-xs font-semibold">
+                                        <th className="px-4 py-2 text-center w-[110px] border-l border-primary-600/30">Chính</th>
+                                        <th className="px-4 py-2 text-center w-[110px] border-l border-primary-600/30">Phụ</th>
+                                        <th className="px-4 py-2 text-center w-[110px] border-l border-primary-600/30">Giúp việc</th>
+                                        <th className="px-4 py-2 text-center w-[90px] border-l border-primary-600/30">Tối thiểu</th>
+                                        <th className="px-4 py-2 text-center w-[90px] border-l border-primary-600/30">Tối đa</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    <tr className="bg-indigo-50 border-b border-indigo-100">
-                                        <td colSpan={6} className="px-4 py-3 text-indigo-900 uppercase text-sm font-bold tracking-wide">
+                                <tbody className="divide-y divide-gray-100">
+                                    <tr className="bg-primary-50/60">
+                                        <td colSpan={7} className="px-5 py-2.5 text-primary-800 uppercase text-xs font-bold tracking-wider">
                                             <span className="flex items-center gap-2">
-                                                <span className="w-2 h-2 bg-indigo-400 rounded-full"></span>
+                                                <span className="w-2 h-2 bg-primary-500 rounded-full"></span>
                                                 Phẫu thuật
                                             </span>
                                         </td>
                                     </tr>
-                                    {SURGERY_TYPES.map((type, idx) => (
-                                        <tr key={type} className={`border-b transition-all duration-200 cursor-pointer group hover:bg-indigo-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                                            <td className="px-4 py-2.5 font-medium border-r pl-8">
-                                                <span className="text-gray-700">{type === 'PĐB' ? 'Loại Đặc biệt' : type.replace("P", "Loại ")}</span>
-                                            </td>
-                                            <td className="p-1.5 border-r">
-                                                <NumberInput
-                                                    value={getPrice(type, 'Chính')}
-                                                    onChange={(val) => handlePriceChange(type, 'Chính', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-indigo-400 focus:border-indigo-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 border-r">
-                                                <NumberInput
-                                                    value={getPrice(type, 'Phụ')}
-                                                    onChange={(val) => handlePriceChange(type, 'Phụ', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-indigo-400 focus:border-indigo-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 border-r">
-                                                <NumberInput
-                                                    value={getPrice(type, 'Giúp việc')}
-                                                    onChange={(val) => handlePriceChange(type, 'Giúp việc', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-indigo-400 focus:border-indigo-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 border-r bg-orange-50/20">
-                                                <NumberInput
-                                                    value={getTime(type, 'min')}
-                                                    onChange={(val) => handleTimeChange(type, 'min', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 bg-orange-50/20">
-                                                <NumberInput
-                                                    value={getTime(type, 'max')}
-                                                    onChange={(val) => handleTimeChange(type, 'max', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                        </tr>
-                                    ))}
-                                    <tr className="bg-teal-50 border-b border-teal-100">
-                                        <td colSpan={6} className="px-4 py-3 text-teal-900 uppercase text-sm font-bold tracking-wide">
+                                    {SURGERY_TYPES.map((type) => {
+                                        const isEditing = editingPriceRow === type;
+                                        return (
+                                            <tr key={type} className={`transition-all duration-150 ${isEditing ? 'bg-primary-50/80 ring-1 ring-primary-200 ring-inset' : 'hover:bg-gray-50/80'}`}>
+                                                <td className="px-5 py-3 font-medium text-gray-700 pl-8">
+                                                    {type === 'PĐB' ? 'Loại Đặc biệt' : type.replace("P", "Loại ")}
+                                                </td>
+                                                {isEditing ? (
+                                                    <>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getPrice(type, 'Chính')} onChange={(val) => handlePriceChange(type, 'Chính', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-primary-300 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getPrice(type, 'Phụ')} onChange={(val) => handlePriceChange(type, 'Phụ', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-primary-300 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getPrice(type, 'Giúp việc')} onChange={(val) => handlePriceChange(type, 'Giúp việc', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-primary-300 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getTime(type, 'min')} onChange={(val) => handleTimeChange(type, 'min', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getTime(type, 'max')} onChange={(val) => handleTimeChange(type, 'max', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5 text-center">
+                                                            <button onClick={() => setEditingPriceRow(null)} className="p-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-sm" title="Xong">
+                                                                <Check className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        </td>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Chính').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Phụ').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Giúp việc').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'min').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'max').toLocaleString()}</td>
+                                                        <td className="px-2 py-3 text-center">
+                                                            <button onClick={() => setEditingPriceRow(type)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Sửa">
+                                                                <Pencil className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        </td>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
+                                    <tr className="bg-teal-50/60">
+                                        <td colSpan={7} className="px-5 py-2.5 text-teal-800 uppercase text-xs font-bold tracking-wider">
                                             <span className="flex items-center gap-2">
-                                                <span className="w-2 h-2 bg-teal-400 rounded-full"></span>
+                                                <span className="w-2 h-2 bg-teal-500 rounded-full"></span>
                                                 Thủ thuật
                                             </span>
                                         </td>
                                     </tr>
-                                    {PROCEDURE_TYPES.map((type, idx) => (
-                                        <tr key={type} className={`border-b transition-all duration-200 cursor-pointer group hover:bg-teal-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                                            <td className="px-4 py-2.5 font-medium border-r pl-8">
-                                                <span className="text-gray-700">
+                                    {PROCEDURE_TYPES.map((type) => {
+                                        const isEditing = editingPriceRow === type;
+                                        return (
+                                            <tr key={type} className={`transition-all duration-150 ${isEditing ? 'bg-teal-50/80 ring-1 ring-teal-200 ring-inset' : 'hover:bg-gray-50/80'}`}>
+                                                <td className="px-5 py-3 font-medium text-gray-700 pl-8">
                                                     {type === 'TĐB' ? 'Loại Đặc biệt' : type === 'TKPL' ? 'Không phân loại' : type.replace("T", "Loại ")}
-                                                </span>
-                                            </td>
-                                            <td className="p-1.5 border-r">
-                                                <NumberInput
-                                                    value={getPrice(type, 'Chính')}
-                                                    onChange={(val) => handlePriceChange(type, 'Chính', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-teal-400 focus:border-teal-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 border-r">
-                                                <NumberInput
-                                                    value={getPrice(type, 'Phụ')}
-                                                    onChange={(val) => handlePriceChange(type, 'Phụ', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-teal-400 focus:border-teal-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 border-r">
-                                                <NumberInput
-                                                    value={getPrice(type, 'Giúp việc')}
-                                                    onChange={(val) => handlePriceChange(type, 'Giúp việc', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-teal-400 focus:border-teal-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 border-r bg-orange-50/20">
-                                                <NumberInput
-                                                    value={getTime(type, 'min')}
-                                                    onChange={(val) => handleTimeChange(type, 'min', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                            <td className="p-1.5 bg-orange-50/20">
-                                                <NumberInput
-                                                    value={getTime(type, 'max')}
-                                                    onChange={(val) => handleTimeChange(type, 'max', val)}
-                                                    className="w-full px-3 py-1.5 text-right text-gray-900 border border-gray-200 group-hover:border-orange-400 focus:border-orange-500 rounded-md bg-white outline-none transition-all shadow-sm"
-                                                />
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                </td>
+                                                {isEditing ? (
+                                                    <>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getPrice(type, 'Chính')} onChange={(val) => handlePriceChange(type, 'Chính', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-teal-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getPrice(type, 'Phụ')} onChange={(val) => handlePriceChange(type, 'Phụ', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-teal-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getPrice(type, 'Giúp việc')} onChange={(val) => handlePriceChange(type, 'Giúp việc', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-teal-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getTime(type, 'min')} onChange={(val) => handleTimeChange(type, 'min', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5">
+                                                            <NumberInput value={getTime(type, 'max')} onChange={(val) => handleTimeChange(type, 'max', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
+                                                        </td>
+                                                        <td className="px-2 py-1.5 text-center">
+                                                            <button onClick={() => setEditingPriceRow(null)} className="p-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors shadow-sm" title="Xong">
+                                                                <Check className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        </td>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Chính').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Phụ').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Giúp việc').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'min').toLocaleString()}</td>
+                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'max').toLocaleString()}</td>
+                                                        <td className="px-2 py-3 text-center">
+                                                            <button onClick={() => setEditingPriceRow(type)} className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors" title="Sửa">
+                                                                <Pencil className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        </td>
+                                                    </>
+                                                )}
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </div>
 
                         <div className="p-4 border-t bg-blue-50 mt-6 rounded-lg border-blue-100">
-                            <h3 className="font-bold text-lg text-indigo-900 mb-2">Định mức bàn mổ</h3>
-                            <div className="overflow-x-auto border border-indigo-200 rounded-lg shadow-sm bg-white">
+                            <h3 className="font-bold text-lg text-primary-900 mb-2">Định mức bàn mổ</h3>
+                            <div className="overflow-x-auto border border-primary-200 rounded-lg shadow-sm bg-white">
                                 <table className="w-full text-sm">
-                                    <thead className="bg-indigo-100 text-indigo-900 font-bold text-left">
+                                    <thead className="bg-primary-100 text-primary-900 font-bold text-left">
                                         <tr>
-                                            <th className="px-4 py-3 border-r border-indigo-200">Đối tượng</th>
+                                            <th className="px-4 py-3 border-r border-primary-200">Đối tượng</th>
                                             <th className="px-4 py-3 text-center">Tùy chọn kiểm tra trùng giờ</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-indigo-100">
+                                    <tbody className="divide-y divide-primary-100">
                                         {[
                                             { label: "Bác sĩ phẫu thuật (PT chính, PT phụ)", key: "surgeons" as const },
                                             { label: "Bác sĩ gây mê hồi sức", key: "anesthesiologists" as const },
                                             { label: "KTV gây mê, Tít dụng cụ", key: "support" as const },
                                             { label: "Giúp việc", key: "assistants" as const }
                                         ].map((row, idx) => (
-                                            <tr key={row.key} className={idx % 2 === 0 ? 'bg-white' : 'bg-indigo-50/30'}>
-                                                <td className="px-4 py-3 border-r border-indigo-100 font-medium text-gray-700">{row.label}</td>
+                                            <tr key={row.key} className={idx % 2 === 0 ? 'bg-white' : 'bg-primary-50/30'}>
+                                                <td className="px-4 py-3 border-r border-primary-100 font-medium text-gray-700">{row.label}</td>
                                                 <td className="px-3 py-2 text-center">
                                                     <select
                                                         value={config.staffLimits?.[row.key] ?? 1}
@@ -700,7 +710,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }
                                                             });
                                                         }}
-                                                        className="border-gray-300 rounded-md shadow-sm text-sm p-1"
+                                                        className="border-gray-300 rounded-md shadow-sm text-sm px-3 pr-9 py-1.5 min-w-[240px]"
                                                     >
                                                         <option value={0}>Không kiểm tra trùng giờ</option>
                                                         <option value={1}>Tối đa 1 bàn mổ (1 ca)</option>
@@ -818,7 +828,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 setMachinePageSize(Number(e.target.value));
                                                 setMachineCurrentPage(1);
                                             }}
-                                            className="px-2 py-1 text-xs border border-gray-300 rounded bg-white font-bold text-emerald-900 focus:ring-1 focus:ring-emerald-500 outline-none"
+                                            className="px-3 pr-8 py-1 text-xs border border-gray-300 rounded-md bg-white font-bold text-emerald-900 focus:ring-1 focus:ring-emerald-500 outline-none min-w-[70px]"
                                         >
                                             {[10, 20, 30, 50, 100].map(size => (
                                                 <option key={size} value={size}>{size}</option>
@@ -1609,7 +1619,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 setPageSize(Number(e.target.value));
                                                 setCurrentPage(1);
                                             }}
-                                            className="px-2 py-1 text-xs border border-gray-300 rounded bg-white font-bold text-blue-900 focus:ring-1 focus:ring-blue-500 outline-none"
+                                            className="px-3 pr-8 py-1 text-xs border border-gray-300 rounded-md bg-white font-bold text-blue-900 focus:ring-1 focus:ring-blue-500 outline-none min-w-[70px]"
                                         >
                                             {[10, 20, 30, 50, 100].map(size => (
                                                 <option key={size} value={size}>{size}</option>
@@ -1672,7 +1682,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                         <td className="px-4 py-3 text-center font-bold text-gray-400 border-r">{globalIdx + 1}</td>
                                                         <td className="px-4 py-3 font-bold text-gray-800 border-r">{staff.name}</td>
                                                         <td className="px-4 py-3 text-center border-r">
-                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${staff.position === 'BS PT' ? 'bg-indigo-100 text-indigo-700' : staff.position === 'BS GMHS' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${staff.position === 'BS PT' ? 'bg-primary-100 text-primary-700' : staff.position === 'BS GMHS' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
                                                                 }`}>
                                                                 {staff.position}
                                                             </span>

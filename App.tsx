@@ -427,7 +427,7 @@ const DynamicTable = <T extends Record<string, any>>({
           <button
             onClick={() => setIsConfigDropdownOpen(!isConfigDropdownOpen)}
             title="Cấu hình"
-            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm border ${isConfigDropdownOpen ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-white text-gray-600 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'}`}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm border ${isConfigDropdownOpen ? 'bg-primary-700 text-white border-primary-800' : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300 hover:text-primary-700'}`}
           >
             <Settings className="h-4 w-4" />
             <ChevronDown className={`h-3 w-3 transition-transform ${isConfigDropdownOpen ? 'rotate-180' : ''}`} />
@@ -444,9 +444,9 @@ const DynamicTable = <T extends Record<string, any>>({
                   className="relative"
                   onMouseEnter={() => setActiveSubmenu('search')}
                 >
-                  <div className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-700 hover:bg-gray-200 hover:text-indigo-700 transition-colors cursor-pointer group rounded-lg">
+                  <div className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-700 hover:bg-gray-200 hover:text-primary-700 transition-colors cursor-pointer group rounded-lg">
                     <div className="flex items-center gap-2">
-                      <Search className="h-3.5 w-3.5 text-gray-400 group-hover:text-indigo-500" />
+                      <Search className="h-3.5 w-3.5 text-gray-400 group-hover:text-primary-500" />
                       <span>Cột tìm kiếm</span>
                     </div>
                     <ChevronRight className="h-3 w-3 text-gray-300" />
@@ -459,7 +459,7 @@ const DynamicTable = <T extends Record<string, any>>({
                       </div>
                       <div className="grid grid-cols-1 gap-0.5">
                         {columns.map(col => (
-                          <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 hover:bg-indigo-50/50 rounded-lg cursor-pointer group/item transition-colors">
+                          <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 hover:bg-primary-50/50 rounded-lg cursor-pointer group/item transition-colors">
                             <input
                               type="checkbox"
                               checked={searchableCols?.[col.key] !== false}
@@ -468,9 +468,9 @@ const DynamicTable = <T extends Record<string, any>>({
                                 newCols[col.key] = !(searchableCols?.[col.key] !== false);
                                 onSearchableColsChange(newCols);
                               }}
-                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-3 w-3"
+                              className="rounded border-gray-300 text-primary-700 focus:ring-primary-500 h-3 w-3"
                             />
-                            <span className="text-xs text-gray-600 group-hover/item:text-indigo-600 transition-colors">{col.label}</span>
+                            <span className="text-xs text-gray-600 group-hover/item:text-primary-700 transition-colors">{col.label}</span>
                           </label>
                         ))}
                       </div>
@@ -484,9 +484,9 @@ const DynamicTable = <T extends Record<string, any>>({
                 className="relative"
                 onMouseEnter={() => setActiveSubmenu('col')}
               >
-                <div className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-700 hover:bg-gray-200 hover:text-indigo-700 transition-colors cursor-pointer group rounded-lg">
+                <div className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-700 hover:bg-gray-200 hover:text-primary-700 transition-colors cursor-pointer group rounded-lg">
                   <div className="flex items-center gap-2">
-                    <ListChecks className="h-3.5 w-3.5 text-gray-400 group-hover:text-indigo-500" />
+                    <ListChecks className="h-3.5 w-3.5 text-gray-400 group-hover:text-primary-500" />
                     <span>Ẩn/hiện cột</span>
                   </div>
                   <ChevronRight className="h-3 w-3 text-gray-300" />
@@ -499,14 +499,14 @@ const DynamicTable = <T extends Record<string, any>>({
                     </div>
                     <div className="grid grid-cols-1 gap-0.5">
                       {columns.map(col => (
-                        <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 hover:bg-indigo-50/50 rounded-lg cursor-pointer group/item transition-colors">
+                        <label key={col.key} className="flex items-center gap-2 px-2 py-1.5 hover:bg-primary-50/50 rounded-lg cursor-pointer group/item transition-colors">
                           <input
                             type="checkbox"
                             checked={visibleCols[col.key] || false}
                             onChange={() => toggleColumn(col.key)}
-                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-3 w-3"
+                            className="rounded border-gray-300 text-primary-700 focus:ring-primary-500 h-3 w-3"
                           />
-                          <span className="text-xs text-gray-600 group-hover/item:text-indigo-600 transition-colors">{col.label}</span>
+                          <span className="text-xs text-gray-600 group-hover/item:text-primary-700 transition-colors">{col.label}</span>
                         </label>
                       ))}
                     </div>
@@ -519,9 +519,9 @@ const DynamicTable = <T extends Record<string, any>>({
                 className="relative"
                 onMouseEnter={() => setActiveSubmenu('date')}
               >
-                <div className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-700 hover:bg-gray-200 hover:text-indigo-700 transition-colors cursor-pointer group rounded-lg">
+                <div className="w-full flex items-center justify-between px-4 py-2 text-xs text-gray-700 hover:bg-gray-200 hover:text-primary-700 transition-colors cursor-pointer group rounded-lg">
                   <div className="flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5 text-gray-400 group-hover:text-indigo-500" />
+                    <Clock className="h-3.5 w-3.5 text-gray-400 group-hover:text-primary-500" />
                     <span>Định dạng thời gian</span>
                   </div>
                   <ChevronRight className="h-3 w-3 text-gray-300" />
@@ -541,7 +541,7 @@ const DynamicTable = <T extends Record<string, any>>({
                             setIsConfigDropdownOpen(false);
                             setActiveSubmenu(null);
                           }}
-                          className={`w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-indigo-50 transition-all font-medium ${fmt === dateFormat ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600'}`}
+                          className={`w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-primary-50 transition-all font-medium ${fmt === dateFormat ? 'bg-primary-50 text-primary-700' : 'text-gray-600'}`}
                         >
                           {fmt}
                         </button>
@@ -566,7 +566,7 @@ const DynamicTable = <T extends Record<string, any>>({
                   value={searchTerm || ""}
                   onChange={(e) => onSearchChange(e.target.value)}
                   placeholder="Nhập nội dung cần tìm..."
-                  className="w-full pl-9 pr-4 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none shadow-sm transition-all"
+                  className="w-full pl-9 pr-4 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none shadow-sm transition-all"
                 />
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
                 {searchTerm && (
@@ -580,7 +580,7 @@ const DynamicTable = <T extends Record<string, any>>({
               </div>
 
               {searchTerm && (
-                <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 whitespace-nowrap animate-in fade-in slide-in-from-left-2">
+                <span className="text-[10px] font-medium text-primary-700 bg-primary-50 px-2 py-1 rounded-md border border-primary-100 whitespace-nowrap animate-in fade-in slide-in-from-left-2">
                   Có {data.length} kết quả
                 </span>
               )}
@@ -588,7 +588,7 @@ const DynamicTable = <T extends Record<string, any>>({
           </div>
         ) : (
           <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
-            <ListChecks className="h-4 w-4 text-indigo-600" />
+            <ListChecks className="h-4 w-4 text-primary-700" />
             {tableName}
             <span className="text-[10px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{rowCountLabel || `${data.length} dòng`}</span>
           </h3>
@@ -615,8 +615,8 @@ const DynamicTable = <T extends Record<string, any>>({
                 }
               })()}
               {selectedIds.length > 1 && (
-                <div className="text-xs text-indigo-700 font-medium bg-indigo-50 px-2 py-1 rounded animate-in zoom-in duration-200">
-                  Bạn đã chọn <b className="text-indigo-800">{selectedIds.length}</b> cuộc phẫu thuật, thủ thuật
+                <div className="text-xs text-primary-700 font-medium bg-primary-50 px-2 py-1 rounded animate-in zoom-in duration-200">
+                  Bạn đã chọn <b className="text-primary-800">{selectedIds.length}</b> cuộc phẫu thuật, thủ thuật
                 </div>
               )}
             </div>
@@ -635,7 +635,7 @@ const DynamicTable = <T extends Record<string, any>>({
                   onKeyDown={handleKeyDown}
                   onFocus={() => setShowSuggestions(true)}
                   onBlur={handleAssistantBlur}
-                  className="w-48 pl-3 pr-7 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none shadow-sm transition-all placeholder:text-gray-400 placeholder:italic disabled:bg-gray-100 disabled:text-gray-400"
+                  className="w-48 pl-3 pr-7 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none shadow-sm transition-all placeholder:text-gray-400 placeholder:italic disabled:bg-gray-100 disabled:text-gray-400"
                 />
 
                 {/* Clear Button */}
@@ -662,7 +662,7 @@ const DynamicTable = <T extends Record<string, any>>({
                         {filteredSuggestions.map((staff, idx) => (
                           <li
                             key={staff.id || staff.name}
-                            className={`px-3 py-2 cursor-pointer text-xs flex flex-col border-b border-gray-50 last:border-0 transition-colors ${idx === selectedIndex ? 'bg-indigo-100 text-indigo-900' : 'hover:bg-indigo-50 text-gray-700'}`}
+                            className={`px-3 py-2 cursor-pointer text-xs flex flex-col border-b border-gray-50 last:border-0 transition-colors ${idx === selectedIndex ? 'bg-primary-100 text-primary-900' : 'hover:bg-primary-50 text-gray-700'}`}
                             onMouseDown={(e) => {
                               e.preventDefault(); // Prevent blur
                               setAssistantInput(staff.name);
@@ -684,7 +684,7 @@ const DynamicTable = <T extends Record<string, any>>({
                 )}
               </div>
               <button
-                className="p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-sm transition-colors active:scale-95"
+                className="p-1.5 bg-primary-700 text-white rounded-lg hover:bg-primary-800 shadow-sm transition-colors active:scale-95"
                 title="Lưu"
                 onClick={() => onSaveAssistant && onSaveAssistant(assistantInput)}
               >
@@ -707,7 +707,7 @@ const DynamicTable = <T extends Record<string, any>>({
 
         <div className="flex items-center gap-2 ml-auto">
           {searchTerm && (
-            <span className="text-[10px] font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md border border-indigo-100 whitespace-nowrap hidden lg:inline-block mr-2">
+            <span className="text-[10px] font-medium text-primary-700 bg-primary-50 px-2 py-1 rounded-md border border-primary-100 whitespace-nowrap hidden lg:inline-block mr-2">
               Có {data.length} kết quả
             </span>
           )}
@@ -717,10 +717,10 @@ const DynamicTable = <T extends Record<string, any>>({
       <div className="overflow-x-auto flex-1 p-0">
         <table className="w-full text-xs text-left text-gray-600">
           {customThead ? customThead : (
-            <thead className="text-xs text-white uppercase bg-indigo-600 border-b sticky top-0 z-20">
+            <thead className="text-xs text-white uppercase bg-primary-700 border-b sticky top-0 z-20">
               <tr>
                 {enableSelection && (
-                  <th className="px-2 py-3 border-r border-indigo-500 w-[40px] text-center align-middle sticky left-0 z-30 bg-indigo-600">
+                  <th className="px-2 py-3 border-r border-primary-600 w-[40px] text-center align-middle sticky left-0 z-30 bg-primary-700">
                     {onSelectAll && (
                       <input
                         type="checkbox"
@@ -740,14 +740,14 @@ const DynamicTable = <T extends Record<string, any>>({
                           const allVisibleSelected = data.length > 0 && data.every(r => selectedIds.includes(r.key || '') || selectedIds.includes(r.id || ''));
                           onSelectAll(!allVisibleSelected);
                         }}
-                        className="rounded border-indigo-400 text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer align-middle bg-white"
+                        className="rounded border-primary-500 text-primary-700 focus:ring-primary-500 h-4 w-4 cursor-pointer align-middle bg-white"
                         title="Chọn tất cả"
                       />
                     )}
                   </th>
                 )}
                 {visibleColumnsList.map(col => (
-                  <th key={col.key} className={`px-2 py-3 border-r border-indigo-500 min-w-[80px] font-bold whitespace-normal break-words align-middle ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.headerClassName || ''} ${col.width || 'max-w-[200px]'}`}>
+                  <th key={col.key} className={`px-2 py-3 border-r border-primary-600 min-w-[80px] font-bold whitespace-normal break-words align-middle ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.headerClassName || ''} ${col.width || 'max-w-[200px]'}`}>
                     {col.label}
                   </th>
                 ))}
@@ -759,12 +759,12 @@ const DynamicTable = <T extends Record<string, any>>({
             {currentData.map((row: any, idx) => {
               const customClass = rowStyle ? rowStyle(row) : '';
               const isFirstRowOverall = startIndex + idx === 0;
-              const deptBorderClass = row.isNewDept && !isFirstRowOverall ? 'border-t-2 border-t-indigo-600' : '';
+              const deptBorderClass = row.isNewDept && !isFirstRowOverall ? 'border-t-2 border-t-primary-700' : '';
 
               return (
                 <tr
                   key={row.key || row.id || idx}
-                  className={`border-b-2 border-gray-100 group hover:bg-indigo-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-indigo-200' : ''}`}
+                  className={`border-b border-gray-200 group hover:bg-primary-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-primary-200' : ''}`}
                   onClick={() => {
                     if (enableSelection && onSelect) {
                       const rId = row.key || row.id;
@@ -778,7 +778,7 @@ const DynamicTable = <T extends Record<string, any>>({
                         type="checkbox"
                         checked={selectedIds.includes(row.key) || (!!row.id && selectedIds.includes(row.id))}
                         onChange={() => { }} // Handle click on row
-                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer mt-1"
+                        className="rounded border-gray-300 text-primary-700 focus:ring-primary-500 h-4 w-4 cursor-pointer mt-1"
                       />
                     </td>
                   )}
@@ -806,7 +806,7 @@ const DynamicTable = <T extends Record<string, any>>({
           <div className="p-2 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-gray-50/50 rounded-b-xl text-xs">
             <div className="flex items-center gap-2 text-gray-600">
               <span>Hiển thị</span>
-              <select value={rowsPerPage} onChange={(e) => { onRowsPerPageChange(Number(e.target.value)); setCurrentPage(1); }} className="bg-white border border-gray-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <select value={rowsPerPage} onChange={(e) => { onRowsPerPageChange(Number(e.target.value)); setCurrentPage(1); }} className="bg-white border border-gray-300 rounded-md px-3 pr-8 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-primary-500 min-w-[70px]">
                 <option value={10}>10</option>
                 <option value={20}>20</option>
                 <option value={50}>50</option>
@@ -1573,7 +1573,7 @@ const InnerApp: React.FC = () => {
       }
     });
 
-    const enrichedRows = rawRows.map(row => {
+    const enrichedRows = rawRows.map((row, idx) => {
       let rowTotalQty = 0;
       let rowTotalAmount = 0;
       Object.keys(row.values).forEach(colKey => {
@@ -1589,7 +1589,7 @@ const InnerApp: React.FC = () => {
           rowTotalAmount += qty * price;
         }
       });
-      return { ...row, total_qty: rowTotalQty, total_amount: rowTotalAmount.toLocaleString('en-US') };
+      return { ...row, stt: idx + 1, total_qty: rowTotalQty, total_amount: rowTotalAmount.toLocaleString('en-US') };
     });
 
     // Calculate Totals
@@ -1660,17 +1660,17 @@ const InnerApp: React.FC = () => {
     { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
 
     // PATIENT 2 BLOCK (Highlighted - Blue, darker header)
-    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[180px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[250px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'ptChinh2', label: 'PT Chính 2', render: (c) => c.rec2.ptChinh || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'ktvGM2', label: 'KTV GM 2', render: (c) => c.rec2.ktvGM || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'gv2', label: 'GV 2', render: (c) => c.rec2.gv || '-', width: 'min-w-[140px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[180px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[250px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'ptChinh2', label: 'PT Chính 2', render: (c) => c.rec2.ptChinh || '-', width: 'min-w-[100px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[140px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[140px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'ktvGM2', label: 'KTV GM 2', render: (c) => c.rec2.ktvGM || '-', width: 'min-w-[140px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[140px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'gv2', label: 'GV 2', render: (c) => c.rec2.gv || '-', width: 'min-w-[140px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
   ], [dateFormat]);
 
   const columnsMachine = useMemo<ColumnDef<MachineConflict>[]>(() => [
@@ -1688,14 +1688,14 @@ const InnerApp: React.FC = () => {
     { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), width: 'w-[110px]', className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
 
     // PATIENT 2 BLOCK (Highlighted - Blue, darker header)
-    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-blue-500/5 text-blue-800 font-semibold group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[150px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[200px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
-    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[100px]', className: 'bg-blue-500/5 text-blue-900 group-hover:bg-blue-500/20', headerClassName: 'bg-blue-300 text-blue-900 font-bold text-center' },
+    { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), width: 'w-[110px]', className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), width: 'w-[110px]', className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientId2', label: 'Mã BN 2', width: 'w-[80px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientName2', label: 'Tên BN 2', width: 'min-w-[150px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'tenKT2', label: 'Tên KT 2', width: 'min-w-[200px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', width: 'min-w-[100px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', width: 'min-w-[100px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', width: 'min-w-[100px]', className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
   ], [dateFormat]);
 
   const getPaymentColumns = (): ColumnDef<any>[] => {
@@ -1992,8 +1992,8 @@ const InnerApp: React.FC = () => {
               else if (grp.name === 'P3') bgMain = 'bg-lime-300';
               else if (grp.name === 'TĐB') bgMain = 'bg-cyan-300';
               else if (grp.name === 'T1') bgMain = 'bg-sky-300';
-              else if (grp.name === 'T2') bgMain = 'bg-blue-300';
-              else if (grp.name === 'T3') bgMain = 'bg-indigo-300';
+              else if (grp.name === 'T2') bgMain = 'bg-primary-300';
+              else if (grp.name === 'T3') bgMain = 'bg-primary-300';
               else if (grp.name === 'TKPL') bgMain = 'bg-purple-300';
 
               return (
@@ -2015,8 +2015,8 @@ const InnerApp: React.FC = () => {
               else if (grp.name === 'P3') bgSub = 'bg-lime-100';
               else if (grp.name === 'TĐB') bgSub = 'bg-cyan-100';
               else if (grp.name === 'T1') bgSub = 'bg-sky-100';
-              else if (grp.name === 'T2') bgSub = 'bg-blue-100';
-              else if (grp.name === 'T3') bgSub = 'bg-indigo-100';
+              else if (grp.name === 'T2') bgSub = 'bg-primary-100';
+              else if (grp.name === 'T3') bgSub = 'bg-primary-100';
               else if (grp.name === 'TKPL') bgSub = 'bg-purple-100';
 
               return grp.subCols.map(role => {
@@ -2035,11 +2035,11 @@ const InnerApp: React.FC = () => {
 
       // Unit Price Row (moved to extraHeaderRow in tbody)
       const ExtraHeader = (
-        <tr className="bg-indigo-50/30 font-medium text-xs text-indigo-800 border-b">
-          <td className="px-2 py-1 border-r text-center bg-indigo-50 sticky left-0 z-10 font-bold"></td>
-          {isVisible('department') && <td className="px-2 py-1 border-r text-right bg-indigo-50/50"></td>}
-          {isVisible('taxId') && <td className="px-2 py-1 border-r text-right bg-indigo-50/50"></td>}
-          {isVisible('name') && <td className="px-2 py-1 border-r text-right font-bold text-indigo-500 italic">Đơn giá</td>}
+        <tr className="bg-primary-50/30 font-medium text-xs text-primary-800 border-b">
+          <td className="px-2 py-1 border-r text-center bg-primary-50 sticky left-0 z-10 font-bold"></td>
+          {isVisible('department') && <td className="px-2 py-1 border-r text-right bg-primary-50/50"></td>}
+          {isVisible('taxId') && <td className="px-2 py-1 border-r text-right bg-primary-50/50"></td>}
+          {isVisible('name') && <td className="px-2 py-1 border-r text-right font-bold text-primary-500 italic">Đơn giá</td>}
           {cols.map(col => {
             if (!isVisible(`val_${col}`)) return null;
             const [loai, role] = col.split('-');
@@ -2048,7 +2048,7 @@ const InnerApp: React.FC = () => {
             else if (role === "Phụ") configRole = "Phụ";
             else if (role === "Giúp việc") configRole = "Giúp việc";
             const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
-            return <td key={col} className="px-2 py-1 border-r text-right text-indigo-600 font-medium">{price > 0 ? price.toLocaleString('en-US') : '-'}</td>
+            return <td key={col} className="px-2 py-1 border-r text-right text-primary-700 font-medium">{price > 0 ? price.toLocaleString('en-US') : '-'}</td>
           })}
           {isVisible('total_qty') && <td className="px-2 py-1 border-r bg-gray-50"></td>}
           {isVisible('total_amount') && <td className="px-2 py-1 border-r bg-gray-50"></td>}
@@ -2056,10 +2056,10 @@ const InnerApp: React.FC = () => {
       );
 
       const ExtraFooter = (
-        <tr className="bg-indigo-600/10 font-bold text-xs text-indigo-900 border-t-2 border-indigo-200">
-          <td className="px-2 py-2 text-center sticky left-0 z-10 bg-indigo-50"></td>
-          {isVisible('department') && <td className="px-2 py-2 border-r bg-indigo-50/50"></td>}
-          {isVisible('taxId') && <td className="px-2 py-2 border-r bg-indigo-50/50"></td>}
+        <tr className="bg-primary-700/10 font-bold text-xs text-primary-900 border-t-2 border-primary-200">
+          <td className="px-2 py-2 text-center sticky left-0 z-10 bg-primary-50"></td>
+          {isVisible('department') && <td className="px-2 py-2 border-r bg-primary-50/50"></td>}
+          {isVisible('taxId') && <td className="px-2 py-2 border-r bg-primary-50/50"></td>}
           {isVisible('name') && <td className="px-2 py-2 text-right">TỔNG CỘNG</td>}
           {cols.map(col => {
             if (!isVisible(`val_${col}`)) return null;
@@ -2074,7 +2074,7 @@ const InnerApp: React.FC = () => {
       const customRowRender = (row: any, index: number, allRows: any[]) => {
         const isEndOfDept = index < allRows.length - 1 && row.department !== allRows[index + 1].department;
         // Heavy blue border for department separation
-        const borderClass = isEndOfDept ? "border-b-2 border-blue-600" : "border-b";
+        const borderClass = isEndOfDept ? "border-b-2 border-primary-700" : "border-b";
 
         return (
           <tr key={index} className={`hover:bg-gray-50 text-xs text-gray-800 ${borderClass}`}>
@@ -2091,7 +2091,7 @@ const InnerApp: React.FC = () => {
 
             {isVisible('total_qty') && <td className="px-2 py-1 border-r text-center font-bold">{row.totalQty}</td>}
             {isVisible('total_amount') && (
-              <td className="px-2 py-1 border-r text-right font-bold text-blue-700">
+              <td className="px-2 py-1 border-r text-right font-bold text-primary-700">
                 {(() => {
                   let total = 0;
                   cols.forEach(col => {
@@ -2155,13 +2155,28 @@ const InnerApp: React.FC = () => {
     setPrintOrientation(orientation);
     if (type === 'list') {
       // Prepare List Print
-      setPrintConfig({
+      const listPrintConfig: any = {
         type: 'list',
         title: 'DANH SÁCH PHẪU THUẬT',
         dateRange: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
         data: currentReport.result?.validRecords || [],
-        columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false), // Respect visibility
-      });
+        columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false),
+        reportTab: activeTab as 'daily' | 'monthly',
+      };
+      // Add stats for daily report only
+      if (activeTab === 'daily') {
+        listPrintConfig.dailyStats = {
+          ptCount,
+          ttCount,
+          lowPaymentCount: derivedStats.lowPaymentCount || 0,
+          staffConflicts: derivedStats.staffConflicts,
+          machineConflicts: derivedStats.machineConflicts,
+          missingMachines: derivedStats.missingMachines,
+          missingAssistantCount: derivedStats.missingAssistantCount,
+          violateMinTimeCount: derivedStats.violateMinTimeCount,
+        };
+      }
+      setPrintConfig(listPrintConfig);
       setIsPrintOpen(true);
     } else if (type === 'payment' && paymentDataPrepared) {
       // Prepare Payment Print - Need to reconstruct headers
@@ -2692,47 +2707,50 @@ const InnerApp: React.FC = () => {
       />
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-      <header className="bg-white shadow-sm sticky top-0 z-30 border-b border-gray-200">
-        <div className="w-full px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-1.5 rounded-lg">
+      <header className="bg-gradient-to-r from-primary-800 to-primary-900 sticky top-0 z-30 shadow-lg">
+        <div className="w-full px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/15 backdrop-blur-sm p-2 rounded-xl">
               <Activity className="h-5 w-5 text-white" />
             </div>
-            <h1 className="text-lg font-bold text-gray-900 tracking-tight">Quản lý danh sách phẫu thuật, thủ thuật</h1>
+            <div>
+              <h1 className="text-base font-bold text-white tracking-tight font-heading">SurgicalDataPro</h1>
+              <p className="text-[10px] text-primary-200 font-medium -mt-0.5">Quản lý danh sách phẫu thuật, thủ thuật</p>
+            </div>
           </div>
           <div className="flex items-center gap-4">
 
-            <nav className="flex items-center gap-1.5 bg-gray-100/50 p-1 rounded-full border border-gray-200 shadow-inner">
+            <nav className="flex items-center gap-1 bg-white/10 backdrop-blur-sm p-1 rounded-xl border border-white/10">
               <button
                 onClick={() => setActiveTab('daily')}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${activeTab === 'daily'
-                  ? 'bg-blue-600 text-white shadow-md transform scale-105'
-                  : 'text-gray-600 hover:bg-gray-200'
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'daily'
+                  ? 'bg-white text-primary-800 shadow-md'
+                  : 'text-primary-100 hover:bg-white/10 hover:text-white'
                   }`}
               >
-                <LayoutDashboard className={`h-3.5 w-3.5 ${activeTab === 'daily' ? 'text-white' : 'text-gray-400'}`} />
+                <LayoutDashboard className={`h-3.5 w-3.5 ${activeTab === 'daily' ? 'text-primary-800' : 'text-primary-300'}`} />
                 BC hàng ngày
               </button>
 
               <button
                 onClick={() => setActiveTab('monthly')}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${activeTab === 'monthly'
-                  ? 'bg-blue-600 text-white shadow-md transform scale-105'
-                  : 'text-gray-600 hover:bg-gray-200'
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'monthly'
+                  ? 'bg-white text-primary-800 shadow-md'
+                  : 'text-primary-100 hover:bg-white/10 hover:text-white'
                   }`}
               >
-                <Calendar className={`h-3.5 w-3.5 ${activeTab === 'monthly' ? 'text-white' : 'text-gray-400'}`} />
+                <Calendar className={`h-3.5 w-3.5 ${activeTab === 'monthly' ? 'text-primary-800' : 'text-primary-300'}`} />
                 BC tháng
               </button>
 
               <button
                 onClick={() => setActiveTab('config')}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-bold transition-all duration-300 ${activeTab === 'config'
-                  ? 'bg-blue-600 text-white shadow-md transform scale-105'
-                  : 'text-gray-600 hover:bg-gray-200'
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'config'
+                  ? 'bg-white text-primary-800 shadow-md'
+                  : 'text-primary-100 hover:bg-white/10 hover:text-white'
                   }`}
               >
-                <Settings className={`h-3.5 w-3.5 ${activeTab === 'config' ? 'text-white' : 'text-gray-400'}`} />
+                <Settings className={`h-3.5 w-3.5 ${activeTab === 'config' ? 'text-primary-800' : 'text-primary-300'}`} />
                 Cấu hình
               </button>
             </nav>
@@ -2745,36 +2763,36 @@ const InnerApp: React.FC = () => {
           <div className="space-y-6 animate-fade-in relative w-full mx-auto">
 
             <div className="max-w-7xl mx-auto">
-              <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col font-inter text-sm max-w-6xl mx-auto w-full mb-8">
+              <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col text-sm max-w-6xl mx-auto w-full mb-8 border border-gray-100">
                 {/* Tabs */}
                 <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 ${activeDataTab === 'storage'
-                  ? 'border-b-indigo-600'
-                  : 'border-b-emerald-600'
+                  ? 'border-b-primary-700'
+                  : 'border-b-accent-600'
                   }`}>
                   <button
                     onClick={() => setActiveDataTab('storage')}
                     className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeDataTab === 'storage'
-                      ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm'
-                      : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                      ? 'bg-white text-primary-800 border-primary-700 z-30 shadow-sm'
+                      : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
                       }`}
                   >
-                    <Database className={`h-4 w-4 ${activeDataTab === 'storage' ? 'text-indigo-600' : ''}`} />
+                    <Database className={`h-4 w-4 ${activeDataTab === 'storage' ? 'text-primary-700' : ''}`} />
                     Dữ liệu lưu trữ
                   </button>
                   <button
                     onClick={() => setActiveDataTab('upload')}
                     className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeDataTab === 'upload'
-                      ? 'bg-white text-emerald-700 border-emerald-600 z-30 shadow-sm'
-                      : 'bg-transparent text-gray-400 border-transparent hover:text-emerald-600'
+                      ? 'bg-white text-accent-700 border-accent-600 z-30 shadow-sm'
+                      : 'bg-transparent text-gray-400 border-transparent hover:text-accent-600'
                       }`}
                   >
-                    <Sparkles className={`h-4 w-4 ${activeDataTab === 'upload' ? 'text-emerald-600' : ''}`} />
+                    <Sparkles className={`h-4 w-4 ${activeDataTab === 'upload' ? 'text-accent-600' : ''}`} />
                     Xử lý dữ liệu từ Minh Lộ
                   </button>
                 </div>
 
                 {/* Content */}
-                <div className={`p-6 bg-white border-2 rounded-b-xl z-10 ${activeDataTab === 'storage' ? 'border-indigo-600' : 'border-emerald-600'
+                <div className={`p-6 bg-white border-2 rounded-b-xl z-10 ${activeDataTab === 'storage' ? 'border-primary-700' : 'border-accent-600'
                   }`}>
                   {activeDataTab === 'storage' && (
                     <div className="flex flex-col space-y-4 max-w-2xl mx-auto py-4">
@@ -2791,7 +2809,7 @@ const InnerApp: React.FC = () => {
                                 type="date"
                                 value={currentReport.dateFrom}
                                 onChange={(e) => updateCurrentReport({ dateFrom: e.target.value })}
-                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
                               />
                               <input
                                 type="text"
@@ -2799,7 +2817,7 @@ const InnerApp: React.FC = () => {
                                 value={currentReport.timeFrom}
                                 onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeFrom: val }))}
                                 maxLength={5}
-                                className="w-20 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
+                                className="w-20 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
                               />
                             </div>
                           </div>
@@ -2812,7 +2830,7 @@ const InnerApp: React.FC = () => {
                                 type="date"
                                 value={currentReport.dateTo}
                                 onChange={(e) => updateCurrentReport({ dateTo: e.target.value })}
-                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
                               />
                               <input
                                 type="text"
@@ -2820,7 +2838,7 @@ const InnerApp: React.FC = () => {
                                 value={currentReport.timeTo}
                                 onChange={(e) => handleTimeChange(e.target.value, (val) => updateCurrentReport({ timeTo: val }))}
                                 maxLength={5}
-                                className="w-20 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-gray-400"
+                                className="w-20 px-2 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
                               />
                             </div>
                           </div>
@@ -2830,12 +2848,12 @@ const InnerApp: React.FC = () => {
                         <div className="flex flex-row items-center justify-center gap-4 mt-6">
                           <button
                             onClick={handleGetReport}
-                            className="w-64 px-4 py-2.5 rounded-lg font-bold shadow-md transition-all text-sm flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white"
+                            className="w-64 px-4 py-2.5 rounded-lg font-bold shadow-md transition-all text-sm flex items-center justify-center gap-2 bg-primary-700 hover:bg-primary-800 text-white"
                           >
                             <Download className="h-4 w-4" />
                             Lấy dữ liệu
                           </button>
-                          <button onClick={handleAutoFill24hShift} className="w-64 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-indigo-700 border-2 border-indigo-100 font-bold text-sm hover:bg-indigo-50 hover:border-indigo-200 transition-all active:scale-[0.98]">
+                          <button onClick={handleAutoFill24hShift} className="w-64 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-primary-700 border-2 border-primary-100 font-bold text-sm hover:bg-primary-50 hover:border-primary-200 transition-all active:scale-[0.98]">
                             <Zap className="h-4 w-4" />
                             Lấy dữ liệu trực
                           </button>
@@ -2851,18 +2869,18 @@ const InnerApp: React.FC = () => {
                       <div className="grid grid-cols-2 gap-4 flex-1">
                         {/* Item 1: Danh sách PT */}
                         <div className="flex flex-col gap-2">
-                          <div className="flex flex-row items-center gap-4 p-5 bg-indigo-50/50 rounded-lg border border-indigo-100 hover:border-indigo-300 transition-colors h-32">
-                            <div className="bg-indigo-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow">1</div>
+                          <div className="flex flex-row items-center gap-4 p-5 bg-primary-50/50 rounded-lg border border-primary-100 hover:border-primary-300 transition-colors h-32">
+                            <div className="bg-primary-700 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow">1</div>
                             <div className="flex-1 min-w-0">
-                              <span className="font-bold text-indigo-900 text-base block mb-1">Danh sách PT</span>
-                              <p className="text-indigo-600/70 text-xs">10. Danh sách PT</p>
+                              <span className="font-bold text-primary-900 text-base block mb-1">Danh sách PT</span>
+                              <p className="text-primary-700/70 text-xs">10. Danh sách PT</p>
                             </div>
                             <div className="w-32 h-20">
                               <FileUpload label="" file={currentReport.listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
                             </div>
                           </div>
                           {currentReport.listFile && (
-                            <p className="text-indigo-600 font-medium text-xs italic px-1">
+                            <p className="text-primary-700 font-medium text-xs italic px-1">
                               File đã tải: {currentReport.listFile.name}
                             </p>
                           )}
@@ -2891,7 +2909,7 @@ const InnerApp: React.FC = () => {
 
                       <div className="mt-6 flex justify-center gap-3">
                         {currentReport.isProcessing ? (
-                          <div className="w-[600px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 font-bold text-sm animate-pulse">
+                          <div className="w-[600px] flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary-50 border border-primary-200 text-primary-700 font-bold text-sm animate-pulse">
                             <RefreshCw className="h-4 w-4 animate-spin" />
                             Đang xử lý...
                           </div>
@@ -2932,41 +2950,41 @@ const InnerApp: React.FC = () => {
                 <div className="max-w-7xl mx-auto mt-6">
                   <div id="results-section" className={`space-y-6 animate-fade-in bg-gradient-to-b rounded-xl p-6 border shadow-sm ${currentReport.dataSource === 'EXCEL'
                     ? 'from-emerald-50/50 to-white border-emerald-100'
-                    : 'from-indigo-50/50 to-white border-indigo-100'
+                    : 'from-primary-50/50 to-white border-primary-100'
                     }`}>
 
                     <div className="flex items-center gap-4 mb-6">
-                      <div className={`p-2 rounded-lg ${currentReport.dataSource === 'EXCEL' ? 'bg-emerald-100' : 'bg-indigo-100'}`}>
+                      <div className={`p-2 rounded-lg ${currentReport.dataSource === 'EXCEL' ? 'bg-emerald-100' : 'bg-primary-100'}`}>
                         {currentReport.dataSource === 'EXCEL' ? (
-                          <Sparkles className={`h-6 w-6 ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-600' : 'text-indigo-600'}`} />
+                          <Sparkles className={`h-6 w-6 ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-600' : 'text-primary-700'}`} />
                         ) : (
-                          <Database className="h-6 w-6 text-indigo-600" />
+                          <Database className="h-6 w-6 text-primary-700" />
                         )}
                       </div>
-                      <h2 className={`text-lg font-bold ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-900' : 'text-indigo-900'}`}>
+                      <h2 className={`text-lg font-bold ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-900' : 'text-primary-900'}`}>
                         {currentReport.dataSource === 'EXCEL' ? 'Dữ liệu từ Minh Lộ' :
                           currentReport.dataSource === 'STORAGE' ? 'Dữ liệu lưu trữ' : 'Kết quả xử lý'}
                       </h2>
                       {currentReport.result.dateRangeText && (
-                        <p className={`text-lg font-bold ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-800' : 'text-indigo-800'}`}>
+                        <p className={`text-lg font-bold ${currentReport.dataSource === 'EXCEL' ? 'text-emerald-800' : 'text-primary-800'}`}>
                           {currentReport.result.dateRangeText}
                         </p>
                       )}
                     </div>
 
-                    <div className={`h-px w-full my-6 ${currentReport.dataSource === 'EXCEL' ? 'bg-emerald-100/50' : 'bg-indigo-100/50'}`}></div>
+                    <div className={`h-px w-full my-6 ${currentReport.dataSource === 'EXCEL' ? 'bg-emerald-100/50' : 'bg-primary-100/50'}`}></div>
 
 
                     {currentType === 'daily' ? (
                       // Daily Report - Simple Flat Design - 7 Cards
                       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
                         {/* Card 1: Tổng số PTTT - Blue */}
-                        <div className="bg-blue-600 rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
+                        <div className="bg-primary-700 rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all">
                           <div className="flex-1 z-10">
                             <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.totalSurgeries}</p>
-                            <p className="text-[10px] lg:text-xs font-medium text-blue-100 uppercase tracking-wide">Tổng số PTTT</p>
+                            <p className="text-[10px] lg:text-xs font-medium text-primary-100 uppercase tracking-wide">Tổng số PTTT</p>
                           </div>
-                          <Database className="h-6 w-6 lg:h-8 lg:w-8 text-blue-400/80 group-hover:scale-110 transition-transform" />
+                          <Database className="h-6 w-6 lg:h-8 lg:w-8 text-primary-400/80 group-hover:scale-110 transition-transform" />
                         </div>
 
                         {/* Card 2: Tỷ lệ TT <100% - Purple */}
@@ -3032,12 +3050,12 @@ const InnerApp: React.FC = () => {
                       // Monthly Report - Existing Gradient Design - 7 Cards
                       <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
                         {/* Card 1: Tổng số PTTT */}
-                        <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500 to-indigo-600 p-3 lg:p-4 rounded-xl shadow-lg border-2 border-indigo-400 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
+                        <div className="relative overflow-hidden bg-gradient-to-br from-primary-600 to-primary-700 p-3 lg:p-4 rounded-xl shadow-lg border-2 border-primary-500 hover:shadow-xl hover:scale-[1.02] transition-all duration-300 cursor-default group">
                           <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
                           <div className="flex items-center gap-3">
                             <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><Database className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
-                              <p className="text-[10px] lg:text-xs font-semibold text-indigo-100 uppercase tracking-wide">Tổng số PTTT</p>
+                              <p className="text-[10px] lg:text-xs font-semibold text-primary-100 uppercase tracking-wide">Tổng số PTTT</p>
                               <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.totalSurgeries}</p>
                             </div>
                           </div>
@@ -3142,7 +3160,7 @@ const InnerApp: React.FC = () => {
                       <div className="relative" ref={printDropdownRef}>
                         <button
                           onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm"
+                          className="flex items-center gap-2 px-3 py-1.5 bg-primary-700 text-white font-medium rounded-lg text-sm hover:bg-primary-800 transition-colors shadow-sm"
                         >
                           <Printer className="h-4 w-4" /> In Báo Cáo
                           <svg className="h-4 w-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3153,7 +3171,7 @@ const InnerApp: React.FC = () => {
                         {isPrintDropdownOpen && (
                           <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-3 z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden">
                             <div className="px-4 pb-2 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse"></span>
                               CHỌN BÁO CÁO VÀ HƯỚNG IN
                             </div>
 
@@ -3162,19 +3180,19 @@ const InnerApp: React.FC = () => {
                                 handlePrintClick('list', 'landscape');
                                 setIsPrintDropdownOpen(false);
                               }}
-                              className="w-full text-left px-4 py-3 hover:bg-indigo-50 flex items-center gap-4 transition-all group relative overflow-hidden"
+                              className="w-full text-left px-4 py-3 hover:bg-primary-50 flex items-center gap-4 transition-all group relative overflow-hidden"
                             >
-                              <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100 group-hover:scale-110 transition-all border border-indigo-100/50">
+                              <div className="p-2.5 rounded-xl bg-primary-50 text-primary-700 group-hover:bg-primary-100 group-hover:scale-110 transition-all border border-primary-100/50">
                                 <FileText className="h-5 w-5" />
                               </div>
                               <div className="flex-1">
                                 <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Danh sách PT</div>
                                 <div className="flex items-center gap-1.5">
-                                  <span className="px-1.5 py-0.5 bg-indigo-100 text-indigo-700 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
+                                  <span className="px-1.5 py-0.5 bg-primary-100 text-primary-800 text-[9px] font-bold rounded uppercase tracking-tighter">A4 Ngang</span>
                                   <span className="text-[10px] text-gray-400 italic font-medium">Khuyên dùng</span>
                                 </div>
                               </div>
-                              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all" />
+                              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary-500 group-hover:translate-x-1 transition-all" />
                             </button>
 
                             <button
@@ -3217,12 +3235,12 @@ const InnerApp: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      <button className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 font-medium rounded text-sm hover:bg-indigo-100 transition-colors border border-indigo-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
-                      <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white font-medium rounded text-sm hover:bg-green-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
+                      <button className="flex items-center gap-2 px-3 py-1.5 bg-primary-50 text-primary-800 font-medium rounded-lg text-sm hover:bg-primary-100 transition-colors border border-primary-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
+                      <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-accent-600 text-white font-medium rounded-lg text-sm hover:bg-accent-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
                       <button
                         onClick={handleSaveData}
                         disabled={isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)}
-                        className={`flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white font-medium rounded text-sm hover:bg-blue-700 transition-colors shadow-sm ${(isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)) ? 'opacity-70 cursor-not-allowed' : ''}`}
+                        className={`flex items-center gap-2 px-3 py-1.5 bg-primary-700 text-white font-medium rounded-lg text-sm hover:bg-primary-800 transition-colors shadow-sm ${(isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)) ? 'opacity-70 cursor-not-allowed' : ''}`}
                         title={
                           currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData
                             ? "Chức năng này chỉ khả dụng khi có dữ liệu mới hoặc cập nhật"
@@ -3237,7 +3255,7 @@ const InnerApp: React.FC = () => {
 
                   {/* Modern Tab Switcher - Attached to content area */}
                   <div className="flex flex-col mt-6">
-                    <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 gap-2 ${currentReport.activeTable === 'list' ? 'border-b-indigo-600' :
+                    <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 gap-2 ${currentReport.activeTable === 'list' ? 'border-b-primary-700' :
                       currentReport.activeTable === 'staff' ? 'border-b-red-600' :
                         currentReport.activeTable === 'machine' ? 'border-b-orange-600' :
                           currentReport.activeTable === 'missing' ? 'border-b-amber-600' :
@@ -3247,12 +3265,12 @@ const InnerApp: React.FC = () => {
                       <button
                         onClick={() => setActiveTable('list')}
                         className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'list'
-                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          ? 'bg-white text-primary-800 border-primary-700 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
                           }`}>
-                        <ListChecks className={`h-4 w-4 ${currentReport.activeTable === 'list' ? 'text-indigo-600' : ''}`} />
+                        <ListChecks className={`h-4 w-4 ${currentReport.activeTable === 'list' ? 'text-primary-700' : ''}`} />
                         <span>DS Phẫu thuật</span>
-                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'list' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-700'}`}>
+                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'list' ? 'bg-primary-700 text-white' : 'bg-primary-100 text-primary-800'}`}>
                           {ptCount > 0 || ttCount > 0 ? `${ptCount} PT${ttCount > 0 ? ` ${ttCount} TT` : ''}` : '0'}
                         </span>
                       </button>
@@ -3261,10 +3279,10 @@ const InnerApp: React.FC = () => {
                       <button
                         onClick={() => setActiveTable('staff')}
                         className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'staff'
-                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          ? 'bg-white text-primary-800 border-primary-700 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
                           }`}>
-                        <Users className={`h-4 w-4 ${currentReport.activeTable === 'staff' ? 'text-indigo-600' : ''}`} />
+                        <Users className={`h-4 w-4 ${currentReport.activeTable === 'staff' ? 'text-primary-700' : ''}`} />
                         <span>Trùng giờ NV</span>
                         <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'staff' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-700'}`}>
                           {currentReport.stats.staffConflicts}
@@ -3275,10 +3293,10 @@ const InnerApp: React.FC = () => {
                       <button
                         onClick={() => setActiveTable('machine')}
                         className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'machine'
-                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          ? 'bg-white text-primary-800 border-primary-700 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
                           }`}>
-                        <Cpu className={`h-4 w-4 ${currentReport.activeTable === 'machine' ? 'text-indigo-600' : ''}`} />
+                        <Cpu className={`h-4 w-4 ${currentReport.activeTable === 'machine' ? 'text-primary-700' : ''}`} />
                         <span>Trùng máy</span>
                         <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'machine' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700'}`}>
                           {currentReport.stats.machineConflicts}
@@ -3289,10 +3307,10 @@ const InnerApp: React.FC = () => {
                       <button
                         onClick={() => setActiveTable('missing')}
                         className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'missing'
-                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          ? 'bg-white text-primary-800 border-primary-700 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
                           }`}>
-                        <AlertTriangle className={`h-4 w-4 ${currentReport.activeTable === 'missing' ? 'text-indigo-600' : ''}`} />
+                        <AlertTriangle className={`h-4 w-4 ${currentReport.activeTable === 'missing' ? 'text-primary-700' : ''}`} />
                         <span>Thiếu mã máy</span>
                         <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'missing' ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'}`}>
                           {(currentReport.detailFile || currentReport.dataSource === 'STORAGE') ? currentReport.stats.missingMachines : '--'}
@@ -3303,10 +3321,10 @@ const InnerApp: React.FC = () => {
                       <button
                         onClick={() => setActiveTable('payment')}
                         className={`flex items-center gap-2 px-5 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg relative ${currentReport.activeTable === 'payment'
-                          ? 'bg-white text-indigo-700 border-indigo-600 z-30 shadow-sm -mb-[2px]'
-                          : 'bg-transparent text-gray-400 border-transparent hover:text-indigo-600'
+                          ? 'bg-white text-primary-800 border-primary-700 z-30 shadow-sm -mb-[2px]'
+                          : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
                           }`}>
-                        <DollarSign className={`h-4 w-4 ${currentReport.activeTable === 'payment' ? 'text-indigo-600' : ''}`} />
+                        <DollarSign className={`h-4 w-4 ${currentReport.activeTable === 'payment' ? 'text-primary-700' : ''}`} />
                         <span>Bảng thanh toán</span>
                         <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'payment' ? 'bg-emerald-600 text-white' : 'bg-emerald-100 text-emerald-700'}`}>
                           {currentReport.result.paymentData?.rows?.length || 0}
@@ -3314,7 +3332,7 @@ const InnerApp: React.FC = () => {
                       </button>
                     </div>
 
-                    <div className={`w-full animate-fade-in bg-white border-2 p-6 pb-12 rounded-b-xl relative z-10 ${currentReport.activeTable === 'list' ? 'border-indigo-600' :
+                    <div className={`w-full animate-fade-in bg-white border-2 p-6 pb-12 rounded-b-xl relative z-10 ${currentReport.activeTable === 'list' ? 'border-primary-700' :
                       currentReport.activeTable === 'staff' ? 'border-red-600' :
                         currentReport.activeTable === 'machine' ? 'border-orange-600' :
                           currentReport.activeTable === 'missing' ? 'border-amber-600' :
