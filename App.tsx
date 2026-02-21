@@ -201,6 +201,7 @@ interface DynamicTableProps<T> {
 
   // Assistant Input Callback
   onSaveAssistant?: (val: string) => void;
+  extraSearchContent?: React.ReactNode;
 }
 
 const DynamicTable = <T extends Record<string, any>>({
@@ -231,6 +232,7 @@ const DynamicTable = <T extends Record<string, any>>({
   onSelectAll,
   onDelete,
   onSaveAssistant,
+  extraSearchContent,
   currentPage: externalPage,
   onPageChange: externalOnPageChange
 }: DynamicTableProps<T>) => {
@@ -585,6 +587,7 @@ const DynamicTable = <T extends Record<string, any>>({
                 </span>
               )}
             </div>
+            {extraSearchContent}
           </div>
         ) : (
           <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
@@ -1731,9 +1734,15 @@ const InnerApp: React.FC = () => {
     ktvGM: true, tdc: true, gv: true, reason: true
   }, [searchableCols]);
 
+  const [filterEmptyGV, setFilterEmptyGV] = useState(false);
+
   const filteredList = useMemo(() => {
-    return (currentReport.result?.validRecords || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules));
-  }, [currentReport.result?.validRecords, currentReport.searchTerms.list, config.timeRules, listSearchableCols]);
+    let list = (currentReport.result?.validRecords || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules));
+    if (filterEmptyGV) {
+      list = list.filter(r => !r.gv || r.gv.trim() === '');
+    }
+    return list;
+  }, [currentReport.result?.validRecords, currentReport.searchTerms.list, config.timeRules, listSearchableCols, filterEmptyGV]);
 
   const filteredStaff = useMemo(() => {
     return (currentReport.result?.staffConflicts || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.staff, undefined, columnsStaff));
@@ -1948,6 +1957,17 @@ const InnerApp: React.FC = () => {
         currentPage={listPage}
         onPageChange={setListPage}
         onSaveAssistant={handleSaveAssistant}
+        extraSearchContent={
+          <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 cursor-pointer select-none whitespace-nowrap ml-2 hover:text-primary-700 transition-colors">
+            <input
+              type="checkbox"
+              checked={filterEmptyGV}
+              onChange={(e) => setFilterEmptyGV(e.target.checked)}
+              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 h-3.5 w-3.5 cursor-pointer"
+            />
+            Lọc trống GV
+          </label>
+        }
       />;
     }
     if (currentReport.activeTable === 'staff') {
