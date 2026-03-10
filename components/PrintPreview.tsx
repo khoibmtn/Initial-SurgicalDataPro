@@ -36,6 +36,7 @@ interface PrintPreviewProps {
     hospitalName?: string;
     reportTab?: 'daily' | 'monthly'; // Which tab triggered the print
     dailyStats?: DailyPrintStats; // Stats for daily report summary row
+    paymentStatsBlock?: React.ReactNode; // Extra block for payment stats
 }
 
 export const PrintPreview: React.FC<PrintPreviewProps> = ({
@@ -52,7 +53,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
     customThead,
     hospitalName = "BỆNH VIỆN ĐA KHOA THỦY NGUYÊN",
     reportTab,
-    dailyStats
+    dailyStats,
+    paymentStatsBlock
 }) => {
     // Auto-print when open
     React.useEffect(() => {
@@ -198,6 +200,13 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                     </div>
                 )}
 
+                {/* PAYMENT STATS BLOCK */}
+                {paymentStatsBlock && (
+                    <div className="mt-4 mb-2 text-[12px] font-[Times_New_Roman] break-inside-avoid text-left pl-2 font-bold leading-relaxed">
+                        {paymentStatsBlock}
+                    </div>
+                )}
+
                 {/* SIGNATURES */}
                 <div className="mt-6 text-center text-sm font-bold break-inside-avoid font-[Times_New_Roman]">
                     {/* Date above Người lập */}
@@ -205,13 +214,16 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                         <p className="font-normal italic text-xs">{dateString}</p>
                     </div>
 
-                    {/* Daily List: 2 signatures only */}
+                    {/* Daily List: 3 signatures */}
                     {reportTab === 'daily' && type === 'list' ? (
-                        <div className="flex px-8">
-                            <div style={{ marginLeft: '30%' }}>
+                        <div className="flex justify-between px-20">
+                            <div>
                                 <p className="uppercase">Điều dưỡng trưởng</p>
                             </div>
-                            <div style={{ marginLeft: 'auto' }}>
+                            <div>
+                                <p className="uppercase">Bác sĩ trực</p>
+                            </div>
+                            <div>
                                 <p className="uppercase">Người lập</p>
                             </div>
                         </div>

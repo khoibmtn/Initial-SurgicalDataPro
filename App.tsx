@@ -2301,6 +2301,46 @@ const InnerApp: React.FC = () => {
         </tr>
       );
 
+      // Calculate Payment Stats
+      const surgeryCountsByType: Record<string, number> = {};
+      currentReport.result?.validRecords?.forEach(record => {
+        const loai = record.loaiPTTT;
+        if (loai) {
+          surgeryCountsByType[loai] = (surgeryCountsByType[loai] || 0) + (record.soLuong || 1);
+        }
+      });
+
+      const typeLabels: Record<string, string> = {
+        PĐB: "Phẫu thuật đặc biệt",
+        P1: "Phẫu thuật loại 1",
+        P2: "Phẫu thuật loại 2",
+        P3: "Phẫu thuật loại 3",
+        TĐB: "Thủ thuật đặc biệt",
+        T1: "Thủ thuật loại 1",
+        T2: "Thủ thuật loại 2",
+        T3: "Thủ thuật loại 3",
+        TKPL: "Thủ thuật Khác/KPL",
+      };
+
+      const PrintPaymentStats = (
+        <div className="flex flex-col gap-0.5 mt-2">
+          {Object.entries(surgeryCountsByType)
+            .filter(([_, count]) => count > 0)
+            .sort((a, b) => {
+              // sort to match PDB -> P1 -> P2 -> P3 -> TDB -> T1 -> T2 -> T3 etc
+              const order = ["PĐB", "P1", "P2", "P3", "TĐB", "T1", "T2", "T3", "TKPL"];
+              const indA = order.indexOf(a[0]);
+              const indB = order.indexOf(b[0]);
+              return (indA === -1 ? 99 : indA) - (indB === -1 ? 99 : indB);
+            })
+            .map(([loai, count]) => (
+              <div key={loai}>
+                {typeLabels[loai] || loai}: {Number.isInteger(count) ? count : count.toFixed(2)} ca
+              </div>
+            ))}
+        </div>
+      );
+
       setPrintConfig({
         type: 'payment',
         title: 'BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT',
@@ -2309,7 +2349,8 @@ const InnerApp: React.FC = () => {
         columns: paymentCols,
         customThead: PrintThead,
         extraFooterRow: PrintFooter,
-        extraHeaderRow: PrintExtraHeader
+        extraHeaderRow: PrintExtraHeader,
+        paymentStatsBlock: PrintPaymentStats
       });
       setIsPrintOpen(true);
 
