@@ -557,7 +557,7 @@ const DynamicTable = <T extends Record<string, any>>({
         </div>
 
         {onSearchChange !== undefined ? (
-          <div className="flex items-center gap-3 flex-1 max-w-xs">
+          <div className="flex items-center gap-3 flex-1 max-w-md lg:max-w-xl">
             <span className="text-sm font-bold text-gray-700 whitespace-nowrap flex items-center gap-2">
               Tìm kiếm:
             </span>
