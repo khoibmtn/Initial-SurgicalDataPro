@@ -117,13 +117,13 @@ export const reportService = {
                             // Duplicate found
                             const oldHasGv = existing.gv && existing.gv.trim() !== '';
 
-                            if (type === 'MONTHLY' && newHasGv && !oldHasGv) {
-                                // MONTHLY: Update case - new has gv, old doesn't
+                            if (newHasGv && !oldHasGv) {
+                                // Update case - new has gv, old doesn't (works for both DAILY and MONTHLY)
                                 recordsToUpdate.push({ path: existing.path, gv: rec.gv });
                                 updatedCount++;
                                 console.log(`Will update record ${key} with gv: ${rec.gv}`);
                             } else {
-                                // Skip case (new has no gv, or both have gv, or DAILY type)
+                                // Skip case (new has no gv, or both have gv, or old already has gv)
                                 skippedCount++;
                             }
                         } else {

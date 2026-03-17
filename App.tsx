@@ -2171,9 +2171,13 @@ const InnerApp: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handlePrintClick = (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
+  const handlePrintClick = async (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
     setPrintOrientation(orientation);
     if (type === 'list') {
+      // Auto-save before printing for daily tab with EXCEL data
+      if (activeTab === 'daily' && currentReport.dataSource === 'EXCEL' && currentReport.result?.validRecords) {
+        await handleSaveData();
+      }
       // Prepare List Print
       const listPrintConfig: any = {
         type: 'list',
@@ -3237,8 +3241,8 @@ const InnerApp: React.FC = () => {
                             </div>
 
                             <button
-                              onClick={() => {
-                                handlePrintClick('list', 'landscape');
+                              onClick={async () => {
+                                await handlePrintClick('list', 'landscape');
                                 setIsPrintDropdownOpen(false);
                               }}
                               className="w-full text-left px-4 py-3 hover:bg-primary-50 flex items-center gap-4 transition-all group relative overflow-hidden"

@@ -831,7 +831,7 @@ export function recalculateResultFromRecords(records: SurgeryRecord[], config: A
     }
 
     return {
-        validRecords: records,
+        validRecords: [...records],
         staffConflicts,
         machineConflicts,
         missingRecords: missingMachine,
