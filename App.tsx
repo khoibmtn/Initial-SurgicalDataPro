@@ -1519,12 +1519,16 @@ const InnerApp: React.FC = () => {
         .filter(c => visibleCols['list']?.[c.key] !== false)
         .map(c => ({ key: c.key, label: c.label }));
 
-      // Compute signatureDate for monthly: endDate + 1 day
+      // Compute signatureDate for monthly: endDate + 1 day (parsed from dateRangeText)
       let signatureDate: Date | undefined;
-      if (activeTab === 'monthly' && currentReport.dateTo) {
-        const endDate = new Date(currentReport.dateTo);
-        endDate.setDate(endDate.getDate() + 1);
-        signatureDate = endDate;
+      if (activeTab === 'monthly') {
+        const dateRangeText = freshResult.dateRangeText || currentReport.queryDateRangeText || '';
+        const endMatch = dateRangeText.match(/đến ngày (\d{2})\/(\d{2})\/(\d{4})/);
+        if (endMatch) {
+          const d = new Date(parseInt(endMatch[3]), parseInt(endMatch[2]) - 1, parseInt(endMatch[1]));
+          d.setDate(d.getDate() + 1);
+          signatureDate = d;
+        }
       }
 
       await exportFormattedFullExcel(
@@ -2244,14 +2248,17 @@ const InnerApp: React.FC = () => {
         data: currentReport.result?.validRecords || [],
         columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false),
         reportTab: activeTab as 'daily' | 'monthly',
-        // For monthly: signature date = endDate + 1 day
-        ...(activeTab === 'monthly' && currentReport.dateTo ? {
-          signatureDate: (() => {
-            const d = new Date(currentReport.dateTo);
+        // For monthly: signature date = endDate + 1 day (parsed from dateRangeText)
+        ...(activeTab === 'monthly' ? (() => {
+          const drt = currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '';
+          const m = drt.match(/đến ngày (\d{2})\/(\d{2})\/(\d{4})/);
+          if (m) {
+            const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
             d.setDate(d.getDate() + 1);
-            return d;
-          })()
-        } : {}),
+            return { signatureDate: d };
+          }
+          return {};
+        })() : {}),
       };
       // Add stats for daily report only
       if (activeTab === 'daily') {
@@ -2465,14 +2472,17 @@ const InnerApp: React.FC = () => {
         extraFooterRow: PrintFooter,
         extraHeaderRow: PrintExtraHeader,
         paymentStatsBlock: PrintPaymentStats,
-        // For monthly: signature date = endDate + 1 day
-        ...(activeTab === 'monthly' && currentReport.dateTo ? {
-          signatureDate: (() => {
-            const d = new Date(currentReport.dateTo);
+        // For monthly: signature date = endDate + 1 day (parsed from dateRangeText)
+        ...(activeTab === 'monthly' ? (() => {
+          const drt = currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '';
+          const m = drt.match(/đến ngày (\d{2})\/(\d{2})\/(\d{4})/);
+          if (m) {
+            const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
             d.setDate(d.getDate() + 1);
-            return d;
-          })()
-        } : {}),
+            return { signatureDate: d };
+          }
+          return {};
+        })() : {}),
       });
       setIsPrintOpen(true);
 
@@ -3479,7 +3489,6 @@ const InnerApp: React.FC = () => {
                               <div className="flex-1">
                                 <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Định dạng in</div>
                                 <div className="flex items-center gap-1.5">
-                                  <span className="px-1.5 py-0.5 bg-primary-100 text-primary-800 text-[9px] font-bold rounded uppercase tracking-tighter">DS PT + Bảng TT</span>
                                   <span className="text-[10px] text-gray-400 italic font-medium">Đầy đủ, có định dạng</span>
                                 </div>
                               </div>

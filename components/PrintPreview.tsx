@@ -176,7 +176,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
 
                                         return (
                                             <td key={col.key} className={`border border-black ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${col.className || ''} ${deptBorderClass} ${extraClass}`}>
-                                                {col.render ? col.render(row) : (row[col.key] || '')}
+                                                {col.key === 'stt' ? (idx + 1) : (col.render ? col.render(row) : (row[col.key] || ''))}
                                             </td>
                                         );
                                     })}
