@@ -910,7 +910,12 @@ const InnerApp: React.FC = () => {
     const selectedIds = currentReport.selectedRecordIds || [];
     if (selectedIds.length === 0) return;
 
-    if (window.confirm(`Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đã chọn?`)) {
+    const reportTypeName = currentType === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo hàng ngày';
+    const dataSourceName = currentReport.dataSource === 'STORAGE' ? 'Dữ liệu lưu trữ' : 'Dữ liệu import từ Excel';
+    
+    const confirmMessage = `Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đã chọn?\n\nChi tiết:\n- Nguồn dữ liệu: ${dataSourceName}\n- Thuộc: ${reportTypeName}\n\nLưu ý: Nếu dữ liệu đã nằm trong cơ sở dữ liệu, việc xóa này sẽ thực hiện xóa vĩnh viễn!`;
+
+    if (window.confirm(confirmMessage)) {
       try {
         if (!currentReport.result) return;
 
@@ -924,18 +929,27 @@ const InnerApp: React.FC = () => {
           return;
         }
 
-        // 1. Storage Delete
-        if (currentReport.dataSource === 'STORAGE') {
-          try {
+        // 1. Xóa trong CSDL (Luôn thử xóa nếu dòng đã được lưu vào Firestore)
+        try {
+          // Kể cả ở chế độ EXCEL, nếu dòng nào đã có firestorePath (đã lưu) thì cũng xóa
+          const recordsInDb = recordsToDelete.filter(r => !!(r as any).firestorePath);
+          
+          if (recordsInDb.length > 0) {
+            const deletedCount = await reportService.deleteRecords(recordsInDb);
+            if (deletedCount > 0) {
+              addToast(`Đã xóa vĩnh viễn ${deletedCount} dòng từ cơ sở dữ liệu`, "success");
+            }
+          } else if (currentReport.dataSource === 'STORAGE') {
+            // Fallback cho trường hợp cũ nếu dataSource là STORAGE nhưng chưa có firestorePath chuẩn
             const deletedCount = await reportService.deleteRecords(recordsToDelete);
             if (deletedCount > 0) {
               addToast(`Đã xóa vĩnh viễn ${deletedCount} dòng từ cơ sở dữ liệu`, "success");
             }
-          } catch (e) {
-            console.error("Delete failed", e);
-            addToast("Lỗi khi xóa từ Firestore. Vui lòng thử lại.", "error");
-            return;
           }
+        } catch (e) {
+          console.error("Delete failed", e);
+          addToast("Lỗi khi xóa từ Firestore. Vui lòng thử lại.", "error");
+          return;
         }
 
         // 2. Local Update & Reprocess
@@ -1887,15 +1901,24 @@ const InnerApp: React.FC = () => {
         r.gv = cleanVal;
         updatedIds.push(rId);
 
-        if (isStorage && r.id) {
-          const path = (r as any).firestorePath || `uploaded_surgeries/${r.id}`;
-          console.log(`[SaveAssistant] Updating ${r.id} at path: ${path} with Value: ${cleanVal}`);
-
+        // Lưu trực tiếp vào DB nếu bản ghi đã từng được lưu (có firestorePath)
+        const path = (r as any).firestorePath;
+        if (path) {
+          console.log(`[SaveAssistant] Updating ${r.id || r.key} at path: ${path} with Value: ${cleanVal}`);
           const docRef = doc(firestore, path);
           batchUpdates.push(
             updateDoc(docRef, { gv: cleanVal })
               .then(() => console.log(`[SaveAssistant] Success: ${path}`))
               .catch(err => console.error(`[SaveAssistant] Failed: ${path}`, err))
+          );
+        } else if (isStorage && r.id) {
+          // Fallback legacy
+          const legacyPath = `uploaded_surgeries/${r.id}`;
+          const docRef = doc(firestore, legacyPath);
+          batchUpdates.push(
+            updateDoc(docRef, { gv: cleanVal })
+              .then(() => console.log(`[SaveAssistant] Success: ${legacyPath}`))
+              .catch(err => console.error(`[SaveAssistant] Failed: ${legacyPath}`, err))
           );
         }
       }
@@ -1905,15 +1928,17 @@ const InnerApp: React.FC = () => {
     const stateUpdates: Partial<ReportState> = {};
 
     if (updatedIds.length > 0) {
-      if (isStorage) {
+      if (batchUpdates.length > 0) {
         try {
           await Promise.all(batchUpdates);
           // Toast managed by caller or we can show it here
-          addToast(`Đã lưu ${updatedIds.length} bản ghi.`, 'success');
+          addToast(`Đã lưu ${updatedIds.length} bản ghi vào hệ thống.`, 'success');
         } catch (e) {
           console.error("Save failed", e);
-          addToast("Lỗi khi lưu dữ liệu (chi tiết trong console)", 'error');
+          addToast("Lỗi khi lưu dữ liệu vào hệ thống.", 'error');
         }
+      } else if (currentReport.dataSource === 'EXCEL') {
+        addToast(`Đã cập nhật ${updatedIds.length} bản ghi (Chưa lưu vào CSDL)`, 'success');
       }
 
       // Phase 2: Recalculate Result (In-Memory)
@@ -2852,6 +2877,29 @@ const InnerApp: React.FC = () => {
         addToast(msg, 'error');
       } else {
         addToast(msg, 'success');
+        // NẾU TỪ EXCEL LƯU THÀNH CÔNG, reload lại từ STORAGE để đảm bảo mọi record đều có ID và firestorePath chuẩn
+        if (currentReport.dataSource === 'EXCEL') {
+          // Lấy lại ngày hiện tại của báo cáo
+          const dateFrom = currentReport.filters?.dateFrom;
+          const dateTo = currentReport.filters?.dateTo;
+          if (dateFrom && dateTo) {
+             addToast("Đang đồng bộ dữ liệu vào hệ thống lưu trữ...", "info");
+             // Tự động load lại từ storage
+             reportService.getReports(dateFrom, dateTo, type).then(records => {
+                if (records.length > 0) {
+                  const processed = processStorageRecords(records);
+                  updateCurrentReport({
+                    dataSource: 'STORAGE',
+                    result: processed,
+                    selectedRecordIds: [],
+                    isReportGenerated: true
+                  });
+                }
+             }).catch(err => {
+                console.error("Auto reload from storage failed:", err);
+             });
+          }
+        }
       }
 
     } catch (error) {
