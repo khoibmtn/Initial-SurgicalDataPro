@@ -1,83 +1,22 @@
-# Session Context Snapshot
-**Date:** 2026-01-30 16:40 (Vietnam Time)  
-**Branch:** `temp-30-01-2026-16h40`  
-**Project:** Initial-SurgicalDataPro
+# Phiên làm việc: Thống kê số lượng phẫu thuật và tinh chỉnh giao diện in Bảng thanh toán / Danh sách PT
 
----
+## Tóm tắt những thay đổi chính
+1. **Tinh chỉnh Header (App.tsx):** Nới rộng vùng chứa thanh tìm kiếm (`max-w-md lg:max-w-xl`) để không che khuất chữ gõ vào, tối ưu hiển thị trên các màn hình nhỏ.
+2. **Thêm Thống kê Loại PT/TT (App.tsx & PrintPreview.tsx):**
+    - Đã đếm tổng số ca thực hiện nhóm theo `loaiPTTT` (PĐB, P1, P2, P3, TĐB, T1, v.v.).
+    - Đã kết xuất bảng thống kê tổng số phẫu thuật bên dưới bảng danh sách thanh toán khi người dùng ấn nút In. Dữ liệu được tính tự động, cập nhật theo bộ lọc và thời gian.
+3. **Cập nhật Chữ ký (PrintPreview.tsx):**
+    - Sửa đổi layout phần chữ ký ở Tab danh sách Báo cáo Hằng ngày `list`.
+    - Thêm vị trí ký **BÁC SĨ TRỰC** nằm hoàn toàn ở giữa hai chữ ký **ĐIỀU DƯỠNG TRƯỞNG** và **NGƯỜI LẬP**, canh đều đẹp mắt thay vì dùng hai vùng như trước đây.
+4. **Quy trình Git:** 
+    - Đã gộp và đẩy mọi thay đổi lên nhánh `main`. 
+    - Khởi tạo không gian làm việc mới `temp-10-03-2026-09h17`.
 
-## Tóm tắt phiên làm việc
+## Cấu trúc dữ liệu liên quan
+- `SurgeryRecord` và luồng xử lý `reprocess` không bị tác động sâu, thống kê (`surgeryCountsByType`) được đếm trực tiếp trên dữ liệu valid đang hiển thị của UI trước khi đưa vào component In báo cáo `PrintPreview`.
 
-### Các tính năng đã hoàn thành hôm nay:
+## Trạng thái phiên bản kế tiếp
+- Mã nguồn hiện tại ổn định, sẵn sàng chạy.
+- Khuyến nghị cập nhật thêm số liệu tổng ở Dashboard nếu cần thiết trong các buổi sau.
 
-#### 1. Fix Timezone Query Bug
-- **Vấn đề:** Khi query dữ liệu từ Firestore theo khoảng thời gian, timezone không được xử lý đúng, dẫn đến thiếu records.
-- **Giải pháp:** Thêm `+07:00` vào date string trước khi parse để đảm bảo local time (Vietnam) được chuyển đổi đúng sang UTC.
-- **Files:** `App.tsx` - các hàm `handleGetReport` và `handleAutoFill24hShift`
-
-#### 2. Auto-Save Monthly Auto-Fill Data
-- **Vấn đề:** Khi load BC Tháng và auto-fill GV/mã máy từ BC Ngày, dữ liệu chỉ hiển thị tạm thời, không được lưu vào Storage.
-- **Giải pháp:** 
-  - Thêm hàm `batchUpdateGvAndMachine` trong `reportService.ts` để batch update cả GV và mã máy.
-  - Sửa `handleGetReport` để tự động save sau khi auto-fill (chỉ điền dữ liệu thiếu).
-- **Files:** `App.tsx`, `services/reportService.ts`
-
-#### 3. Print Date Range Display Fix
-- **Vấn đề:** Khi dùng "Lấy dữ liệu trực", print preview không hiển thị khoảng thời gian.
-- **Giải pháp:** Sửa `handlePrintClick` để fallback từ `result?.dateRangeText` sang `queryDateRangeText`.
-- **Files:** `App.tsx`
-
-#### 4. Reset UI When No Data Found
-- **Vấn đề:** Khi query trả về 0 records, UI cũ vẫn hiển thị và toast chỉ nói "Không có dữ liệu".
-- **Giải pháp:** Reset UI (clear result, stats, queryDateRangeText) và hiển thị thông báo chi tiết với khoảng thời gian.
-- **Files:** `App.tsx`
-
----
-
-## Logic & Schemas Quan Trọng
-
-### Date/Time Handling Pattern
-```typescript
-// Correct way to construct date strings for Firestore queries
-const dateFromStr = `${currentReport.dateFrom}T${currentReport.timeFrom}:00.000+07:00`;
-const dateToStr = `${currentReport.dateTo}T${currentReport.timeTo}:59.999+07:00`;
-
-const isoFrom = new Date(dateFromStr).toISOString(); // → UTC
-const isoTo = new Date(dateToStr).toISOString();     // → UTC
-```
-
-### Auto-Fill & Auto-Save Flow (Monthly Report)
-```
-1. Load MONTHLY records from Firestore
-2. Get GV and machine data from DAILY reports
-3. Fill missing fields (only empty ones)
-4. Track records that need update
-5. Call batchUpdateGvAndMachine() to persist
-6. Display updated data with success toast
-```
-
-### Key Interfaces
-- `SurgeryRecord` - Core record type
-- `PersistedSurgeryRecord` - Firestore stored format
-- `ProcessingResult` - Result from reprocessSurgicalRecords
-- `ReportState` - State for daily/monthly report tabs
-
----
-
-## Trạng thái hiện tại
-
-- ✅ Build thành công
-- ✅ Đã sync lên GitHub (main)
-- ✅ Dev server đang chạy (`npm run dev`)
-
----
-
-## Ghi chú cho phiên tiếp theo
-
-1. **Test thoroughly:** User cần test các tính năng:
-   - BC Tháng: load lại lần 2 xem còn thông báo auto-fill không
-   - Print preview với "Lấy dữ liệu trực"
-   - Query với nhiều khoảng thời gian khác nhau
-
-2. **Potential improvements:**
-   - Có thể thêm loading indicator khi auto-save đang chạy
-   - Có thể thêm confirmation toast sau khi auto-save thành công
+*Lưu được tạo lúc: 10/03/2026 09:18*

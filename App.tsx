@@ -4,6 +4,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { firestore } from './lib/firebase';
 import { processSurgicalFiles } from "./services/excelProcessor";
 import { reprocessSurgicalRecords, recalculateResultFromRecords } from "./services/reprocess";
+import { exportFormattedFullExcel } from "./services/excelExportService";
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
 import { ConfigProvider, useConfig, DEFAULT_CONFIG } from './contexts/ConfigContext';
@@ -1484,6 +1485,54 @@ const InnerApp: React.FC = () => {
     }
   };
 
+  // --- Excel Dropdown ---
+  const [isExcelDropdownOpen, setIsExcelDropdownOpen] = useState(false);
+  const excelDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (excelDropdownRef.current && !excelDropdownRef.current.contains(event.target as Node)) {
+        setIsExcelDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleDownloadFormatted = async () => {
+    if (!currentReport.result?.validRecords) {
+      addToast('Chưa có dữ liệu để tải xuống.', 'error');
+      return;
+    }
+
+    try {
+      addToast('Đang tạo file Excel định dạng...', 'success');
+
+      // Re-generate raw workbook for non-formatted sheets
+      const freshResult = reprocessSurgicalRecords(
+        currentReport.result.validRecords,
+        config,
+        currentReport.result.dateRangeText || ''
+      );
+
+      const exportCols = columnsList
+        .filter(c => visibleCols['list']?.[c.key] !== false)
+        .map(c => ({ key: c.key, label: c.label }));
+
+      await exportFormattedFullExcel(
+        freshResult,
+        config,
+        exportCols,
+        paymentDataPrepared || null,
+      );
+
+      addToast('Đã tải xuống file Excel định dạng.', 'success');
+    } catch (e: any) {
+      console.error('Formatted download failed:', e);
+      addToast('Lỗi khi tải file: ' + e.message, 'error');
+    }
+  };
+
   // Create a hash of the config that strictly affects processing results (excluding UI settings)
   const processingConfigHash = useMemo(() => JSON.stringify({
     priceConfig: config.priceConfig,
@@ -2200,6 +2249,50 @@ const InnerApp: React.FC = () => {
           violateMinTimeCount: derivedStats.violateMinTimeCount,
         };
       }
+
+      // Add surgery type statistics for monthly list print
+      if (activeTab === 'monthly') {
+        const typeLabels: Record<string, string> = {
+          PĐB: "Phẫu thuật đặc biệt",
+          P1: "Phẫu thuật loại 1",
+          P2: "Phẫu thuật loại 2",
+          P3: "Phẫu thuật loại 3",
+          TĐB: "Thủ thuật đặc biệt",
+          T1: "Thủ thuật loại 1",
+          T2: "Thủ thuật loại 2",
+          T3: "Thủ thuật loại 3",
+          TKPL: "Thủ thuật Khác/KPL",
+        };
+        const typeOrder = ["PĐB", "P1", "P2", "P3", "TĐB", "T1", "T2", "T3", "TKPL"];
+
+        const surgeryCounts: Record<string, number> = {};
+        currentReport.result?.validRecords?.forEach(record => {
+          const loai = record.loaiPTTT;
+          if (loai) {
+            surgeryCounts[loai] = (surgeryCounts[loai] || 0) + (record.soLuong || 1);
+          }
+        });
+
+        const ListSurgeryStatsBlock = (
+          <div className="flex flex-col gap-0.5 mt-2">
+            {Object.entries(surgeryCounts)
+              .filter(([_, count]) => count > 0)
+              .sort((a, b) => {
+                const indA = typeOrder.indexOf(a[0]);
+                const indB = typeOrder.indexOf(b[0]);
+                return (indA === -1 ? 99 : indA) - (indB === -1 ? 99 : indB);
+              })
+              .map(([loai, count]) => (
+                <div key={loai}>
+                  {typeLabels[loai] || loai}: {Number.isInteger(count) ? count : count.toFixed(2)} ca
+                </div>
+              ))}
+          </div>
+        );
+
+        listPrintConfig.paymentStatsBlock = ListSurgeryStatsBlock;
+      }
+
       setPrintConfig(listPrintConfig);
       setIsPrintOpen(true);
     } else if (type === 'payment' && paymentDataPrepared) {
@@ -3301,7 +3394,68 @@ const InnerApp: React.FC = () => {
                         )}
                       </div>
                       <button className="flex items-center gap-2 px-3 py-1.5 bg-primary-50 text-primary-800 font-medium rounded-lg text-sm hover:bg-primary-100 transition-colors border border-primary-200"><Sparkles className="h-4 w-4" /> AI Phân tích</button>
-                      <button onClick={handleDownload} className="flex items-center gap-2 px-3 py-1.5 bg-accent-600 text-white font-medium rounded-lg text-sm hover:bg-accent-700 transition-colors shadow-sm"><Download className="h-4 w-4" /> Tải Excel</button>
+                      {/* Excel Download Dropdown */}
+                      <div className="relative" ref={excelDropdownRef}>
+                        <button
+                          onClick={() => setIsExcelDropdownOpen(!isExcelDropdownOpen)}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-accent-600 text-white font-medium rounded-lg text-sm hover:bg-accent-700 transition-colors shadow-sm"
+                        >
+                          <Download className="h-4 w-4" /> Tải Excel
+                          <svg className="h-4 w-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+
+                        {isExcelDropdownOpen && (
+                          <div className="absolute top-full right-0 mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-100 py-3 z-50 animate-in fade-in slide-in-from-top-2 overflow-hidden">
+                            <div className="px-4 pb-2 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest border-b border-gray-50 flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 rounded-full bg-accent-500 animate-pulse"></span>
+                              CHỌN LOẠI FILE EXCEL
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                handleDownload();
+                                setIsExcelDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center gap-4 transition-all group relative overflow-hidden"
+                            >
+                              <div className="p-2.5 rounded-xl bg-gray-100 text-gray-600 group-hover:bg-gray-200 group-hover:scale-110 transition-all border border-gray-200/50">
+                                <FileSpreadsheet className="h-5 w-5" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Không định dạng</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-gray-400 italic font-medium">Nhanh, dữ liệu thô</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 group-hover:translate-x-1 transition-all" />
+                            </button>
+
+                            <div className="mx-4 my-1 border-t border-gray-100"></div>
+
+                            <button
+                              onClick={() => {
+                                handleDownloadFormatted();
+                                setIsExcelDropdownOpen(false);
+                              }}
+                              className="w-full text-left px-4 py-3 hover:bg-primary-50 flex items-center gap-4 transition-all group relative overflow-hidden"
+                            >
+                              <div className="p-2.5 rounded-xl bg-primary-50 text-primary-700 group-hover:bg-primary-100 group-hover:scale-110 transition-all border border-primary-100/50">
+                                <FileText className="h-5 w-5" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="font-bold text-[14px] text-gray-900 leading-tight mb-0.5">Định dạng in</div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.5 bg-primary-100 text-primary-800 text-[9px] font-bold rounded uppercase tracking-tighter">DS PT + Bảng TT</span>
+                                  <span className="text-[10px] text-gray-400 italic font-medium">Đầy đủ, có định dạng</span>
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary-500 group-hover:translate-x-1 transition-all" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <button
                         onClick={handleSaveData}
                         disabled={isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)}
