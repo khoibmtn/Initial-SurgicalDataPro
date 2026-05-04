@@ -2235,11 +2235,13 @@ const InnerApp: React.FC = () => {
 
   const handlePrintClick = async (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
     setPrintOrientation(orientation);
+    
+    // Tự động lưu dữ liệu trước khi in nếu dữ liệu lấy từ EXCEL
+    if (currentReport.dataSource === 'EXCEL' && currentReport.result?.validRecords) {
+      await handleSaveData();
+    }
+
     if (type === 'list') {
-      // Auto-save before printing for daily tab with EXCEL data
-      if (activeTab === 'daily' && currentReport.dataSource === 'EXCEL' && currentReport.result?.validRecords) {
-        await handleSaveData();
-      }
       // Prepare List Print
       const listPrintConfig: any = {
         type: 'list',
