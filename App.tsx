@@ -1519,11 +1519,20 @@ const InnerApp: React.FC = () => {
         .filter(c => visibleCols['list']?.[c.key] !== false)
         .map(c => ({ key: c.key, label: c.label }));
 
+      // Compute signatureDate for monthly: endDate + 1 day
+      let signatureDate: Date | undefined;
+      if (activeTab === 'monthly' && currentReport.dateTo) {
+        const endDate = new Date(currentReport.dateTo);
+        endDate.setDate(endDate.getDate() + 1);
+        signatureDate = endDate;
+      }
+
       await exportFormattedFullExcel(
         freshResult,
         config,
         exportCols,
         paymentDataPrepared || null,
+        signatureDate,
       );
 
       addToast('Đã tải xuống file Excel định dạng.', 'success');
@@ -2235,6 +2244,14 @@ const InnerApp: React.FC = () => {
         data: currentReport.result?.validRecords || [],
         columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false),
         reportTab: activeTab as 'daily' | 'monthly',
+        // For monthly: signature date = endDate + 1 day
+        ...(activeTab === 'monthly' && currentReport.dateTo ? {
+          signatureDate: (() => {
+            const d = new Date(currentReport.dateTo);
+            d.setDate(d.getDate() + 1);
+            return d;
+          })()
+        } : {}),
       };
       // Add stats for daily report only
       if (activeTab === 'daily') {
@@ -2447,7 +2464,15 @@ const InnerApp: React.FC = () => {
         customThead: PrintThead,
         extraFooterRow: PrintFooter,
         extraHeaderRow: PrintExtraHeader,
-        paymentStatsBlock: PrintPaymentStats
+        paymentStatsBlock: PrintPaymentStats,
+        // For monthly: signature date = endDate + 1 day
+        ...(activeTab === 'monthly' && currentReport.dateTo ? {
+          signatureDate: (() => {
+            const d = new Date(currentReport.dateTo);
+            d.setDate(d.getDate() + 1);
+            return d;
+          })()
+        } : {}),
       });
       setIsPrintOpen(true);
 
@@ -2919,6 +2944,13 @@ const InnerApp: React.FC = () => {
       <main className="w-full px-4 sm:px-6 lg:px-8 py-6 animate-fade-in">
         {(activeTab === 'daily' || activeTab === 'monthly') && (
           <div className="space-y-6 animate-fade-in relative w-full mx-auto">
+
+            {/* Report type title banner */}
+            <div className="max-w-7xl mx-auto">
+              <h2 className="text-lg font-bold text-primary-900 tracking-tight text-center">
+                {activeTab === 'daily' ? 'BÁO CÁO SỐ LIỆU PHẪU THUẬT HÀNG NGÀY' : 'BÁO CÁO SỐ LIỆU PHẪU THUẬT THÁNG'}
+              </h2>
+            </div>
 
             <div className="max-w-7xl mx-auto">
               <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col text-sm max-w-6xl mx-auto w-full mb-8 border border-gray-100">

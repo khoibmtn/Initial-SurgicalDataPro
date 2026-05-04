@@ -139,12 +139,13 @@ function addSignatures(
   startRow: number,
   totalCols: number,
   type: 'list' | 'payment',
+  signatureDate?: Date,
 ) {
   let row = startRow;
 
-  // Date line — right-aligned in last few columns
-  const today = new Date();
-  const dateStr = `Ngày ${today.getDate()} tháng ${today.getMonth() + 1} năm ${today.getFullYear()}`;
+  // Date line — use provided signatureDate or fallback to today
+  const d = signatureDate || new Date();
+  const dateStr = `Ngày ${d.getDate()} tháng ${d.getMonth() + 1} năm ${d.getFullYear()}`;
 
   const dateStartCol = Math.max(1, totalCols - 3);
   ws.mergeCells(row, dateStartCol, row, totalCols);
@@ -232,6 +233,7 @@ export async function exportListExcel(
   dateRange: string,
   hospitalName: string,
   existingWb?: ExcelJS.Workbook,
+  signatureDate?: Date,
 ) {
   const wb = existingWb || new ExcelJS.Workbook();
   const ws = wb.addWorksheet('DS Phẫu thuật', {
@@ -301,7 +303,7 @@ export async function exportListExcel(
   row = addSurgeryStats(ws, records, row);
 
   // Signatures (directly after stats)
-  addSignatures(ws, row, totalCols, 'list');
+  addSignatures(ws, row, totalCols, 'list', signatureDate);
 
   // Auto-width columns
   columns.forEach((col, idx) => {
@@ -364,6 +366,7 @@ export async function exportPaymentExcel(
   dateRange: string,
   hospitalName: string,
   existingWb?: ExcelJS.Workbook,
+  signatureDate?: Date,
 ) {
   const wb = existingWb || new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Bảng Thanh toán', {
@@ -593,7 +596,7 @@ export async function exportPaymentExcel(
   row = addSurgeryStats(ws, records, row);
 
   // Signatures (directly after stats)
-  addSignatures(ws, row, totalCols, 'payment');
+  addSignatures(ws, row, totalCols, 'payment', signatureDate);
 
   // Auto-width columns
   ws.getColumn(1).width = 5;  // STT
@@ -647,6 +650,7 @@ export async function exportFormattedFullExcel(
     footerTotals: { total_qty: number; total_amount_val: number };
     columnTotals: Record<string, number>;
   } | null,
+  signatureDate?: Date,
 ) {
   const wb = new ExcelJS.Workbook();
   const records = rawResult.validRecords;
@@ -654,7 +658,7 @@ export async function exportFormattedFullExcel(
   const hospitalName = config.hospitalName || 'Trung tâm Y tế Thủy Nguyên';
 
   // 1. Formatted DS Phẫu thuật sheet
-  await exportListExcel(records, listColumns, dateRange, hospitalName, wb);
+  await exportListExcel(records, listColumns, dateRange, hospitalName, wb, signatureDate);
 
   // 2. Copy raw non-formatted sheets from SheetJS workbook
   const rawWb = rawResult.wb;
@@ -672,7 +676,7 @@ export async function exportFormattedFullExcel(
     const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentPrepared;
     await exportPaymentExcel(
       enrichedRows, groups, cols, footerTotals, columnTotals,
-      config.priceConfig as unknown as Record<string, Record<string, number>>, records, dateRange, hospitalName, wb,
+      config.priceConfig as unknown as Record<string, Record<string, number>>, records, dateRange, hospitalName, wb, signatureDate,
     );
   }
 

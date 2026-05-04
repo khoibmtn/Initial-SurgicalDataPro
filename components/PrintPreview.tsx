@@ -34,9 +34,10 @@ interface PrintPreviewProps {
     extraFooterRow?: React.ReactNode;
     customThead?: React.ReactNode;
     hospitalName?: string;
-    reportTab?: 'daily' | 'monthly'; // Which tab triggered the print
-    dailyStats?: DailyPrintStats; // Stats for daily report summary row
-    paymentStatsBlock?: React.ReactNode; // Extra block for payment stats
+    reportTab?: 'daily' | 'monthly';
+    dailyStats?: DailyPrintStats;
+    paymentStatsBlock?: React.ReactNode;
+    signatureDate?: Date;
 }
 
 export const PrintPreview: React.FC<PrintPreviewProps> = ({
@@ -54,7 +55,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
     hospitalName = "BỆNH VIỆN ĐA KHOA THỦY NGUYÊN",
     reportTab,
     dailyStats,
-    paymentStatsBlock
+    paymentStatsBlock,
+    signatureDate
 }) => {
     // Auto-print when open
     React.useEffect(() => {
@@ -69,8 +71,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
 
     if (!isOpen) return null;
 
-    const today = new Date();
-    const dateString = `Ngày ${today.getDate()} tháng ${today.getMonth() + 1} năm ${today.getFullYear()}`;
+    const d = signatureDate || new Date();
+    const dateString = `Ngày ${d.getDate()} tháng ${d.getMonth() + 1} năm ${d.getFullYear()}`;
 
     // Content to render
     const printContent = (
