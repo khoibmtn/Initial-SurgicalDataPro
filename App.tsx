@@ -8,6 +8,7 @@ import { exportFormattedFullExcel } from "./services/excelExportService";
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
 import { ConfigProvider, useConfig, DEFAULT_CONFIG } from './contexts/ConfigContext';
+import { StatisticsTab } from './components/statistics/StatisticsTab';
 import { analyzeReport } from './services/geminiService';
 import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember } from './types';
 import { FileUpload } from './components/FileUpload';
@@ -18,6 +19,7 @@ import {
   Cpu,
   Database,
   Download,
+  BarChart3,
   Users,
   Zap,
   Loader2,
@@ -885,12 +887,13 @@ const initialReportState: ReportState = {
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
 
-  const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'config'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'monthly' | 'config' | 'statistics'>('daily');
   const [activeDataTab, setActiveDataTab] = useState<'storage' | 'upload'>('storage');
 
   // Independent states for Daily and Monthly reports
   const [dailyState, setDailyState] = useState<ReportState>(initialReportState);
   const [monthlyState, setMonthlyState] = useState<ReportState>(initialReportState);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
 
   const currentType = (activeTab === 'monthly') ? 'monthly' : 'daily';
   const currentReport = useMemo(() => {
@@ -906,78 +909,86 @@ const InnerApp: React.FC = () => {
     updateReportState(currentType, updates);
   };
 
-  const handleDeleteSelected = async () => {
+  const executeDelete = async () => {
     const selectedIds = currentReport.selectedRecordIds || [];
     if (selectedIds.length === 0) return;
 
-    const reportTypeName = currentType === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo hàng ngày';
-    const dataSourceName = currentReport.dataSource === 'STORAGE' ? 'Dữ liệu lưu trữ' : 'Dữ liệu import từ Excel';
-    
-    const confirmMessage = `Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đã chọn?\n\nChi tiết:\n- Nguồn dữ liệu: ${dataSourceName}\n- Thuộc: ${reportTypeName}\n\nLưu ý: Nếu dữ liệu đã nằm trong cơ sở dữ liệu, việc xóa này sẽ thực hiện xóa vĩnh viễn!`;
+    try {
+      if (!currentReport.result) return;
 
-    if (window.confirm(confirmMessage)) {
-      try {
-        if (!currentReport.result) return;
+      // Match using key or id
+      const recordsToDelete = currentReport.result.validRecords.filter(r =>
+        selectedIds.includes(r.key || r.id || "")
+      );
 
-        // Match using key or id
-        const recordsToDelete = currentReport.result.validRecords.filter(r =>
-          selectedIds.includes(r.key || r.id || "")
-        );
+      if (recordsToDelete.length === 0) {
+        addToast("Không tìm thấy dòng tương ứng để xóa", "error");
+        return;
+      }
 
-        if (recordsToDelete.length === 0) {
-          addToast("Không tìm thấy dòng tương ứng để xóa", "error");
-          return;
-        }
-
-        // 1. Xóa trong CSDL (Luôn thử xóa nếu dòng đã được lưu vào Firestore)
+      // 1. Chỉ xóa trong CSDL khi nguồn dữ liệu là LƯU TRỮ (STORAGE)
+      if (currentReport.dataSource === 'STORAGE') {
         try {
-          // Kể cả ở chế độ EXCEL, nếu dòng nào đã có firestorePath (đã lưu) thì cũng xóa
           const recordsInDb = recordsToDelete.filter(r => !!(r as any).firestorePath);
-          
-          if (recordsInDb.length > 0) {
-            const deletedCount = await reportService.deleteRecords(recordsInDb);
-            if (deletedCount > 0) {
-              addToast(`Đã xóa vĩnh viễn ${deletedCount} dòng từ cơ sở dữ liệu`, "success");
-            }
-          } else if (currentReport.dataSource === 'STORAGE') {
-            // Fallback cho trường hợp cũ nếu dataSource là STORAGE nhưng chưa có firestorePath chuẩn
-            const deletedCount = await reportService.deleteRecords(recordsToDelete);
-            if (deletedCount > 0) {
-              addToast(`Đã xóa vĩnh viễn ${deletedCount} dòng từ cơ sở dữ liệu`, "success");
-            }
+          const toDelete = recordsInDb.length > 0 ? recordsInDb : recordsToDelete;
+          const deletedCount = await reportService.deleteRecords(toDelete);
+          if (deletedCount > 0) {
+            addToast(`Đã xóa vĩnh viễn ${deletedCount} dòng từ cơ sở dữ liệu`, "success");
           }
         } catch (e) {
           console.error("Delete failed", e);
           addToast("Lỗi khi xóa từ Firestore. Vui lòng thử lại.", "error");
           return;
         }
-
-        // 2. Local Update & Reprocess
-        const remainingRecords = currentReport.result.validRecords.filter(r =>
-          !selectedIds.includes(r.key || r.id || "")
-        );
-
-        // Reprocess to update ALL derived data
-        const newResult = reprocessSurgicalRecords(
-          remainingRecords,
-          config,
-          currentReport.result.dateRangeText || ""
-        );
-
-        updateCurrentReport({
-          result: newResult,
-          selectedRecordIds: []
-        });
-
-        if (currentReport.dataSource !== 'STORAGE') {
-          addToast("Đã xóa khỏi danh sách hiện tại", "success");
-        }
-
-      } catch (error) {
-        console.error("Handle delete error:", error);
-        addToast("Có lỗi xảy ra khi xử lý xóa.", "error");
       }
+
+      // 2. Local Update & Reprocess
+      const remainingRecords = currentReport.result.validRecords.filter(r =>
+        !selectedIds.includes(r.key || r.id || "")
+      );
+
+      const newResult = reprocessSurgicalRecords(
+        remainingRecords,
+        config,
+        currentReport.result.dateRangeText || ""
+      );
+
+      updateCurrentReport({
+        result: newResult,
+        selectedRecordIds: []
+      });
+
+      if (currentReport.dataSource !== 'STORAGE') {
+        addToast(`Đã xóa ${selectedIds.length} dòng khỏi bảng hiện tại (dữ liệu lưu trữ không bị ảnh hưởng)`, "success");
+      }
+    } catch (err: any) {
+      console.error("Delete error:", err);
+      addToast(`Xóa thất bại: ${err?.message || 'Lỗi không xác định'}`, "error");
     }
+  };
+
+  const handleDeleteSelected = () => {
+    const selectedIds = currentReport.selectedRecordIds || [];
+    if (selectedIds.length === 0) return;
+
+    const reportTypeName = currentType === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo hàng ngày';
+    const isStorage = currentReport.dataSource === 'STORAGE';
+    const dataSourceName = isStorage ? 'Dữ liệu lưu trữ' : 'Dữ liệu import từ Excel';
+    
+    const warning = isStorage
+      ? 'Hành động này sẽ xóa vĩnh viễn dữ liệu khỏi cơ sở dữ liệu!'
+      : 'Chỉ xóa khỏi bảng hiện tại, dữ liệu đã lưu trữ không bị ảnh hưởng.';
+
+    const message = `Bạn có chắc chắn muốn xóa ${selectedIds.length} dòng đã chọn?\n\n- Nguồn dữ liệu: ${dataSourceName}\n- Thuộc: ${reportTypeName}\n\n${warning}`;
+
+    setDeleteConfirm({
+      show: true,
+      message,
+      onConfirm: () => {
+        setDeleteConfirm({ show: false, message: '', onConfirm: null });
+        executeDelete();
+      }
+    });
   };
 
   const handleRowSelect = (id: string, selected: boolean) => {
@@ -2950,6 +2961,37 @@ const InnerApp: React.FC = () => {
       />
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
+      {/* Delete Confirm Modal */}
+      {deleteConfirm.show && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-red-50 border-b border-red-100 px-6 py-4 flex items-center gap-3">
+              <div className="p-2 bg-red-100 rounded-xl">
+                <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
+              </div>
+              <h3 className="font-bold text-lg text-red-900">Xác nhận xóa dữ liệu</h3>
+            </div>
+            <div className="px-6 py-5">
+              <div className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{deleteConfirm.message}</div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirm({ show: false, message: '', onConfirm: null })}
+                className="px-5 py-2.5 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-sm"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={() => deleteConfirm.onConfirm?.()}
+                className="px-5 py-2.5 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-all shadow-sm"
+              >
+                Xác nhận xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="bg-gradient-to-r from-primary-800 to-primary-900 sticky top-0 z-30 shadow-lg">
         <div className="w-full px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -2984,6 +3026,17 @@ const InnerApp: React.FC = () => {
               >
                 <Calendar className={`h-3.5 w-3.5 ${activeTab === 'monthly' ? 'text-primary-800' : 'text-primary-300'}`} />
                 BC tháng
+              </button>
+
+              <button
+                onClick={() => setActiveTab('statistics')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${activeTab === 'statistics'
+                  ? 'bg-white text-primary-800 shadow-md'
+                  : 'text-primary-100 hover:bg-white/10 hover:text-white'
+                  }`}
+              >
+                <BarChart3 className={`h-3.5 w-3.5 ${activeTab === 'statistics' ? 'text-primary-800' : 'text-primary-300'}`} />
+                Thống kê
               </button>
 
               <button
@@ -3656,6 +3709,8 @@ const InnerApp: React.FC = () => {
             )}
           </div>
         )}
+
+        {activeTab === 'statistics' && <StatisticsTab />}
 
         {activeTab === 'config' && <ConfigurationTab onConfigUpdate={() => {
           if (dailyState.listFile) handleProcess('daily');

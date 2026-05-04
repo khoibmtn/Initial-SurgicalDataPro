@@ -204,3 +204,117 @@ export interface PersistedSurgeryRecord {
   id?: string;              // Firestore Document ID (để xóa)
   firestorePath?: string;   // Full Path
 }
+
+// ================= STATISTICS MODULE TYPES =================
+
+/** Loại PT/TT codes và thứ tự chuẩn */
+export const LOAI_PTTT_ORDER = ['PĐB', 'P1', 'P2', 'P3', 'TĐB', 'T1', 'T2', 'T3', 'TKPL'] as const;
+export type LoaiPTTT = typeof LOAI_PTTT_ORDER[number];
+
+export const LOAI_PTTT_LABELS: Record<string, string> = {
+  'PĐB': 'Phẫu thuật ĐB',
+  'P1': 'Phẫu thuật loại 1',
+  'P2': 'Phẫu thuật loại 2',
+  'P3': 'Phẫu thuật loại 3',
+  'TĐB': 'Thủ thuật ĐB',
+  'T1': 'Thủ thuật loại 1',
+  'T2': 'Thủ thuật loại 2',
+  'T3': 'Thủ thuật loại 3',
+  'TKPL': 'Thủ thuật KPL',
+};
+
+/** Phiên bản bảng giá dịch vụ PT/TT (lưu trong RTDB) */
+export interface SurgeryPriceVersion {
+  id: string;
+  name: string;
+  effectiveFrom: string;         // "2024-01-01" ISO date
+  effectiveTo: string | null;    // null = đang hiệu lực
+  createdAt: number;
+  note: string;
+  prices: Record<string, number>; // { "PĐB": 5000000, "P1": 3000000, ... }
+}
+
+/** Số liệu tổng hợp theo tháng (computed, không lưu DB) */
+export interface MonthlyAggregate {
+  month: number;
+  year: number;
+  actualCases: number;
+  equivalentCases: number;
+  byType: Record<string, number>;
+  byTypeEquivalent: Record<string, number>;
+  byName: Record<string, number>;
+  byNameEquivalent: Record<string, number>;
+  serviceCost: number;
+  laborCost: number;
+  serviceCostByType: Record<string, number>;
+  laborCostByType: Record<string, number>;
+  dataSource: 'MONTHLY' | 'DAILY';
+}
+
+/** Số liệu tổng hợp theo ngày (tháng hiện tại) */
+export interface DailyAggregate {
+  date: string;
+  cases: number;
+  cumulative: number;
+  equivalentCases: number;
+  cumulativeEquivalent: number;
+  serviceCost: number;
+  cumulativeServiceCost: number;
+  laborCost: number;
+  cumulativeLaborCost: number;
+  byType: Record<string, number>;
+}
+
+/** Dữ liệu dự báo tháng hiện tại */
+export interface ForecastData {
+  daysElapsed: number;
+  totalDaysInMonth: number;
+  currentCumulative: number;
+  forecastTotal: number;
+  lastYearSameMonth: number;
+  completionVsLastYear: number | null;
+  confidence: 'low' | 'medium' | 'high';
+}
+
+/** Thống kê theo tên PT/TT cho cả năm */
+export interface SurgeryNameStats {
+  name: string;
+  normalizedName: string;
+  totalCases: number;
+  totalEquivalent: number;
+  percentage: number;
+  changeVsCompare: number | null;
+  monthlyBreakdown: number[];
+}
+
+/** Bất thường vận hành theo ngày */
+export interface DailyAnomaly {
+  date: string;
+  type: 'zero_cases' | 'drop_50pct' | 'spike_200pct';
+  message: string;
+}
+
+/** Kết quả tổng hợp thống kê cho UI */
+export interface StatisticsData {
+  primaryYear: number;
+  compareYear: number;
+  selectedMonth: number; // 1-12, the month for daily aggregation
+  primary: MonthlyAggregate[];
+  compare: MonthlyAggregate[];
+  currentMonthDaily: DailyAggregate[];
+  previousMonthDaily: DailyAggregate[];
+  compareMonthDaily: DailyAggregate[];
+  forecast: ForecastData | null;
+  topSurgeries: SurgeryNameStats[];
+  anomalies: DailyAnomaly[];
+  paceVsLastYear: number | null;
+  targetCases: number | null;
+  validation: DataValidationResult;
+}
+
+/** Kết quả kiểm tra chất lượng dữ liệu */
+export interface DataValidationResult {
+  duplicateCount: number;
+  missingPriceMonths: string[];
+  totalRecords: number;
+}
