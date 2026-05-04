@@ -13,11 +13,13 @@ import {
   StatisticsData,
   DataValidationResult,
   SurgeryPriceVersion,
+  SurgeryNamePrice,
   SurgeryNameStats,
   DailyAnomaly,
   LOAI_PTTT_ORDER,
 } from '../types';
 import { RolePrice } from '../contexts/ConfigContext';
+import { getNamePrice } from './surgeryNamePriceService';
 
 // --- Constants ---
 const MAX_YEAR_RANGE = 3;
@@ -123,6 +125,7 @@ function validateRecords(records: PersistedSurgeryRecord[]): DataValidationResul
   return {
     duplicateCount,
     missingPriceMonths: [],
+    missingSurgeryNames: [],
     totalRecords: records.length,
   };
 }
@@ -158,7 +161,9 @@ function aggregateMonth(
   priceVersions: SurgeryPriceVersion[],
   laborPrices: Record<string, RolePrice>,
   missingPriceMonths: string[],
-  nameMap: Map<string, string>
+  nameMap: Map<string, string>,
+  namePrices: SurgeryNamePrice[] = [],
+  missingSurgeryNameSet?: Map<string, Set<string>>
 ): MonthlyAggregate {
   const byType: Record<string, number> = {};
   const byTypeEquivalent: Record<string, number> = {};
@@ -166,8 +171,10 @@ function aggregateMonth(
   const byNameEquivalent: Record<string, number> = {};
   const serviceCostByType: Record<string, number> = {};
   const laborCostByType: Record<string, number> = {};
+  const namePriceCostByType: Record<string, number> = {};
   let totalServiceCost = 0;
   let totalLaborCost = 0;
+  let totalNamePriceCost = 0;
   let hasMissingPrice = false;
 
   for (const r of records) {
@@ -196,6 +203,20 @@ function aggregateMonth(
     const labCost = getLaborCost(loai, qty, laborPrices);
     totalLaborCost += labCost;
     laborCostByType[loai] = (laborCostByType[loai] || 0) + labCost;
+
+    // Name-based price lookup
+    const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
+    if (!nameResult.found && r.tenKT?.trim() && missingSurgeryNameSet) {
+      const name = r.tenKT.trim();
+      const dateStr = r.ngayBD ? r.ngayBD.substring(0, 10) : '';
+      if (!missingSurgeryNameSet.has(name)) {
+        missingSurgeryNameSet.set(name, new Set<string>());
+      }
+      if (dateStr) missingSurgeryNameSet.get(name)!.add(dateStr);
+    }
+    const npCost = nameResult.price * qty;
+    totalNamePriceCost += npCost;
+    namePriceCostByType[loai] = (namePriceCostByType[loai] || 0) + npCost;
   }
 
   if (hasMissingPrice) {
@@ -207,14 +228,17 @@ function aggregateMonth(
     equivalentCases: Object.values(byTypeEquivalent).reduce((s, v) => s + v, 0),
     byType, byTypeEquivalent, byName, byNameEquivalent,
     serviceCost: totalServiceCost, laborCost: totalLaborCost,
-    serviceCostByType, laborCostByType, dataSource,
+    serviceCostByType, laborCostByType,
+    namePriceCost: totalNamePriceCost, namePriceCostByType,
+    dataSource,
   };
 }
 
 function aggregateDaily(
   records: PersistedSurgeryRecord[],
   priceVersions: SurgeryPriceVersion[],
-  laborPrices: Record<string, RolePrice>
+  laborPrices: Record<string, RolePrice>,
+  namePrices: SurgeryNamePrice[] = []
 ): DailyAggregate[] {
   const byDate = new Map<string, PersistedSurgeryRecord[]>();
 
@@ -226,12 +250,12 @@ function aggregateDaily(
   }
 
   const sortedDates = Array.from(byDate.keys()).sort();
-  let cumCases = 0, cumEquiv = 0, cumSvcCost = 0, cumLabCost = 0;
+  let cumCases = 0, cumEquiv = 0, cumSvcCost = 0, cumLabCost = 0, cumNameCost = 0;
 
   return sortedDates.map(date => {
     const recs = byDate.get(date)!;
     const byType: Record<string, number> = {};
-    let daySvcCost = 0, dayLabCost = 0, dayEquiv = 0;
+    let daySvcCost = 0, dayLabCost = 0, dayEquiv = 0, dayNameCost = 0;
 
     for (const r of recs) {
       const loai = r.loaiPTTT || 'TKPL';
@@ -241,41 +265,296 @@ function aggregateDaily(
       const { price } = getServicePrice(loai, r.ngayBD, priceVersions);
       daySvcCost += price * qty;
       dayLabCost += getLaborCost(loai, qty, laborPrices);
+      const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
+      dayNameCost += nameResult.price * qty;
     }
 
     cumCases += recs.length;
     cumEquiv += dayEquiv;
     cumSvcCost += daySvcCost;
     cumLabCost += dayLabCost;
+    cumNameCost += dayNameCost;
 
     return {
       date, cases: recs.length, cumulative: cumCases,
       equivalentCases: dayEquiv, cumulativeEquivalent: cumEquiv,
       serviceCost: daySvcCost, cumulativeServiceCost: cumSvcCost,
-      laborCost: dayLabCost, cumulativeLaborCost: cumLabCost, byType,
+      laborCost: dayLabCost, cumulativeLaborCost: cumLabCost,
+      namePriceCost: dayNameCost, cumulativeNamePriceCost: cumNameCost,
+      byType,
     };
   });
 }
 
-// --- Forecast ---
+// --- Forecast V5+ — Cumulative Seasonal Model ---
 
+/**
+ * Tết Nguyên Đán windows — tháng chính bị ảnh hưởng và số ngày nghỉ.
+ * Cập nhật thủ công hàng năm hoặc khi biết lịch Tết.
+ */
+const TET_CALENDAR: Record<number, { month: number; days: number }> = {
+  2024: { month: 2, days: 8 },   // Tết 10/02/2024
+  2025: { month: 1, days: 8 },   // Tết 29/01/2025
+  2026: { month: 2, days: 8 },   // Tết 17/02/2026
+  2027: { month: 2, days: 7 },   // Tết 06/02/2027
+  2028: { month: 1, days: 8 },   // Tết 26/01/2028
+};
+
+/** Known fixed holidays (MM-DD) — same every year ±1 day */
+const FIXED_HOLIDAYS = ['01-01', '04-30', '05-01', '09-02'];
+
+/** Build multi-year weighted seasonal index */
+function buildSeasonalIndex(
+  recentYear: MonthlyAggregate[],
+  prevYear?: MonthlyAggregate[]
+): number[] {
+  const totalRecent = recentYear.reduce((s, m) => s + m.actualCases, 0);
+  if (totalRecent === 0) return new Array(12).fill(1 / 12);
+
+  const indexRecent = recentYear.map(m => m.actualCases / totalRecent);
+
+  if (!prevYear) return indexRecent;
+
+  const totalPrev = prevYear.reduce((s, m) => s + m.actualCases, 0);
+  if (totalPrev === 0) return indexRecent;
+
+  const indexPrev = prevYear.map(m => m.actualCases / totalPrev);
+  return indexRecent.map((v, i) => 0.65 * v + 0.35 * indexPrev[i]);
+}
+
+/** Adjust seasonal index for Tết influence */
+function adjustSeasonalForTet(
+  seasonality: number[],
+  forecastYear: number,
+  referenceYears: number[]
+): number[] {
+  const tetThis = TET_CALENDAR[forecastYear];
+  if (!tetThis) return seasonality; // no Tết data → no adjustment
+
+  // Check if reference years had Tết in a different month
+  const refTetMonths = referenceYears
+    .map(y => TET_CALENDAR[y]?.month)
+    .filter(Boolean);
+
+  const allSameMonth = refTetMonths.every(m => m === tetThis.month);
+  if (allSameMonth) return seasonality; // Tết in same month → seasonal already captures it
+
+  // Tết shifted between months → reduce seasonal confidence for affected months
+  const adjusted = [...seasonality];
+  const WORKING_DAYS = 22;
+  const reduction = (WORKING_DAYS - tetThis.days) / WORKING_DAYS;
+
+  // Lighten the Tết month's seasonal (it will be lower than reference)
+  adjusted[tetThis.month - 1] *= reduction;
+
+  // Redistribute to other months proportionally
+  const deficit = seasonality[tetThis.month - 1] - adjusted[tetThis.month - 1];
+  const otherTotal = adjusted.reduce((s, v, i) => i === tetThis.month - 1 ? s : s + v, 0);
+  for (let i = 0; i < 12; i++) {
+    if (i !== tetThis.month - 1 && otherTotal > 0) {
+      adjusted[i] += deficit * (adjusted[i] / otherTotal);
+    }
+  }
+
+  return adjusted;
+}
+
+/** Continuous seasonal weight function: progress [0,1] → weight [0.85, 0.15] */
+function calcSeasonalWeight(progress: number, isTetMonth: boolean): number {
+  const base = Math.max(0.15, 0.85 - 0.70 * Math.min(progress / 0.8, 1.0));
+  return isTetMonth ? base * 0.75 : base;
+}
+
+/** Compute median of an array */
+function median(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/** Count known holidays in remaining days of the month */
+function countHolidaysInRange(year: number, month: number, fromDay: number, toDay: number): number {
+  let count = 0;
+  for (const mmdd of FIXED_HOLIDAYS) {
+    const [mm, dd] = mmdd.split('-').map(Number);
+    if (mm === month && dd >= fromDay && dd <= toDay) count++;
+  }
+  // Tết days
+  const tet = TET_CALENDAR[year];
+  if (tet && tet.month === month) {
+    // Rough: Tết ~centered in the month, spanning tet.days
+    // For simplicity, just flag that this month has Tết
+    // Actual day-level exclusion would need exact start date
+  }
+  return count;
+}
+
+/**
+ * V5+ Forecast Engine
+ *
+ * Steps:
+ * 1. Build seasonal index (multi-year weighted)
+ * 2. Calculate cumulative seasonal → year estimate
+ * 3. Seasonal month forecast = yearEstimate × seasonality[m]
+ * 4. Run-rate (median when ≥7 days, else mean)
+ * 5. Continuous blend with soft signals
+ * 6. Top-down future months
+ */
 function calculateForecast(
   dailyData: DailyAggregate[],
   totalDaysInMonth: number,
-  lastYearSameMonth: number
+  lastYearSameMonth: number,
+  primaryMonthly: MonthlyAggregate[],
+  compareMonthly: MonthlyAggregate[],
+  currentMonth: number,
+  primaryYear: number,
+  compareYear: number,
+  prevYearMonthly?: MonthlyAggregate[]
 ): ForecastData | null {
   const daysElapsed = dailyData.length;
-  if (daysElapsed < 5) return null;
+  if (daysElapsed < 3) return null;
 
   const cumulative = dailyData.length > 0 ? dailyData[dailyData.length - 1].cumulative : 0;
-  const dailyAvg = cumulative / daysElapsed;
-  const forecast = Math.round(dailyAvg * totalDaysInMonth);
+
+  // --- STEP 1: Seasonal Index ---
+  // Use compare year as primary reference, prevYear (if available) as secondary
+  const seasonality = (() => {
+    const rawIndex = buildSeasonalIndex(compareMonthly, prevYearMonthly);
+    const refYears = prevYearMonthly ? [compareYear, compareYear - 1] : [compareYear];
+    return adjustSeasonalForTet(rawIndex, primaryYear, refYears);
+  })();
+
+  // --- STEP 2: Year Estimate (cumulative seasonal) ---
+  const completedMonths = primaryMonthly.filter(m => m.month < currentMonth && m.actualCases > 0);
+  const completedCum = completedMonths.reduce((s, m) => s + m.actualCases, 0);
+  const totalCum = completedCum + cumulative;
+
+  // Seasonal cumulative: full months + partial current month
+  const completedSeasonalCum = seasonality
+    .slice(0, currentMonth - 1)
+    .reduce((s, v) => s + v, 0);
+  const partialSeasonalCum = seasonality[currentMonth - 1] * (daysElapsed / totalDaysInMonth);
+  const seasonalCum = completedSeasonalCum + partialSeasonalCum;
+
+  // Year estimate with safety threshold
+  let yearEstimate: number | null = null;
+  let modelNote = '';
+
+  if (seasonalCum >= 0.15) {
+    yearEstimate = Math.round(totalCum / seasonalCum);
+    modelNote = 'seasonal';
+  } else {
+    modelNote = 'fallback (seasonalCum < 15%)';
+  }
+
+  // --- STEP 3: Seasonal month forecast ---
+  const seasonalForecast = yearEstimate !== null
+    ? yearEstimate * seasonality[currentMonth - 1]
+    : null;
+
+  // --- STEP 4: Run-rate (improved) ---
+  const dailyCases = dailyData.map(d => d.cases);
+
+  // Exclude known holidays from run-rate calculation
+  const nonHolidayCases = dailyData.filter(d => {
+    const mmdd = d.date.slice(5); // "MM-DD"
+    return !FIXED_HOLIDAYS.includes(mmdd) && d.cases > 0;
+  }).map(d => d.cases);
+
+  const effectiveDailyCases = nonHolidayCases.length >= 3 ? nonHolidayCases : dailyCases;
+  const dailyAvg = effectiveDailyCases.length >= 7
+    ? median(effectiveDailyCases.slice(-7))
+    : effectiveDailyCases.reduce((s, v) => s + v, 0) / effectiveDailyCases.length;
+
+  const remainingDays = totalDaysInMonth - daysElapsed;
+  const holidaysRemaining = countHolidaysInRange(primaryYear, currentMonth, daysElapsed + 1, totalDaysInMonth);
+  const effectiveRemainingDays = Math.max(0, remainingDays - holidaysRemaining);
+  const runRateForecast = cumulative + dailyAvg * effectiveRemainingDays;
+
+  // --- STEP 5: Blend with continuous weight + soft signals ---
+  const progress = daysElapsed / totalDaysInMonth;
+  const isTetMonth = TET_CALENDAR[primaryYear]?.month === currentMonth;
+  let wSeasonal = calcSeasonalWeight(progress, isTetMonth);
+
+  // Soft signals (only when ≥10 days of data for stability)
+  if (seasonalForecast !== null && daysElapsed >= 10) {
+    const expectedAvg = seasonalForecast / totalDaysInMonth;
+    const actualAvg = cumulative / daysElapsed;
+    const k = 0.4;
+
+    // Baseline signal: level detection
+    if (expectedAvg > 0) {
+      const baselineSignal = actualAvg / expectedAvg;
+      const baselineAdj = Math.max(0.9, Math.min(1.1, 1 + k * (baselineSignal - 1)));
+      wSeasonal *= baselineAdj;
+    }
+
+    // Trend signal: direction detection (compare recent half vs first half)
+    if (daysElapsed >= 14) {
+      const halfPoint = Math.floor(daysElapsed / 2);
+      const firstHalf = dailyCases.slice(0, halfPoint);
+      const secondHalf = dailyCases.slice(halfPoint);
+      const medFirst = median(firstHalf);
+      const medSecond = median(secondHalf);
+      if (medFirst > 0) {
+        const trendRatio = medSecond / medFirst;
+        const trendAdj = Math.max(0.9, Math.min(1.1, 1 + k * (trendRatio - 1)));
+        wSeasonal *= trendAdj;
+      }
+    }
+  }
+
+  // Clamp final weight
+  wSeasonal = Math.max(0.10, Math.min(0.90, wSeasonal));
+
+  // Final blend
+  let forecastTotal: number;
+  if (seasonalForecast !== null) {
+    forecastTotal = Math.round(wSeasonal * seasonalForecast + (1 - wSeasonal) * runRateForecast);
+    if (modelNote === 'seasonal') modelNote = `blend (w_s=${wSeasonal.toFixed(2)})`;
+  } else {
+    forecastTotal = Math.round(runRateForecast);
+  }
+
+  // --- STEP 6: Future months (top-down) ---
+  const forecastMonthly: Record<number, number> = {};
+  if (yearEstimate !== null) {
+    let runCum = completedCum;
+
+    for (let m = 1; m <= 12; m++) {
+      if (m < currentMonth) {
+        // Completed months: use actual
+        runCum = primaryMonthly
+          .filter(pm => pm.month <= m)
+          .reduce((s, pm) => s + pm.actualCases, 0);
+      } else if (m === currentMonth) {
+        // Current month: use blended forecast
+        runCum = completedCum + forecastTotal;
+      } else {
+        // Future months: top-down
+        runCum += Math.round(yearEstimate * seasonality[m - 1]);
+      }
+      forecastMonthly[m] = runCum;
+    }
+  }
+
+  // Confidence
+  const confidence: 'low' | 'medium' | 'high' =
+    daysElapsed >= 20 ? 'high' : daysElapsed >= 10 ? 'medium' : 'low';
 
   return {
-    daysElapsed, totalDaysInMonth, currentCumulative: cumulative,
-    forecastTotal: forecast, lastYearSameMonth,
-    completionVsLastYear: lastYearSameMonth > 0 ? Math.round(forecast / lastYearSameMonth * 100) : null,
-    confidence: daysElapsed >= 20 ? 'high' : daysElapsed >= 10 ? 'medium' : 'low',
+    daysElapsed,
+    totalDaysInMonth,
+    currentCumulative: cumulative,
+    forecastTotal,
+    lastYearSameMonth,
+    completionVsLastYear: lastYearSameMonth > 0 ? Math.round(forecastTotal / lastYearSameMonth * 100) : null,
+    confidence,
+    yearEstimate,
+    forecastMonthly,
+    seasonalWeight: wSeasonal,
+    modelNote,
   };
 }
 
@@ -397,7 +676,8 @@ export async function fetchAndAggregateStatistics(
   compareYear: number,
   priceVersions: SurgeryPriceVersion[],
   laborPrices: Record<string, RolePrice>,
-  selectedMonth?: number
+  selectedMonth?: number,
+  namePrices: SurgeryNamePrice[] = []
 ): Promise<StatisticsData> {
   if (Math.abs(primaryYear - compareYear) > MAX_YEAR_RANGE) {
     throw new Error(`Chỉ hỗ trợ so sánh tối đa ${MAX_YEAR_RANGE} năm`);
@@ -419,20 +699,21 @@ export async function fetchAndAggregateStatistics(
 
   const validation = validateRecords(allRecords);
   const missingPriceMonths: string[] = [];
+  const missingSurgeryNameSet = new Map<string, Set<string>>();
   const nameMap = new Map<string, string>(); // normalized → original display name
 
   // Aggregate monthly for primary year
   const primary: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
     const { records, source } = getRecordsForMonth(m, primaryYear, primaryData.monthly, primaryData.daily);
-    primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap));
+    primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameSet));
   }
 
   // Aggregate monthly for compare year
   const compare: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
     const { records, source } = getRecordsForMonth(m, compareYear, compareData.monthly, compareData.daily);
-    compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap));
+    compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameSet));
   }
 
   // Daily aggregation for the selected month (default = current calendar month)
@@ -445,7 +726,7 @@ export async function fetchAndAggregateStatistics(
 
   // Always aggregate daily for the selected month from primary year
   const { records } = getRecordsForMonth(currentMonth, primaryYear, primaryData.monthly, primaryData.daily);
-  currentMonthDaily = aggregateDaily(records, priceVersions, laborPrices);
+  currentMonthDaily = aggregateDaily(records, priceVersions, laborPrices, namePrices);
 
   // Previous month daily
   const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
@@ -453,19 +734,42 @@ export async function fetchAndAggregateStatistics(
   const prevData = prevMonthYear === primaryYear ? primaryData : (prevMonthYear === compareYear ? compareData : null);
   if (prevData) {
     const { records: prevRecords } = getRecordsForMonth(prevMonth, prevMonthYear, prevData.monthly, prevData.daily);
-    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices);
+    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, namePrices);
   }
 
   // Compare year same month daily data
   const { records: compareRecords } = getRecordsForMonth(currentMonth, compareYear, compareData.monthly, compareData.daily);
-  compareMonthDaily = aggregateDaily(compareRecords, priceVersions, laborPrices);
+  compareMonthDaily = aggregateDaily(compareRecords, priceVersions, laborPrices, namePrices);
 
-  // Forecast (only for current real month of current year)
-  const isCurrentRealMonth = primaryYear === currentYear && currentMonth === (now.getMonth() + 1);
-  const lastYearSameMonth = compare.find(m => m.month === currentMonth)?.actualCases ?? 0;
-  const forecast = isCurrentRealMonth
-    ? calculateForecast(currentMonthDaily, daysInMonth(currentMonth, currentYear), lastYearSameMonth)
-    : null;
+  // Forecast (only when viewing current year)
+  const isCurrentYear = primaryYear === currentYear;
+  const realMonth = now.getMonth() + 1;
+  const lastYearSameMonth = compare.find(m => m.month === realMonth)?.actualCases ?? 0;
+  let forecast: ForecastData | null = null;
+  if (isCurrentYear) {
+    // Fetch previous year (compareYear - 1) for multi-year seasonal smoothing
+    let prevYearMonthly: MonthlyAggregate[] | undefined;
+    try {
+      const prevYearNum = compareYear - 1;
+      if (prevYearNum >= primaryYear - MAX_YEAR_RANGE) {
+        const prevYearData = await fetchRecordsForYear(prevYearNum);
+        const prevNameMap = new Map<string, string>();
+        prevYearMonthly = [];
+        for (let m = 1; m <= 12; m++) {
+          const { records: pRecords, source: pSource } = getRecordsForMonth(m, prevYearNum, prevYearData.monthly, prevYearData.daily);
+          prevYearMonthly.push(aggregateMonth(m, prevYearNum, pRecords, pSource, priceVersions, laborPrices, [], prevNameMap, namePrices));
+        }
+      }
+    } catch { /* gracefully degrade to single-year index */ }
+
+    // Get daily data for the real current month (not selectedMonth which is for chart)
+    const { records: forecastRecords } = getRecordsForMonth(realMonth, primaryYear, primaryData.monthly, primaryData.daily);
+    const forecastDailyData = aggregateDaily(forecastRecords, priceVersions, laborPrices, namePrices);
+    forecast = calculateForecast(
+      forecastDailyData, daysInMonth(realMonth, currentYear), lastYearSameMonth,
+      primary, compare, realMonth, primaryYear, compareYear, prevYearMonthly
+    );
+  }
 
   // TOP surgeries
   const topSurgeries = buildTopSurgeries(primary, compare, nameMap);
@@ -477,11 +781,14 @@ export async function fetchAndAggregateStatistics(
   const paceVsLastYear = calculatePace(currentMonthDaily, compareMonthDaily);
 
   // Target
-  const targetCases = isCurrentRealMonth
+  const targetCases = isCurrentYear
     ? calculateTarget(primary, lastYearSameMonth)
     : null;
 
   validation.missingPriceMonths = missingPriceMonths;
+  validation.missingSurgeryNames = Array.from(missingSurgeryNameSet.entries())
+    .map(([name, dateSet]) => ({ name, dates: Array.from(dateSet).sort() }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
 
   return {
     primaryYear, compareYear, selectedMonth: currentMonth,

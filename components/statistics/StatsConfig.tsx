@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import {
   SurgeryPriceVersion,
+  SurgeryNamePrice,
   LOAI_PTTT_ORDER,
   LOAI_PTTT_LABELS,
 } from '../../types';
@@ -24,9 +25,11 @@ import {
   validatePrices,
   ImportedPriceData,
 } from '../../services/pricingService';
+import { SurgeryNamePriceConfig } from './SurgeryNamePriceConfig';
 
 interface Props {
   priceVersions: SurgeryPriceVersion[];
+  surgeryNamePrices: SurgeryNamePrice[];
 }
 
 interface FormState {
@@ -57,7 +60,7 @@ function toFormState(v: SurgeryPriceVersion): FormState {
 
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
-export const StatsConfig: React.FC<Props> = ({ priceVersions }) => {
+export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -198,7 +201,14 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions }) => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Section 1: Surgery Name Prices */}
+      <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} />
+
+      {/* Separator */}
+      <div className="border-t-2 border-gray-200 pt-6">
+        <p className="text-[11px] text-gray-400 uppercase tracking-wider font-bold mb-4">Bảng giá nhân công PT/TT</p>
+      </div>
       {/* Toast */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 animate-fade-in ${

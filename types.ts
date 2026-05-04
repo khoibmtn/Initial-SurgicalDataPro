@@ -234,6 +234,17 @@ export interface SurgeryPriceVersion {
   prices: Record<string, number>; // { "PĐB": 5000000, "P1": 3000000, ... }
 }
 
+/** Giá dịch vụ theo tên phẫu thuật cụ thể (flat: 1 record = 1 tên + 1 giá + hiệu lực) */
+export interface SurgeryNamePrice {
+  id: string;
+  tenKT: string;                 // Tên kỹ thuật (exact match, normalized)
+  price: number;                 // Đơn giá dịch vụ (VNĐ)
+  effectiveFrom: string;         // "2024-01-01" ISO date — bắt đầu hiệu lực
+  effectiveTo: string | null;    // ISO date | null — null = đang hiệu lực
+  createdAt: number;             // timestamp
+  note?: string;
+}
+
 /** Số liệu tổng hợp theo tháng (computed, không lưu DB) */
 export interface MonthlyAggregate {
   month: number;
@@ -248,6 +259,8 @@ export interface MonthlyAggregate {
   laborCost: number;
   serviceCostByType: Record<string, number>;
   laborCostByType: Record<string, number>;
+  namePriceCost: number;                       // Doanh thu dịch vụ theo tên PT
+  namePriceCostByType: Record<string, number>; // Doanh thu theo loại (PĐB, P1...)
   dataSource: 'MONTHLY' | 'DAILY';
 }
 
@@ -262,18 +275,25 @@ export interface DailyAggregate {
   cumulativeServiceCost: number;
   laborCost: number;
   cumulativeLaborCost: number;
+  namePriceCost: number;
+  cumulativeNamePriceCost: number;
   byType: Record<string, number>;
 }
 
-/** Dữ liệu dự báo tháng hiện tại */
+/** Dữ liệu dự báo — V5+ Cumulative Seasonal Model */
 export interface ForecastData {
   daysElapsed: number;
   totalDaysInMonth: number;
   currentCumulative: number;
-  forecastTotal: number;
+  forecastTotal: number;                    // Dự báo tháng hiện tại (blended)
   lastYearSameMonth: number;
   completionVsLastYear: number | null;
   confidence: 'low' | 'medium' | 'high';
+  // V5+ extensions
+  yearEstimate: number | null;              // Ước lượng tổng năm (top-down)
+  forecastMonthly: Record<number, number>;  // Forecast lũy kế theo tháng (1-12) cho chart
+  seasonalWeight: number;                   // Weight seasonal thực tế đã dùng
+  modelNote: string;                        // Ghi chú model (fallback/seasonal/blend)
 }
 
 /** Thống kê theo tên PT/TT cho cả năm */
@@ -316,5 +336,6 @@ export interface StatisticsData {
 export interface DataValidationResult {
   duplicateCount: number;
   missingPriceMonths: string[];
+  missingSurgeryNames: { name: string; dates: string[] }[];   // tenKT không tìm thấy giá dịch vụ + ngày PT
   totalRecords: number;
 }
