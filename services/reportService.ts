@@ -128,12 +128,16 @@ export const reportService = {
                             }
                         } else {
                             // New record - save for both DAILY and MONTHLY
-                            // (Previously MONTHLY only saved records with gv - this was a bug)
                             recordsToSave.push(rec);
                         }
                     });
 
                     console.log(`Deduplication complete: ${recordsToSave.length} to insert, ${updatedCount} to update, ${skippedCount} to skip.`);
+                } else {
+                    // No valid start dates found in the entire batch.
+                    // We cannot deduplicate by date range, so we simply insert all of them.
+                    console.log(`No valid start dates found in batch. Saving all ${records.length} records without deduplication.`);
+                    records.forEach(rec => recordsToSave.push(rec));
                 }
             }
 
