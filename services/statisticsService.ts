@@ -172,6 +172,7 @@ function aggregateMonth(
   const serviceCostByType: Record<string, number> = {};
   const laborCostByType: Record<string, number> = {};
   const namePriceCostByType: Record<string, number> = {};
+  const namePriceCostByName: Record<string, number> = {};
   let totalServiceCost = 0;
   let totalLaborCost = 0;
   let totalNamePriceCost = 0;
@@ -217,6 +218,9 @@ function aggregateMonth(
     const npCost = nameResult.price * qty;
     totalNamePriceCost += npCost;
     namePriceCostByType[loai] = (namePriceCostByType[loai] || 0) + npCost;
+    if (normalized) {
+      namePriceCostByName[normalized] = (namePriceCostByName[normalized] || 0) + npCost;
+    }
   }
 
   if (hasMissingPrice) {
@@ -229,7 +233,7 @@ function aggregateMonth(
     byType, byTypeEquivalent, byName, byNameEquivalent,
     serviceCost: totalServiceCost, laborCost: totalLaborCost,
     serviceCostByType, laborCostByType,
-    namePriceCost: totalNamePriceCost, namePriceCostByType,
+    namePriceCost: totalNamePriceCost, namePriceCostByType, namePriceCostByName,
     dataSource,
   };
 }

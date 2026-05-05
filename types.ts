@@ -261,6 +261,7 @@ export interface MonthlyAggregate {
   laborCostByType: Record<string, number>;
   namePriceCost: number;                       // Doanh thu dịch vụ theo tên PT
   namePriceCostByType: Record<string, number>; // Doanh thu theo loại (PĐB, P1...)
+  namePriceCostByName: Record<string, number>; // Viện phí theo tên PTTT (normalized)
   dataSource: 'MONTHLY' | 'DAILY';
 }
 

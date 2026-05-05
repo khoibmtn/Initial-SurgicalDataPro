@@ -1,8 +1,8 @@
 /**
  * StatsSummary — KPI cards + Monthly summary table + Daily chart + Surgery type table
  */
-import React, { useState } from 'react';
-import { TrendingUp, TrendingDown, Activity, Calculator, DollarSign, Target, Minus, Info, Download, Loader2, AlertTriangle } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { TrendingUp, TrendingDown, Activity, Calculator, DollarSign, Target, Minus, Info, Download, Loader2, AlertTriangle, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
@@ -47,6 +47,42 @@ const Toggle: React.FC<{ left: string; right: string; value: boolean; onChange: 
     >{right}</button>
   </div>
 );
+
+// --- Collapsible Frame Wrapper ---
+const CollapsibleFrame: React.FC<{
+  title: string;
+  defaultOpen?: boolean;
+  headerRight?: React.ReactNode;
+  children: React.ReactNode;
+  storageKey?: string;
+}> = ({ title, defaultOpen = true, headerRight, children, storageKey }) => {
+  const [open, setOpen] = useState(() => {
+    if (storageKey) {
+      try { const v = localStorage.getItem(storageKey); if (v !== null) return v === '1'; } catch {}
+    }
+    return defaultOpen;
+  });
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (storageKey) try { localStorage.setItem(storageKey, next ? '1' : '0'); } catch {}
+  };
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      <div
+        className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between cursor-pointer select-none hover:bg-gray-100 transition-colors"
+        onClick={toggle}
+      >
+        <h3 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+          {open ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+          {title}
+        </h3>
+        {open && headerRight && <div onClick={e => e.stopPropagation()}>{headerRight}</div>}
+      </div>
+      {open && children}
+    </div>
+  );
+};
 
 // --- localStorage helpers for chart settings ---
 const CHART_SETTINGS_KEY = 'sdp_chart_settings';
@@ -579,7 +615,7 @@ const RevenueTrendChart: React.FC<{
     }
   }, [ready, isMonthPeriod, isCumulative, currentMonth, data, primary, compare, currentMonthDaily, previousMonthDaily, compareMonthDaily, isCurrentYear, prevMonth, prevMonthYear, savedColors]);
 
-  const chartTitle = isCumulative ? 'Lũy kế doanh thu DV' : 'Doanh thu DV';
+  const chartTitle = isCumulative ? 'Lũy kế viện phí PT/TT' : 'Viện phí PT/TT';
   const showForecastLine = isCurrentYear && (isCumulative || isMonthPeriod);
 
   // Forecast label for right side
@@ -609,7 +645,7 @@ const RevenueTrendChart: React.FC<{
             <DollarSign className="h-5 w-5 text-teal-600" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-teal-800">Biểu đồ Doanh thu dịch vụ</h3>
+            <h3 className="text-sm font-bold text-teal-800">Biểu đồ Viện phí phẫu thuật, thủ thuật</h3>
             <p className="text-[10px] text-teal-600">
               {totalRevPrimary > 0 ? `Tổng năm ${data.primaryYear}: ${fmtMoney(totalRevPrimary)}` : 'Nhấn để xem chi tiết'}
               {missingCount > 0 && <span className="text-amber-600 ml-2">⚠ {missingCount} PT chưa có giá</span>}
@@ -641,7 +677,7 @@ const RevenueTrendChart: React.FC<{
       {!ready ? (
         <div className="flex flex-col items-center justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
-          <p className="mt-3 text-sm text-teal-600 font-medium">Đang tính toán doanh thu...</p>
+          <p className="mt-3 text-sm text-teal-600 font-medium">Đang tính toán viện phí...</p>
           <p className="text-[10px] text-gray-400 mt-1">Áp giá cho từng ca phẫu thuật</p>
         </div>
       ) : (
@@ -668,7 +704,7 @@ const RevenueTrendChart: React.FC<{
               </div>
               <div className="flex flex-col items-end gap-0.5">
                 <span className="text-xs font-bold text-gray-700">
-                  {isCumulative ? 'Doanh thu lũy kế' : `Doanh thu từng ${isMonthPeriod ? 'tháng' : 'ngày'}`}
+                  {isCumulative ? 'Viện phí lũy kế' : `Viện phí từng ${isMonthPeriod ? 'tháng' : 'ngày'}`}
                 </span>
                 {showForecastLine && forecastLabelText && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold text-[10px] bg-teal-100 text-teal-700">
@@ -724,6 +760,234 @@ const RevenueTrendChart: React.FC<{
         </>
       )}
     </div>
+  );
+};
+
+// --- Surgery Name Breakdown Table ---
+interface SurgeryNameBreakdownProps {
+  data: StatisticsData;
+  nav: ChartNavState;
+  fmtNum: (n: number) => string;
+  fmtMoney: (n: number) => string;
+}
+
+const ROWS_PER_PAGE = 25;
+
+const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, fmtNum, fmtMoney }) => {
+  const { primary } = data;
+  const isMonthPeriod = nav.isMonthPeriod;
+  const selectedMonth = nav.selectedMonth;
+  const [showRevenue, setShowRevenue] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [page, setPage] = useState(0);
+
+  // Compute rows: aggregate by surgery name
+  const rows = useMemo(() => {
+    const nameMap = new Map<string, { name: string; monthly: number[]; total: number }>();
+    const months = isMonthPeriod ? primary : primary.filter(m => m.month === selectedMonth);
+
+    for (const m of months) {
+      const source: Record<string, number> = showRevenue ? (m.namePriceCostByName || {}) : m.byName;
+      for (const [name, value] of Object.entries(source)) {
+        if (!nameMap.has(name)) {
+          nameMap.set(name, { name, monthly: new Array(12).fill(0), total: 0 });
+        }
+        const entry = nameMap.get(name)!;
+        const v = Number(value) || 0;
+        entry.monthly[m.month - 1] += v;
+        entry.total += v;
+      }
+    }
+
+    // If daily view, also aggregate from daily aggregates based on byName
+    // but byName is already in monthly, so just show monthly data for that month
+    const arr = Array.from(nameMap.values());
+    arr.sort((a, b) => b.total - a.total);
+    return arr;
+  }, [primary, isMonthPeriod, selectedMonth, showRevenue]);
+
+  // Filter
+  const filtered = useMemo(() => {
+    if (!searchText.trim()) return rows;
+    const q = searchText.trim().toLowerCase();
+    return rows.filter(r => r.name.toLowerCase().includes(q));
+  }, [rows, searchText]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
+  const safePageIdx = Math.min(page, totalPages - 1);
+  const pageRows = filtered.slice(safePageIdx * ROWS_PER_PAGE, (safePageIdx + 1) * ROWS_PER_PAGE);
+
+  // Column headers
+  const colHeaders = isMonthPeriod
+    ? Array.from({ length: 12 }, (_, i) => `T${i + 1}`)
+    : (() => {
+        // Daily: we show by day of that month
+        const daysInMonth = new Date(data.primaryYear, selectedMonth, 0).getDate();
+        return Array.from({ length: daysInMonth }, (_, i) => `${i + 1}`);
+      })();
+
+  // For daily mode, we need to reaggregate per day from raw data. But since byName is only available monthly,
+  // in monthly mode we show T1-T12. For daily mode, we show the single month's total only.
+  const isDailyMode = !isMonthPeriod;
+
+  // Grand total
+  const grandTotal = filtered.reduce((s, r) => s + r.total, 0);
+
+  // Format value
+  const fmt = (v: number) => {
+    if (v === 0) return '—';
+    if (showRevenue) return fmtMoney(v);
+    return fmtNum(v);
+  };
+
+  return (
+    <CollapsibleFrame
+      title={`Chi phí theo tên PTTT — ${data.primaryYear}${isDailyMode ? ` (T${selectedMonth})` : ''}`}
+      defaultOpen={false}
+      storageKey="sdp_name_table"
+      headerRight={
+        <div className="flex items-center gap-3">
+          <Toggle left="Số lượng" right="Viện phí" value={showRevenue} onChange={v => { setShowRevenue(v); setPage(0); }} />
+          {isMonthPeriod && <span className="text-[10px] text-gray-400">Theo tháng</span>}
+          {!isMonthPeriod && <span className="text-[10px] text-gray-400">Tháng {selectedMonth}</span>}
+        </div>
+      }
+    >
+      {/* Search bar */}
+      <div className="px-4 py-2 border-b border-gray-100 bg-white">
+        <div className="relative max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <input
+            type="text"
+            value={searchText}
+            onChange={e => { setSearchText(e.target.value); setPage(0); }}
+            placeholder="Tìm tên PTTT..."
+            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-300 focus:border-primary-300"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[200px] z-10">
+                Tên PTTT
+                <span className="text-[9px] text-gray-400 font-normal ml-1">({filtered.length})</span>
+              </th>
+              {isMonthPeriod ? (
+                colHeaders.map((h, i) => (
+                  <th key={i} className="text-center px-2 py-2 font-semibold text-gray-600 min-w-[55px]">{h}</th>
+                ))
+              ) : (
+                <th className="text-center px-3 py-2 font-semibold text-gray-600 min-w-[80px]">T{selectedMonth}</th>
+              )}
+              <th className="text-center px-3 py-2 font-bold text-gray-800 bg-primary-50 min-w-[70px]">Tổng</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageRows.map((row, ri) => (
+              <tr key={row.name} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-white z-10 truncate max-w-[250px]" title={row.name}>
+                  <span className="text-[9px] text-gray-400 mr-1">{safePageIdx * ROWS_PER_PAGE + ri + 1}.</span>
+                  {row.name}
+                </td>
+                {isMonthPeriod ? (
+                  row.monthly.map((v, ci) => (
+                    <td key={ci} className="text-center px-2 py-1.5 text-gray-600 tabular-nums">
+                      {v > 0 ? fmt(v) : <span className="text-gray-200">·</span>}
+                    </td>
+                  ))
+                ) : (
+                  <td className="text-center px-3 py-1.5 text-gray-600 tabular-nums font-semibold">
+                    {row.total > 0 ? fmt(row.total) : '—'}
+                  </td>
+                )}
+                <td className="text-center px-3 py-1.5 font-bold text-primary-800 bg-primary-50 tabular-nums">
+                  {row.total > 0 ? fmt(row.total) : '—'}
+                </td>
+              </tr>
+            ))}
+            {pageRows.length === 0 && (
+              <tr>
+                <td colSpan={isMonthPeriod ? 14 : 3} className="text-center py-8 text-gray-400 text-sm">
+                  {searchText.trim() ? 'Không tìm thấy kết quả' : 'Chưa có dữ liệu'}
+                </td>
+              </tr>
+            )}
+            {/* Grand total row */}
+            {filtered.length > 0 && (
+              <tr className="bg-gray-50 font-bold border-t border-gray-300">
+                <td className="px-3 py-2 text-gray-800 sticky left-0 bg-gray-50 z-10">Tổng cộng</td>
+                {isMonthPeriod ? (
+                  Array.from({ length: 12 }, (_, ci) => {
+                    const colTotal = filtered.reduce((s, r) => s + r.monthly[ci], 0);
+                    return (
+                      <td key={ci} className="text-center px-2 py-2 text-gray-700 tabular-nums">
+                        {colTotal > 0 ? fmt(colTotal) : '—'}
+                      </td>
+                    );
+                  })
+                ) : (
+                  <td className="text-center px-3 py-2 text-gray-700 tabular-nums">
+                    {grandTotal > 0 ? fmt(grandTotal) : '—'}
+                  </td>
+                )}
+                <td className="text-center px-3 py-2 text-primary-800 bg-primary-50 tabular-nums">
+                  {grandTotal > 0 ? fmt(grandTotal) : '—'}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="px-4 py-2 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+          <span className="text-[10px] text-gray-500">
+            {safePageIdx * ROWS_PER_PAGE + 1}–{Math.min((safePageIdx + 1) * ROWS_PER_PAGE, filtered.length)} / {filtered.length} mục
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              disabled={safePageIdx === 0}
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              className="px-2 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-100 transition-colors"
+            >‹</button>
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              let pIdx: number;
+              if (totalPages <= 7) {
+                pIdx = i;
+              } else if (safePageIdx < 4) {
+                pIdx = i;
+              } else if (safePageIdx > totalPages - 5) {
+                pIdx = totalPages - 7 + i;
+              } else {
+                pIdx = safePageIdx - 3 + i;
+              }
+              return (
+                <button
+                  key={pIdx}
+                  onClick={() => setPage(pIdx)}
+                  className={`px-2 py-1 text-xs rounded border transition-colors ${
+                    pIdx === safePageIdx
+                      ? 'bg-primary-700 text-white border-primary-700'
+                      : 'border-gray-200 hover:bg-gray-100'
+                  }`}
+                >{pIdx + 1}</button>
+              );
+            })}
+            <button
+              disabled={safePageIdx >= totalPages - 1}
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              className="px-2 py-1 text-xs rounded border border-gray-200 disabled:opacity-40 hover:bg-gray-100 transition-colors"
+            >›</button>
+          </div>
+        </div>
+      )}
+    </CollapsibleFrame>
   );
 };
 
@@ -799,14 +1063,14 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
           : 'Cần ≥3 ngày dữ liệu để dự báo',
     },
     {
-      label: 'Doanh thu dịch vụ',
+      label: 'Viện phí PT/TT',
       value: totalNamePricePrimary > 0 ? fmtMoney(totalNamePricePrimary) : '—',
       change: totalNamePricePrimary > 0 ? calcChange(totalNamePricePrimary, totalNamePriceCompare) : null,
       icon: <DollarSign className="h-5 w-5" />,
       color: 'text-teal-600 bg-teal-50',
       tooltip: totalNamePricePrimary === 0
         ? 'Chưa có giá theo tên PT. Vui lòng cấu hình danh mục giá.'
-        : 'Tổng doanh thu dịch vụ theo danh mục giá tên phẫu thuật',
+        : 'Tổng viện phí PT/TT theo danh mục giá tên phẫu thuật',
     },
     {
       label: 'Chi phí dịch vụ',
@@ -875,10 +1139,7 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
       </div>
 
       {/* Monthly Summary Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-          <h3 className="text-sm font-bold text-gray-800">Tổng hợp theo tháng — {data.primaryYear}</h3>
-        </div>
+      <CollapsibleFrame title={`Tổng hợp theo tháng — ${data.primaryYear}`} storageKey="sdp_monthly_table">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -940,9 +1201,9 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
                 </td>
               </tr>
 
-              {/* Row: Doanh thu DV (name-based) */}
+              {/* Row: Viện phí PT/TT (name-based) */}
               <tr className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-3 py-2 font-medium text-teal-700 sticky left-0 bg-white">Doanh thu DV (tr)</td>
+                <td className="px-3 py-2 font-medium text-teal-700 sticky left-0 bg-white">Viện phí PT/TT (tr)</td>
                 {primary.map((m, i) => (
                   <td key={i} className="text-center px-2 py-2 text-gray-600">
                     {(m.namePriceCost || 0) > 0 ? fmtMoney(m.namePriceCost || 0) : <span className="text-gray-300">—</span>}
@@ -975,7 +1236,7 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
             </tbody>
           </table>
         </div>
-      </div>
+      </CollapsibleFrame>
 
       {/* Trend Chart — Day/Month + Cumulative/Daily toggles */}
       <TrendChart data={data} forecast={forecast} fmtNum={fmtNum} fmtPct={fmtPct} onMonthChange={onMonthChange} onNavChange={setChartNav} />
@@ -984,10 +1245,7 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
       <RevenueTrendChart data={data} fmtMoney={fmtMoney} nav={chartNav} />
 
       {/* Surgery Type Breakdown Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-          <h3 className="text-sm font-bold text-gray-800">Chi tiết theo loại PT/TT — {data.primaryYear} (số ca)</h3>
-        </div>
+      <CollapsibleFrame title={`Chi tiết theo loại PT/TT — ${data.primaryYear} (số ca)`} storageKey="sdp_type_table">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -1028,7 +1286,10 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
             </tbody>
           </table>
         </div>
-      </div>
+      </CollapsibleFrame>
+
+      {/* Surgery Name Breakdown Table — NEW */}
+      <SurgeryNameBreakdown data={data} nav={chartNav} fmtNum={fmtNum} fmtMoney={fmtMoney} />
     </div>
   );
 };
