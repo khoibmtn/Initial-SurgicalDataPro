@@ -710,6 +710,9 @@ export async function fetchAndAggregateStatistics(
     fetchRecordsForYear(compareYear),
   ]);
 
+  // Yield to browser — allow UI to process pending events
+  await new Promise(resolve => setTimeout(resolve, 0));
+
   const allRecords = [
     ...primaryData.monthly, ...primaryData.daily,
     ...compareData.monthly, ...compareData.daily,
@@ -734,12 +737,18 @@ export async function fetchAndAggregateStatistics(
     primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
   }
 
+  // Yield after primary aggregation (heaviest stage)
+  await new Promise(resolve => setTimeout(resolve, 0));
+
   // Aggregate monthly for compare year
   const compare: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
     const { records, source } = getRecordsForMonth(m, compareYear, compareData.monthly, compareData.daily);
     compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
   }
+
+  // Yield after compare aggregation
+  await new Promise(resolve => setTimeout(resolve, 0));
 
   // Daily aggregation for the selected month (default = current calendar month)
   const now = new Date();
@@ -765,6 +774,9 @@ export async function fetchAndAggregateStatistics(
   // Compare year same month daily data
   const { records: compareRecords } = getRecordsForMonth(currentMonth, compareYear, compareData.monthly, compareData.daily);
   compareMonthDaily = aggregateDaily(compareRecords, priceVersions, laborPrices, namePrices);
+
+  // Yield after daily aggregation
+  await new Promise(resolve => setTimeout(resolve, 0));
 
   // Forecast (only when viewing current year)
   const isCurrentYear = primaryYear === currentYear;
@@ -795,6 +807,9 @@ export async function fetchAndAggregateStatistics(
       primary, compare, realMonth, primaryYear, compareYear, prevYearMonthly
     );
   }
+
+  // Yield before final assembly
+  await new Promise(resolve => setTimeout(resolve, 0));
 
   // TOP surgeries
   const topSurgeries = buildTopSurgeries(primary, compare, nameMap);

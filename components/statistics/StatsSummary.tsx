@@ -16,6 +16,7 @@ interface Props {
   chapters: ChapterCatalog[];
   profiles: SurgeryProfile[];
   surgeryNamePrices: SurgeryNamePrice[];
+  isDataLoading?: boolean;
 }
 
 // --- Formatters ---
@@ -126,10 +127,171 @@ const TrendChart: React.FC<{
   fmtPct: (n: number | null) => string;
   onMonthChange?: (month: number) => void;
   onNavChange?: (nav: ChartNavState) => void;
-}> = ({ data, forecast, fmtNum, fmtPct, onMonthChange, onNavChange }) => {
+  chapters: ChapterCatalog[];
+  profiles: SurgeryProfile[];
+  isDataLoading?: boolean;
+}> = ({ data, forecast, fmtNum, fmtPct, onMonthChange, onNavChange, chapters, profiles, isDataLoading }) => {
   const saved = loadChartSettings();
   const [isMonthPeriod, setIsMonthPeriod] = useState(saved.isMonthPeriod ?? false);
   const [isCumulative, setIsCumulative] = useState(saved.isCumulative ?? true);
+
+  // --- Chart filter state (persistent) ---
+  const [chartFilterMode, setChartFilterMode] = useState<PTTTFilterMode>(() => {
+    return (localStorage.getItem('sdp_chart_filter_mode') as PTTTFilterMode) || 'all';
+  });
+  const [chartSelectedChapters, setChartSelectedChapters] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('sdp_chart_chapters') || '[]'); } catch { return []; }
+  });
+  const [chartSelectedProfileId, setChartSelectedProfileId] = useState<string>(() => {
+    return localStorage.getItem('sdp_chart_profile_id') || '';
+  });
+  const [showChartChapterDropdown, setShowChartChapterDropdown] = useState(false);
+
+  const updateChartFilterMode = (mode: PTTTFilterMode) => {
+    setChartFilterMode(mode);
+    localStorage.setItem('sdp_chart_filter_mode', mode);
+  };
+  const updateChartSelectedChapters = (chaps: string[]) => {
+    setChartSelectedChapters(chaps);
+    localStorage.setItem('sdp_chart_chapters', JSON.stringify(chaps));
+  };
+  const updateChartSelectedProfileId = (id: string) => {
+    setChartSelectedProfileId(id);
+    localStorage.setItem('sdp_chart_profile_id', id);
+    // Reset surgery name when switching profile
+    setChartSelectedSurgeryName('');
+    localStorage.removeItem('sdp_chart_surgery_name');
+  };
+
+  // Selected surgery name within profile (empty = show profile total)
+  const [chartSelectedSurgeryName, setChartSelectedSurgeryName] = useState<string>(() => {
+    return localStorage.getItem('sdp_chart_surgery_name') || '';
+  });
+  const updateChartSelectedSurgeryName = (name: string) => {
+    setChartSelectedSurgeryName(name);
+    if (name) {
+      localStorage.setItem('sdp_chart_surgery_name', name);
+    } else {
+      localStorage.removeItem('sdp_chart_surgery_name');
+    }
+  };
+
+  // Build global maTuongDuongByName for chapter filter
+  const globalMaTuongDuongByName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of data.primary) {
+      if (m.maTuongDuongByName) {
+        Object.assign(map, m.maTuongDuongByName);
+      }
+    }
+    // Also check compare data
+    for (const m of data.compare) {
+      if (m.maTuongDuongByName) {
+        for (const [k, v] of Object.entries(m.maTuongDuongByName as Record<string, string>)) {
+          if (!map[k]) map[k] = v;
+        }
+      }
+    }
+    return map;
+  }, [data.primary, data.compare]);
+
+  // Filter function: given byName, return filtered total cases
+  const isFilterActive = chartFilterMode !== 'all';
+  const filterByName = useMemo(() => {
+    if (!isFilterActive) return null;
+
+    if (chartFilterMode === 'chapter' && chartSelectedChapters.length > 0) {
+      return (byName: Record<string, number>) => {
+        let total = 0;
+        for (const [name, count] of Object.entries(byName)) {
+          const maTD = globalMaTuongDuongByName[name];
+          if (maTD && chartSelectedChapters.includes(maTD.substring(0, 2))) {
+            total += count;
+          }
+        }
+        return total;
+      };
+    }
+
+    if (chartFilterMode === 'profile' && chartSelectedProfileId) {
+      const profile = profiles.find(p => p.id === chartSelectedProfileId);
+      if (!profile) return null;
+
+      // If a specific surgery name is selected, filter to just that one
+      if (chartSelectedSurgeryName) {
+        const targetName = chartSelectedSurgeryName.toLowerCase();
+        return (byName: Record<string, number>) => {
+          for (const [name, count] of Object.entries(byName)) {
+            if (name.toLowerCase() === targetName) return count;
+          }
+          return 0;
+        };
+      }
+
+      // Otherwise filter to the whole profile
+      const profileSet = new Set(profile.surgeryNames);
+      return (byName: Record<string, number>) => {
+        let total = 0;
+        for (const [name, count] of Object.entries(byName)) {
+          if (profileSet.has(name.toLowerCase())) {
+            total += count;
+          }
+        }
+        return total;
+      };
+    }
+
+    return null;
+  }, [isFilterActive, chartFilterMode, chartSelectedChapters, chartSelectedProfileId, chartSelectedSurgeryName, profiles, globalMaTuongDuongByName]);
+
+  // Get filter label for chart title
+  const filterLabel = useMemo(() => {
+    if (chartFilterMode === 'chapter' && chartSelectedChapters.length > 0) {
+      if (chartSelectedChapters.length <= 2) {
+        return chartSelectedChapters.map(c => {
+          const ch = chapters.find(ch => ch.ma_chuong === c);
+          return ch ? ch.ten_chuong : c;
+        }).join(', ');
+      }
+      return `${chartSelectedChapters.length} chuyên khoa`;
+    }
+    if (chartFilterMode === 'profile' && chartSelectedProfileId) {
+      const profile = profiles.find(p => p.id === chartSelectedProfileId);
+      if (!profile) return '';
+      if (chartSelectedSurgeryName) {
+        return chartSelectedSurgeryName;
+      }
+      return profile.name;
+    }
+    return '';
+  }, [chartFilterMode, chartSelectedChapters, chartSelectedProfileId, chartSelectedSurgeryName, chapters, profiles]);
+
+  // --- Deferred loading: show spinner during heavy recalculations ---
+  const [chartReady, setChartReady] = useState(true);
+  const chartVersionRef = React.useRef(0);
+
+  // Key that changes when any chart input changes
+  const chartInputKey = `${data.selectedMonth}-${data.primaryYear}-${data.compareYear}-${isMonthPeriod}-${isCumulative}-${chartFilterMode}-${chartSelectedChapters.join(',')}-${chartSelectedProfileId}-${chartSelectedSurgeryName}`;
+
+  React.useEffect(() => {
+    chartVersionRef.current += 1;
+    const version = chartVersionRef.current;
+    setChartReady(false);
+
+    // Use rAF + short timeout to let the spinner render before heavy computation
+    const raf = requestAnimationFrame(() => {
+      const timer = setTimeout(() => {
+        if (chartVersionRef.current === version) {
+          setChartReady(true);
+        }
+      }, 120);
+      return () => clearTimeout(timer);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [chartInputKey]);
+
+  const showOverlay = !chartReady || isDataLoading;
+
   const [colors, setColors] = useState(saved.colors ?? { current: '#0066CC', previous: '#E63946', compare: '#2A9D8F' });
 
   // Restore saved month on first mount
@@ -176,7 +338,25 @@ const TrendChart: React.FC<{
     emitNav({});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { primary, compare, currentMonthDaily, previousMonthDaily, compareMonthDaily } = data;
+  const { primary: rawPrimary, compare: rawCompare, currentMonthDaily, previousMonthDaily, compareMonthDaily } = data;
+
+  // Apply filter to monthly data if filter is active
+  const primary = useMemo(() => {
+    if (!filterByName) return rawPrimary;
+    return rawPrimary.map(m => ({
+      ...m,
+      actualCases: filterByName(m.byName),
+    }));
+  }, [rawPrimary, filterByName]);
+
+  const compare = useMemo(() => {
+    if (!filterByName) return rawCompare;
+    return rawCompare.map(m => ({
+      ...m,
+      actualCases: filterByName(m.byName),
+    }));
+  }, [rawCompare, filterByName]);
+
   const currentMonth = data.selectedMonth;
   const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
   const prevMonthYear = currentMonth === 1 ? data.primaryYear - 1 : data.primaryYear;
@@ -350,6 +530,11 @@ const TrendChart: React.FC<{
       <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-bold text-gray-800">
           {chartTitle} — {titleSuffix}
+          {filterLabel && (
+            <span className="ml-2 text-xs font-normal text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full">
+              🔍 {filterLabel}
+            </span>
+          )}
         </h3>
         <div className="flex items-center gap-3 flex-wrap">
           {!isMonthPeriod && onMonthChange && (
@@ -365,6 +550,125 @@ const TrendChart: React.FC<{
           )}
           <Toggle left="Ngày" right="Tháng" value={isMonthPeriod} onChange={handleMonthPeriodChange} />
           <Toggle left="Lũy kế" right="Từng kỳ" value={!isCumulative} onChange={(v) => handleCumulativeChange(!v)} />
+        </div>
+      </div>
+      {/* Filter bar — chapter/profile */}
+      <div className="px-4 py-2 border-b border-gray-100 bg-white">
+        <div className="flex flex-wrap items-center gap-4">
+          {[
+            { value: 'all' as PTTTFilterMode, label: 'Tất cả' },
+            { value: 'chapter' as PTTTFilterMode, label: 'Theo chuyên khoa' },
+            { value: 'profile' as PTTTFilterMode, label: 'Theo Profile' },
+          ].map(opt => (
+            <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer text-xs">
+              <input
+                type="radio"
+                name="chart-filter-mode"
+                checked={chartFilterMode === opt.value}
+                onChange={() => updateChartFilterMode(opt.value)}
+                className="w-3.5 h-3.5 text-primary-600 focus:ring-primary-500"
+              />
+              <span className={chartFilterMode === opt.value ? 'font-semibold text-primary-700' : 'text-gray-600'}>
+                {opt.label}
+              </span>
+            </label>
+          ))}
+
+          {/* Chapter multi-select */}
+          {chartFilterMode === 'chapter' && (
+            <div className="relative">
+              <button
+                onClick={() => setShowChartChapterDropdown(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg hover:bg-gray-50 hover:border-gray-500 transition-colors min-w-[180px]"
+              >
+                <span className="text-gray-600 truncate">
+                  {chartSelectedChapters.length === 0
+                    ? 'Chọn chuyên khoa...'
+                    : `${chartSelectedChapters.length} chuyên khoa đã chọn`
+                  }
+                </span>
+                <ChevronDown className="h-3 w-3 text-gray-400 ml-auto shrink-0" />
+              </button>
+              {showChartChapterDropdown && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto min-w-[300px]">
+                  <div className="p-2 border-b border-gray-100 flex items-center justify-between">
+                    <button
+                      onClick={() => {
+                        if (chartSelectedChapters.length === chapters.length) {
+                          updateChartSelectedChapters([]);
+                        } else {
+                          updateChartSelectedChapters(chapters.map(c => c.ma_chuong));
+                        }
+                      }}
+                      className="text-[10px] text-primary-600 hover:text-primary-800 font-medium"
+                    >
+                      {chartSelectedChapters.length === chapters.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                    </button>
+                    <button onClick={() => setShowChartChapterDropdown(false)} className="text-[10px] text-gray-400 hover:text-gray-600">
+                      Đóng
+                    </button>
+                  </div>
+                  {chapters.map(ch => (
+                    <label key={ch.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={chartSelectedChapters.includes(ch.ma_chuong)}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            updateChartSelectedChapters([...chartSelectedChapters, ch.ma_chuong]);
+                          } else {
+                            updateChartSelectedChapters(chartSelectedChapters.filter(c => c !== ch.ma_chuong));
+                          }
+                        }}
+                        className="w-3 h-3 rounded text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-gray-700 truncate">
+                        <span className="font-mono text-gray-400 mr-1">{ch.ma_chuong}</span>
+                        {ch.ten_chuong}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Profile select */}
+          {chartFilterMode === 'profile' && (
+            <select
+              value={chartSelectedProfileId}
+              onChange={e => updateChartSelectedProfileId(e.target.value)}
+              className="px-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-500 min-w-[180px]"
+            >
+              <option value="">Chọn profile...</option>
+              {profiles.map(p => (
+                <option key={p.id} value={p.id}>{p.name} ({p.surgeryNames.length} KT)</option>
+              ))}
+            </select>
+          )}
+
+          {/* Surgery name within profile */}
+          {chartFilterMode === 'profile' && chartSelectedProfileId && (() => {
+            const profile = profiles.find(p => p.id === chartSelectedProfileId);
+            if (!profile || profile.surgeryNames.length === 0) return null;
+            return (
+              <select
+                value={chartSelectedSurgeryName}
+                onChange={e => updateChartSelectedSurgeryName(e.target.value)}
+                className="px-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-500 min-w-[200px] max-w-[320px]"
+              >
+                <option value="">Tất cả KT ({profile.surgeryNames.length})</option>
+                {profile.surgeryNames.slice().sort().map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            );
+          })()}
+
+          {/* Filter active indicator with daily mode warning */}
+          {isFilterActive && !isMonthPeriod && (
+            <span className="text-[10px] text-amber-600 italic">⚠ Bộ lọc chỉ áp dụng cho dữ liệu theo tháng</span>
+          )}
         </div>
       </div>
       {/* Color pickers row + help text + data mode label */}
@@ -407,34 +711,45 @@ const TrendChart: React.FC<{
         </div>
         <p className="text-[10px] text-gray-400 italic mt-1">Click chuột vào ô màu để chọn màu cho các đường biểu diễn, chọn màu trắng hoặc xám để ẩn.</p>
       </div>
-      <div className="p-4">
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
-            <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} />
-            <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 8 }}
-              formatter={(value: any, name: string) => [value !== null ? `${value} ca` : '—', name]}
-              labelFormatter={(label) => `${xLabel} ${label}`}
-            />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
-            {lines.map(l => (
-              <Line
-                key={l.key} type="monotone" dataKey={l.key} name={l.name}
-                stroke={colors[l.colorKey]} strokeWidth={l.width}
-                strokeDasharray={l.dash} dot={{ r: 2 }} connectNulls={false}
+      {/* Chart area with overlay spinner */}
+      <div className="relative">
+        {showOverlay && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 backdrop-blur-[1px] rounded-b-xl transition-opacity duration-200">
+            <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
+            <p className="mt-3 text-sm text-primary-600 font-medium">Đang cập nhật biểu đồ...</p>
+          </div>
+        )}
+        <div className={`p-4 transition-opacity duration-200 ${showOverlay ? 'opacity-30' : 'opacity-100'}`}>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
+              <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} />
+              <Tooltip
+                contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                formatter={(value: any, name: string) => [value !== null ? `${value} ca` : '—', name]}
+                labelFormatter={(label) => `${xLabel} ${label}`}
               />
-            ))}
-            {showForecastLine && (
-              <Line
-                type="monotone" dataKey="forecast" name={isMonthPeriod ? `Dự báo ${data.primaryYear}` : `Dự báo T${data.selectedMonth}/${data.primaryYear}`}
-                stroke={forecastColor} strokeWidth={2}
-                strokeDasharray="6 4" dot={false} connectNulls={false}
-              />
-            )}
-          </LineChart>
-        </ResponsiveContainer>
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {lines.map(l => (
+                <Line
+                  key={l.key} type="monotone" dataKey={l.key} name={l.name}
+                  stroke={colors[l.colorKey]} strokeWidth={l.width}
+                  strokeDasharray={l.dash} dot={{ r: 2 }} connectNulls={false}
+                  animationDuration={400}
+                />
+              ))}
+              {showForecastLine && (
+                <Line
+                  type="monotone" dataKey="forecast" name={isMonthPeriod ? `Dự báo ${data.primaryYear}` : `Dự báo T${data.selectedMonth}/${data.primaryYear}`}
+                  stroke={forecastColor} strokeWidth={2}
+                  strokeDasharray="6 4" dot={false} connectNulls={false}
+                  animationDuration={400}
+                />
+              )}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -951,7 +1266,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
             <div className="relative">
               <button
                 onClick={() => setShowChapterDropdown(v => !v)}
-                className="flex items-center gap-1.5 px-3 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors min-w-[180px]"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg hover:bg-gray-50 hover:border-gray-500 transition-colors min-w-[180px]"
               >
                 <span className="text-gray-600 truncate">
                   {selectedChapters.length === 0
@@ -1010,7 +1325,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
             <select
               value={selectedProfileId}
               onChange={e => updateSelectedProfileId(e.target.value)}
-              className="px-3 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-300 min-w-[180px]"
+              className="px-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-500 min-w-[180px]"
             >
               <option value="">Chọn profile...</option>
               {profiles.map(p => (
@@ -1028,7 +1343,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
             value={searchText}
             onChange={e => { setSearchText(e.target.value); setPage(0); }}
             placeholder="Tìm tên PTTT..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-300 focus:border-primary-300"
+            className="w-full pl-8 pr-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
           />
         </div>
       </div>
@@ -1157,7 +1472,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
 };
 
 
-export const StatsSummary: React.FC<Props> = ({ data, onMonthChange, chapters, profiles, surgeryNamePrices }) => {
+export const StatsSummary: React.FC<Props> = ({ data, onMonthChange, chapters, profiles, surgeryNamePrices, isDataLoading }) => {
   const { primary, compare, currentMonthDaily, previousMonthDaily, compareMonthDaily, forecast } = data;
 
   // Shared chart navigation state (synced from TrendChart to RevenueTrendChart)
@@ -1404,7 +1719,7 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange, chapters, p
       </CollapsibleFrame>
 
       {/* Trend Chart — Day/Month + Cumulative/Daily toggles */}
-      <TrendChart data={data} forecast={forecast} fmtNum={fmtNum} fmtPct={fmtPct} onMonthChange={onMonthChange} onNavChange={setChartNav} />
+      <TrendChart data={data} forecast={forecast} fmtNum={fmtNum} fmtPct={fmtPct} onMonthChange={onMonthChange} onNavChange={setChartNav} chapters={chapters} profiles={profiles} isDataLoading={isDataLoading} />
 
       {/* Revenue Trend Chart — Collapsible */}
       <RevenueTrendChart data={data} fmtMoney={fmtMoney} nav={chartNav} />

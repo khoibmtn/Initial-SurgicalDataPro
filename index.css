@@ -109,6 +109,152 @@ h6 {
 }
 
 /* ========================================
+   Global Form Controls — Firebase-style
+   Stronger borders, better contrast,
+   clear hover/focus states
+   ======================================== */
+
+/* --- Select / Dropdown --- */
+select {
+    border-color: #9ca3af !important;      /* gray-400: visible on white */
+    border-width: 1.5px !important;
+    border-radius: 8px !important;
+    padding: 6px 32px 6px 12px !important;
+    font-size: 13px !important;
+    color: #374151;                         /* gray-700 */
+    background-color: #fff;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+}
+
+select:hover {
+    border-color: #6b7280 !important;      /* gray-500 on hover */
+    background-color: #f9fafb;             /* gray-50 */
+}
+
+select:focus {
+    border-color: var(--color-primary-500) !important;
+    box-shadow: 0 0 0 3px rgba(59, 127, 190, 0.15) !important;
+    outline: none !important;
+}
+
+/* --- Text Input / Search --- */
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="email"],
+input[type="password"],
+input[type="url"],
+input[type="tel"],
+textarea {
+    border-color: #9ca3af !important;
+    border-width: 1.5px !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+    color: #374151;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="text"]:hover,
+input[type="search"]:hover,
+input[type="number"]:hover,
+input[type="email"]:hover,
+input[type="password"]:hover,
+textarea:hover {
+    border-color: #6b7280 !important;
+}
+
+input[type="text"]:focus,
+input[type="search"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus {
+    border-color: var(--color-primary-500) !important;
+    box-shadow: 0 0 0 3px rgba(59, 127, 190, 0.15) !important;
+    outline: none !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: #9ca3af;                         /* gray-400 */
+    font-weight: 400;
+}
+
+/* --- Radio Buttons --- */
+input[type="radio"] {
+    width: 18px !important;
+    height: 18px !important;
+    border-color: #9ca3af !important;
+    border-width: 2px !important;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="radio"]:hover {
+    border-color: var(--color-primary-500) !important;
+}
+
+input[type="radio"]:checked {
+    border-color: var(--color-primary-700) !important;
+    background-color: var(--color-primary-700) !important;
+}
+
+input[type="radio"]:focus {
+    box-shadow: 0 0 0 3px rgba(59, 127, 190, 0.15) !important;
+    outline: none !important;
+}
+
+/* --- Checkboxes --- */
+input[type="checkbox"] {
+    width: 16px !important;
+    height: 16px !important;
+    border-color: #9ca3af !important;
+    border-width: 1.5px !important;
+    border-radius: 4px !important;
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="checkbox"]:hover {
+    border-color: var(--color-primary-500) !important;
+}
+
+input[type="checkbox"]:checked {
+    border-color: var(--color-primary-700) !important;
+    background-color: var(--color-primary-700) !important;
+}
+
+input[type="checkbox"]:focus {
+    box-shadow: 0 0 0 3px rgba(59, 127, 190, 0.15) !important;
+    outline: none !important;
+}
+
+/* --- Buttons (general) --- */
+button {
+    transition: all 0.15s ease;
+}
+
+/* --- Color Picker (small inline) --- */
+input[type="color"] {
+    border-color: #9ca3af !important;
+    border-width: 1.5px !important;
+    border-radius: 6px !important;
+    cursor: pointer;
+}
+
+input[type="color"]:hover {
+    border-color: #6b7280 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ========================================
    Animations
    ======================================== */
 

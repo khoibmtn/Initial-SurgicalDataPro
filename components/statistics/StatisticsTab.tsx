@@ -2,7 +2,7 @@
  * StatisticsTab — Container component
  * Manages sub-tabs (Thống kê / Biểu đồ / Cấu hình), data loading, year selection
  */
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useTransition, useDeferredValue } from 'react';
 import { BarChart3, Settings2, Table2, Loader2, AlertTriangle, Info, ChevronDown, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
@@ -37,6 +37,11 @@ export const StatisticsTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [profiles, setProfiles] = useState<SurgeryProfile[]>([]);
+  const [isPending, startTransition] = useTransition();
+
+  // Defer statsData so React renders old data while new data is computing
+  const deferredStatsData = useDeferredValue(statsData);
+  const isStale = deferredStatsData !== statsData;
 
   // Track whether price subscriptions have delivered first data
   const priceVersionsReady = useRef(false);
@@ -96,7 +101,10 @@ export const StatisticsTab: React.FC = () => {
       const data = await fetchAndAggregateStatistics(
         pYear, cYear, pv, config.priceConfig, month, np
       );
-      setStatsData(data);
+      // Wrap heavy state update in transition so UI stays responsive
+      startTransition(() => {
+        setStatsData(data);
+      });
       if (isInitial) setInitialLoaded(true);
     } catch (err: any) {
       setError(err.message || 'Lỗi tải dữ liệu');
@@ -356,8 +364,8 @@ export const StatisticsTab: React.FC = () => {
       {/* Content — all tabs always mounted, toggled via CSS display */}
       <div className="max-w-7xl mx-auto">
         <div style={{ display: subTab === 'summary' ? 'block' : 'none' }}>
-          {statsData ? (
-            <StatsSummary data={statsData} onMonthChange={setSelectedMonth} chapters={chapters} profiles={profiles} surgeryNamePrices={surgeryNamePrices} />
+          {deferredStatsData ? (
+            <StatsSummary data={deferredStatsData} onMonthChange={setSelectedMonth} chapters={chapters} profiles={profiles} surgeryNamePrices={surgeryNamePrices} isDataLoading={loading || isPending || isStale} />
           ) : !loading ? (
             <div className="text-center py-20 text-gray-400 text-sm">
               Chưa có dữ liệu. Nhấn "Tải lại" để bắt đầu.
