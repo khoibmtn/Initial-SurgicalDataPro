@@ -774,17 +774,21 @@ interface SurgeryNameBreakdownProps {
 const ROWS_PER_PAGE = 25;
 
 const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, fmtNum, fmtMoney }) => {
-  const { primary } = data;
+  const { primary, compare } = data;
   const isMonthPeriod = nav.isMonthPeriod;
   const selectedMonth = nav.selectedMonth;
   const [showRevenue, setShowRevenue] = useState(false);
+  const [showCompare, setShowCompare] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(0);
+
+  const sourceData = showCompare ? compare : primary;
+  const activeYear = showCompare ? data.compareYear : data.primaryYear;
 
   // Compute rows: aggregate by surgery name
   const rows = useMemo(() => {
     const nameMap = new Map<string, { name: string; monthly: number[]; total: number }>();
-    const months = isMonthPeriod ? primary : primary.filter(m => m.month === selectedMonth);
+    const months = isMonthPeriod ? sourceData : sourceData.filter(m => m.month === selectedMonth);
 
     for (const m of months) {
       const source: Record<string, number> = showRevenue ? (m.namePriceCostByName || {}) : m.byName;
@@ -799,12 +803,10 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
       }
     }
 
-    // If daily view, also aggregate from daily aggregates based on byName
-    // but byName is already in monthly, so just show monthly data for that month
     const arr = Array.from(nameMap.values());
     arr.sort((a, b) => b.total - a.total);
     return arr;
-  }, [primary, isMonthPeriod, selectedMonth, showRevenue]);
+  }, [sourceData, isMonthPeriod, selectedMonth, showRevenue]);
 
   // Filter
   const filtered = useMemo(() => {
@@ -823,7 +825,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
     ? Array.from({ length: 12 }, (_, i) => `T${i + 1}`)
     : (() => {
         // Daily: we show by day of that month
-        const daysInMonth = new Date(data.primaryYear, selectedMonth, 0).getDate();
+        const daysInMonth = new Date(activeYear, selectedMonth, 0).getDate();
         return Array.from({ length: daysInMonth }, (_, i) => `${i + 1}`);
       })();
 
@@ -843,14 +845,13 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
 
   return (
     <CollapsibleFrame
-      title={`Chi phí theo tên PTTT — ${data.primaryYear}${isDailyMode ? ` (T${selectedMonth})` : ''}`}
+      title={`Thống kê theo PTTT — ${activeYear}${isDailyMode ? ` (T${selectedMonth})` : ''}`}
       defaultOpen={false}
       storageKey="sdp_name_table"
       headerRight={
         <div className="flex items-center gap-3">
+          <Toggle left={`${data.primaryYear}`} right={`${data.compareYear}`} value={showCompare} onChange={v => { setShowCompare(v); setPage(0); }} />
           <Toggle left="Số lượng" right="Viện phí" value={showRevenue} onChange={v => { setShowRevenue(v); setPage(0); }} />
-          {isMonthPeriod && <span className="text-[10px] text-gray-400">Theo tháng</span>}
-          {!isMonthPeriod && <span className="text-[10px] text-gray-400">Tháng {selectedMonth}</span>}
         </div>
       }
     >
