@@ -3,13 +3,15 @@
  * Manages sub-tabs (Thống kê / Biểu đồ / Cấu hình), data loading, year selection
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { BarChart3, Settings2, Table2, Loader2, AlertTriangle, Info, ChevronDown } from 'lucide-react';
+import { BarChart3, Settings2, Table2, Loader2, AlertTriangle, Info, ChevronDown, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
 import { fetchAndAggregateStatistics } from '../../services/statisticsService';
 import { subscribeToPriceVersions } from '../../services/pricingService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { subscribeToChapterCatalog } from '../../services/chapterCatalogService';
-import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog } from '../../types';
+import { subscribeToProfiles } from '../../services/profileService';
+import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile } from '../../types';
 import { StatsSummary } from './StatsSummary';
 import { StatsCharts } from './StatsCharts';
 import { StatsConfig } from './StatsConfig';
@@ -34,6 +36,7 @@ export const StatisticsTab: React.FC = () => {
   const [loadingMsg, setLoadingMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
+  const [profiles, setProfiles] = useState<SurgeryProfile[]>([]);
 
   // Track whether price subscriptions have delivered first data
   const priceVersionsReady = useRef(false);
@@ -62,6 +65,14 @@ export const StatisticsTab: React.FC = () => {
   useEffect(() => {
     const unsub = subscribeToChapterCatalog((data) => {
       setChapters(data);
+    });
+    return unsub;
+  }, []);
+
+  // Subscribe to surgery profiles (Firestore)
+  useEffect(() => {
+    const unsub = subscribeToProfiles((data) => {
+      setProfiles(data);
     });
     return unsub;
   }, []);
@@ -276,20 +287,34 @@ export const StatisticsTab: React.FC = () => {
                 </span>
               </summary>
               <div className="mt-1 bg-orange-50 border border-orange-100 rounded-lg p-3 text-xs text-orange-800 space-y-2">
-                <p><strong>Doanh thu dịch vụ = 0</strong> cho các kỹ thuật này. Vui lòng bổ sung giá tại tab Cấu hình.</p>
-                <div className="max-h-48 overflow-y-auto space-y-1">
-                  {statsData.validation.missingSurgeryNames.slice(0, 50).map((item, i) => (
-                    <p key={i} className="text-orange-700">
-                      • {item.name}
-                      {item.dates.length > 0 && (
-                        <span className="text-orange-500 text-[10px] ml-1.5">
-                          ({item.dates.map(d => {
-                            const parts = d.split('-');
-                            return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
-                          }).join(', ')})
-                        </span>
-                      )}
-                    </p>
+                <div className="flex items-center justify-between">
+                  <p><strong>Doanh thu dịch vụ = 0</strong> cho các kỹ thuật này. Vui lòng bổ sung giá tại tab Cấu hình.</p>
+                  {statsData.validation.missingSurgeryNameRecords.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const rows = statsData!.validation.missingSurgeryNameRecords.map(r => ({
+                          'Mã BN': r.maBN,
+                          'Tên kỹ thuật': r.tenKT,
+                          'Ngày phẫu thuật': r.ngayPT
+                            ? r.ngayPT.split('-').reverse().join('/')
+                            : '',
+                        }));
+                        const ws = XLSX.utils.json_to_sheet(rows);
+                        ws['!cols'] = [{ wch: 14 }, { wch: 55 }, { wch: 14 }];
+                        const wb = XLSX.utils.book_new();
+                        XLSX.utils.book_append_sheet(wb, ws, 'Chưa có giá');
+                        XLSX.writeFile(wb, `PT_chua_co_gia_${statsData!.primaryYear}_${statsData!.compareYear}.xlsx`);
+                      }}
+                      className="shrink-0 px-3 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-bold hover:bg-orange-700 transition-colors flex items-center gap-1.5"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Tải Excel ({statsData.validation.missingSurgeryNameRecords.length} dòng)
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-0.5">
+                  {statsData.validation.missingSurgeryNames.slice(0, 50).map((name, i) => (
+                    <p key={i} className="text-orange-700">• {name}</p>
                   ))}
                   {statsData.validation.missingSurgeryNames.length > 50 && (
                     <p className="text-orange-500 font-semibold">... và {statsData.validation.missingSurgeryNames.length - 50} tên khác</p>
@@ -332,7 +357,7 @@ export const StatisticsTab: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         <div style={{ display: subTab === 'summary' ? 'block' : 'none' }}>
           {statsData ? (
-            <StatsSummary data={statsData} onMonthChange={setSelectedMonth} />
+            <StatsSummary data={statsData} onMonthChange={setSelectedMonth} chapters={chapters} profiles={profiles} surgeryNamePrices={surgeryNamePrices} />
           ) : !loading ? (
             <div className="text-center py-20 text-gray-400 text-sm">
               Chưa có dữ liệu. Nhấn "Tải lại" để bắt đầu.
@@ -357,6 +382,7 @@ export const StatisticsTab: React.FC = () => {
             priceVersions={priceVersions}
             surgeryNamePrices={surgeryNamePrices}
             chapters={chapters}
+            profiles={profiles}
           />
         </div>
       </div>

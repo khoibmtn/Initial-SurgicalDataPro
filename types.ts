@@ -245,6 +245,18 @@ export interface SurgeryNamePrice {
   maTuongDuong?: string;         // Mã tương đương (MA_TUONG_DUONG)
 }
 
+/** Profile nhóm tên kỹ thuật PT/TT (lưu Firestore, global) */
+export interface SurgeryProfile {
+  id: string;
+  name: string;                    // Tên profile (unique, global)
+  surgeryNames: string[];          // Danh sách tên KT (lowercase chuẩn hóa)
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Chế độ lọc bảng thống kê PTTT */
+export type PTTTFilterMode = 'all' | 'chapter' | 'profile';
+
 /** Danh mục chương — phân loại phẫu thuật theo chương */
 export interface ChapterCatalog {
   id: string;
@@ -270,6 +282,7 @@ export interface MonthlyAggregate {
   namePriceCost: number;                       // Doanh thu dịch vụ theo tên PT
   namePriceCostByType: Record<string, number>; // Doanh thu theo loại (PĐB, P1...)
   namePriceCostByName: Record<string, number>; // Viện phí theo tên PTTT (normalized)
+  maTuongDuongByName: Record<string, string>;  // normalizedName → maTuongDuong (for chapter filter)
   dataSource: 'MONTHLY' | 'DAILY';
 }
 
@@ -345,6 +358,7 @@ export interface StatisticsData {
 export interface DataValidationResult {
   duplicateCount: number;
   missingPriceMonths: string[];
-  missingSurgeryNames: { name: string; dates: string[] }[];   // tenKT không tìm thấy giá dịch vụ + ngày PT
+  missingSurgeryNames: string[];   // danh sách tên KT chưa có giá (unique, chỉ hiển thị)
+  missingSurgeryNameRecords: { maBN: string; tenKT: string; ngayPT: string }[];  // chi tiết từng ca, xuất Excel
   totalRecords: number;
 }

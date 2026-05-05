@@ -2,7 +2,7 @@
  * SurgeryNamePriceConfig — Manage per-surgery-name pricing catalog
  * Table with search, pagination, inline edit, Excel import/export, bulk seed
  */
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Plus, Download, Upload, Trash2, Edit3, Save, X, Database,
@@ -20,6 +20,7 @@ import {
   exportSurgeryNamePrices,
   exportNamePriceTemplate,
   parseImportedNamePriceExcel,
+  migrateDateFormats,
 } from '../../services/surgeryNamePriceService';
 
 interface Props {
@@ -61,6 +62,17 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filterZeroPrice, setFilterZeroPrice] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-migrate yyyymmdd → yyyy-mm-dd (one-time per session)
+  useEffect(() => {
+    if (sessionStorage.getItem('namePriceDateMigrated')) return;
+    sessionStorage.setItem('namePriceDateMigrated', '1');
+    migrateDateFormats().then(r => {
+      if (r.fixed > 0) {
+        console.log(`[Migration] Đã chuyển ${r.fixed}/${r.total} bản ghi từ yyyymmdd → yyyy-mm-dd`);
+      }
+    }).catch(console.error);
+  }, []);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });

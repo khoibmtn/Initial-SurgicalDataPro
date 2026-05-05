@@ -7,12 +7,13 @@ import * as XLSX from 'xlsx';
 import {
   Plus, Download, Upload, Trash2, Edit3, Save, X, FileSpreadsheet,
   CheckCircle2, AlertTriangle, ChevronDown, ChevronRight,
-  DollarSign, BookOpen, Briefcase,
+  DollarSign, BookOpen, Briefcase, Users,
 } from 'lucide-react';
 import {
   SurgeryPriceVersion,
   SurgeryNamePrice,
   ChapterCatalog,
+  SurgeryProfile,
   LOAI_PTTT_ORDER,
   LOAI_PTTT_LABELS,
 } from '../../types';
@@ -29,8 +30,9 @@ import {
 } from '../../services/pricingService';
 import { SurgeryNamePriceConfig } from './SurgeryNamePriceConfig';
 import { ChapterCatalogConfig } from './ChapterCatalogConfig';
+import { ProfileConfig } from './ProfileConfig';
 
-type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'labor-price';
+type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'labor-price' | 'profile';
 
 const SUB_TAB_KEY = 'sdp_config_sub_tab';
 
@@ -38,6 +40,7 @@ interface Props {
   priceVersions: SurgeryPriceVersion[];
   surgeryNamePrices: SurgeryNamePrice[];
   chapters: ChapterCatalog[];
+  profiles: SurgeryProfile[];
 }
 
 interface FormState {
@@ -68,7 +71,7 @@ function toFormState(v: SurgeryPriceVersion): FormState {
 
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
-export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices, chapters }) => {
+export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices, chapters, profiles }) => {
   const [configSubTab, setConfigSubTab] = useState<ConfigSubTab>(() => {
     const saved = localStorage.getItem(SUB_TAB_KEY);
     return (saved as ConfigSubTab) || 'price-catalog';
@@ -222,6 +225,7 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
     { key: 'price-catalog', label: 'Danh mục giá', icon: <DollarSign className="h-3.5 w-3.5" /> },
     { key: 'chapter-catalog', label: 'Danh mục chương', icon: <BookOpen className="h-3.5 w-3.5" /> },
     { key: 'labor-price', label: 'Bảng giá nhân công', icon: <Briefcase className="h-3.5 w-3.5" /> },
+    { key: 'profile', label: 'Profile', icon: <Users className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -483,6 +487,10 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
             )}
           </div>
         </div>
+      </div>
+
+      <div style={{ display: configSubTab === 'profile' ? 'block' : 'none' }}>
+        <ProfileConfig profiles={profiles} surgeryNamePrices={surgeryNamePrices} />
       </div>
     </div>
   );

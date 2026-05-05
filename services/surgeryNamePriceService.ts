@@ -11,13 +11,67 @@ import { reportService } from './reportService';
 
 const NAME_PRICES_PATH = 'surgery_name_prices';
 
+// --- Date normalization helpers ---
+
+/**
+ * Normalize any stored date format → consistent yyyy-mm-dd.
+ * Handles: yyyymmdd (string or number), yyyy-mm-dd, empty/null.
+ */
+function normalizeStoredDate(raw: any): string {
+  if (raw == null || raw === '') return '';
+  const s = String(raw).trim();
+  // Already yyyy-mm-dd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  // yyyymmdd (8 digits)
+  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  // Try parsing as number (e.g. 20250101)
+  if (!isNaN(Number(s)) && s.length === 8) {
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  }
+  return s; // fallback: return as-is
+}
+
+/** Convert ISO UTC string → local yyyy-mm-dd (Vietnam timezone) */
+function toLocalDateKey(isoString: string): string {
+  if (!isoString) return '';
+  // If already yyyy-mm-dd, return as-is
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoString.trim())) return isoString.trim();
+  // If yyyymmdd, convert
+  if (/^\d{8}$/.test(isoString.trim())) {
+    const s = isoString.trim();
+    return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  }
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return isoString.substring(0, 10); // fallback
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // --- Normalize ---
 
-/** Normalize tenKT for matching: trim + collapse whitespace (preserve case for display, lowercase for compare) */
+/**
+ * Normalize tenKT for matching:
+ * 1. Unicode NFKC normalization (full-width → half-width, compatibility chars)
+ * 2. Remove zero-width characters (BOM, ZWSP, ZWNJ, ZWJ)
+ * 3. Replace non-breaking spaces with regular spaces
+ * 4. Trim + collapse whitespace
+ * 5. Lowercase
+ */
 function normalizeForMatch(name: string): string {
   if (!name) return '';
-  return name.trim().replace(/\s+/g, ' ').toLowerCase();
+  return name
+    .normalize('NFKC')                          // Full-width → half-width, Unicode compat
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '') // Remove zero-width chars
+    .replace(/\u00A0/g, ' ')                     // Non-breaking space → regular space
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
 }
+
+// --- Debug tracking (chỉ log 1 lần mỗi tên) ---
+const _debuggedNames = new Set<string>();
 
 // --- Lookup ---
 
@@ -30,12 +84,15 @@ export function getNamePrice(
   if (!tenKT || !dateStr) return { price: 0, found: false };
 
   const normalizedName = normalizeForMatch(tenKT);
-  // Extract date part: "2024-05-20T08:30:00" → "2024-05-20"
-  const localDate = dateStr.substring(0, 10);
+  // Extract date part: "2024-05-20T08:30:00" → local "2024-05-20" (timezone-safe)
+  const localDate = toLocalDateKey(dateStr);
 
-  const applicable = namePrices
+  // Step 1: Find all prices with matching name
+  const nameMatches = namePrices.filter(p => normalizeForMatch(p.tenKT) === normalizedName);
+
+  // Step 2: Filter by date range
+  const applicable = nameMatches
     .filter(p => {
-      if (normalizeForMatch(p.tenKT) !== normalizedName) return false;
       if (p.effectiveFrom > localDate) return false;
       if (p.effectiveTo && p.effectiveTo < localDate) return false;
       return true;
@@ -43,6 +100,29 @@ export function getNamePrice(
     .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
 
   if (applicable.length === 0) {
+    // Debug: log why no match (only once per unique name)
+    const debugKey = `${normalizedName}|${localDate}`;
+    if (!_debuggedNames.has(normalizedName) && tenKT.includes('[')) {
+      _debuggedNames.add(normalizedName);
+      if (nameMatches.length === 0) {
+        // Name doesn't exist in catalog at all
+        console.warn(`[getNamePrice] TÊN KHÔNG KHỚP: "${tenKT}"`);
+        console.warn(`  normalized: "${normalizedName}"`);
+        // Find closest match
+        const allNormalized = [...new Set(namePrices.map(p => normalizeForMatch(p.tenKT)))];
+        const close = allNormalized.filter(n => 
+          n.includes(normalizedName.substring(0, 20)) || normalizedName.includes(n.substring(0, 20))
+        );
+        if (close.length > 0) console.warn(`  Gần giống: ${close.slice(0, 3).join(', ')}`);
+      } else {
+        // Name matches but date is outside all ranges
+        console.warn(`[getNamePrice] NGÀY NGOÀI HIỆU LỰC: "${tenKT}" tại ${localDate}`);
+        console.warn(`  Có ${nameMatches.length} bản ghi giá, nhưng không có bản nào hiệu lực tại ${localDate}:`);
+        nameMatches.forEach(p => {
+          console.warn(`    ${p.effectiveFrom} → ${p.effectiveTo || 'đang áp dụng'} (${p.price.toLocaleString()}đ)`);
+        });
+      }
+    }
     return { price: 0, found: false };
   }
 
@@ -69,8 +149,8 @@ export function subscribeToSurgeryNamePrices(
       id: key,
       tenKT: val.tenKT || '',
       price: val.price || 0,
-      effectiveFrom: val.effectiveFrom || '',
-      effectiveTo: val.effectiveTo || null,
+      effectiveFrom: normalizeStoredDate(val.effectiveFrom),  // yyyymmdd → yyyy-mm-dd
+      effectiveTo: val.effectiveTo ? normalizeStoredDate(val.effectiveTo) : null,  // yyyymmdd → yyyy-mm-dd
       createdAt: val.createdAt || 0,
       maTuongDuong: val.maTuongDuong || val.note || '',
     }));
@@ -95,7 +175,14 @@ export async function createSurgeryNamePrice(
 ): Promise<string> {
   const pricesRef = ref(db, NAME_PRICES_PATH);
   const newRef = push(pricesRef);
-  await set(newRef, { ...data, createdAt: Date.now() });
+  // Normalize dates to yyyy-mm-dd before saving
+  const normalized = {
+    ...data,
+    effectiveFrom: normalizeStoredDate(data.effectiveFrom),
+    effectiveTo: data.effectiveTo ? normalizeStoredDate(data.effectiveTo) : null,
+    createdAt: Date.now(),
+  };
+  await set(newRef, normalized);
   return newRef.key!;
 }
 
@@ -104,7 +191,17 @@ export async function updateSurgeryNamePrice(
   updates: Partial<Omit<SurgeryNamePrice, 'id' | 'createdAt'>>
 ): Promise<void> {
   const versionRef = ref(db, `${NAME_PRICES_PATH}/${id}`);
-  await update(versionRef, updates);
+  // Normalize dates to yyyy-mm-dd before saving
+  const normalized = { ...updates };
+  if (normalized.effectiveFrom) {
+    normalized.effectiveFrom = normalizeStoredDate(normalized.effectiveFrom);
+  }
+  if (normalized.effectiveTo !== undefined) {
+    normalized.effectiveTo = normalized.effectiveTo
+      ? normalizeStoredDate(normalized.effectiveTo)
+      : null;
+  }
+  await update(versionRef, normalized);
 }
 
 export async function deleteSurgeryNamePrice(id: string): Promise<void> {
@@ -231,7 +328,7 @@ async function extractSurgeryNameDatePairs(
       const name = rec.tenKT?.trim();
       const dateStr = rec.ngayBD || '';
       if (!name || !dateStr) continue;
-      const localDate = dateStr.substring(0, 10); // yyyy-mm-dd
+      const localDate = toLocalDateKey(dateStr); // timezone-safe yyyy-mm-dd
       const key = `${normalizeForMatch(name)}|${localDate}`;
       if (!pairSet.has(key)) {
         pairSet.set(key, { tenKT: name, surgeryDate: localDate });
@@ -439,4 +536,50 @@ export function parseImportedNamePriceExcel(workbook: XLSX.WorkBook): ImportedNa
   }
 
   return result;
+}
+
+// --- One-time migration: fix yyyymmdd → yyyy-mm-dd in RTDB ---
+
+/** Scan all surgery_name_prices and fix yyyymmdd format to yyyy-mm-dd */
+export async function migrateDateFormats(): Promise<{ fixed: number; total: number }> {
+  const snapshot = await get(ref(db, NAME_PRICES_PATH));
+  const data = snapshot.val();
+  if (!data) return { fixed: 0, total: 0 };
+
+  const entries = Object.entries(data) as [string, any][];
+  let fixed = 0;
+  const batchUpdates: Record<string, any> = {};
+
+  for (const [key, val] of entries) {
+    let needsFix = false;
+    const updates: Record<string, any> = {};
+
+    // Check effectiveFrom
+    const rawFrom = String(val.effectiveFrom || '');
+    if (/^\d{8}$/.test(rawFrom)) {
+      updates[`${NAME_PRICES_PATH}/${key}/effectiveFrom`] =
+        `${rawFrom.slice(0, 4)}-${rawFrom.slice(4, 6)}-${rawFrom.slice(6, 8)}`;
+      needsFix = true;
+    }
+
+    // Check effectiveTo
+    const rawTo = String(val.effectiveTo || '');
+    if (/^\d{8}$/.test(rawTo)) {
+      updates[`${NAME_PRICES_PATH}/${key}/effectiveTo`] =
+        `${rawTo.slice(0, 4)}-${rawTo.slice(4, 6)}-${rawTo.slice(6, 8)}`;
+      needsFix = true;
+    }
+
+    if (needsFix) {
+      Object.assign(batchUpdates, updates);
+      fixed++;
+    }
+  }
+
+  if (Object.keys(batchUpdates).length > 0) {
+    await update(ref(db), batchUpdates);
+  }
+
+  console.log(`[migrateDateFormats] Fixed ${fixed}/${entries.length} records`);
+  return { fixed, total: entries.length };
 }

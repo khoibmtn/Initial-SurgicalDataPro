@@ -16,5 +16,10 @@ service cloud.firestore {
         allow read, write: if true;
       }
     }
+
+    // Surgery profiles (global, all users)
+    match /surgery_profiles/{profileId} {
+      allow read, write: if true;
+    }
   }
 }

@@ -7,12 +7,15 @@ import {
   ResponsiveContainer, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
-import { StatisticsData, DailyAggregate, LOAI_PTTT_ORDER, LOAI_PTTT_LABELS } from '../../types';
+import { StatisticsData, DailyAggregate, LOAI_PTTT_ORDER, LOAI_PTTT_LABELS, ChapterCatalog, SurgeryProfile, SurgeryNamePrice, PTTTFilterMode } from '../../types';
 import { exportStatisticsToExcel } from '../../services/statisticsService';
 
 interface Props {
   data: StatisticsData;
   onMonthChange?: (month: number) => void;
+  chapters: ChapterCatalog[];
+  profiles: SurgeryProfile[];
+  surgeryNamePrices: SurgeryNamePrice[];
 }
 
 // --- Formatters ---
@@ -769,11 +772,13 @@ interface SurgeryNameBreakdownProps {
   nav: ChartNavState;
   fmtNum: (n: number) => string;
   fmtMoney: (n: number) => string;
+  chapters: ChapterCatalog[];
+  profiles: SurgeryProfile[];
 }
 
 const ROWS_PER_PAGE = 25;
 
-const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, fmtNum, fmtMoney }) => {
+const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, fmtNum, fmtMoney, chapters, profiles }) => {
   const { primary, compare } = data;
   const isMonthPeriod = nav.isMonthPeriod;
   const selectedMonth = nav.selectedMonth;
@@ -781,6 +786,46 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
   const [showCompare, setShowCompare] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(0);
+
+  // --- Filter state (persistent) ---
+  const [filterMode, setFilterMode] = useState<PTTTFilterMode>(() => {
+    return (localStorage.getItem('sdp_pttt_filter_mode') as PTTTFilterMode) || 'all';
+  });
+  const [selectedChapters, setSelectedChapters] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('sdp_pttt_chapters') || '[]'); } catch { return []; }
+  });
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(() => {
+    return localStorage.getItem('sdp_pttt_profile_id') || '';
+  });
+  const [showChapterDropdown, setShowChapterDropdown] = useState(false);
+
+  // Persist filter state
+  const updateFilterMode = (mode: PTTTFilterMode) => {
+    setFilterMode(mode);
+    localStorage.setItem('sdp_pttt_filter_mode', mode);
+    setPage(0);
+  };
+  const updateSelectedChapters = (chaps: string[]) => {
+    setSelectedChapters(chaps);
+    localStorage.setItem('sdp_pttt_chapters', JSON.stringify(chaps));
+    setPage(0);
+  };
+  const updateSelectedProfileId = (id: string) => {
+    setSelectedProfileId(id);
+    localStorage.setItem('sdp_pttt_profile_id', id);
+    setPage(0);
+  };
+
+  // Build maTuongDuongByName across all months
+  const globalMaTuongDuongByName = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of primary) {
+      if (m.maTuongDuongByName) {
+        Object.assign(map, m.maTuongDuongByName);
+      }
+    }
+    return map;
+  }, [primary]);
 
   const sourceData = showCompare ? compare : primary;
   const activeYear = showCompare ? data.compareYear : data.primaryYear;
@@ -808,12 +853,35 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
     return arr;
   }, [sourceData, isMonthPeriod, selectedMonth, showRevenue]);
 
-  // Filter
+  // Apply profile/chapter filter BEFORE search
+  const modeFiltered = useMemo(() => {
+    if (filterMode === 'all') return rows;
+
+    if (filterMode === 'chapter' && selectedChapters.length > 0) {
+      return rows.filter(r => {
+        const maTD = globalMaTuongDuongByName[r.name];
+        if (!maTD) return false;
+        const chapterCode = maTD.substring(0, 2);
+        return selectedChapters.includes(chapterCode);
+      });
+    }
+
+    if (filterMode === 'profile' && selectedProfileId) {
+      const profile = profiles.find(p => p.id === selectedProfileId);
+      if (!profile) return rows;
+      const profileSet = new Set(profile.surgeryNames);
+      return rows.filter(r => profileSet.has(r.name.toLowerCase()));
+    }
+
+    return rows;
+  }, [rows, filterMode, selectedChapters, selectedProfileId, profiles, globalMaTuongDuongByName]);
+
+  // Search filter
   const filtered = useMemo(() => {
-    if (!searchText.trim()) return rows;
+    if (!searchText.trim()) return modeFiltered;
     const q = searchText.trim().toLowerCase();
-    return rows.filter(r => r.name.toLowerCase().includes(q));
-  }, [rows, searchText]);
+    return modeFiltered.filter(r => r.name.toLowerCase().includes(q));
+  }, [modeFiltered, searchText]);
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / ROWS_PER_PAGE));
@@ -855,8 +923,104 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
         </div>
       }
     >
-      {/* Search bar */}
-      <div className="px-4 py-2 border-b border-gray-100 bg-white">
+      {/* Filter bar */}
+      <div className="px-4 py-3 border-b border-gray-100 bg-white space-y-2">
+        {/* Radio group + inline dropdown */}
+        <div className="flex flex-wrap items-center gap-4">
+          {[
+            { value: 'all' as PTTTFilterMode, label: 'Tất cả' },
+            { value: 'chapter' as PTTTFilterMode, label: 'Theo chuyên khoa' },
+            { value: 'profile' as PTTTFilterMode, label: 'Theo Profile' },
+          ].map(opt => (
+            <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer text-xs">
+              <input
+                type="radio"
+                name="pttt-filter-mode"
+                checked={filterMode === opt.value}
+                onChange={() => updateFilterMode(opt.value)}
+                className="w-3.5 h-3.5 text-primary-600 focus:ring-primary-500"
+              />
+              <span className={filterMode === opt.value ? 'font-semibold text-primary-700' : 'text-gray-600'}>
+                {opt.label}
+              </span>
+            </label>
+          ))}
+
+          {/* Chapter multi-select (inline) */}
+          {filterMode === 'chapter' && (
+            <div className="relative">
+              <button
+                onClick={() => setShowChapterDropdown(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors min-w-[180px]"
+              >
+                <span className="text-gray-600 truncate">
+                  {selectedChapters.length === 0
+                    ? 'Chọn chuyên khoa...'
+                    : `${selectedChapters.length} chuyên khoa đã chọn`
+                  }
+                </span>
+                <ChevronDown className="h-3 w-3 text-gray-400 ml-auto shrink-0" />
+              </button>
+              {showChapterDropdown && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto min-w-[300px]">
+                  <div className="p-2 border-b border-gray-100 flex items-center justify-between">
+                    <button
+                      onClick={() => {
+                        if (selectedChapters.length === chapters.length) {
+                          updateSelectedChapters([]);
+                        } else {
+                          updateSelectedChapters(chapters.map(c => c.ma_chuong));
+                        }
+                      }}
+                      className="text-[10px] text-primary-600 hover:text-primary-800 font-medium"
+                    >
+                      {selectedChapters.length === chapters.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                    </button>
+                    <button onClick={() => setShowChapterDropdown(false)} className="text-[10px] text-gray-400 hover:text-gray-600">
+                      Đóng
+                    </button>
+                  </div>
+                  {chapters.map(ch => (
+                    <label key={ch.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer text-xs">
+                      <input
+                        type="checkbox"
+                        checked={selectedChapters.includes(ch.ma_chuong)}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            updateSelectedChapters([...selectedChapters, ch.ma_chuong]);
+                          } else {
+                            updateSelectedChapters(selectedChapters.filter(c => c !== ch.ma_chuong));
+                          }
+                        }}
+                        className="w-3 h-3 rounded text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="text-gray-700 truncate">
+                        <span className="font-mono text-gray-400 mr-1">{ch.ma_chuong}</span>
+                        {ch.ten_chuong}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Profile select (inline) */}
+          {filterMode === 'profile' && (
+            <select
+              value={selectedProfileId}
+              onChange={e => updateSelectedProfileId(e.target.value)}
+              className="px-3 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-300 min-w-[180px]"
+            >
+              <option value="">Chọn profile...</option>
+              {profiles.map(p => (
+                <option key={p.id} value={p.id}>{p.name} ({p.surgeryNames.length} KT)</option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Search */}
         <div className="relative max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
           <input
@@ -993,7 +1157,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
 };
 
 
-export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
+export const StatsSummary: React.FC<Props> = ({ data, onMonthChange, chapters, profiles, surgeryNamePrices }) => {
   const { primary, compare, currentMonthDaily, previousMonthDaily, compareMonthDaily, forecast } = data;
 
   // Shared chart navigation state (synced from TrendChart to RevenueTrendChart)
@@ -1290,7 +1454,7 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange }) => {
       </CollapsibleFrame>
 
       {/* Surgery Name Breakdown Table — NEW */}
-      <SurgeryNameBreakdown data={data} nav={chartNav} fmtNum={fmtNum} fmtMoney={fmtMoney} />
+      <SurgeryNameBreakdown data={data} nav={chartNav} fmtNum={fmtNum} fmtMoney={fmtMoney} chapters={chapters} profiles={profiles} />
     </div>
   );
 };

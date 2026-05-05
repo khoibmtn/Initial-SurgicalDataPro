@@ -126,6 +126,7 @@ function validateRecords(records: PersistedSurgeryRecord[]): DataValidationResul
     duplicateCount,
     missingPriceMonths: [],
     missingSurgeryNames: [],
+    missingSurgeryNameRecords: [],
     totalRecords: records.length,
   };
 }
@@ -163,7 +164,7 @@ function aggregateMonth(
   missingPriceMonths: string[],
   nameMap: Map<string, string>,
   namePrices: SurgeryNamePrice[] = [],
-  missingSurgeryNameSet?: Map<string, Set<string>>
+  missingSurgeryNameTracker?: { names: Set<string>; records: { maBN: string; tenKT: string; ngayPT: string }[] }
 ): MonthlyAggregate {
   const byType: Record<string, number> = {};
   const byTypeEquivalent: Record<string, number> = {};
@@ -173,6 +174,7 @@ function aggregateMonth(
   const laborCostByType: Record<string, number> = {};
   const namePriceCostByType: Record<string, number> = {};
   const namePriceCostByName: Record<string, number> = {};
+  const maTuongDuongByName: Record<string, string> = {};
   let totalServiceCost = 0;
   let totalLaborCost = 0;
   let totalNamePriceCost = 0;
@@ -207,19 +209,34 @@ function aggregateMonth(
 
     // Name-based price lookup
     const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
-    if (!nameResult.found && r.tenKT?.trim() && missingSurgeryNameSet) {
+    if (!nameResult.found && r.tenKT?.trim() && missingSurgeryNameTracker) {
       const name = r.tenKT.trim();
-      const dateStr = r.ngayBD ? r.ngayBD.substring(0, 10) : '';
-      if (!missingSurgeryNameSet.has(name)) {
-        missingSurgeryNameSet.set(name, new Set<string>());
-      }
-      if (dateStr) missingSurgeryNameSet.get(name)!.add(dateStr);
+      const dateStr = r.ngayBD ? toLocalDateKey(r.ngayBD) : '';
+      missingSurgeryNameTracker.names.add(name);
+      missingSurgeryNameTracker.records.push({
+        maBN: r.patientId || '',
+        tenKT: name,
+        ngayPT: dateStr,
+      });
     }
     const npCost = nameResult.price * qty;
     totalNamePriceCost += npCost;
     namePriceCostByType[loai] = (namePriceCostByType[loai] || 0) + npCost;
     if (normalized) {
       namePriceCostByName[normalized] = (namePriceCostByName[normalized] || 0) + npCost;
+      // Track maTuongDuong for chapter-based filtering
+      if (nameResult.found && !maTuongDuongByName[normalized]) {
+        const localDate = toLocalDateKey(r.ngayBD);
+        const matched = namePrices.find(p =>
+          normalizeTenKT(p.tenKT) === normalized &&
+          p.effectiveFrom <= localDate &&
+          (!p.effectiveTo || p.effectiveTo >= localDate) &&
+          p.maTuongDuong
+        );
+        if (matched?.maTuongDuong) {
+          maTuongDuongByName[normalized] = matched.maTuongDuong;
+        }
+      }
     }
   }
 
@@ -234,6 +251,7 @@ function aggregateMonth(
     serviceCost: totalServiceCost, laborCost: totalLaborCost,
     serviceCostByType, laborCostByType,
     namePriceCost: totalNamePriceCost, namePriceCostByType, namePriceCostByName,
+    maTuongDuongByName,
     dataSource,
   };
 }
@@ -703,21 +721,24 @@ export async function fetchAndAggregateStatistics(
 
   const validation = validateRecords(allRecords);
   const missingPriceMonths: string[] = [];
-  const missingSurgeryNameSet = new Map<string, Set<string>>();
+  const missingSurgeryNameTracker = {
+    names: new Set<string>(),
+    records: [] as { maBN: string; tenKT: string; ngayPT: string }[],
+  };
   const nameMap = new Map<string, string>(); // normalized → original display name
 
   // Aggregate monthly for primary year
   const primary: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
     const { records, source } = getRecordsForMonth(m, primaryYear, primaryData.monthly, primaryData.daily);
-    primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameSet));
+    primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
   }
 
   // Aggregate monthly for compare year
   const compare: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
     const { records, source } = getRecordsForMonth(m, compareYear, compareData.monthly, compareData.daily);
-    compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameSet));
+    compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
   }
 
   // Daily aggregation for the selected month (default = current calendar month)
@@ -790,9 +811,9 @@ export async function fetchAndAggregateStatistics(
     : null;
 
   validation.missingPriceMonths = missingPriceMonths;
-  validation.missingSurgeryNames = Array.from(missingSurgeryNameSet.entries())
-    .map(([name, dateSet]) => ({ name, dates: Array.from(dateSet).sort() }))
-    .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  validation.missingSurgeryNames = Array.from(missingSurgeryNameTracker.names).sort((a, b) => a.localeCompare(b, 'vi'));
+  validation.missingSurgeryNameRecords = missingSurgeryNameTracker.records
+    .sort((a, b) => a.tenKT.localeCompare(b.tenKT, 'vi') || a.ngayPT.localeCompare(b.ngayPT));
 
   return {
     primaryYear, compareYear, selectedMonth: currentMonth,
