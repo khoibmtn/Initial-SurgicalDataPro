@@ -1,16 +1,18 @@
 /**
- * StatsConfig — Price version management UI
- * CRUD + Excel import/export + overlap validation
+ * StatsConfig — Configuration container with sub-tabs
+ * Sub-tabs: Danh mục giá | Danh mục chương | Bảng giá nhân công PT/TT
  */
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Plus, Download, Upload, Trash2, Edit3, Save, X, FileSpreadsheet,
-  CheckCircle2, AlertTriangle, ChevronDown, ChevronRight
+  CheckCircle2, AlertTriangle, ChevronDown, ChevronRight,
+  DollarSign, BookOpen, Briefcase,
 } from 'lucide-react';
 import {
   SurgeryPriceVersion,
   SurgeryNamePrice,
+  ChapterCatalog,
   LOAI_PTTT_ORDER,
   LOAI_PTTT_LABELS,
 } from '../../types';
@@ -26,10 +28,16 @@ import {
   ImportedPriceData,
 } from '../../services/pricingService';
 import { SurgeryNamePriceConfig } from './SurgeryNamePriceConfig';
+import { ChapterCatalogConfig } from './ChapterCatalogConfig';
+
+type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'labor-price';
+
+const SUB_TAB_KEY = 'sdp_config_sub_tab';
 
 interface Props {
   priceVersions: SurgeryPriceVersion[];
   surgeryNamePrices: SurgeryNamePrice[];
+  chapters: ChapterCatalog[];
 }
 
 interface FormState {
@@ -60,7 +68,12 @@ function toFormState(v: SurgeryPriceVersion): FormState {
 
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
-export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices }) => {
+export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices, chapters }) => {
+  const [configSubTab, setConfigSubTab] = useState<ConfigSubTab>(() => {
+    const saved = localStorage.getItem(SUB_TAB_KEY);
+    return (saved as ConfigSubTab) || 'price-catalog';
+  });
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -69,6 +82,10 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices 
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<ImportedPriceData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem(SUB_TAB_KEY, configSubTab);
+  }, [configSubTab]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -200,239 +217,272 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices 
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // --- Sub-tab definitions ---
+  const subTabs: { key: ConfigSubTab; label: string; icon: React.ReactNode }[] = [
+    { key: 'price-catalog', label: 'Danh mục giá', icon: <DollarSign className="h-3.5 w-3.5" /> },
+    { key: 'chapter-catalog', label: 'Danh mục chương', icon: <BookOpen className="h-3.5 w-3.5" /> },
+    { key: 'labor-price', label: 'Bảng giá nhân công', icon: <Briefcase className="h-3.5 w-3.5" /> },
+  ];
+
   return (
-    <div className="space-y-8">
-      {/* Section 1: Surgery Name Prices */}
-      <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} />
-
-      {/* Separator */}
-      <div className="border-t-2 border-gray-200 pt-6">
-        <p className="text-[11px] text-gray-400 uppercase tracking-wider font-bold mb-4">Bảng giá nhân công PT/TT</p>
-      </div>
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 animate-fade-in ${
-          toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-          {toast.msg}
-        </div>
-      )}
-
-      {/* Header Actions */}
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-gray-800">Bảng giá dịch vụ PT/TT</h3>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={exportPriceTemplate}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Excel mẫu
-          </button>
-          <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors">
-            <Upload className="h-3.5 w-3.5" />
-            Import Excel
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleFileUpload}
-            />
-          </label>
-          <button
-            onClick={handleStartNew}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Tạo mới
-          </button>
-        </div>
+    <div className="space-y-6">
+      {/* Sub-tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="flex gap-1 -mb-px" aria-label="Config sub-tabs">
+          {subTabs.map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setConfigSubTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all ${
+                configSubTab === tab.key
+                  ? 'border-primary-600 text-primary-700 bg-primary-50/50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </nav>
       </div>
 
-      {/* Import Preview Errors */}
-      {importPreview && importPreview.errors.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <p className="text-sm font-bold text-red-700 mb-2 flex items-center gap-1.5">
-            <AlertTriangle className="h-4 w-4" />
-            Lỗi import Excel
-          </p>
-          <ul className="text-xs text-red-600 space-y-1 list-disc list-inside">
-            {importPreview.errors.map((e, i) => <li key={i}>{e}</li>)}
-          </ul>
-        </div>
-      )}
+      {/* Sub-tab Content */}
+      <div style={{ display: configSubTab === 'price-catalog' ? 'block' : 'none' }}>
+        <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} />
+      </div>
 
-      {/* Form */}
-      {showForm && (
-        <div className="bg-white border-2 border-primary-200 rounded-xl p-4 space-y-4 shadow-sm">
-          <h4 className="text-sm font-bold text-primary-800">
-            {editingId ? '✏️ Chỉnh sửa bảng giá' : '➕ Tạo bảng giá mới'}
-          </h4>
+      <div style={{ display: configSubTab === 'chapter-catalog' ? 'block' : 'none' }}>
+        <ChapterCatalogConfig chapters={chapters} />
+      </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1 block">Tên bảng giá *</label>
-              <input
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                placeholder="VD: Bảng giá theo QĐ 123/2024"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1 block">Ghi chú</label>
-              <input
-                value={form.note}
-                onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                placeholder="Ghi chú tùy chọn"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1 block">Hiệu lực từ *</label>
-              <input
-                type="date"
-                value={form.effectiveFrom}
-                onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-600 mb-1 block">Kết thúc (trống = đang áp dụng)</label>
-              <input
-                type="date"
-                value={form.effectiveTo}
-                onChange={e => setForm(f => ({ ...f, effectiveTo: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-              />
+      <div style={{ display: configSubTab === 'labor-price' ? 'block' : 'none' }}>
+        {/* Toast */}
+        {toast && (
+          <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 animate-fade-in ${
+            toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+          }`}>
+            {toast.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+            {toast.msg}
+          </div>
+        )}
+
+        {/* Header Actions */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-gray-800">Bảng giá dịch vụ PT/TT</h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={exportPriceTemplate}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Excel mẫu
+              </button>
+              <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors">
+                <Upload className="h-3.5 w-3.5" />
+                Import Excel
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+              </label>
+              <button
+                onClick={handleStartNew}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Tạo mới
+              </button>
             </div>
           </div>
 
-          {/* Price grid */}
-          <div>
-            <label className="text-xs font-semibold text-gray-600 mb-2 block">Đơn giá dịch vụ (VNĐ) *</label>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {LOAI_PTTT_ORDER.map(code => (
-                <div key={code} className="bg-gray-50 rounded-lg p-2">
-                  <label className="text-[10px] font-bold text-gray-500 block mb-1">{code}</label>
+          {/* Import Preview Errors */}
+          {importPreview && importPreview.errors.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-sm font-bold text-red-700 mb-2 flex items-center gap-1.5">
+                <AlertTriangle className="h-4 w-4" />
+                Lỗi import Excel
+              </p>
+              <ul className="text-xs text-red-600 space-y-1 list-disc list-inside">
+                {importPreview.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {/* Form */}
+          {showForm && (
+            <div className="bg-white border-2 border-primary-200 rounded-xl p-4 space-y-4 shadow-sm">
+              <h4 className="text-sm font-bold text-primary-800">
+                {editingId ? '✏️ Chỉnh sửa bảng giá' : '➕ Tạo bảng giá mới'}
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">Tên bảng giá *</label>
                   <input
-                    type="number"
-                    min="0"
-                    value={form.prices[code] || ''}
-                    onChange={e => setForm(f => ({
-                      ...f,
-                      prices: { ...f.prices, [code]: Number(e.target.value) || 0 }
-                    }))}
-                    className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    placeholder="0"
+                    value={form.name}
+                    onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    placeholder="VD: Bảng giá theo QĐ 123/2024"
                   />
                 </div>
-              ))}
-            </div>
-          </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">Ghi chú</label>
+                  <input
+                    value={form.note}
+                    onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                    placeholder="Ghi chú tùy chọn"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">Hiệu lực từ *</label>
+                  <input
+                    type="date"
+                    value={form.effectiveFrom}
+                    onChange={e => setForm(f => ({ ...f, effectiveFrom: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 mb-1 block">Kết thúc (trống = đang áp dụng)</label>
+                  <input
+                    type="date"
+                    value={form.effectiveTo}
+                    onChange={e => setForm(f => ({ ...f, effectiveTo: e.target.value }))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                  />
+                </div>
+              </div>
 
-          {/* Form Actions */}
-          <div className="flex items-center gap-2 pt-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-4 py-2 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 disabled:opacity-50 transition-colors"
-            >
-              <Save className="h-3.5 w-3.5" />
-              {saving ? 'Đang lưu...' : editingId ? 'Cập nhật' : 'Tạo mới'}
-            </button>
-            <button
-              onClick={handleCancel}
-              className="flex items-center gap-1.5 px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-              Hủy
-            </button>
+              {/* Price grid */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 mb-2 block">Đơn giá dịch vụ (VNĐ) *</label>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {LOAI_PTTT_ORDER.map(code => (
+                    <div key={code} className="bg-gray-50 rounded-lg p-2">
+                      <label className="text-[10px] font-bold text-gray-500 block mb-1">{code}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.prices[code] || ''}
+                        onChange={e => setForm(f => ({
+                          ...f,
+                          prices: { ...f.prices, [code]: Number(e.target.value) || 0 }
+                        }))}
+                        className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-right focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        placeholder="0"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Form Actions */}
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 disabled:opacity-50 transition-colors"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  {saving ? 'Đang lưu...' : editingId ? 'Cập nhật' : 'Tạo mới'}
+                </button>
+                <button
+                  onClick={handleCancel}
+                  className="flex items-center gap-1.5 px-4 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Hủy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Price Versions List */}
+          <div className="space-y-3">
+            {priceVersions.length === 0 ? (
+              <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center">
+                <FileSpreadsheet className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-sm text-gray-500 font-medium">Chưa có bảng giá nào</p>
+                <p className="text-xs text-gray-400 mt-1">Tạo mới hoặc import từ Excel</p>
+              </div>
+            ) : (
+              priceVersions.map(v => {
+                const isExpanded = expandedId === v.id;
+                const isActive = !v.effectiveTo || v.effectiveTo >= new Date().toISOString().split('T')[0];
+
+                return (
+                  <div key={v.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    {/* Header */}
+                    <div
+                      className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+                      onClick={() => setExpandedId(isExpanded ? null : v.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        {isExpanded ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-gray-800">{v.name}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {isActive ? 'Đang áp dụng' : 'Hết hiệu lực'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {v.effectiveFrom} → {v.effectiveTo || 'Hiện tại'}
+                            {v.note && <span className="ml-2 text-gray-400">• {v.note}</span>}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => exportPriceVersion(v)}
+                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Xuất Excel"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleStartEdit(v)}
+                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
+                          title="Sửa"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(v)}
+                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
+                          title="Xóa"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Expanded: Price table */}
+                    {isExpanded && (
+                      <div className="px-4 pb-3 border-t border-gray-100">
+                        <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
+                          {LOAI_PTTT_ORDER.map(code => (
+                            <div key={code} className="bg-gray-50 rounded-lg p-2 text-center">
+                              <p className="text-[10px] font-bold text-gray-500">{code}</p>
+                              <p className="text-xs font-semibold text-gray-800 mt-1">{fmtMoney(v.prices[code] ?? 0)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
-      )}
-
-      {/* Price Versions List */}
-      <div className="space-y-3">
-        {priceVersions.length === 0 ? (
-          <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center">
-            <FileSpreadsheet className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500 font-medium">Chưa có bảng giá nào</p>
-            <p className="text-xs text-gray-400 mt-1">Tạo mới hoặc import từ Excel</p>
-          </div>
-        ) : (
-          priceVersions.map(v => {
-            const isExpanded = expandedId === v.id;
-            const isActive = !v.effectiveTo || v.effectiveTo >= new Date().toISOString().split('T')[0];
-
-            return (
-              <div key={v.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                {/* Header */}
-                <div
-                  className="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
-                  onClick={() => setExpandedId(isExpanded ? null : v.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    {isExpanded ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-gray-800">{v.name}</span>
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
-                        }`}>
-                          {isActive ? 'Đang áp dụng' : 'Hết hiệu lực'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {v.effectiveFrom} → {v.effectiveTo || 'Hiện tại'}
-                        {v.note && <span className="ml-2 text-gray-400">• {v.note}</span>}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                    <button
-                      onClick={() => exportPriceVersion(v)}
-                      className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600 transition-colors"
-                      title="Xuất Excel"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleStartEdit(v)}
-                      className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
-                      title="Sửa"
-                    >
-                      <Edit3 className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(v)}
-                      className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
-                      title="Xóa"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expanded: Price table */}
-                {isExpanded && (
-                  <div className="px-4 pb-3 border-t border-gray-100">
-                    <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
-                      {LOAI_PTTT_ORDER.map(code => (
-                        <div key={code} className="bg-gray-50 rounded-lg p-2 text-center">
-                          <p className="text-[10px] font-bold text-gray-500">{code}</p>
-                          <p className="text-xs font-semibold text-gray-800 mt-1">{fmtMoney(v.prices[code] ?? 0)}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
       </div>
     </div>
   );

@@ -72,7 +72,7 @@ export function subscribeToSurgeryNamePrices(
       effectiveFrom: val.effectiveFrom || '',
       effectiveTo: val.effectiveTo || null,
       createdAt: val.createdAt || 0,
-      note: val.note || '',
+      maTuongDuong: val.maTuongDuong || val.note || '',
     }));
 
     // Sort by tenKT then effectiveFrom desc
@@ -166,7 +166,7 @@ export async function bulkUpsertSurgeryNamePrices(
         // Update existing record
         updates[`${NAME_PRICES_PATH}/${existingId}/price`] = item.price;
         updates[`${NAME_PRICES_PATH}/${existingId}/effectiveTo`] = item.effectiveTo ?? null;
-        updates[`${NAME_PRICES_PATH}/${existingId}/note`] = item.note ?? '';
+        updates[`${NAME_PRICES_PATH}/${existingId}/maTuongDuong`] = item.maTuongDuong ?? '';
         updated++;
       } else {
         // Create new record
@@ -279,7 +279,7 @@ export async function seedSurgeryNamePrices(
     price: 0,
     effectiveFrom: p.surgeryDate,
     effectiveTo: null,
-    note: '',
+    maTuongDuong: '',
   }));
 
   const added = await bulkCreateSurgeryNamePrices(items);
@@ -314,21 +314,21 @@ export function exportSurgeryNamePrices(prices: SurgeryNamePrice[]): void {
     p.price,
     toDisplayDate(p.effectiveFrom),
     toDisplayDate(p.effectiveTo || ''),
-    p.note || '',
+    p.maTuongDuong || '',
   ]);
 
   const data = [
-    ['Tên kỹ thuật', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Ghi chú'],
+    ['Tên DVKT phê duyệt giá', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Mã tương đương'],
     ...rows,
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(data);
   ws['!cols'] = [
-    { wch: 50 },  // Tên KT
+    { wch: 50 },  // Tên DVKT
     { wch: 18 },  // Giá
     { wch: 22 },  // Từ
     { wch: 22 },  // Đến
-    { wch: 30 },  // Ghi chú
+    { wch: 30 },  // Mã tương đương
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Danh mục giá PT');
@@ -340,7 +340,7 @@ export function exportNamePriceTemplate(): void {
   const wb = XLSX.utils.book_new();
 
   const data = [
-    ['Tên kỹ thuật', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Ghi chú'],
+    ['Tên DVKT phê duyệt giá', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Mã tương đương'],
     ['PT nội soi cắt túi mật', 5000000, '20240101', '', ''],
     ['Cắt Amidan', 3000000, '20240101', '', ''],
   ];
@@ -393,7 +393,7 @@ export function parseImportedNamePriceExcel(workbook: XLSX.WorkBook): ImportedNa
     const priceRaw = row[1];
     const fromRaw = String(row[2] || '').trim();
     const toRaw = String(row[3] || '').trim();
-    const note = String(row[4] || '').trim();
+    const maTuongDuong = String(row[4] || '').trim();
 
     if (!tenKT) {
       result.warnings.push(`Dòng ${i + 1}: Bỏ qua (thiếu tên kỹ thuật)`);
@@ -430,7 +430,7 @@ export function parseImportedNamePriceExcel(workbook: XLSX.WorkBook): ImportedNa
       price,
       effectiveFrom: fromDate,
       effectiveTo: toDate,
-      note,
+      maTuongDuong,
     });
   }
 

@@ -1,52 +1,44 @@
 /**
- * SurgeryNamePriceConfig — Manage per-surgery-name pricing catalog
- * Table with search, pagination, inline edit, Excel import/export, bulk seed
+ * ChapterCatalogConfig — Manage chapter catalog (Danh mục chương)
+ * Table with search, inline edit, Excel import/export, seed default
  */
 import React, { useState, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Plus, Download, Upload, Trash2, Edit3, Save, X, Database,
   CheckCircle2, AlertTriangle, Search, ChevronLeft, ChevronRight,
-  Loader2, FileSpreadsheet,
+  Loader2, FileSpreadsheet, BookOpen,
 } from 'lucide-react';
-import { SurgeryNamePrice } from '../../types';
+import { ChapterCatalog } from '../../types';
 import {
-  createSurgeryNamePrice,
-  updateSurgeryNamePrice,
-  deleteSurgeryNamePrice,
-  bulkUpsertSurgeryNamePrices,
-  bulkDeleteSurgeryNamePrices,
-  seedSurgeryNamePrices,
-  exportSurgeryNamePrices,
-  exportNamePriceTemplate,
-  parseImportedNamePriceExcel,
-} from '../../services/surgeryNamePriceService';
+  createChapter,
+  updateChapter,
+  deleteChapter,
+  bulkDeleteChapters,
+  bulkUpsertChapters,
+  seedDefaultChapters,
+  exportChapters,
+  exportChapterTemplate,
+  parseImportedChapterExcel,
+} from '../../services/chapterCatalogService';
 
 interface Props {
-  surgeryNamePrices: SurgeryNamePrice[];
+  chapters: ChapterCatalog[];
 }
 
 interface EditRow {
-  tenKT: string;
-  price: number | string;
-  effectiveFrom: string;
-  effectiveTo: string;
-  maTuongDuong: string;
+  ma_chuong: string;
+  ten_chuong: string;
 }
 
 const EMPTY_ROW: EditRow = {
-  tenKT: '',
-  price: '',
-  effectiveFrom: '',
-  effectiveTo: '',
-  maTuongDuong: '',
+  ma_chuong: '',
+  ten_chuong: '',
 };
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 30;
 
-const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
-
-export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) => {
+export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -54,12 +46,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
   const [editRow, setEditRow] = useState<EditRow>(EMPTY_ROW);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
-  const [seedProgress, setSeedProgress] = useState('');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-  const [sortField, setSortField] = useState<'tenKT' | 'price' | 'effectiveFrom'>('tenKT');
+  const [sortField, setSortField] = useState<'ma_chuong' | 'ten_chuong'>('ma_chuong');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [filterZeroPrice, setFilterZeroPrice] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -70,22 +60,21 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
   // --- Filter + Sort + Paginate ---
   const filtered = useMemo(() => {
     const term = searchTerm.toLowerCase().trim();
-    let result = surgeryNamePrices;
+    let result = chapters;
     if (term) {
-      result = result.filter(p => p.tenKT.toLowerCase().includes(term));
-    }
-    if (filterZeroPrice) {
-      result = result.filter(p => p.price === 0);
+      result = result.filter(c =>
+        c.ma_chuong.toLowerCase().includes(term) ||
+        c.ten_chuong.toLowerCase().includes(term)
+      );
     }
     result = [...result].sort((a, b) => {
       let cmp = 0;
-      if (sortField === 'tenKT') cmp = a.tenKT.localeCompare(b.tenKT, 'vi');
-      else if (sortField === 'price') cmp = a.price - b.price;
-      else cmp = (a.effectiveFrom || '').localeCompare(b.effectiveFrom || '');
+      if (sortField === 'ma_chuong') cmp = a.ma_chuong.localeCompare(b.ma_chuong, 'vi');
+      else cmp = a.ten_chuong.localeCompare(b.ten_chuong, 'vi');
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return result;
-  }, [surgeryNamePrices, searchTerm, filterZeroPrice, sortField, sortDir]);
+  }, [chapters, searchTerm, sortField, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -100,14 +89,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
   };
 
   // --- CRUD ---
-  const handleStartEdit = (p: SurgeryNamePrice) => {
-    setEditingId(p.id);
+  const handleStartEdit = (c: ChapterCatalog) => {
+    setEditingId(c.id);
     setEditRow({
-      tenKT: p.tenKT,
-      price: p.price,
-      effectiveFrom: p.effectiveFrom,
-      effectiveTo: p.effectiveTo || '',
-      maTuongDuong: p.maTuongDuong || '',
+      ma_chuong: c.ma_chuong,
+      ten_chuong: c.ten_chuong,
     });
     setShowAddForm(false);
   };
@@ -125,35 +111,27 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
   };
 
   const handleSave = async () => {
-    if (!editRow.tenKT.trim()) {
-      showToast('Vui lòng nhập tên kỹ thuật', 'error');
+    if (!editRow.ma_chuong.trim()) {
+      showToast('Vui lòng nhập mã chương', 'error');
       return;
     }
-    if (!editRow.effectiveFrom) {
-      showToast('Vui lòng nhập ngày bắt đầu hiệu lực', 'error');
-      return;
-    }
-    const price = Number(editRow.price);
-    if (isNaN(price) || price < 0) {
-      showToast('Đơn giá không hợp lệ', 'error');
+    if (!editRow.ten_chuong.trim()) {
+      showToast('Vui lòng nhập tên chương', 'error');
       return;
     }
 
     setSaving(true);
     try {
       const data = {
-        tenKT: editRow.tenKT.trim(),
-        price,
-        effectiveFrom: editRow.effectiveFrom,
-        effectiveTo: editRow.effectiveTo || null,
-        maTuongDuong: editRow.maTuongDuong.trim(),
+        ma_chuong: editRow.ma_chuong.trim(),
+        ten_chuong: editRow.ten_chuong.trim(),
       };
 
       if (editingId) {
-        await updateSurgeryNamePrice(editingId, data);
+        await updateChapter(editingId, data);
         showToast('Đã cập nhật');
       } else {
-        await createSurgeryNamePrice(data);
+        await createChapter(data);
         showToast('Đã thêm mới');
       }
       handleCancel();
@@ -164,10 +142,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
     }
   };
 
-  const handleDelete = async (p: SurgeryNamePrice) => {
-    if (!window.confirm(`Xóa "${p.tenKT}" (${fmtMoney(p.price)})?`)) return;
+  const handleDelete = async (c: ChapterCatalog) => {
+    if (!window.confirm(`Xóa chương "${c.ma_chuong} - ${c.ten_chuong}"?`)) return;
     try {
-      await deleteSurgeryNamePrice(p.id);
+      await deleteChapter(c.id);
       showToast('Đã xóa');
     } catch (err: any) {
       showToast(err.message || 'Lỗi xóa', 'error');
@@ -187,7 +165,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
     if (selectedIds.size === filtered.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filtered.map(p => p.id)));
+      setSelectedIds(new Set(filtered.map(c => c.id)));
     }
   };
 
@@ -196,7 +174,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
     if (!window.confirm(`Xóa ${selectedIds.size} bản ghi đã chọn?`)) return;
     setSaving(true);
     try {
-      const deleted = await bulkDeleteSurgeryNamePrices(Array.from(selectedIds));
+      const deleted = await bulkDeleteChapters(Array.from(selectedIds));
       setSelectedIds(new Set());
       showToast(`Đã xóa ${deleted} bản ghi`);
     } catch (err: any) {
@@ -208,17 +186,15 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
 
   // --- Seed ---
   const handleSeed = async () => {
-    if (!window.confirm('Quét dữ liệu 2024-2026 để lấy danh sách phẫu thuật. Tiếp tục?')) return;
+    if (!window.confirm('Nạp danh sách 28 chương mặc định (bỏ qua các mã đã tồn tại)?')) return;
     setSeeding(true);
-    setSeedProgress('Đang quét...');
     try {
-      const result = await seedSurgeryNamePrices(surgeryNamePrices, setSeedProgress);
-      showToast(`Thêm ${result.added} tên mới, bỏ qua ${result.skipped} đã tồn tại`);
+      const result = await seedDefaultChapters(chapters);
+      showToast(`Thêm ${result.added} chương mới, bỏ qua ${result.skipped} đã tồn tại`);
     } catch (err: any) {
-      showToast(err.message || 'Lỗi quét dữ liệu', 'error');
+      showToast(err.message || 'Lỗi nạp dữ liệu', 'error');
     } finally {
       setSeeding(false);
-      setSeedProgress('');
     }
   };
 
@@ -232,7 +208,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
       try {
         const data = new Uint8Array(evt.target!.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: 'array' });
-        const parsed = parseImportedNamePriceExcel(wb);
+        const parsed = parseImportedChapterExcel(wb);
 
         if (parsed.errors.length > 0) {
           showToast(`Lỗi: ${parsed.errors[0]}`, 'error');
@@ -244,10 +220,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
           return;
         }
 
-        if (!window.confirm(`Import ${parsed.items.length} bản ghi (upsert)? ${parsed.warnings.length > 0 ? `(${parsed.warnings.length} cảnh báo)` : ''}`)) return;
+        if (!window.confirm(`Import ${parsed.items.length} chương (upsert)?`)) return;
 
         setSaving(true);
-        const result = await bulkUpsertSurgeryNamePrices(parsed.items, surgeryNamePrices);
+        const result = await bulkUpsertChapters(parsed.items, chapters);
         showToast(`Import: ${result.created} mới, ${result.updated} cập nhật`);
       } catch (err) {
         showToast('Không thể đọc file Excel', 'error');
@@ -265,8 +241,6 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
     return <span className="text-primary-600 ml-1">{sortDir === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const zeroPriceCount = surgeryNamePrices.filter(p => p.price === 0).length;
-
   return (
     <div className="space-y-4">
       {/* Toast */}
@@ -282,12 +256,9 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-bold text-gray-800">Danh mục giá DVKT phẫu thuật</h3>
+          <h3 className="text-sm font-bold text-gray-800">Danh mục chương</h3>
           <p className="text-[11px] text-gray-500 mt-0.5">
-            {surgeryNamePrices.length} kỹ thuật
-            {zeroPriceCount > 0 && (
-              <span className="text-amber-600 font-semibold ml-2">• {zeroPriceCount} chưa có giá</span>
-            )}
+            {chapters.length} chương
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -297,18 +268,18 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
           >
             {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
-            {seeding ? seedProgress || 'Đang quét...' : 'Tải DS từ dữ liệu'}
+            {seeding ? 'Đang nạp...' : 'Nạp mặc định'}
           </button>
           <button
-            onClick={exportNamePriceTemplate}
+            onClick={exportChapterTemplate}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
           >
             <Download className="h-3.5 w-3.5" />
             Excel mẫu
           </button>
           <button
-            onClick={() => exportSurgeryNamePrices(surgeryNamePrices)}
-            disabled={surgeryNamePrices.length === 0}
+            onClick={() => exportChapters(chapters)}
+            disabled={chapters.length === 0}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
             <Download className="h-3.5 w-3.5" />
@@ -345,82 +316,38 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
         </div>
       </div>
 
-      {/* Search + Filter */}
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            value={searchTerm}
-            onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
-            placeholder="Tìm tên phẫu thuật..."
-            className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-        </div>
-        <label className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-          filterZeroPrice
-            ? 'border-amber-400 bg-amber-50 text-amber-700'
-            : 'border-gray-300 text-gray-500 hover:bg-gray-50'
-        }`}>
-          <input
-            type="checkbox"
-            checked={filterZeroPrice}
-            onChange={e => { setFilterZeroPrice(e.target.checked); setPage(0); }}
-            className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-          />
-          DM chưa có giá {zeroPriceCount > 0 && <span className="bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{zeroPriceCount}</span>}
-        </label>
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <input
+          value={searchTerm}
+          onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
+          placeholder="Tìm mã hoặc tên chương..."
+          className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+        />
       </div>
 
       {/* Add Form */}
       {showAddForm && (
         <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-3 space-y-3">
-          <h4 className="text-xs font-bold text-emerald-800">➕ Thêm giá mới</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+          <h4 className="text-xs font-bold text-emerald-800">➕ Thêm chương mới</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <div>
-              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Mã tương đương</label>
+              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Mã chương *</label>
               <input
-                value={editRow.maTuongDuong}
-                onChange={e => setEditRow(r => ({ ...r, maTuongDuong: e.target.value }))}
+                value={editRow.ma_chuong}
+                onChange={e => setEditRow(r => ({ ...r, ma_chuong: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary-500"
-                placeholder="VD: A01.001"
+                placeholder="VD: I, PT-I"
               />
             </div>
-            <div className="sm:col-span-2">
-              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Tên DVKT phê duyệt giá *</label>
+            <div className="sm:col-span-3">
+              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Tên chương *</label>
               <input
-                value={editRow.tenKT}
-                onChange={e => setEditRow(r => ({ ...r, tenKT: e.target.value }))}
+                value={editRow.ten_chuong}
+                onChange={e => setEditRow(r => ({ ...r, ten_chuong: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary-500"
-                placeholder="VD: PT nội soi cắt túi mật"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Đơn giá (VNĐ)</label>
-              <input
-                type="number"
-                min="0"
-                value={editRow.price}
-                onChange={e => setEditRow(r => ({ ...r, price: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs text-right focus:ring-2 focus:ring-primary-500"
-                placeholder="0"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Hiệu lực từ *</label>
-              <input
-                type="date"
-                value={editRow.effectiveFrom}
-                onChange={e => setEditRow(r => ({ ...r, effectiveFrom: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Kết thúc</label>
-              <input
-                type="date"
-                value={editRow.effectiveTo}
-                onChange={e => setEditRow(r => ({ ...r, effectiveTo: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary-500"
+                placeholder="VD: Bệnh nhiễm trùng và ký sinh trùng"
               />
             </div>
           </div>
@@ -441,12 +368,12 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
       {/* Table */}
       {filtered.length === 0 ? (
         <div className="bg-gray-50 border border-dashed border-gray-300 rounded-xl p-8 text-center">
-          <FileSpreadsheet className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+          <BookOpen className="h-10 w-10 text-gray-300 mx-auto mb-3" />
           <p className="text-sm text-gray-500 font-medium">
-            {searchTerm ? 'Không tìm thấy kết quả' : 'Chưa có danh mục giá'}
+            {searchTerm ? 'Không tìm thấy kết quả' : 'Chưa có danh mục chương'}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {searchTerm ? 'Thử từ khóa khác' : 'Nhấn "Tải DS từ dữ liệu" để bắt đầu'}
+            {searchTerm ? 'Thử từ khóa khác' : 'Nhấn "Nạp mặc định" để bắt đầu'}
           </p>
         </div>
       ) : (
@@ -463,79 +390,46 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
                       className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
                     />
                   </th>
-                  <th className="px-3 py-2 text-left text-gray-500 font-semibold w-28">Mã TĐ</th>
+                  <th className="px-3 py-2 text-center text-gray-500 font-semibold w-10">#</th>
+                  <th
+                    className="px-3 py-2 text-left text-gray-500 font-semibold cursor-pointer hover:text-gray-700 select-none w-28"
+                    onClick={() => handleSort('ma_chuong')}
+                  >
+                    Mã chương <SortIcon field="ma_chuong" />
+                  </th>
                   <th
                     className="px-3 py-2 text-left text-gray-500 font-semibold cursor-pointer hover:text-gray-700 select-none"
-                    onClick={() => handleSort('tenKT')}
+                    onClick={() => handleSort('ten_chuong')}
                   >
-                    Tên DVKT phê duyệt giá <SortIcon field="tenKT" />
+                    Tên chương <SortIcon field="ten_chuong" />
                   </th>
-                  <th
-                    className="px-3 py-2 text-right text-gray-500 font-semibold cursor-pointer hover:text-gray-700 select-none w-32"
-                    onClick={() => handleSort('price')}
-                  >
-                    Đơn giá <SortIcon field="price" />
-                  </th>
-                  <th
-                    className="px-3 py-2 text-center text-gray-500 font-semibold cursor-pointer hover:text-gray-700 select-none w-28"
-                    onClick={() => handleSort('effectiveFrom')}
-                  >
-                    Từ <SortIcon field="effectiveFrom" />
-                  </th>
-                  <th className="px-3 py-2 text-center text-gray-500 font-semibold w-28">Đến</th>
                   <th className="px-3 py-2 text-center text-gray-500 font-semibold w-20">Thao tác</th>
                 </tr>
               </thead>
               <tbody>
-                {pageItems.map((p, idx) => {
-                  const isEditing = editingId === p.id;
-                  const isActive = !p.effectiveTo || p.effectiveTo >= new Date().toISOString().split('T')[0];
-                  const isZeroPrice = p.price === 0;
+                {pageItems.map((c, idx) => {
+                  const isEditing = editingId === c.id;
                   const rowNum = page * PAGE_SIZE + idx + 1;
 
                   if (isEditing) {
                     return (
-                      <tr key={p.id} className="bg-blue-50 border-b border-blue-100">
+                      <tr key={c.id} className="bg-blue-50 border-b border-blue-100">
                         <td className="px-2 py-2 text-center">
-                          <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
+                          <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
                         </td>
+                        <td className="px-3 py-2 text-center text-gray-400 text-[10px]">{rowNum}</td>
                         <td className="px-3 py-1">
                           <input
-                            value={editRow.maTuongDuong}
-                            onChange={e => setEditRow(r => ({ ...r, maTuongDuong: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
-                            placeholder="Mã TĐ"
-                          />
-                        </td>
-                        <td className="px-3 py-1">
-                          <input
-                            value={editRow.tenKT}
-                            onChange={e => setEditRow(r => ({ ...r, tenKT: e.target.value }))}
+                            value={editRow.ma_chuong}
+                            onChange={e => setEditRow(r => ({ ...r, ma_chuong: e.target.value }))}
                             className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <input
-                            type="number" min="0"
-                            value={editRow.price}
-                            onChange={e => setEditRow(r => ({ ...r, price: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs text-right focus:ring-2 focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="px-3 py-1">
-                          <input
-                            type="date"
-                            value={editRow.effectiveFrom}
-                            onChange={e => setEditRow(r => ({ ...r, effectiveFrom: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-1 py-1 text-[11px] focus:ring-2 focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="px-3 py-1">
-                          <input
-                            type="date"
-                            value={editRow.effectiveTo}
-                            onChange={e => setEditRow(r => ({ ...r, effectiveTo: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-1 py-1 text-[11px] focus:ring-2 focus:ring-blue-500"
+                            value={editRow.ten_chuong}
+                            onChange={e => setEditRow(r => ({ ...r, ten_chuong: e.target.value }))}
+                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
                           />
                         </td>
                         <td className="px-3 py-1">
@@ -556,42 +450,30 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
 
                   return (
                     <tr
-                      key={p.id}
-                      className={`border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                        isZeroPrice ? 'bg-amber-50/50' : ''
-                      }`}
+                      key={c.id}
+                      className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                     >
                       <td className="px-2 py-2 text-center">
-                        <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
+                        <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
                       </td>
-                      <td className="px-3 py-2 text-gray-500 text-[11px] font-mono">
-                        {p.maTuongDuong || <span className="text-gray-300">—</span>}
+                      <td className="px-3 py-2 text-center text-gray-400 text-[10px]">{rowNum}</td>
+                      <td className="px-3 py-2 text-gray-800 font-bold text-[11px] font-mono">
+                        {c.ma_chuong}
                       </td>
-                      <td className="px-3 py-2 text-gray-800 font-medium">
-                        {p.tenKT}
-                      </td>
-                      <td className={`px-3 py-2 text-right font-semibold tabular-nums ${
-                        isZeroPrice ? 'text-amber-600' : 'text-gray-800'
-                      }`}>
-                        {isZeroPrice ? '—' : fmtMoney(p.price)}
-                      </td>
-                      <td className="px-3 py-2 text-center text-gray-600">{p.effectiveFrom}</td>
-                      <td className="px-3 py-2 text-center text-gray-600">
-                        {p.effectiveTo || (
-                          <span className="text-emerald-600 text-[10px] font-bold">Đang áp dụng</span>
-                        )}
+                      <td className="px-3 py-2 text-gray-700">
+                        {c.ten_chuong}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-center gap-0.5">
                           <button
-                            onClick={() => handleStartEdit(p)}
+                            onClick={() => handleStartEdit(c)}
                             className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
                             title="Sửa"
                           >
                             <Edit3 className="h-3.5 w-3.5" />
                           </button>
                           <button
-                            onClick={() => handleDelete(p)}
+                            onClick={() => handleDelete(c)}
                             className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
                             title="Xóa"
                           >

@@ -242,7 +242,15 @@ export interface SurgeryNamePrice {
   effectiveFrom: string;         // "2024-01-01" ISO date — bắt đầu hiệu lực
   effectiveTo: string | null;    // ISO date | null — null = đang hiệu lực
   createdAt: number;             // timestamp
-  note?: string;
+  maTuongDuong?: string;         // Mã tương đương (MA_TUONG_DUONG)
+}
+
+/** Danh mục chương — phân loại phẫu thuật theo chương */
+export interface ChapterCatalog {
+  id: string;
+  ma_chuong: string;             // VD: "I", "II", "III"...
+  ten_chuong: string;            // VD: "Bệnh nhiễm trùng và ký sinh trùng"
+  createdAt: number;             // timestamp
 }
 
 /** Số liệu tổng hợp theo tháng (computed, không lưu DB) */

@@ -8,7 +8,8 @@ import { useConfig } from '../../contexts/ConfigContext';
 import { fetchAndAggregateStatistics } from '../../services/statisticsService';
 import { subscribeToPriceVersions } from '../../services/pricingService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
-import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice } from '../../types';
+import { subscribeToChapterCatalog } from '../../services/chapterCatalogService';
+import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog } from '../../types';
 import { StatsSummary } from './StatsSummary';
 import { StatsCharts } from './StatsCharts';
 import { StatsConfig } from './StatsConfig';
@@ -27,6 +28,7 @@ export const StatisticsTab: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState(currentRealMonth);
   const [priceVersions, setPriceVersions] = useState<SurgeryPriceVersion[]>([]);
   const [surgeryNamePrices, setSurgeryNamePrices] = useState<SurgeryNamePrice[]>([]);
+  const [chapters, setChapters] = useState<ChapterCatalog[]>([]);
   const [statsData, setStatsData] = useState<StatisticsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMsg, setLoadingMsg] = useState('');
@@ -52,6 +54,14 @@ export const StatisticsTab: React.FC = () => {
     const unsub = subscribeToSurgeryNamePrices((data) => {
       setSurgeryNamePrices(data);
       namePricesReady.current = true;
+    });
+    return unsub;
+  }, []);
+
+  // Subscribe to chapter catalog
+  useEffect(() => {
+    const unsub = subscribeToChapterCatalog((data) => {
+      setChapters(data);
     });
     return unsub;
   }, []);
@@ -132,7 +142,7 @@ export const StatisticsTab: React.FC = () => {
   const subTabs: { key: SubTab; label: string; icon: React.ReactNode }[] = [
     { key: 'summary', label: 'Thống kê', icon: <Table2 className="h-4 w-4" /> },
     { key: 'charts', label: 'Biểu đồ', icon: <BarChart3 className="h-4 w-4" /> },
-    { key: 'config', label: 'Cấu hình', icon: <Settings2 className="h-4 w-4" /> },
+    { key: 'config', label: 'Cấu hình thống kê', icon: <Settings2 className="h-4 w-4" /> },
   ];
 
   // --- Initial Loading Screen ---
@@ -346,6 +356,7 @@ export const StatisticsTab: React.FC = () => {
           <StatsConfig
             priceVersions={priceVersions}
             surgeryNamePrices={surgeryNamePrices}
+            chapters={chapters}
           />
         </div>
       </div>
