@@ -135,6 +135,18 @@ const TrendChart: React.FC<{
   const [isMonthPeriod, setIsMonthPeriod] = useState(saved.isMonthPeriod ?? false);
   const [isCumulative, setIsCumulative] = useState(saved.isCumulative ?? true);
 
+  // Local month state — updates IMMEDIATELY on user selection,
+  // while data.selectedMonth only updates after data loads
+  const [localSelectedMonth, setLocalSelectedMonth] = useState(data.selectedMonth);
+
+  // Sync local month when data actually arrives with the new month
+  React.useEffect(() => {
+    setLocalSelectedMonth(data.selectedMonth);
+  }, [data.selectedMonth]);
+
+  // Is the chart waiting for data for a different month?
+  const isMonthLoading = localSelectedMonth !== data.selectedMonth;
+
   // --- Chart filter state (persistent) ---
   const [chartFilterMode, setChartFilterMode] = useState<PTTTFilterMode>(() => {
     return (localStorage.getItem('sdp_chart_filter_mode') as PTTTFilterMode) || 'all';
@@ -266,32 +278,6 @@ const TrendChart: React.FC<{
     return '';
   }, [chartFilterMode, chartSelectedChapters, chartSelectedProfileId, chartSelectedSurgeryName, chapters, profiles]);
 
-  // --- Deferred loading: show spinner during heavy recalculations ---
-  const [chartReady, setChartReady] = useState(true);
-  const chartVersionRef = React.useRef(0);
-
-  // Key that changes when any chart input changes
-  const chartInputKey = `${data.selectedMonth}-${data.primaryYear}-${data.compareYear}-${isMonthPeriod}-${isCumulative}-${chartFilterMode}-${chartSelectedChapters.join(',')}-${chartSelectedProfileId}-${chartSelectedSurgeryName}`;
-
-  React.useEffect(() => {
-    chartVersionRef.current += 1;
-    const version = chartVersionRef.current;
-    setChartReady(false);
-
-    // Use rAF + short timeout to let the spinner render before heavy computation
-    const raf = requestAnimationFrame(() => {
-      const timer = setTimeout(() => {
-        if (chartVersionRef.current === version) {
-          setChartReady(true);
-        }
-      }, 120);
-      return () => clearTimeout(timer);
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [chartInputKey]);
-
-  const showOverlay = !chartReady || isDataLoading;
-
   const [colors, setColors] = useState(saved.colors ?? { current: '#0066CC', previous: '#E63946', compare: '#2A9D8F' });
 
   // Restore saved month on first mount
@@ -328,6 +314,7 @@ const TrendChart: React.FC<{
     });
   };
   const handleMonthSelect = (m: number) => {
+    setLocalSelectedMonth(m); // Update local immediately for instant UI feedback
     saveChartSettings({ selectedMonth: m });
     onMonthChange?.(m);
     emitNav({ selectedMonth: m });
@@ -358,6 +345,8 @@ const TrendChart: React.FC<{
   }, [rawCompare, filterByName]);
 
   const currentMonth = data.selectedMonth;
+  // Use local month for display purposes (title, etc.)
+  const displayMonth = localSelectedMonth;
   const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
   const prevMonthYear = currentMonth === 1 ? data.primaryYear - 1 : data.primaryYear;
   const currentYear = new Date().getFullYear();
@@ -508,6 +497,10 @@ const TrendChart: React.FC<{
   }
 
   const chartTitle = isCumulative ? 'Lũy kế số ca' : 'Số ca';
+  // Build titleSuffix using local month for immediate feedback
+  const displayTitleSuffix = !isMonthPeriod
+    ? `Tháng ${displayMonth}/${data.primaryYear}`
+    : titleSuffix;
   const showForecastLine = isCurrentYear && isMonthPeriod
     ? !!(forecast || yearEndForecastTotal)               // Monthly: both modes
     : isCumulative && isCurrentYear && !!(forecast || yearEndForecastTotal); // Daily: cumulative only
@@ -529,8 +522,13 @@ const TrendChart: React.FC<{
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-sm font-bold text-gray-800">
-          {chartTitle} — {titleSuffix}
-          {filterLabel && (
+          {chartTitle} — {displayTitleSuffix}
+          {isMonthLoading && (
+            <span className="ml-2 text-xs font-normal text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full animate-pulse">
+              ⏳ Đang tải...
+            </span>
+          )}
+          {filterLabel && !isMonthLoading && (
             <span className="ml-2 text-xs font-normal text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full">
               🔍 {filterLabel}
             </span>
@@ -539,7 +537,7 @@ const TrendChart: React.FC<{
         <div className="flex items-center gap-3 flex-wrap">
           {!isMonthPeriod && onMonthChange && (
             <select
-              value={data.selectedMonth}
+              value={localSelectedMonth}
               onChange={e => handleMonthSelect(Number(e.target.value))}
               className="border border-gray-300 rounded-lg px-2 py-1 text-xs font-semibold bg-white focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-[90px]"
             >
@@ -712,14 +710,19 @@ const TrendChart: React.FC<{
         <p className="text-[10px] text-gray-400 italic mt-1">Click chuột vào ô màu để chọn màu cho các đường biểu diễn, chọn màu trắng hoặc xám để ẩn.</p>
       </div>
       {/* Chart area with overlay spinner */}
-      <div className="relative">
-        {showOverlay && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 backdrop-blur-[1px] rounded-b-xl transition-opacity duration-200">
-            <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
-            <p className="mt-3 text-sm text-primary-600 font-medium">Đang cập nhật biểu đồ...</p>
+      {/* Chart content area — full loading spinner when month is changing */}
+      {isMonthLoading || isDataLoading ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="relative">
+            <div className="w-12 h-12 rounded-full border-4 border-primary-100 border-t-primary-600 animate-spin" />
           </div>
-        )}
-        <div className={`p-4 transition-opacity duration-200 ${showOverlay ? 'opacity-30' : 'opacity-100'}`}>
+          <p className="mt-4 text-sm text-primary-700 font-semibold">
+            {isMonthLoading ? `Đang tải dữ liệu tháng ${localSelectedMonth}...` : 'Đang cập nhật biểu đồ...'}
+          </p>
+          <p className="mt-1 text-xs text-gray-400">Vui lòng chờ trong giây lát</p>
+        </div>
+      ) : (
+        <div className="p-4">
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
@@ -750,7 +753,7 @@ const TrendChart: React.FC<{
             </LineChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      )}
     </div>
   );
 };
