@@ -429,7 +429,7 @@ const TrendChart: React.FC<{
       const lastCum = lastDay > 0 ? (currentMap[lastDay] ?? 0) : 0;
       if (lastDay > 0 && lastDay < totalDays) {
         const dailyRate = lastCum / lastDay;
-        forecastMap[lastDay] = lastCum; // overlap point
+        // Start forecast AFTER last actual day — no overlap
         for (let d = lastDay + 1; d <= totalDays; d++) {
           forecastMap[d] = Math.round(dailyRate * d);
         }
@@ -472,19 +472,14 @@ const TrendChart: React.FC<{
       const overlapMonth = Math.min(lastDataMonth, realMonth - 1);
 
       if (overlapMonth >= 1) {
-        // Cumulative overlap
-        const cumToOverlap = primary.slice(0, overlapMonth).reduce((s, m) => s + m.actualCases, 0);
-        monthlyForecastCumMap[overlapMonth] = cumToOverlap;
-        // Per-month overlap
-        monthlyForecastPerMap[overlapMonth] = primary[overlapMonth - 1]?.actualCases ?? 0;
+        // Start forecast AFTER last complete month — no overlap
+        let prevCum = primary.slice(0, overlapMonth).reduce((s, m) => s + m.actualCases, 0);
 
         // Current month + future months: use model forecast data
-        let prevCum = cumToOverlap;
         for (let m = overlapMonth + 1; m <= 12; m++) {
           if (forecast.forecastMonthly[m] !== undefined) {
             const cumVal = forecast.forecastMonthly[m];
             monthlyForecastCumMap[m] = cumVal;
-            // Individual month = difference in cumulative
             monthlyForecastPerMap[m] = cumVal - prevCum;
             prevCum = cumVal;
           }
@@ -974,7 +969,6 @@ const RevenueTrendChart: React.FC<{
 
       const totalDays = new Date(data.primaryYear, currentMonth, 0).getDate();
 
-      // Forecast for daily cumulative
       let forecastMap: Record<number, number> = {};
       if (isCumulative && isCurrentYear) {
         const actualDays = Object.keys(currentMap).map(Number).sort((a, b) => a - b);
@@ -982,7 +976,7 @@ const RevenueTrendChart: React.FC<{
         const lastCum = lastDay > 0 ? (currentMap[lastDay] ?? 0) : 0;
         if (lastDay > 0 && lastDay < totalDays && lastCum > 0) {
           const dailyRate = lastCum / lastDay;
-          forecastMap[lastDay] = lastCum;
+          // Start forecast AFTER last actual day — no overlap
           for (let d = lastDay + 1; d <= totalDays; d++) {
             forecastMap[d] = Math.round(dailyRate * d);
           }
@@ -1027,8 +1021,7 @@ const RevenueTrendChart: React.FC<{
         const overlapMonth = Math.min(lastDataMonth, realMonth - 1);
         if (overlapMonth >= 1) {
           const cumToOverlap = primary.slice(0, overlapMonth).reduce((s, m) => s + (m.namePriceCost || 0), 0);
-          monthlyForecastCumMap[overlapMonth] = cumToOverlap;
-          monthlyForecastPerMap[overlapMonth] = primary[overlapMonth - 1]?.namePriceCost || 0;
+          // Start forecast AFTER last complete month — no overlap
           const avgMonthly = cumToOverlap / overlapMonth;
           let prevCum = cumToOverlap;
           for (let m = overlapMonth + 1; m <= 12; m++) {
