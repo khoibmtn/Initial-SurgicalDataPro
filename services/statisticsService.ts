@@ -25,6 +25,35 @@ import { getNamePrice } from './surgeryNamePriceService';
 const MAX_YEAR_RANGE = 3;
 const WARN_RECORD_THRESHOLD = 10_000;
 
+// --- Cached yearly data (used by StatisticsTab for month-switch optimization) ---
+
+/** Raw year data fetched from Firestore — cached to avoid re-fetching when switching months */
+interface RawYearData {
+  monthly: PersistedSurgeryRecord[];
+  daily: PersistedSurgeryRecord[];
+}
+
+/** Pre-indexed records by month for O(1) lookup instead of O(n) filter × 24 */
+interface IndexedYearData {
+  raw: RawYearData;
+  byMonth: Map<number, { records: PersistedSurgeryRecord[]; source: 'MONTHLY' | 'DAILY' }>;
+}
+
+/** Yearly aggregation result — everything EXCEPT daily aggregation for selectedMonth */
+export interface YearlyCacheData {
+  primaryYear: number;
+  compareYear: number;
+  primary: MonthlyAggregate[];
+  compare: MonthlyAggregate[];
+  forecast: ForecastData | null;
+  topSurgeries: SurgeryNameStats[];
+  targetCases: number | null;
+  validation: DataValidationResult;
+  // Raw indexed data needed for fast daily re-aggregation
+  primaryIndexed: IndexedYearData;
+  compareIndexed: IndexedYearData;
+}
+
 // --- Timezone-safe date helpers ---
 
 function toLocalDateKey(isoString: string): string {
@@ -133,6 +162,42 @@ function validateRecords(records: PersistedSurgeryRecord[]): DataValidationResul
 
 // --- Aggregation ---
 
+/** Build pre-indexed lookup: records grouped by month with source type */
+function buildMonthIndex(
+  year: number,
+  monthlyRecords: PersistedSurgeryRecord[],
+  dailyRecords: PersistedSurgeryRecord[]
+): Map<number, { records: PersistedSurgeryRecord[]; source: 'MONTHLY' | 'DAILY' }> {
+  const monthlyByMonth = new Map<number, PersistedSurgeryRecord[]>();
+  const dailyByMonth = new Map<number, PersistedSurgeryRecord[]>();
+
+  for (const r of monthlyRecords) {
+    const my = getMonthYear(r.ngayBD);
+    if (my && my.year === year) {
+      if (!monthlyByMonth.has(my.month)) monthlyByMonth.set(my.month, []);
+      monthlyByMonth.get(my.month)!.push(r);
+    }
+  }
+  for (const r of dailyRecords) {
+    const my = getMonthYear(r.ngayBD);
+    if (my && my.year === year) {
+      if (!dailyByMonth.has(my.month)) dailyByMonth.set(my.month, []);
+      dailyByMonth.get(my.month)!.push(r);
+    }
+  }
+
+  const result = new Map<number, { records: PersistedSurgeryRecord[]; source: 'MONTHLY' | 'DAILY' }>();
+  for (let m = 1; m <= 12; m++) {
+    const monthly = monthlyByMonth.get(m);
+    if (monthly && monthly.length > 0) {
+      result.set(m, { records: monthly, source: 'MONTHLY' });
+    } else {
+      result.set(m, { records: dailyByMonth.get(m) || [], source: 'DAILY' });
+    }
+  }
+  return result;
+}
+
 function getRecordsForMonth(
   month: number, year: number,
   monthlyRecords: PersistedSurgeryRecord[],
@@ -153,6 +218,14 @@ function getRecordsForMonth(
   });
 
   return { records: dailyForMonth, source: 'DAILY' };
+}
+
+/** Fast lookup from pre-built index — O(1) instead of O(n) */
+function getRecordsFromIndex(
+  month: number,
+  indexed: IndexedYearData
+): { records: PersistedSurgeryRecord[]; source: 'MONTHLY' | 'DAILY' } {
+  return indexed.byMonth.get(month) || { records: [], source: 'DAILY' };
 }
 
 function aggregateMonth(
@@ -691,27 +764,45 @@ function calculateTarget(primary: MonthlyAggregate[], compareMonthCases: number)
   return Math.max(avg3, compareMonthCases);
 }
 
-// --- Main Entry Point ---
+// --- Main Entry Point (split into yearly + daily for caching) ---
 
-export async function fetchAndAggregateStatistics(
+/**
+ * STEP 1: Fetch + aggregate YEARLY data (12 months × 2 years + forecast).
+ * This is the expensive part. Result is cache-safe when year + price config don't change.
+ */
+export async function fetchAndAggregateYearly(
   primaryYear: number,
   compareYear: number,
   priceVersions: SurgeryPriceVersion[],
   laborPrices: Record<string, RolePrice>,
-  selectedMonth?: number,
   namePrices: SurgeryNamePrice[] = []
-): Promise<StatisticsData> {
+): Promise<YearlyCacheData> {
   if (Math.abs(primaryYear - compareYear) > MAX_YEAR_RANGE) {
     throw new Error(`Chỉ hỗ trợ so sánh tối đa ${MAX_YEAR_RANGE} năm`);
   }
+
+  const t0 = performance.now();
 
   const [primaryData, compareData] = await Promise.all([
     fetchRecordsForYear(primaryYear),
     fetchRecordsForYear(compareYear),
   ]);
 
-  // Yield to browser — allow UI to process pending events
+  console.log(`[stats] Firestore fetch: ${(performance.now() - t0).toFixed(0)}ms`);
+
+  // Yield to browser
   await new Promise(resolve => setTimeout(resolve, 0));
+
+  // Pre-index records by month (O(n) once, then O(1) lookups × 24)
+  const t1 = performance.now();
+  const primaryIndexed: IndexedYearData = {
+    raw: primaryData,
+    byMonth: buildMonthIndex(primaryYear, primaryData.monthly, primaryData.daily),
+  };
+  const compareIndexed: IndexedYearData = {
+    raw: compareData,
+    byMonth: buildMonthIndex(compareYear, compareData.monthly, compareData.daily),
+  };
 
   const allRecords = [
     ...primaryData.monthly, ...primaryData.daily,
@@ -728,79 +819,53 @@ export async function fetchAndAggregateStatistics(
     names: new Set<string>(),
     records: [] as { maBN: string; tenKT: string; ngayPT: string }[],
   };
-  const nameMap = new Map<string, string>(); // normalized → original display name
+  const nameMap = new Map<string, string>();
 
-  // Aggregate monthly for primary year
+  // Aggregate monthly for primary year (using pre-indexed data)
   const primary: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
-    const { records, source } = getRecordsForMonth(m, primaryYear, primaryData.monthly, primaryData.daily);
+    const { records, source } = getRecordsFromIndex(m, primaryIndexed);
     primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
   }
 
-  // Yield after primary aggregation (heaviest stage)
+  // Yield after primary aggregation
   await new Promise(resolve => setTimeout(resolve, 0));
 
   // Aggregate monthly for compare year
   const compare: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
-    const { records, source } = getRecordsForMonth(m, compareYear, compareData.monthly, compareData.daily);
+    const { records, source } = getRecordsFromIndex(m, compareIndexed);
     compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
   }
 
   // Yield after compare aggregation
   await new Promise(resolve => setTimeout(resolve, 0));
 
-  // Daily aggregation for the selected month (default = current calendar month)
+  // Forecast (only when viewing current year) — uses realMonth, not selectedMonth
   const now = new Date();
-  const currentMonth = selectedMonth ?? (now.getMonth() + 1);
   const currentYear = now.getFullYear();
-  let currentMonthDaily: DailyAggregate[] = [];
-  let previousMonthDaily: DailyAggregate[] = [];
-  let compareMonthDaily: DailyAggregate[] = [];
-
-  // Always aggregate daily for the selected month from primary year
-  const { records } = getRecordsForMonth(currentMonth, primaryYear, primaryData.monthly, primaryData.daily);
-  currentMonthDaily = aggregateDaily(records, priceVersions, laborPrices, namePrices);
-
-  // Previous month daily
-  const prevMonth = currentMonth === 1 ? 12 : currentMonth - 1;
-  const prevMonthYear = currentMonth === 1 ? primaryYear - 1 : primaryYear;
-  const prevData = prevMonthYear === primaryYear ? primaryData : (prevMonthYear === compareYear ? compareData : null);
-  if (prevData) {
-    const { records: prevRecords } = getRecordsForMonth(prevMonth, prevMonthYear, prevData.monthly, prevData.daily);
-    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, namePrices);
-  }
-
-  // Compare year same month daily data
-  const { records: compareRecords } = getRecordsForMonth(currentMonth, compareYear, compareData.monthly, compareData.daily);
-  compareMonthDaily = aggregateDaily(compareRecords, priceVersions, laborPrices, namePrices);
-
-  // Yield after daily aggregation
-  await new Promise(resolve => setTimeout(resolve, 0));
-
-  // Forecast (only when viewing current year)
   const isCurrentYear = primaryYear === currentYear;
   const realMonth = now.getMonth() + 1;
   const lastYearSameMonth = compare.find(m => m.month === realMonth)?.actualCases ?? 0;
   let forecast: ForecastData | null = null;
+
   if (isCurrentYear) {
-    // Fetch previous year (compareYear - 1) for multi-year seasonal smoothing
     let prevYearMonthly: MonthlyAggregate[] | undefined;
     try {
       const prevYearNum = compareYear - 1;
       if (prevYearNum >= primaryYear - MAX_YEAR_RANGE) {
         const prevYearData = await fetchRecordsForYear(prevYearNum);
+        const prevIndex = buildMonthIndex(prevYearNum, prevYearData.monthly, prevYearData.daily);
         const prevNameMap = new Map<string, string>();
         prevYearMonthly = [];
         for (let m = 1; m <= 12; m++) {
-          const { records: pRecords, source: pSource } = getRecordsForMonth(m, prevYearNum, prevYearData.monthly, prevYearData.daily);
-          prevYearMonthly.push(aggregateMonth(m, prevYearNum, pRecords, pSource, priceVersions, laborPrices, [], prevNameMap, namePrices));
+          const entry = prevIndex.get(m) || { records: [], source: 'DAILY' as const };
+          prevYearMonthly.push(aggregateMonth(m, prevYearNum, entry.records, entry.source, priceVersions, laborPrices, [], prevNameMap, namePrices));
         }
       }
     } catch { /* gracefully degrade to single-year index */ }
 
-    // Get daily data for the real current month (not selectedMonth which is for chart)
-    const { records: forecastRecords } = getRecordsForMonth(realMonth, primaryYear, primaryData.monthly, primaryData.daily);
+    const { records: forecastRecords } = getRecordsFromIndex(realMonth, primaryIndexed);
     const forecastDailyData = aggregateDaily(forecastRecords, priceVersions, laborPrices, namePrices);
     forecast = calculateForecast(
       forecastDailyData, daysInMonth(realMonth, currentYear), lastYearSameMonth,
@@ -811,16 +876,7 @@ export async function fetchAndAggregateStatistics(
   // Yield before final assembly
   await new Promise(resolve => setTimeout(resolve, 0));
 
-  // TOP surgeries
   const topSurgeries = buildTopSurgeries(primary, compare, nameMap);
-
-  // Anomalies
-  const anomalies = detectAnomalies(currentMonthDaily);
-
-  // Pace vs last year
-  const paceVsLastYear = calculatePace(currentMonthDaily, compareMonthDaily);
-
-  // Target
   const targetCases = isCurrentYear
     ? calculateTarget(primary, lastYearSameMonth)
     : null;
@@ -830,12 +886,90 @@ export async function fetchAndAggregateStatistics(
   validation.missingSurgeryNameRecords = missingSurgeryNameTracker.records
     .sort((a, b) => a.tenKT.localeCompare(b.tenKT, 'vi') || a.ngayPT.localeCompare(b.ngayPT));
 
+  console.log(`[stats] Yearly aggregation total: ${(performance.now() - t1).toFixed(0)}ms`);
+
   return {
-    primaryYear, compareYear, selectedMonth: currentMonth,
+    primaryYear, compareYear,
     primary, compare,
-    currentMonthDaily, previousMonthDaily, compareMonthDaily,
-    forecast, topSurgeries, anomalies,
-    paceVsLastYear, targetCases, validation,
+    forecast, topSurgeries, targetCases, validation,
+    primaryIndexed, compareIndexed,
+  };
+}
+
+/**
+ * STEP 2: Compute daily aggregation for a specific selectedMonth.
+ * Uses pre-indexed raw records from YearlyCacheData — NO Firestore queries.
+ * Typically completes in <100ms.
+ */
+export function computeDailyForMonth(
+  selectedMonth: number,
+  yearlyCache: YearlyCacheData,
+  priceVersions: SurgeryPriceVersion[],
+  laborPrices: Record<string, RolePrice>,
+  namePrices: SurgeryNamePrice[] = []
+): Pick<StatisticsData, 'currentMonthDaily' | 'previousMonthDaily' | 'compareMonthDaily' | 'anomalies' | 'paceVsLastYear'> {
+  const t0 = performance.now();
+
+  // Current month daily
+  const { records } = getRecordsFromIndex(selectedMonth, yearlyCache.primaryIndexed);
+  const currentMonthDaily = aggregateDaily(records, priceVersions, laborPrices, namePrices);
+
+  // Previous month daily
+  const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
+  const prevMonthYear = selectedMonth === 1 ? yearlyCache.primaryYear - 1 : yearlyCache.primaryYear;
+  let previousMonthDaily: DailyAggregate[] = [];
+  if (prevMonthYear === yearlyCache.primaryYear) {
+    const { records: prevRecords } = getRecordsFromIndex(prevMonth, yearlyCache.primaryIndexed);
+    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, namePrices);
+  } else if (prevMonthYear === yearlyCache.compareYear) {
+    const { records: prevRecords } = getRecordsFromIndex(prevMonth, yearlyCache.compareIndexed);
+    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, namePrices);
+  }
+
+  // Compare year same month daily
+  const { records: compareRecords } = getRecordsFromIndex(selectedMonth, yearlyCache.compareIndexed);
+  const compareMonthDaily = aggregateDaily(compareRecords, priceVersions, laborPrices, namePrices);
+
+  const anomalies = detectAnomalies(currentMonthDaily);
+  const paceVsLastYear = calculatePace(currentMonthDaily, compareMonthDaily);
+
+  console.log(`[stats] Daily aggregation (month ${selectedMonth}): ${(performance.now() - t0).toFixed(0)}ms`);
+
+  return { currentMonthDaily, previousMonthDaily, compareMonthDaily, anomalies, paceVsLastYear };
+}
+
+/**
+ * Legacy wrapper — calls yearly + daily in one shot.
+ * Used for initial load or when caller doesn't manage cache.
+ */
+export async function fetchAndAggregateStatistics(
+  primaryYear: number,
+  compareYear: number,
+  priceVersions: SurgeryPriceVersion[],
+  laborPrices: Record<string, RolePrice>,
+  selectedMonth?: number,
+  namePrices: SurgeryNamePrice[] = []
+): Promise<StatisticsData> {
+  const yearlyCache = await fetchAndAggregateYearly(
+    primaryYear, compareYear, priceVersions, laborPrices, namePrices
+  );
+
+  const now = new Date();
+  const month = selectedMonth ?? (now.getMonth() + 1);
+
+  const daily = computeDailyForMonth(
+    month, yearlyCache, priceVersions, laborPrices, namePrices
+  );
+
+  return {
+    primaryYear, compareYear, selectedMonth: month,
+    primary: yearlyCache.primary,
+    compare: yearlyCache.compare,
+    ...daily,
+    forecast: yearlyCache.forecast,
+    topSurgeries: yearlyCache.topSurgeries,
+    targetCases: yearlyCache.targetCases,
+    validation: yearlyCache.validation,
   };
 }
 

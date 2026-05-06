@@ -279,6 +279,7 @@ const TrendChart: React.FC<{
   }, [chartFilterMode, chartSelectedChapters, chartSelectedProfileId, chartSelectedSurgeryName, chapters, profiles]);
 
   const [colors, setColors] = useState(saved.colors ?? { current: '#0066CC', previous: '#E63946', compare: '#2A9D8F' });
+  const [openColorPicker, setOpenColorPicker] = useState<string | null>(null);
 
   // Restore saved month on first mount
   const mountedRef = React.useRef(false);
@@ -672,19 +673,72 @@ const TrendChart: React.FC<{
       {/* Color pickers row + help text + data mode label */}
       <div className="px-4 py-2 border-b border-gray-100">
         <div className="flex items-center justify-between text-xs text-gray-600">
-          <div className="flex items-center gap-4">
-            {lines.map(l => (
-              <label key={l.key} className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="color"
-                  value={colors[l.colorKey]}
-                  onChange={e => updateColor(l.colorKey, e.target.value)}
-                  className="w-5 h-5 rounded border border-gray-300 cursor-pointer p-0"
-                  style={{ WebkitAppearance: 'none', appearance: 'none', background: 'none' }}
-                />
-                <span className="font-medium">{l.name}</span>
-              </label>
-            ))}
+          <div className="flex items-center gap-3 flex-wrap">
+            {lines.map(l => {
+              const activeColor = colors[l.colorKey];
+              const isOpen = openColorPicker === l.key;
+              const PRESET_COLORS = [
+                '#0066CC', '#E63946', '#2A9D8F', '#F59E0B',
+                '#8B5CF6', '#06B6D4', '#EC4899', '#10B981',
+                '#F97316', '#6366F1', '#14B8A6', '#EF4444',
+                '#3B82F6', '#A855F7', '#84CC16', '#D946EF',
+              ];
+              return (
+                <div key={l.key} className="relative flex items-center gap-1.5">
+                  {/* Color swatch trigger */}
+                  <button
+                    onClick={() => setOpenColorPicker(isOpen ? null : l.key)}
+                    className="w-5 h-5 rounded border-2 cursor-pointer transition-all hover:scale-110"
+                    style={{
+                      backgroundColor: activeColor,
+                      borderColor: isOpen ? '#1e293b' : '#d1d5db',
+                    }}
+                    title="Chọn màu"
+                  />
+                  <span className="font-medium">{l.name}</span>
+                  {/* Popover color palette */}
+                  {isOpen && (
+                    <>
+                      {/* Backdrop to close */}
+                      <div className="fixed inset-0 z-40" onClick={() => setOpenColorPicker(null)} />
+                      <div className="absolute top-full left-0 mt-1 z-50 bg-white rounded-xl shadow-lg border border-gray-200 p-2 w-[156px]">
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {PRESET_COLORS.map(c => (
+                            <button
+                              key={c}
+                              onClick={() => { updateColor(l.colorKey, c); setOpenColorPicker(null); }}
+                              className="w-8 h-8 rounded-lg border-2 transition-all hover:scale-110"
+                              style={{
+                                backgroundColor: c,
+                                borderColor: activeColor === c ? '#1e293b' : 'transparent',
+                                boxShadow: activeColor === c ? `0 0 0 2px white, 0 0 0 3px ${c}` : 'none',
+                              }}
+                              title={c}
+                            />
+                          ))}
+                        </div>
+                        {/* Custom color picker */}
+                        <div className="mt-2 pt-2 border-t border-gray-100 flex items-center gap-2">
+                          <span className="relative">
+                            <input
+                              type="color"
+                              value={activeColor}
+                              onChange={e => updateColor(l.colorKey, e.target.value)}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                            <span
+                              className="block w-8 h-8 rounded-lg border border-dashed border-gray-300 cursor-pointer"
+                              style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}
+                            />
+                          </span>
+                          <span className="text-[10px] text-gray-400">Tùy chỉnh</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
             {showForecastLine && (
               <span className="flex items-center gap-1.5 text-xs text-gray-400">
                 <span className="inline-block w-5 h-0.5 rounded" style={{ background: forecastColor, borderTop: `2px dashed ${forecastColor}` }} />
@@ -692,7 +746,7 @@ const TrendChart: React.FC<{
               </span>
             )}
           </div>
-          <div className="flex flex-col items-end gap-0.5">
+          <div className="flex flex-col items-end gap-0.5 shrink-0">
             <span className="text-xs font-bold text-gray-700">
               {isCumulative ? 'Số liệu lũy kế' : `Số liệu từng ${isMonthPeriod ? 'tháng' : 'ngày'}`}
             </span>
@@ -707,7 +761,6 @@ const TrendChart: React.FC<{
             )}
           </div>
         </div>
-        <p className="text-[10px] text-gray-400 italic mt-1">Click chuột vào ô màu để chọn màu cho các đường biểu diễn, chọn màu trắng hoặc xám để ẩn.</p>
       </div>
       {/* Chart area with overlay spinner */}
       {/* Chart content area — full loading spinner when month is changing */}

@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, useTransition
 import { BarChart3, Settings2, Table2, Loader2, AlertTriangle, Info, ChevronDown, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
-import { fetchAndAggregateStatistics } from '../../services/statisticsService';
+import { fetchAndAggregateYearly, computeDailyForMonth, type YearlyCacheData } from '../../services/statisticsService';
 import { subscribeToPriceVersions } from '../../services/pricingService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { subscribeToChapterCatalog } from '../../services/chapterCatalogService';
@@ -48,6 +48,21 @@ export const StatisticsTab: React.FC = () => {
   const namePricesReady = useRef(false);
   const initialLoadTriggered = useRef(false);
 
+  // --- Yearly cache (core optimization) ---
+  // Cache key includes year pair + price config hash to auto-invalidate when prices change
+  const yearCacheRef = useRef<{
+    key: string;
+    data: YearlyCacheData;
+  } | null>(null);
+
+  const buildCacheKey = useCallback((pYear: number, cYear: number, pv: SurgeryPriceVersion[], np: SurgeryNamePrice[]) => {
+    // Simple hash: year pair + count + last-modified timestamps
+    const pvHash = pv.length > 0 ? `${pv.length}_${pv[0]?.id}_${pv[pv.length - 1]?.id}` : '0';
+    const npHash = np.length > 0 ? `${np.length}_${np[0]?.id}_${np[np.length - 1]?.id}` : '0';
+    const priceConfigHash = JSON.stringify(config.priceConfig).length; // cheap size-based hash
+    return `${pYear}_${cYear}_${pvHash}_${npHash}_${priceConfigHash}`;
+  }, [config.priceConfig]);
+
   // Subscribe to price versions
   useEffect(() => {
     const unsub = subscribeToPriceVersions((data) => {
@@ -82,8 +97,8 @@ export const StatisticsTab: React.FC = () => {
     return unsub;
   }, []);
 
-  // Fetch and aggregate stats
-  const loadData = useCallback(async (
+  // --- Full yearly fetch (expensive: Firestore queries + 24× aggregation) ---
+  const loadYearlyData = useCallback(async (
     pYear: number,
     cYear: number,
     month: number,
@@ -95,15 +110,31 @@ export const StatisticsTab: React.FC = () => {
     setError(null);
     setLoadingMsg(isInitial
       ? `Đang tải dữ liệu năm ${pYear} & ${cYear}...`
-      : 'Đang cập nhật số liệu...'
+      : `Đang tải lại dữ liệu năm ${pYear} & ${cYear}...`
     );
     try {
-      const data = await fetchAndAggregateStatistics(
-        pYear, cYear, pv, config.priceConfig, month, np
+      const yearlyCache = await fetchAndAggregateYearly(
+        pYear, cYear, pv, config.priceConfig, np
       );
-      // Wrap heavy state update in transition so UI stays responsive
+
+      // Store in cache
+      const key = buildCacheKey(pYear, cYear, pv, np);
+      yearCacheRef.current = { key, data: yearlyCache };
+
+      // Compute daily for selected month (fast, from pre-indexed data)
+      const daily = computeDailyForMonth(month, yearlyCache, pv, config.priceConfig, np);
+
       startTransition(() => {
-        setStatsData(data);
+        setStatsData({
+          primaryYear: pYear, compareYear: cYear, selectedMonth: month,
+          primary: yearlyCache.primary,
+          compare: yearlyCache.compare,
+          ...daily,
+          forecast: yearlyCache.forecast,
+          topSurgeries: yearlyCache.topSurgeries,
+          targetCases: yearlyCache.targetCases,
+          validation: yearlyCache.validation,
+        });
       });
       if (isInitial) setInitialLoaded(true);
     } catch (err: any) {
@@ -113,6 +144,24 @@ export const StatisticsTab: React.FC = () => {
       setLoading(false);
       setLoadingMsg('');
     }
+  }, [config.priceConfig, buildCacheKey]);
+
+  // --- Fast daily recompute (no Firestore, typically <50ms) ---
+  const recomputeDaily = useCallback((month: number, pv: SurgeryPriceVersion[], np: SurgeryNamePrice[]) => {
+    const cache = yearCacheRef.current;
+    if (!cache) return; // no cache yet, skip
+
+    console.time('[stats] recomputeDaily');
+    const daily = computeDailyForMonth(month, cache.data, pv, config.priceConfig, np);
+    console.timeEnd('[stats] recomputeDaily');
+
+    startTransition(() => {
+      setStatsData(prev => prev ? {
+        ...prev,
+        selectedMonth: month,
+        ...daily,
+      } : prev);
+    });
   }, [config.priceConfig]);
 
   // Initial auto-load: wait for both price subscriptions, then load once
@@ -123,30 +172,51 @@ export const StatisticsTab: React.FC = () => {
       !initialLoadTriggered.current
     ) {
       initialLoadTriggered.current = true;
-      loadData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices, true);
+      loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priceVersions, surgeryNamePrices]);
 
-  // Reload when year/month changes (after initial load)
+  // Reload when year changes → full fetch; month change → daily-only from cache
   const prevParams = useRef({ primaryYear, compareYear, selectedMonth });
   useEffect(() => {
     if (!initialLoaded) return;
     const prev = prevParams.current;
-    if (
-      prev.primaryYear !== primaryYear ||
-      prev.compareYear !== compareYear ||
-      prev.selectedMonth !== selectedMonth
-    ) {
+    const yearChanged = prev.primaryYear !== primaryYear || prev.compareYear !== compareYear;
+    const monthChanged = prev.selectedMonth !== selectedMonth;
+
+    if (yearChanged) {
+      // Year changed → invalidate cache, full re-fetch
+      yearCacheRef.current = null;
       prevParams.current = { primaryYear, compareYear, selectedMonth };
-      loadData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
+      loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
+    } else if (monthChanged) {
+      // Month changed only → fast daily recompute from cache (NO Firestore)
+      prevParams.current = { primaryYear, compareYear, selectedMonth };
+      recomputeDaily(selectedMonth, priceVersions, surgeryNamePrices);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primaryYear, compareYear, selectedMonth, initialLoaded]);
 
-  // Manual reload
+  // Invalidate cache when price config changes (from RTDB subscriptions)
+  const prevCacheKey = useRef('');
+  useEffect(() => {
+    if (!initialLoaded) return;
+    const newKey = buildCacheKey(primaryYear, compareYear, priceVersions, surgeryNamePrices);
+    if (prevCacheKey.current && prevCacheKey.current !== newKey) {
+      // Price data changed → clear cache, full re-fetch
+      console.log('[stats] Price config changed, invalidating cache');
+      yearCacheRef.current = null;
+      loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
+    }
+    prevCacheKey.current = newKey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priceVersions, surgeryNamePrices, config.priceConfig, initialLoaded]);
+
+  // Manual reload — always clears cache
   const handleReload = () => {
-    loadData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
+    yearCacheRef.current = null;
+    loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
   };
 
   // Year options
