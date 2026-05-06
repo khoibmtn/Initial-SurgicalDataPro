@@ -2,9 +2,9 @@
  * StatsSummary — KPI cards + Monthly summary table + Daily chart + Surgery type table
  */
 import React, { useState, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Activity, Calculator, DollarSign, Target, Minus, Info, Download, Loader2, AlertTriangle, ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Calculator, DollarSign, Target, Minus, Info, Download, Loader2, AlertTriangle, ChevronDown, ChevronRight, Search, BarChart3, LineChart as LineChartIcon } from 'lucide-react';
 import {
-  ResponsiveContainer, LineChart, Line,
+  ResponsiveContainer, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 import { StatisticsData, DailyAggregate, LOAI_PTTT_ORDER, LOAI_PTTT_LABELS, ChapterCatalog, SurgeryProfile, SurgeryNamePrice, PTTTFilterMode } from '../../types';
@@ -91,11 +91,14 @@ const CollapsibleFrame: React.FC<{
 // --- localStorage helpers for chart settings ---
 const CHART_SETTINGS_KEY = 'sdp_chart_settings';
 
+type ChartType = 'line' | 'bar';
+
 interface ChartSettings {
   isMonthPeriod: boolean;
   isCumulative: boolean;
   colors: { current: string; previous: string; compare: string };
   selectedMonth: number;
+  chartType: ChartType;
 }
 
 function loadChartSettings(): Partial<ChartSettings> {
@@ -118,6 +121,7 @@ interface ChartNavState {
   isCumulative: boolean;
   selectedMonth: number;
   colors: { current: string; previous: string; compare: string };
+  chartType: ChartType;
 }
 
 const TrendChart: React.FC<{
@@ -134,6 +138,7 @@ const TrendChart: React.FC<{
   const saved = loadChartSettings();
   const [isMonthPeriod, setIsMonthPeriod] = useState(saved.isMonthPeriod ?? false);
   const [isCumulative, setIsCumulative] = useState(saved.isCumulative ?? true);
+  const [chartType, setChartType] = useState<ChartType>(saved.chartType ?? 'line');
 
   // Local month state — updates IMMEDIATELY on user selection,
   // while data.selectedMonth only updates after data loads
@@ -292,7 +297,7 @@ const TrendChart: React.FC<{
 
   // Notify parent of nav changes
   const emitNav = (patch: Partial<ChartNavState>) => {
-    const nav: ChartNavState = { isMonthPeriod, isCumulative, selectedMonth: data.selectedMonth, colors, ...patch };
+    const nav: ChartNavState = { isMonthPeriod, isCumulative, selectedMonth: data.selectedMonth, colors, chartType, ...patch };
     onNavChange?.(nav);
   };
 
@@ -424,7 +429,7 @@ const TrendChart: React.FC<{
       const lastCum = lastDay > 0 ? (currentMap[lastDay] ?? 0) : 0;
       if (lastDay > 0 && lastDay < totalDays) {
         const dailyRate = lastCum / lastDay;
-        forecastMap[lastDay] = lastCum; // overlap point
+        // Start forecast AFTER last actual day — no overlap
         for (let d = lastDay + 1; d <= totalDays; d++) {
           forecastMap[d] = Math.round(dailyRate * d);
         }
@@ -467,19 +472,14 @@ const TrendChart: React.FC<{
       const overlapMonth = Math.min(lastDataMonth, realMonth - 1);
 
       if (overlapMonth >= 1) {
-        // Cumulative overlap
-        const cumToOverlap = primary.slice(0, overlapMonth).reduce((s, m) => s + m.actualCases, 0);
-        monthlyForecastCumMap[overlapMonth] = cumToOverlap;
-        // Per-month overlap
-        monthlyForecastPerMap[overlapMonth] = primary[overlapMonth - 1]?.actualCases ?? 0;
+        // Start forecast AFTER last complete month — no overlap
+        let prevCum = primary.slice(0, overlapMonth).reduce((s, m) => s + m.actualCases, 0);
 
         // Current month + future months: use model forecast data
-        let prevCum = cumToOverlap;
         for (let m = overlapMonth + 1; m <= 12; m++) {
           if (forecast.forecastMonthly[m] !== undefined) {
             const cumVal = forecast.forecastMonthly[m];
             monthlyForecastCumMap[m] = cumVal;
-            // Individual month = difference in cumulative
             monthlyForecastPerMap[m] = cumVal - prevCum;
             prevCum = cumVal;
           }
@@ -580,6 +580,23 @@ const TrendChart: React.FC<{
           )}
           <Toggle left="Ngày" right="Tháng" value={isMonthPeriod} onChange={handleMonthPeriodChange} />
           <Toggle left="Lũy kế" right="Từng kỳ" value={!isCumulative} onChange={(v) => handleCumulativeChange(!v)} />
+          {/* Chart type toggle: Line / Bar */}
+          <div className="flex items-center bg-gray-200 rounded-lg p-0.5">
+            <button
+              onClick={() => { setChartType('line'); saveChartSettings({ chartType: 'line' }); emitNav({ chartType: 'line' }); }}
+              className={`p-1.5 rounded-md transition-all ${chartType === 'line' ? 'bg-primary-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              title="Biểu đồ đường"
+            >
+              <LineChartIcon size={14} />
+            </button>
+            <button
+              onClick={() => { setChartType('bar'); saveChartSettings({ chartType: 'bar' }); emitNav({ chartType: 'bar' }); }}
+              className={`p-1.5 rounded-md transition-all ${chartType === 'bar' ? 'bg-primary-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              title="Biểu đồ cột"
+            >
+              <BarChart3 size={14} />
+            </button>
+          </div>
         </div>
       </div>
       {/* Filter bar — chapter/profile */}
@@ -808,6 +825,7 @@ const TrendChart: React.FC<{
       ) : (
         <div className="p-4">
           <ResponsiveContainer width="100%" height={300}>
+            {chartType === 'line' ? (
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
@@ -835,6 +853,37 @@ const TrendChart: React.FC<{
                 />
               )}
             </LineChart>
+            ) : (
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
+              <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} />
+              <Tooltip
+                contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                formatter={(value: any, name: string) => [value !== null ? `${value} ca` : '—', name]}
+                labelFormatter={(label) => `${xLabel} ${label}`}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              {lines.map(l => (
+                <Bar
+                  key={l.key} dataKey={l.key} name={l.name}
+                  fill={colors[l.colorKey]} opacity={l.dash ? 0.6 : 0.85}
+                  radius={[2, 2, 0, 0]}
+                  animationDuration={400}
+                  label={{ position: 'top', fontSize: 9, fill: '#6b7280', formatter: (v: any) => v > 0 ? v : '' }}
+                />
+              ))}
+              {showForecastLine && (
+                <Bar
+                  dataKey="forecast" name={isMonthPeriod ? `Dự báo ${data.primaryYear}` : `Dự báo T${data.selectedMonth}/${data.primaryYear}`}
+                  fill={forecastColor} opacity={0.4}
+                  radius={[2, 2, 0, 0]}
+                  animationDuration={400}
+                  label={{ position: 'top', fontSize: 9, fill: '#9ca3af', formatter: (v: any) => v > 0 ? v : '' }}
+                />
+              )}
+            </BarChart>
+            )}
           </ResponsiveContainer>
         </div>
       )}
@@ -854,7 +903,8 @@ const RevenueTrendChart: React.FC<{
   const [ready, setReady] = useState(false);
 
   // Use navigation from TrendChart above
-  const { isMonthPeriod, isCumulative, colors: savedColors } = nav;
+  const { isMonthPeriod, isCumulative, colors: savedColors, chartType: navChartType } = nav;
+  const chartType = navChartType || 'line';
   const selectedMonth = nav.selectedMonth || data.selectedMonth;
 
   const { primary, compare, currentMonthDaily, previousMonthDaily, compareMonthDaily } = data;
@@ -919,7 +969,6 @@ const RevenueTrendChart: React.FC<{
 
       const totalDays = new Date(data.primaryYear, currentMonth, 0).getDate();
 
-      // Forecast for daily cumulative
       let forecastMap: Record<number, number> = {};
       if (isCumulative && isCurrentYear) {
         const actualDays = Object.keys(currentMap).map(Number).sort((a, b) => a - b);
@@ -927,7 +976,7 @@ const RevenueTrendChart: React.FC<{
         const lastCum = lastDay > 0 ? (currentMap[lastDay] ?? 0) : 0;
         if (lastDay > 0 && lastDay < totalDays && lastCum > 0) {
           const dailyRate = lastCum / lastDay;
-          forecastMap[lastDay] = lastCum;
+          // Start forecast AFTER last actual day — no overlap
           for (let d = lastDay + 1; d <= totalDays; d++) {
             forecastMap[d] = Math.round(dailyRate * d);
           }
@@ -972,8 +1021,7 @@ const RevenueTrendChart: React.FC<{
         const overlapMonth = Math.min(lastDataMonth, realMonth - 1);
         if (overlapMonth >= 1) {
           const cumToOverlap = primary.slice(0, overlapMonth).reduce((s, m) => s + (m.namePriceCost || 0), 0);
-          monthlyForecastCumMap[overlapMonth] = cumToOverlap;
-          monthlyForecastPerMap[overlapMonth] = primary[overlapMonth - 1]?.namePriceCost || 0;
+          // Start forecast AFTER last complete month — no overlap
           const avgMonthly = cumToOverlap / overlapMonth;
           let prevCum = cumToOverlap;
           for (let m = overlapMonth + 1; m <= 12; m++) {
@@ -1110,6 +1158,7 @@ const RevenueTrendChart: React.FC<{
               <div className="flex flex-col items-end gap-0.5">
                 <span className="text-xs font-bold text-gray-700">
                   {isCumulative ? 'Viện phí lũy kế' : `Viện phí từng ${isMonthPeriod ? 'tháng' : 'ngày'}`}
+                  <span className="font-normal text-gray-400 ml-1">(đvt: triệu đồng)</span>
                 </span>
                 {showForecastLine && forecastLabelText && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold text-[10px] bg-teal-100 text-teal-700">
@@ -1123,6 +1172,7 @@ const RevenueTrendChart: React.FC<{
           {/* Chart */}
           <div className="p-4">
             <ResponsiveContainer width="100%" height={300}>
+              {chartType === 'line' ? (
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
@@ -1148,6 +1198,37 @@ const RevenueTrendChart: React.FC<{
                   />
                 )}
               </LineChart>
+              ) : (
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
+                <YAxis tick={{ fontSize: 10, fill: '#6b7280' }} tickFormatter={(v: number) => fmtMoney(v)} />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  formatter={(value: any, name: string) => [value !== null ? fmtMoney(value) : '—', name]}
+                  labelFormatter={(label) => `${xLabel} ${label}`}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {lines.map((l: any) => (
+                  <Bar
+                    key={l.key} dataKey={l.key} name={l.name}
+                    fill={l.color} opacity={l.dash ? 0.6 : 0.85}
+                    radius={[2, 2, 0, 0]}
+                    animationDuration={400}
+                    label={{ position: 'top', fontSize: 8, fill: '#6b7280', formatter: (v: any) => v > 0 ? fmtMoney(v) : '' }}
+                  />
+                ))}
+                {showForecastLine && (
+                  <Bar
+                    dataKey="forecast" name="Dự báo"
+                    fill={forecastColor} opacity={0.4}
+                    radius={[2, 2, 0, 0]}
+                    animationDuration={400}
+                    label={{ position: 'top', fontSize: 8, fill: '#9ca3af', formatter: (v: any) => v > 0 ? fmtMoney(v) : '' }}
+                  />
+                )}
+              </BarChart>
+              )}
             </ResponsiveContainer>
           </div>
 
