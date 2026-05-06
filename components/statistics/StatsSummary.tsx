@@ -1098,8 +1098,6 @@ const ROWS_PER_PAGE = 25;
 
 const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, fmtNum, fmtMoney, chapters, profiles }) => {
   const { primary, compare } = data;
-  const isMonthPeriod = nav.isMonthPeriod;
-  const selectedMonth = nav.selectedMonth;
   const [showRevenue, setShowRevenue] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -1148,10 +1146,10 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
   const sourceData = showCompare ? compare : primary;
   const activeYear = showCompare ? data.compareYear : data.primaryYear;
 
-  // Compute rows: aggregate by surgery name
+  // Compute rows: aggregate by surgery name — always show all 12 months
   const rows = useMemo(() => {
     const nameMap = new Map<string, { name: string; monthly: number[]; total: number }>();
-    const months = isMonthPeriod ? sourceData : sourceData.filter(m => m.month === selectedMonth);
+    const months = sourceData;
 
     for (const m of months) {
       const source: Record<string, number> = showRevenue ? (m.namePriceCostByName || {}) : m.byName;
@@ -1169,7 +1167,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
     const arr = Array.from(nameMap.values());
     arr.sort((a, b) => b.total - a.total);
     return arr;
-  }, [sourceData, isMonthPeriod, selectedMonth, showRevenue]);
+  }, [sourceData, showRevenue]);
 
   // Apply profile/chapter filter BEFORE search
   const modeFiltered = useMemo(() => {
@@ -1206,18 +1204,8 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
   const safePageIdx = Math.min(page, totalPages - 1);
   const pageRows = filtered.slice(safePageIdx * ROWS_PER_PAGE, (safePageIdx + 1) * ROWS_PER_PAGE);
 
-  // Column headers
-  const colHeaders = isMonthPeriod
-    ? Array.from({ length: 12 }, (_, i) => `T${i + 1}`)
-    : (() => {
-        // Daily: we show by day of that month
-        const daysInMonth = new Date(activeYear, selectedMonth, 0).getDate();
-        return Array.from({ length: daysInMonth }, (_, i) => `${i + 1}`);
-      })();
-
-  // For daily mode, we need to reaggregate per day from raw data. But since byName is only available monthly,
-  // in monthly mode we show T1-T12. For daily mode, we show the single month's total only.
-  const isDailyMode = !isMonthPeriod;
+  // Column headers — always show 12 months
+  const colHeaders = Array.from({ length: 12 }, (_, i) => `T${i + 1}`);
 
   // Grand total
   const grandTotal = filtered.reduce((s, r) => s + r.total, 0);
@@ -1231,7 +1219,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
 
   return (
     <CollapsibleFrame
-      title={`Thống kê theo PTTT — ${activeYear}${isDailyMode ? ` (T${selectedMonth})` : ''}`}
+      title={`Thống kê theo PTTT — ${activeYear}`}
       defaultOpen={false}
       storageKey="sdp_name_table"
       headerRight={
@@ -1360,13 +1348,9 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
                 Tên PTTT
                 <span className="text-[9px] text-gray-400 font-normal ml-1">({filtered.length})</span>
               </th>
-              {isMonthPeriod ? (
-                colHeaders.map((h, i) => (
-                  <th key={i} className="text-center px-2 py-2 font-semibold text-gray-600 min-w-[55px]">{h}</th>
-                ))
-              ) : (
-                <th className="text-center px-3 py-2 font-semibold text-gray-600 min-w-[80px]">T{selectedMonth}</th>
-              )}
+              {colHeaders.map((h, i) => (
+                <th key={i} className="text-center px-2 py-2 font-semibold text-gray-600 min-w-[55px]">{h}</th>
+              ))}
               <th className="text-center px-3 py-2 font-bold text-gray-800 bg-primary-50 min-w-[70px]">Tổng</th>
             </tr>
           </thead>
@@ -1377,17 +1361,11 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
                   <span className="text-[9px] text-gray-400 mr-1">{safePageIdx * ROWS_PER_PAGE + ri + 1}.</span>
                   {row.name}
                 </td>
-                {isMonthPeriod ? (
-                  row.monthly.map((v, ci) => (
-                    <td key={ci} className="text-center px-2 py-1.5 text-gray-600 tabular-nums">
-                      {v > 0 ? fmt(v) : <span className="text-gray-200">·</span>}
-                    </td>
-                  ))
-                ) : (
-                  <td className="text-center px-3 py-1.5 text-gray-600 tabular-nums font-semibold">
-                    {row.total > 0 ? fmt(row.total) : '—'}
+                {row.monthly.map((v, ci) => (
+                  <td key={ci} className="text-center px-2 py-1.5 text-gray-600 tabular-nums">
+                    {v > 0 ? fmt(v) : <span className="text-gray-200">·</span>}
                   </td>
-                )}
+                ))}
                 <td className="text-center px-3 py-1.5 font-bold text-primary-800 bg-primary-50 tabular-nums">
                   {row.total > 0 ? fmt(row.total) : '—'}
                 </td>
@@ -1395,7 +1373,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
             ))}
             {pageRows.length === 0 && (
               <tr>
-                <td colSpan={isMonthPeriod ? 14 : 3} className="text-center py-8 text-gray-400 text-sm">
+                <td colSpan={14} className="text-center py-8 text-gray-400 text-sm">
                   {searchText.trim() ? 'Không tìm thấy kết quả' : 'Chưa có dữ liệu'}
                 </td>
               </tr>
@@ -1404,20 +1382,14 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
             {filtered.length > 0 && (
               <tr className="bg-gray-50 font-bold border-t border-gray-300">
                 <td className="px-3 py-2 text-gray-800 sticky left-0 bg-gray-50 z-10">Tổng cộng</td>
-                {isMonthPeriod ? (
-                  Array.from({ length: 12 }, (_, ci) => {
-                    const colTotal = filtered.reduce((s, r) => s + r.monthly[ci], 0);
-                    return (
-                      <td key={ci} className="text-center px-2 py-2 text-gray-700 tabular-nums">
-                        {colTotal > 0 ? fmt(colTotal) : '—'}
-                      </td>
-                    );
-                  })
-                ) : (
-                  <td className="text-center px-3 py-2 text-gray-700 tabular-nums">
-                    {grandTotal > 0 ? fmt(grandTotal) : '—'}
-                  </td>
-                )}
+                {Array.from({ length: 12 }, (_, ci) => {
+                  const colTotal = filtered.reduce((s, r) => s + r.monthly[ci], 0);
+                  return (
+                    <td key={ci} className="text-center px-2 py-2 text-gray-700 tabular-nums">
+                      {colTotal > 0 ? fmt(colTotal) : '—'}
+                    </td>
+                  );
+                })}
                 <td className="text-center px-3 py-2 text-primary-800 bg-primary-50 tabular-nums">
                   {grandTotal > 0 ? fmt(grandTotal) : '—'}
                 </td>
