@@ -121,6 +121,7 @@ interface ChartNavState {
   isCumulative: boolean;
   selectedMonth: number;
   colors: { current: string; previous: string; compare: string };
+  chartType: ChartType;
 }
 
 const TrendChart: React.FC<{
@@ -296,7 +297,7 @@ const TrendChart: React.FC<{
 
   // Notify parent of nav changes
   const emitNav = (patch: Partial<ChartNavState>) => {
-    const nav: ChartNavState = { isMonthPeriod, isCumulative, selectedMonth: data.selectedMonth, colors, ...patch };
+    const nav: ChartNavState = { isMonthPeriod, isCumulative, selectedMonth: data.selectedMonth, colors, chartType, ...patch };
     onNavChange?.(nav);
   };
 
@@ -587,14 +588,14 @@ const TrendChart: React.FC<{
           {/* Chart type toggle: Line / Bar */}
           <div className="flex items-center bg-gray-200 rounded-lg p-0.5">
             <button
-              onClick={() => { setChartType('line'); saveChartSettings({ chartType: 'line' }); }}
+              onClick={() => { setChartType('line'); saveChartSettings({ chartType: 'line' }); emitNav({ chartType: 'line' }); }}
               className={`p-1.5 rounded-md transition-all ${chartType === 'line' ? 'bg-primary-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               title="Biểu đồ đường"
             >
               <LineChartIcon size={14} />
             </button>
             <button
-              onClick={() => { setChartType('bar'); saveChartSettings({ chartType: 'bar' }); }}
+              onClick={() => { setChartType('bar'); saveChartSettings({ chartType: 'bar' }); emitNav({ chartType: 'bar' }); }}
               className={`p-1.5 rounded-md transition-all ${chartType === 'bar' ? 'bg-primary-700 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
               title="Biểu đồ cột"
             >
@@ -874,6 +875,7 @@ const TrendChart: React.FC<{
                   fill={colors[l.colorKey]} opacity={l.dash ? 0.6 : 0.85}
                   radius={[2, 2, 0, 0]}
                   animationDuration={400}
+                  label={{ position: 'top', fontSize: 9, fill: '#6b7280', formatter: (v: any) => v > 0 ? v : '' }}
                 />
               ))}
               {showForecastLine && (
@@ -905,7 +907,8 @@ const RevenueTrendChart: React.FC<{
   const [ready, setReady] = useState(false);
 
   // Use navigation from TrendChart above
-  const { isMonthPeriod, isCumulative, colors: savedColors } = nav;
+  const { isMonthPeriod, isCumulative, colors: savedColors, chartType: navChartType } = nav;
+  const chartType = navChartType || 'line';
   const selectedMonth = nav.selectedMonth || data.selectedMonth;
 
   const { primary, compare, currentMonthDaily, previousMonthDaily, compareMonthDaily } = data;
@@ -1161,6 +1164,7 @@ const RevenueTrendChart: React.FC<{
               <div className="flex flex-col items-end gap-0.5">
                 <span className="text-xs font-bold text-gray-700">
                   {isCumulative ? 'Viện phí lũy kế' : `Viện phí từng ${isMonthPeriod ? 'tháng' : 'ngày'}`}
+                  <span className="font-normal text-gray-400 ml-1">(đvt: triệu đồng)</span>
                 </span>
                 {showForecastLine && forecastLabelText && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold text-[10px] bg-teal-100 text-teal-700">
@@ -1174,6 +1178,7 @@ const RevenueTrendChart: React.FC<{
           {/* Chart */}
           <div className="p-4">
             <ResponsiveContainer width="100%" height={300}>
+              {chartType === 'line' ? (
               <LineChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
@@ -1199,6 +1204,36 @@ const RevenueTrendChart: React.FC<{
                   />
                 )}
               </LineChart>
+              ) : (
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} label={{ value: xLabel, position: 'insideBottomRight', offset: -5, style: { fontSize: 10, fill: '#9ca3af' } }} />
+                <YAxis tick={{ fontSize: 10, fill: '#6b7280' }} tickFormatter={(v: number) => fmtMoney(v)} />
+                <Tooltip
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  formatter={(value: any, name: string) => [value !== null ? fmtMoney(value) : '—', name]}
+                  labelFormatter={(label) => `${xLabel} ${label}`}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {lines.map((l: any) => (
+                  <Bar
+                    key={l.key} dataKey={l.key} name={l.name}
+                    fill={l.color} opacity={l.dash ? 0.6 : 0.85}
+                    radius={[2, 2, 0, 0]}
+                    animationDuration={400}
+                    label={{ position: 'top', fontSize: 8, fill: '#6b7280', formatter: (v: any) => v > 0 ? fmtMoney(v) : '' }}
+                  />
+                ))}
+                {showForecastLine && (
+                  <Bar
+                    dataKey="forecast" name="Dự báo"
+                    fill={forecastColor} opacity={0.4}
+                    radius={[2, 2, 0, 0]}
+                    animationDuration={400}
+                  />
+                )}
+              </BarChart>
+              )}
             </ResponsiveContainer>
           </div>
 
