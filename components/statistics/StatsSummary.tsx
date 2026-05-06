@@ -884,6 +884,7 @@ const TrendChart: React.FC<{
                   fill={forecastColor} opacity={0.4}
                   radius={[2, 2, 0, 0]}
                   animationDuration={400}
+                  label={{ position: 'top', fontSize: 9, fill: '#9ca3af', formatter: (v: any) => v > 0 ? v : '' }}
                 />
               )}
             </BarChart>
@@ -1230,6 +1231,7 @@ const RevenueTrendChart: React.FC<{
                     fill={forecastColor} opacity={0.4}
                     radius={[2, 2, 0, 0]}
                     animationDuration={400}
+                    label={{ position: 'top', fontSize: 8, fill: '#9ca3af', formatter: (v: any) => v > 0 ? fmtMoney(v) : '' }}
                   />
                 )}
               </BarChart>
