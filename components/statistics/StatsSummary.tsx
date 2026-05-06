@@ -1210,10 +1210,15 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
   // Grand total
   const grandTotal = filtered.reduce((s, r) => s + r.total, 0);
 
-  // Format value
+  // Format value — in revenue mode, show plain number in millions (no suffix)
+  const fmtRevenuePlain = (n: number) => {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1);
+    if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K';
+    return fmtNum(n);
+  };
   const fmt = (v: number) => {
     if (v === 0) return '—';
-    if (showRevenue) return fmtMoney(v);
+    if (showRevenue) return fmtRevenuePlain(v);
     return fmtNum(v);
   };
 
@@ -1341,6 +1346,9 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
 
       {/* Table */}
       <div className="overflow-x-auto">
+        {showRevenue && (
+          <div className="text-right px-3 py-1.5 text-[10px] text-gray-500 italic">Đơn vị: triệu đồng</div>
+        )}
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
@@ -1357,7 +1365,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
           <tbody>
             {pageRows.map((row, ri) => (
               <tr key={row.name} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-white z-10 truncate max-w-[250px]" title={row.name}>
+                <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-white z-10 min-w-[200px] max-w-[280px] break-words whitespace-normal">
                   <span className="text-[9px] text-gray-400 mr-1">{safePageIdx * ROWS_PER_PAGE + ri + 1}.</span>
                   {row.name}
                 </td>
