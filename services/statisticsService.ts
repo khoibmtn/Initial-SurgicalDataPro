@@ -350,12 +350,15 @@ function aggregateDaily(
   return sortedDates.map(date => {
     const recs = byDate.get(date)!;
     const byType: Record<string, number> = {};
+    const byName: Record<string, number> = {};
     let daySvcCost = 0, dayLabCost = 0, dayEquiv = 0, dayNameCost = 0;
 
     for (const r of recs) {
       const loai = r.loaiPTTT || 'TKPL';
       const qty = r.soLuong || 1;
       byType[loai] = (byType[loai] || 0) + 1;
+      const name = r.tenKT || '';
+      if (name) byName[name] = (byName[name] || 0) + 1;
       dayEquiv += qty;
       const { price } = getServicePrice(loai, r.ngayBD, priceVersions);
       daySvcCost += price * qty;
@@ -376,7 +379,7 @@ function aggregateDaily(
       serviceCost: daySvcCost, cumulativeServiceCost: cumSvcCost,
       laborCost: dayLabCost, cumulativeLaborCost: cumLabCost,
       namePriceCost: dayNameCost, cumulativeNamePriceCost: cumNameCost,
-      byType,
+      byType, byName,
     };
   });
 }

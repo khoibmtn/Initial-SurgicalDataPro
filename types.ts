@@ -300,6 +300,7 @@ export interface DailyAggregate {
   namePriceCost: number;
   cumulativeNamePriceCost: number;
   byType: Record<string, number>;
+  byName: Record<string, number>;
 }
 
 /** Dữ liệu dự báo — V5+ Cumulative Seasonal Model */

@@ -345,6 +345,37 @@ const TrendChart: React.FC<{
     }));
   }, [rawCompare, filterByName]);
 
+  // Apply filter to daily data if filter is active
+  const filteredCurrentMonthDaily = useMemo(() => {
+    if (!filterByName || !currentMonthDaily) return currentMonthDaily;
+    let cum = 0;
+    return currentMonthDaily.map(d => {
+      const cases = filterByName(d.byName);
+      cum += cases;
+      return { ...d, cases, cumulative: cum };
+    });
+  }, [currentMonthDaily, filterByName]);
+
+  const filteredPreviousMonthDaily = useMemo(() => {
+    if (!filterByName || !previousMonthDaily) return previousMonthDaily;
+    let cum = 0;
+    return previousMonthDaily.map(d => {
+      const cases = filterByName(d.byName);
+      cum += cases;
+      return { ...d, cases, cumulative: cum };
+    });
+  }, [previousMonthDaily, filterByName]);
+
+  const filteredCompareMonthDaily = useMemo(() => {
+    if (!filterByName || !compareMonthDaily) return compareMonthDaily;
+    let cum = 0;
+    return compareMonthDaily.map(d => {
+      const cases = filterByName(d.byName);
+      cum += cases;
+      return { ...d, cases, cumulative: cum };
+    });
+  }, [compareMonthDaily, filterByName]);
+
   const currentMonth = data.selectedMonth;
   // Use local month for display purposes (title, etc.)
   const displayMonth = localSelectedMonth;
@@ -379,9 +410,9 @@ const TrendChart: React.FC<{
     };
 
     const metric = isCumulative ? 'cumulative' : 'cases';
-    const currentMap = buildByDay(currentMonthDaily, metric);
-    const prevMap = buildByDay(previousMonthDaily, metric);
-    const compareMap = buildByDay(compareMonthDaily, metric);
+    const currentMap = buildByDay(filteredCurrentMonthDaily, metric);
+    const prevMap = buildByDay(filteredPreviousMonthDaily, metric);
+    const compareMap = buildByDay(filteredCompareMonthDaily, metric);
 
     const totalDays = new Date(data.primaryYear, currentMonth, 0).getDate();
 
@@ -589,6 +620,8 @@ const TrendChart: React.FC<{
                 <ChevronDown className="h-3 w-3 text-gray-400 ml-auto shrink-0" />
               </button>
               {showChartChapterDropdown && (
+                <>
+                <div className="fixed inset-0 z-20" onClick={() => setShowChartChapterDropdown(false)} />
                 <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto min-w-[300px]">
                   <div className="p-2 border-b border-gray-100 flex items-center justify-between">
                     <button
@@ -628,6 +661,7 @@ const TrendChart: React.FC<{
                     </label>
                   ))}
                 </div>
+                </>
               )}
             </div>
           )}
@@ -664,10 +698,7 @@ const TrendChart: React.FC<{
             );
           })()}
 
-          {/* Filter active indicator with daily mode warning */}
-          {isFilterActive && !isMonthPeriod && (
-            <span className="text-[10px] text-amber-600 italic">⚠ Bộ lọc chỉ áp dụng cho dữ liệu theo tháng</span>
-          )}
+
         </div>
       </div>
       {/* Color pickers row + help text + data mode label */}
@@ -1326,6 +1357,8 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
                 <ChevronDown className="h-3 w-3 text-gray-400 ml-auto shrink-0" />
               </button>
               {showChapterDropdown && (
+                <>
+                <div className="fixed inset-0 z-20" onClick={() => setShowChapterDropdown(false)} />
                 <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 max-h-60 overflow-y-auto min-w-[300px]">
                   <div className="p-2 border-b border-gray-100 flex items-center justify-between">
                     <button
@@ -1365,6 +1398,7 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
                     </label>
                   ))}
                 </div>
+                </>
               )}
             </div>
           )}
