@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffRole, AppStatus } from "../types";
+import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffRole, AppStatus, MachineEntry } from "../types";
 import { AppConfig } from "../contexts/ConfigContext";
 
 // ───────────────── Helper Functions ─────────────────
@@ -119,14 +119,15 @@ export function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig
 }
 
 export function detectMachineConflicts(records: SurgeryRecord[]): MachineConflict[] {
-    type MachineInstance = { machine: string; rec: SurgeryRecord };
+    type MachineInstance = { machine: string; machineCode: string; rec: SurgeryRecord };
     const machineMap = new Map<string, MachineInstance[]>();
 
     for (const rec of records) {
-        if (!rec.machine || !rec.start || !rec.end) continue;
-        const key = rec.machine;
-        if (!machineMap.has(key)) machineMap.set(key, []);
-        machineMap.get(key)!.push({ machine: rec.machine, rec });
+        // Use machineCode as the unique key for conflict detection
+        const code = rec.machineCode || "";
+        if (!code || !rec.start || !rec.end) continue;
+        if (!machineMap.has(code)) machineMap.set(code, []);
+        machineMap.get(code)!.push({ machine: rec.machine, machineCode: code, rec });
     }
 
     const conflicts: MachineConflict[] = [];
@@ -140,6 +141,7 @@ export function detectMachineConflicts(records: SurgeryRecord[]): MachineConflic
                 if (a.start && a.end && b.start && b.end && isOverlap(a.start, a.end, b.start, b.end)) {
                     conflicts.push({
                         machine: list[i].machine,
+                        machineCode: list[i].machineCode,
                         patientId1: a.patientId,
                         patientName1: a.patientName,
                         tenKT1: a.tenKT,
@@ -158,6 +160,37 @@ export function detectMachineConflicts(records: SurgeryRecord[]): MachineConflic
         }
     }
     return conflicts;
+}
+
+/** Enrichment for legacy data: lookup machine (name) in registry to fill machineCode/machineId */
+export function enrichRecordsWithMachineRegistry(
+    records: SurgeryRecord[],
+    registry: MachineEntry[]
+): void {
+    if (!registry || registry.length === 0) return;
+
+    for (const rec of records) {
+        // Only enrich if machineCode is missing but machine (name) exists
+        if (rec.machineCode || !rec.machine) continue;
+
+        const machineLower = rec.machine.trim().toLowerCase();
+
+        // Try exact match on machineName
+        let entry = registry.find(m => m.machineName.trim().toLowerCase() === machineLower);
+
+        // Fallback: try partial match (registry name contains record machine or vice versa)
+        if (!entry) {
+            entry = registry.find(m => {
+                const regLower = m.machineName.trim().toLowerCase();
+                return regLower.includes(machineLower) || machineLower.includes(regLower);
+            });
+        }
+
+        if (entry) {
+            rec.machineCode = entry.machineCode;
+            rec.machineId = entry.machineId;
+        }
+    }
 }
 
 // ───────────────── Main Reprocess Function ─────────────────
@@ -207,10 +240,12 @@ export function reprocessSurgicalRecords(
     const staffConflicts = detectStaffConflicts(records, config);
     const machineConflicts = detectMachineConflicts(records);
     const missingMachine = records.filter((r) => {
+        // Use machineCode as primary check (new logic)
+        if (r.machineCode) return false;
+        // Fallback: also skip if legacy machine (name) exists
         if (r.machine) return false;
         // Check if surgery name matches any pattern in ignoredMachineNames (substring match)
         if (config.ignoredMachineNames && config.ignoredMachineNames.some(ignoredName => {
-            // Normalize both strings: remove brackets variations and extra spaces
             const normalizedSurgeryName = r.tenKT.replace(/[\[\]()]/g, '').trim().toLowerCase();
             const normalizedIgnoredName = ignoredName.replace(/[\[\]()]/g, '').trim().toLowerCase();
             return normalizedSurgeryName.includes(normalizedIgnoredName) || normalizedIgnoredName.includes(normalizedSurgeryName);
@@ -774,10 +809,11 @@ export function recalculateResultFromRecords(records: SurgeryRecord[], config: A
 
 
     const missingMachine = records.filter((r) => {
+        // Use machineCode as primary check
+        if (r.machineCode) return false;
         if (r.machine && r.machine.trim() !== "") return false;
         // Check if surgery name matches any pattern in ignoredMachineNames (substring match)
         if (config.ignoredMachineNames && config.ignoredMachineNames.some(ignoredName => {
-            // Normalize both strings: remove brackets variations and extra spaces
             const normalizedSurgeryName = r.tenKT.replace(/[\[\]()]/g, '').trim().toLowerCase();
             const normalizedIgnoredName = ignoredName.replace(/[\[\]()]/g, '').trim().toLowerCase();
             return normalizedSurgeryName.includes(normalizedIgnoredName) || normalizedIgnoredName.includes(normalizedSurgeryName);

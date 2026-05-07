@@ -73,6 +73,8 @@ export interface SurgeryRecord {
   tdc: string;
   gv: string;
   machine: string;
+  machineCode: string;
+  machineId: string;
   start: Date | null;
   end: Date | null;
   key?: string;
@@ -102,6 +104,7 @@ export interface StaffConflict {
 
 export interface MachineConflict {
   machine: string;
+  machineCode: string;
   patientId1: string;
   patientName1: string;
   tenKT1: string;
@@ -139,7 +142,7 @@ export interface ProcessingResult {
   machineConflicts: MachineConflict[];
   missingRecords: SurgeryRecord[];
   paymentData: PaymentData;
-  dateRangeText?: string; // Extracted from A5 of list file / A3 of detail file
+  dateRangeText?: string; // Extracted from A5 of list file
   minDate?: Date;
   maxDate?: Date;
   extractedStaff?: StaffMember[];
@@ -147,7 +150,6 @@ export interface ProcessingResult {
 
 export interface FileState {
   listFile: File | null;
-  detailFile: File | null;
 }
 
 export enum AppStatus {
@@ -198,8 +200,10 @@ export interface PersistedSurgeryRecord {
   tdc: string;
   gv: string;
 
-  // === 5. NHÓM TÀI NGUYÊN (Từ file Chi tiết PT) ===
-  machine: string;          // Mã máy (Quan trọng để kiểm tra trùng máy)
+  // === 5. NHÓM TÀI NGUYÊN (Từ cột Máy TH trong file Danh sách PT) ===
+  machine: string;          // Tên máy (backward-compatible, giữ nguyên dữ liệu cũ)
+  machineCode: string;      // Mã máy (unique, dùng check trùng máy)
+  machineId: string;        // ID máy (từ bảng danh mục)
   type: 'DAILY' | 'MONTHLY'; // Phân loại báo cáo
   id?: string;              // Firestore Document ID (để xóa)
   firestorePath?: string;   // Full Path
@@ -263,6 +267,15 @@ export interface ChapterCatalog {
   ma_chuong: string;             // VD: "I", "II", "III"...
   ten_chuong: string;            // VD: "Bệnh nhiễm trùng và ký sinh trùng"
   createdAt: number;             // timestamp
+}
+
+/** Danh mục mã máy — quản lý thiết bị phẫu thuật */
+export interface MachineEntry {
+  id: string;                // Internal unique ID (auto-generated)
+  machineId: string;         // ID máy (mã nội bộ bệnh viện)
+  machineCode: string;       // Mã máy (unique key, dùng để lookup)
+  machineName: string;       // Tên máy
+  active: boolean;           // true = Đang sử dụng, false = Không sử dụng
 }
 
 /** Số liệu tổng hợp theo tháng (computed, không lưu DB) */

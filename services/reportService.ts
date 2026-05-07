@@ -15,7 +15,8 @@ import { firestore as db } from "../lib/firebase";
 import {
     SurgeryRecord,
     PersistedSurgeryRecord,
-    ReportMetadata
+    ReportMetadata,
+    MachineEntry
 } from "../types";
 
 const BATCH_SIZE = 450; // Firestore batch limit is 500, keep safe margin
@@ -48,6 +49,8 @@ function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): Persi
         gv: rec.gv,
 
         machine: rec.machine,
+        machineCode: rec.machineCode || '',
+        machineId: rec.machineId || '',
         type: type
     };
 }
@@ -547,6 +550,118 @@ export const reportService = {
         } catch (error) {
             console.error('Error fetching machine data from daily reports:', error);
             return new Map();
+        }
+    },
+
+    /**
+     * Backfill machineCode and machineId for all existing Firestore records
+     * by matching the 'machine' field (name) against the provided registry.
+     * Uses exact match first, then partial match as fallback.
+     * @param registry The machine registry to look up against
+     * @param onProgress Callback for progress updates
+     * @returns Statistics about the backfill operation
+     */
+    async backfillMachineRegistry(
+        registry: MachineEntry[],
+        onProgress?: (msg: string) => void
+    ): Promise<{ totalScanned: number; matched: number; alreadyFilled: number; noMachine: number; unmatched: number; updated: number; unmatchedNames: { name: string; count: number }[] }> {
+        try {
+            if (!registry || registry.length === 0) {
+                return { totalScanned: 0, matched: 0, alreadyFilled: 0, noMachine: 0, unmatched: 0, updated: 0, unmatchedNames: [] };
+            }
+
+            onProgress?.('Đang quét toàn bộ dữ liệu Firestore...');
+
+            // Query ALL records
+            const q = query(collectionGroup(db, 'processed_records'));
+            const snapshot = await getDocs(q);
+
+            onProgress?.(`Tìm thấy ${snapshot.size} bản ghi. Đang phân tích...`);
+
+            let totalScanned = 0;
+            let matched = 0;
+            let alreadyFilled = 0;
+            let noMachine = 0;
+            let unmatched = 0;
+
+            const updates: Array<{ path: string; machineCode: string; machineId: string }> = [];
+            const unmatchedNamesMap = new Map<string, number>();
+
+            snapshot.forEach(docSnap => {
+                totalScanned++;
+                const data = docSnap.data() as PersistedSurgeryRecord;
+
+                // Skip if machineCode already filled
+                if (data.machineCode && data.machineCode.trim() !== '') {
+                    alreadyFilled++;
+                    return;
+                }
+
+                // Track records with no machine name
+                if (!data.machine || data.machine.trim() === '') {
+                    noMachine++;
+                    return;
+                }
+
+                const machineLower = data.machine.trim().toLowerCase();
+
+                // Exact match on machineName
+                let entry = registry.find(m => m.machineName.trim().toLowerCase() === machineLower);
+
+                // Fallback: exact match on machineCode
+                if (!entry) {
+                    entry = registry.find(m => m.machineCode.trim().toLowerCase() === machineLower);
+                }
+
+                // Fallback: partial match (registry name contains record machine or vice versa)
+                if (!entry) {
+                    entry = registry.find(m => {
+                        const regLower = m.machineName.trim().toLowerCase();
+                        return regLower.includes(machineLower) || machineLower.includes(regLower);
+                    });
+                }
+
+                if (entry) {
+                    matched++;
+                    updates.push({
+                        path: docSnap.ref.path,
+                        machineCode: entry.machineCode,
+                        machineId: entry.machineId,
+                    });
+                } else {
+                    unmatched++;
+                    const name = data.machine.trim();
+                    unmatchedNamesMap.set(name, (unmatchedNamesMap.get(name) || 0) + 1);
+                }
+            });
+
+            onProgress?.(`Phân tích xong: ${matched} khớp, ${alreadyFilled} đã có, ${noMachine} không có tên máy, ${unmatched} không khớp. Đang cập nhật...`);
+
+            // Batch update Firestore
+            let updated = 0;
+            if (updates.length > 0) {
+                const chunks = chunkArray(updates, BATCH_SIZE);
+                for (const chunk of chunks) {
+                    const batch = writeBatch(db);
+                    chunk.forEach(({ path, machineCode, machineId }) => {
+                        const ref = doc(db, path);
+                        batch.update(ref, { machineCode, machineId });
+                    });
+                    await batch.commit();
+                    updated += chunk.length;
+                    onProgress?.(`Đã cập nhật ${updated}/${updates.length} bản ghi...`);
+                }
+            }
+
+            const unmatchedNames = Array.from(unmatchedNamesMap.entries())
+                .map(([name, count]) => ({ name, count }))
+                .sort((a, b) => b.count - a.count);
+
+            console.log(`Backfill complete: scanned=${totalScanned}, matched=${matched}, alreadyFilled=${alreadyFilled}, noMachine=${noMachine}, unmatched=${unmatched}, updated=${updated}, uniqueUnmatched=${unmatchedNames.length}`);
+            return { totalScanned, matched, alreadyFilled, noMachine, unmatched, updated, unmatchedNames };
+        } catch (error) {
+            console.error('Error during backfill:', error);
+            throw error;
         }
     }
 

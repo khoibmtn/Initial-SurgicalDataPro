@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ref, onValue, set } from "firebase/database";
 import { db } from "../lib/firebase";
-import { UISettings, StaffMember } from "../types";
+import { UISettings, StaffMember, MachineEntry } from "../types";
 
 export interface TimeRule {
     min: number;
@@ -52,6 +52,7 @@ export interface AppConfig {
     staffLimits: StaffLimitConfig;
     hospitalName: string;
     workingHours?: WorkingHours;
+    machineRegistry: MachineEntry[];
 }
 
 interface ConfigContextType {
@@ -152,7 +153,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     uiSettings: DEFAULT_UI_SETTINGS,
     staffLimits: DEFAULT_STAFF_LIMITS,
     hospitalName: "Trung tâm Y tế Thủy Nguyên",
-    workingHours: DEFAULT_WORKING_HOURS
+    workingHours: DEFAULT_WORKING_HOURS,
+    machineRegistry: []
 };
 
 // --- Context ---

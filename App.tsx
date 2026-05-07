@@ -100,6 +100,7 @@ interface ColumnDef<T> {
   width?: string;
   className?: string; // For cell styling (bg color, etc)
   headerClassName?: string; // For header styling
+  defaultHidden?: boolean; // If true, column is hidden by default until user toggles it
 }
 
 // --- Helper Functions ---
@@ -383,7 +384,7 @@ const DynamicTable = <T extends Record<string, any>>({
       setVisibleCols(merged);
     } else {
       const initial: Record<string, boolean> = {};
-      columns.forEach(c => initial[c.key] = true);
+      columns.forEach(c => initial[c.key] = !c.defaultHidden);
       setVisibleCols(initial);
     }
   }, [columns, defaultVisibleCols]);
@@ -836,7 +837,6 @@ interface ReportState {
   stats: ProcessedStats | null;
   isProcessing: boolean;
   listFile: File | null;
-  detailFile: File | null;
   activeTable: 'list' | 'staff' | 'machine' | 'missing' | 'payment' | null;
   selectedRecordIds: string[]; // IDs of selected records (for 'list' table)
   searchTerms: {
@@ -853,7 +853,6 @@ interface ReportState {
   timeTo: string;
   // File Meta (Legacy Strings from Validator)
   listDateRange: string;
-  detailDateRange: string;
   dataSource: 'EXCEL' | 'STORAGE' | null;
   queryDateRangeText?: string;
   hasAutoFilledData?: boolean; // Track if auto-fill succeeded for enabling save button
@@ -864,7 +863,6 @@ const initialReportState: ReportState = {
   stats: null,
   isProcessing: false,
   listFile: null,
-  detailFile: null,
   activeTable: null,
   selectedRecordIds: [],
   searchTerms: {
@@ -879,7 +877,6 @@ const initialReportState: ReportState = {
   dateTo: format(new Date(), 'yyyy-MM-dd'),
   timeTo: '23:59',
   listDateRange: "",
-  detailDateRange: "",
   dataSource: null,
   hasAutoFilledData: false
 };
@@ -1128,208 +1125,13 @@ const InnerApp: React.FC = () => {
       listDateRange: res.dateRangeText || ""
     });
     addToast(`✓ File "${f.name}" hợp lệ`, 'success');
-
-    if (currentReport.detailDateRange && res.dateRangeText && currentReport.detailDateRange !== res.dateRangeText) {
-      addToast(`⚠ Thời gian của 2 file không khớp:\n- Danh sách PT: "${res.dateRangeText}"\n- Chi tiết PT: "${currentReport.detailDateRange}"`, 'error');
-    }
-  };
-
-  const handleDetailFileSelect = async (f: File | null) => {
-    if (!f) { updateCurrentReport({ detailFile: null, detailDateRange: "" }); return; }
-    if (!checkFile(f)) return;
-
-    const { buildMachineMapFromFile } = await import('./services/excelProcessor');
-    const result = await buildMachineMapFromFile(f);
-
-    if (result.error) {
-      addToast(result.error, 'error');
-      return;
-    }
-
-    const machineMap = result.machineMap;
-    const detailDateRange = result.dateRangeText;
-
-    updateCurrentReport({
-      detailFile: f,
-      detailDateRange: detailDateRange
-    });
-    addToast(`✓ File "${f.name}" hợp lệ (${machineMap.size} mã máy)`, 'success');
-
-    // ========== MAIN AUTO-FILL LOGIC ==========
-    const hasExistingData = currentReport.result && currentReport.result.validRecords && currentReport.result.validRecords.length > 0;
-
-    if (hasExistingData) {
-      // ===== Case 1: Data already loaded =====
-      const isStorage = currentReport.dataSource === 'STORAGE';
-      const records = [...currentReport.result!.validRecords];
-
-      // Check date range match (Decision #4: Report error if mismatch)
-      if (currentReport.listDateRange && detailDateRange && currentReport.listDateRange !== detailDateRange) {
-        addToast(`⚠ Thời gian không khớp:\n- Dữ liệu hiện tại: "${currentReport.listDateRange}"\n- File Chi tiết: "${detailDateRange}"`, 'error');
-        return;
-      }
-
-      // Fill machine codes (Decision #3: Only fill if empty)
-      let fillCount = 0;
-      const updatesForStorage: Array<{ firestorePath: string, machine: string }> = [];
-
-      records.forEach(rec => {
-        // Decision #5 (A): Ưu tiên file mới - ghi đè dữ liệu cũ
-        const ngayBD = rec.start ? rec.start.toISOString().split('T')[0] : '';
-        const key = `${rec.patientId}-${rec.patientName}-${ngayBD}-${rec.tenKT}`;
-        const machineCode = machineMap.get(key);
-
-        if (machineCode && machineCode !== rec.machine) {
-          rec.machine = machineCode;
-          fillCount++;
-
-          // For storage source, collect updates
-          if (isStorage && rec.firestorePath) {
-            updatesForStorage.push({ firestorePath: rec.firestorePath, machine: machineCode });
-          }
-        }
-      });
-
-      if (fillCount === 0) {
-        addToast('Không có dữ liệu mã máy nào khớp để cập nhật.', 'error');
-        return;
-      }
-
-      if (isStorage) {
-        // ===== Case 1.1: Storage source - Save to Firestore =====
-        addToast(`Đang cập nhật ${fillCount} mã máy vào Storage...`, 'success');
-
-        try {
-          const updatedCount = await reportService.batchUpdateMachineCodes(updatesForStorage);
-
-          // Recalculate and refresh UI
-          const freshResult = reprocessSurgicalRecords(records, config, currentReport.result!.dateRangeText || '');
-
-          updateCurrentReport({
-            result: freshResult,
-            stats: freshResult.stats,
-            hasAutoFilledData: true
-          });
-
-          addToast(`✓ Đã cập nhật ${updatedCount} mã máy vào dữ liệu lưu trữ.`, 'success');
-        } catch (error: any) {
-          console.error('Error saving machine codes:', error);
-          addToast(`Lỗi khi lưu: ${error.message}. Một số dữ liệu có thể đã được lưu.`, 'error');
-
-          // Still update UI with whatever we have
-          const freshResult = reprocessSurgicalRecords(records, config, currentReport.result!.dateRangeText || '');
-          updateCurrentReport({
-            result: freshResult,
-            stats: freshResult.stats
-          });
-        }
-      } else {
-        // ===== Case 1.2: Excel source - Update in memory only =====
-        const freshResult = reprocessSurgicalRecords(records, config, currentReport.result!.dateRangeText || '');
-
-        updateCurrentReport({
-          result: freshResult,
-          stats: freshResult.stats,
-          hasAutoFilledData: true
-        });
-
-        addToast(`✓ Đã điền ${fillCount} mã máy. Bấm "Lưu dữ liệu" để lưu vào Storage.`, 'success');
-      }
-    } else {
-      // ===== Case 2: No data loaded - Query Storage and auto-update =====
-      addToast(`Đang tìm kiếm dữ liệu trong Storage theo thời gian của file Chi tiết...`, 'success');
-
-      try {
-        // Parse date range from Detail file (Decision #1: Use Detail file date range)
-        // Expected format: "Từ ngày 01/01/2026 đến ngày 15/01/2026"
-        const dateMatch = detailDateRange.match(/(\d{2}\/\d{2}\/\d{4}).*?(\d{2}\/\d{2}\/\d{4})/);
-
-        if (!dateMatch) {
-          addToast('Không thể phân tích khoảng thời gian từ file Chi tiết.', 'error');
-          return;
-        }
-
-        const parseDate = (str: string) => {
-          const [dd, mm, yyyy] = str.split('/');
-          return new Date(`${yyyy}-${mm}-${dd}T00:00:00.000`);
-        };
-
-        const dateFrom = parseDate(dateMatch[1]);
-        const dateTo = parseDate(dateMatch[2]);
-        dateTo.setHours(23, 59, 59, 999);
-
-        const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
-        const persistedRecords = await reportService.getReports(dateFrom.toISOString(), dateTo.toISOString(), type);
-
-        if (!persistedRecords || persistedRecords.length === 0) {
-          addToast('Không tìm thấy dữ liệu trong Storage tương ứng với file Chi tiết.', 'error');
-          return;
-        }
-
-        // Fill machine codes (Decision #3: Only fill if empty)
-        let fillCount = 0;
-        const updatesForStorage: Array<{ firestorePath: string, machine: string }> = [];
-
-        persistedRecords.forEach(rec => {
-          // Decision #5 (A): Ưu tiên file mới - ghi đè dữ liệu cũ
-          const ngayBD = rec.ngayBD ? rec.ngayBD.split('T')[0] : '';
-          const key = `${rec.patientId}-${rec.patientName}-${ngayBD}-${rec.tenKT}`;
-          const machineCode = machineMap.get(key);
-
-          if (machineCode && rec.firestorePath && machineCode !== rec.machine) {
-            rec.machine = machineCode;
-            updatesForStorage.push({ firestorePath: rec.firestorePath, machine: machineCode });
-            fillCount++;
-          }
-        });
-
-        if (fillCount === 0) {
-          addToast('Không có dữ liệu mã máy nào khớp để cập nhật.', 'error');
-          return;
-        }
-
-        // Save to Storage (Decision #6: Toast before save)
-        addToast(`Đang cập nhật ${fillCount} mã máy vào Storage...`, 'success');
-
-        await reportService.batchUpdateMachineCodes(updatesForStorage);
-
-        // Decision #2: Display data after save
-        const convertedRecords: SurgeryRecord[] = persistedRecords.map(r => ({
-          ...r,
-          stt: typeof r.stt === 'number' ? r.stt : parseInt(r.stt as string) || 0,
-          start: r.ngayBD ? new Date(r.ngayBD) : null,
-          end: r.ngayKT ? new Date(r.ngayKT) : null,
-        }));
-
-        const res = reprocessSurgicalRecords(convertedRecords, config);
-
-        const formatDateForDisplay = (date: Date) => format(date, 'dd/MM/yyyy HH:mm');
-
-        updateCurrentReport({
-          result: res,
-          stats: res.stats,
-          activeTable: 'list',
-          dataSource: 'STORAGE',
-          queryDateRangeText: `Từ ngày ${formatDateForDisplay(dateFrom)} đến ngày ${formatDateForDisplay(dateTo)}`,
-          listDateRange: detailDateRange
-        });
-
-        addToast(`✓ Đã cập nhật ${fillCount} mã máy và hiển thị ${persistedRecords.length} bản ghi.`, 'success');
-
-      } catch (error: any) {
-        console.error('Error in Case 2 auto-fill:', error);
-        addToast(`Lỗi: ${error.message}`, 'error');
-      }
-    }
   };
 
   // Reset file uploads và dữ liệu liên quan cho từng loại báo cáo
   const handleResetUpload = (type: 'daily' | 'monthly') => {
     updateReportState(type, {
       listFile: null,
-      detailFile: null,
       listDateRange: '',
-      detailDateRange: '',
       result: undefined,
       stats: undefined,
       hasAutoFilledData: false,
@@ -1345,7 +1147,7 @@ const InnerApp: React.FC = () => {
 
     updateReportState(type, { isProcessing: true });
     try {
-      const res = await processSurgicalFiles(report.listFile, report.detailFile, config);
+      const res = await processSurgicalFiles(report.listFile, config);
 
       // Update config with learned staff info (Merge logic)
       if (res.extractedStaff && res.extractedStaff.length > 0) {
@@ -1463,9 +1265,7 @@ const InnerApp: React.FC = () => {
         isProcessing: false,
         dataSource: 'EXCEL'
       });
-      if (report.detailFile) {
-        addToast("Xử lý dữ liệu thành công với đầy đủ mã máy/nhân sự.", 'success');
-      }
+
     } catch (error: any) {
       console.error(error);
       addToast(error.message || "Có lỗi xử lý", 'error');
@@ -1588,7 +1388,7 @@ const InnerApp: React.FC = () => {
 
     const timer = setTimeout(processReports, 300);
     return () => clearTimeout(timer);
-  }, [processingConfigHash, dailyState.listFile, dailyState.detailFile, monthlyState.listFile, monthlyState.detailFile]);
+  }, [processingConfigHash, dailyState.listFile, monthlyState.listFile]);
 
   const formatDateForDisplay = (dateStr: string, timeStr: string) => {
     const [y, m, d] = dateStr.split('-');
@@ -1716,7 +1516,9 @@ const InnerApp: React.FC = () => {
     { key: 'ktvGM', label: 'KTV GM', width: 'min-w-[130px]' },
     { key: 'tdc', label: 'TDC', width: 'min-w-[130px]' },
     { key: 'gv', label: 'GV', width: 'min-w-[130px]' },
-    { key: 'machine', label: 'Mã máy', width: 'min-w-[200px]' },
+    { key: 'machine', label: 'Tên máy', width: 'min-w-[200px]' },
+    { key: 'machineId', label: 'ID máy', width: 'min-w-[120px]' },
+    { key: 'machineCode', label: 'Mã máy', width: 'min-w-[120px]', defaultHidden: true },
     {
       key: 'reason', label: 'Lỗi thời gian',
       render: (r) => {
@@ -1728,8 +1530,8 @@ const InnerApp: React.FC = () => {
     }
   ], [config.timeRules, dateFormat]);
 
-  // Separate columns definition for Missing Machines (stripping machine & reason)
-  const columnsMissing = useMemo<ColumnDef<SurgeryRecord>[]>(() => columnsList.filter(c => c.key !== 'machine' && c.key !== 'reason'), [columnsList]);
+  // Separate columns definition for Missing Machines (stripping machine-related & reason)
+  const columnsMissing = useMemo<ColumnDef<SurgeryRecord>[]>(() => columnsList.filter(c => c.key !== 'machine' && c.key !== 'machineId' && c.key !== 'machineCode' && c.key !== 'reason'), [columnsList]);
 
   const columnsStaff = useMemo<ColumnDef<StaffConflict>[]>(() => [
     { key: 'stt', label: '#', align: 'center', width: 'w-[40px]' },
@@ -1840,11 +1642,9 @@ const InnerApp: React.FC = () => {
   }, [currentReport.result?.machineConflicts, currentReport.searchTerms.machine]);
 
   const filteredMissing = useMemo(() => {
-    const rawData = (currentReport.detailFile || currentReport.dataSource === 'STORAGE')
-      ? (currentReport.result?.missingRecords || [])
-      : [];
+    const rawData = currentReport.result?.missingRecords || [];
     return rawData.filter(r => matchSearchQuery(r, currentReport.searchTerms.missing, undefined, columnsMissing));
-  }, [currentReport.detailFile, currentReport.dataSource, currentReport.result?.missingRecords, currentReport.searchTerms.missing]);
+  }, [currentReport.result?.missingRecords, currentReport.searchTerms.missing]);
 
   const [listPage, setListPage] = useState(1);
 
@@ -3169,14 +2969,16 @@ const InnerApp: React.FC = () => {
                     <div className="flex flex-col space-y-4 max-w-6xl mx-auto py-4">
 
 
-                      <div className="grid grid-cols-2 gap-4 flex-1">
-                        {/* Item 1: Danh sách PT */}
+                      <div className="flex flex-col gap-4 flex-1 max-w-xl mx-auto">
+                        {/* Upload: Danh sách PT */}
                         <div className="flex flex-col gap-2">
                           <div className="flex flex-row items-center gap-4 p-5 bg-primary-50/50 rounded-lg border border-primary-100 hover:border-primary-300 transition-colors h-32">
-                            <div className="bg-primary-700 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow">1</div>
+                            <div className="bg-primary-700 text-white w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow">
+                              <FileText className="h-4 w-4" />
+                            </div>
                             <div className="flex-1 min-w-0">
-                              <span className="font-bold text-primary-900 text-base block mb-1">Danh sách PT</span>
-                              <p className="text-primary-700/70 text-xs">10. Danh sách PT</p>
+                              <span className="font-bold text-primary-900 text-base block mb-1">Danh sách phẫu thuật</span>
+                              <p className="text-primary-700/70 text-xs">10. Danh sách PT (bao gồm cột Máy TH)</p>
                             </div>
                             <div className="w-32 h-20">
                               <FileUpload label="" file={currentReport.listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
@@ -3185,26 +2987,6 @@ const InnerApp: React.FC = () => {
                           {currentReport.listFile && (
                             <p className="text-primary-700 font-medium text-xs italic px-1">
                               File đã tải: {currentReport.listFile.name}
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Item 2: Chi tiết PT */}
-                        <div className="flex flex-col gap-2">
-                          <div className="flex flex-row items-center gap-4 p-5 bg-emerald-50/50 rounded-lg border border-emerald-100 hover:border-emerald-300 transition-colors h-32">
-                            <div className="bg-emerald-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 shadow">2</div>
-                            <div className="flex-1 min-w-0">
-                              <span className="font-bold text-emerald-900 text-base block mb-1">Chi tiết theo khoa</span>
-                              <p className="text-emerald-700 text-xs mt-0.5">Báo cáo → BC CLS → Chi tiết PT theo khoa</p>
-                              <p className="text-[#b91c1c] font-bold text-xs mt-1">Chọn nhóm theo thứ tự: Họ tên → Ngày làm → Máy làm</p>
-                            </div>
-                            <div className="w-32 h-20">
-                              <FileUpload label="" file={currentReport.detailFile} onFileSelect={handleDetailFileSelect} accept=".xlsx, .xls" compact={true} />
-                            </div>
-                          </div>
-                          {currentReport.detailFile && (
-                            <p className="text-emerald-600 font-medium text-xs italic px-1">
-                              File đã tải: {currentReport.detailFile.name}
                             </p>
                           )}
                         </div>
@@ -3229,7 +3011,7 @@ const InnerApp: React.FC = () => {
                               <Zap className="h-4 w-4 fill-current" />
                               Xử lý dữ liệu
                             </button>
-                            {(currentReport.listFile || currentReport.detailFile) && (
+                            {currentReport.listFile && (
                               <button
                                 onClick={() => handleResetUpload(currentType)}
                                 className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-[0.98] bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 hover:border-red-300"
@@ -3322,7 +3104,7 @@ const InnerApp: React.FC = () => {
                         {/* Card 5: Thiếu mã máy - Amber (if > 0) */}
                         <div className={`${derivedStats.missingMachines > 0 ? 'bg-amber-600' : 'bg-teal-600'} rounded-lg p-3 lg:p-4 flex items-center shadow-sm relative overflow-hidden group hover:shadow-md transition-all`}>
                           <div className="flex-1 z-10">
-                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{(currentReport.detailFile || currentReport.dataSource === 'STORAGE') ? derivedStats.missingMachines : '--'}</p>
+                            <p className="text-2xl lg:text-3xl font-bold text-white mb-1">{derivedStats.missingMachines}</p>
                             <p className={`text-[10px] lg:text-xs font-medium uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>Thiếu mã máy</p>
                           </div>
                           <AlertTriangle className={`h-6 w-6 lg:h-8 lg:w-8 ${derivedStats.missingMachines > 0 ? 'text-amber-800/60' : 'text-teal-800/60'} group-hover:scale-110 transition-transform`} />
@@ -3416,7 +3198,7 @@ const InnerApp: React.FC = () => {
                             <div className="p-2 lg:p-3 bg-white/20 text-white rounded-xl backdrop-blur-sm"><AlertTriangle className="h-5 w-5 lg:h-6 lg:w-6" /></div>
                             <div>
                               <p className={`text-[10px] lg:text-xs font-semibold uppercase tracking-wide ${derivedStats.missingMachines > 0 ? 'text-amber-100' : 'text-teal-100'}`}>PTTT thiếu mã máy</p>
-                              <p className="text-2xl lg:text-3xl font-bold text-white">{(currentReport.detailFile || currentReport.dataSource === 'STORAGE') ? derivedStats.missingMachines : '--'}</p>
+                              <p className="text-2xl lg:text-3xl font-bold text-white">{derivedStats.missingMachines}</p>
                             </div>
                           </div>
                         </div>
@@ -3676,7 +3458,7 @@ const InnerApp: React.FC = () => {
                         <AlertTriangle className={`h-4 w-4 ${currentReport.activeTable === 'missing' ? 'text-primary-700' : ''}`} />
                         <span>Thiếu mã máy</span>
                         <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-extrabold ${currentReport.activeTable === 'missing' ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'}`}>
-                          {(currentReport.detailFile || currentReport.dataSource === 'STORAGE') ? currentReport.stats.missingMachines : '--'}
+                          {currentReport.stats.missingMachines}
                         </span>
                       </button>
 
