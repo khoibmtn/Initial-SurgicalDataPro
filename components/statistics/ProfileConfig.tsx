@@ -3,7 +3,7 @@
  * CRUD profiles + add/remove surgery names from profile
  * Data stored in Firestore (global, real-time)
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Plus, Trash2, X, Search, Users, Tag, ChevronRight } from 'lucide-react';
 import { SurgeryProfile, SurgeryNamePrice } from '../../types';
 import {
@@ -11,7 +11,8 @@ import {
   deleteProfile,
   addSurgeryToProfile,
   removeSurgeryFromProfile,
-  getUniqueNamesFromPrices,
+  getUniqueNameCodePairsFromPrices,
+  SurgeryNameCodePair,
 } from '../../services/profileService';
 
 interface Props {
@@ -29,25 +30,39 @@ export const ProfileConfig: React.FC<Props> = ({ profiles, surgeryNamePrices }) 
 
   const selectedProfile = profiles.find(p => p.id === selectedId);
 
-  // All unique surgery names from the price catalog
-  const allNames = useMemo(
-    () => getUniqueNamesFromPrices(surgeryNamePrices),
+  // All unique (maTuongDuong + tenKT) pairs from the price catalog
+  const allPairs = useMemo(
+    () => getUniqueNameCodePairsFromPrices(surgeryNamePrices),
     [surgeryNamePrices]
   );
 
-  // Names available to add (not already in selected profile)
-  const availableNames = useMemo(() => {
-    if (!selectedProfile) return allNames;
-    const existing = new Set(selectedProfile.surgeryNames);
-    return allNames.filter(n => !existing.has(n.toLowerCase()));
-  }, [allNames, selectedProfile]);
+  // Pairs available to add (exclude items whose tenKT already in selected profile)
+  const availablePairs = useMemo(() => {
+    if (!selectedProfile) return allPairs;
+    const existing = new Set(selectedProfile.surgeryNames); // already lowercase
+    return allPairs.filter(p => !existing.has(p.tenKT.toLowerCase()));
+  }, [allPairs, selectedProfile]);
 
-  // Filtered available names for the add modal
+  // Remove Vietnamese diacritics for fuzzy matching
+  const removeDiacritics = useCallback((str: string) => {
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+  }, []);
+
+  // Fuzzy-filtered pairs for the add modal search
+  // Supports: non-diacritic Vietnamese (e.g. "cat ruot" → "Cắt ruột")
+  // Multi-token: all space-separated words must match in either tenKT or maTuongDuong
   const filteredAvailable = useMemo(() => {
-    if (!addSearch.trim()) return availableNames;
+    if (!addSearch.trim()) return availablePairs;
     const q = addSearch.trim().toLowerCase();
-    return availableNames.filter(n => n.toLowerCase().includes(q));
-  }, [availableNames, addSearch]);
+    const qNorm = removeDiacritics(q);
+    const tokens = qNorm.split(/\s+/);
+    return availablePairs.filter(p => {
+      const nameNorm = removeDiacritics(p.tenKT.toLowerCase());
+      const codeNorm = removeDiacritics((p.maTuongDuong || '').toLowerCase());
+      const combined = `${codeNorm} ${nameNorm}`;
+      return tokens.every(t => combined.includes(t));
+    });
+  }, [availablePairs, addSearch, removeDiacritics]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -88,8 +103,15 @@ export const ProfileConfig: React.FC<Props> = ({ profiles, surgeryNamePrices }) 
     }
   };
 
-  const handleAddSurgery = async (tenKT: string) => {
+  const handleAddSurgery = async (pair: SurgeryNameCodePair) => {
     if (!selectedProfile) return;
+    // Only store tenKT in profile, not maTuongDuong
+    const tenKT = pair.tenKT;
+    // Double-check: if tenKT already exists, skip
+    if (selectedProfile.surgeryNames.includes(tenKT.toLowerCase())) {
+      showToast('Kỹ thuật đã có trong profile', 'error');
+      return;
+    }
     try {
       await addSurgeryToProfile(selectedProfile.id, tenKT);
     } catch (err: any) {
@@ -252,7 +274,7 @@ export const ProfileConfig: React.FC<Props> = ({ profiles, surgeryNamePrices }) 
       {showAddModal && selectedProfile && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowAddModal(false)}>
           <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 max-h-[80vh] flex flex-col"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col"
             onClick={e => e.stopPropagation()}
           >
             {/* Modal header */}
@@ -260,7 +282,7 @@ export const ProfileConfig: React.FC<Props> = ({ profiles, surgeryNamePrices }) 
               <div>
                 <h4 className="text-sm font-bold text-gray-800">Thêm kỹ thuật vào "{selectedProfile.name}"</h4>
                 <p className="text-[10px] text-gray-500 mt-0.5">
-                  {filteredAvailable.length} kỹ thuật có thể thêm ({allNames.length} tổng danh mục)
+                  {filteredAvailable.length} kỹ thuật có thể thêm ({allPairs.length} tổng danh mục)
                 </p>
               </div>
               <button onClick={() => setShowAddModal(false)} className="p-1.5 rounded-lg hover:bg-gray-100">
@@ -275,14 +297,14 @@ export const ProfileConfig: React.FC<Props> = ({ profiles, surgeryNamePrices }) 
                 <input
                   value={addSearch}
                   onChange={e => setAddSearch(e.target.value)}
-                  placeholder="Tìm tên kỹ thuật..."
+                  placeholder="Tìm tên kỹ thuật hoặc mã tương đương..."
                   className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-300"
                   autoFocus
                 />
               </div>
             </div>
 
-            {/* List */}
+            {/* List — 2 columns: maTuongDuong | tenKT */}
             <div className="flex-1 overflow-y-auto max-h-[50vh]">
               {filteredAvailable.length === 0 ? (
                 <div className="p-6 text-center text-xs text-gray-400">
@@ -290,14 +312,19 @@ export const ProfileConfig: React.FC<Props> = ({ profiles, surgeryNamePrices }) 
                 </div>
               ) : (
                 <div className="divide-y divide-gray-50">
-                  {filteredAvailable.slice(0, 100).map(name => (
+                  {filteredAvailable.slice(0, 100).map((pair, idx) => (
                     <button
-                      key={name}
-                      onClick={() => handleAddSurgery(name)}
-                      className="w-full text-left px-5 py-2.5 text-xs text-gray-700 hover:bg-primary-50 hover:text-primary-800 transition-colors flex items-center justify-between group"
+                      key={`${pair.maTuongDuong}|${pair.tenKT}|${idx}`}
+                      onClick={() => handleAddSurgery(pair)}
+                      className="w-full text-left px-5 py-2.5 text-xs text-gray-700 hover:bg-primary-50 hover:text-primary-800 transition-colors flex items-center gap-2 group"
                     >
-                      <span className="truncate">{name}</span>
-                      <Plus className="h-3 w-3 text-gray-300 group-hover:text-primary-500 shrink-0 ml-2" />
+                      {pair.maTuongDuong && (
+                        <span className="shrink-0 font-mono text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded min-w-[80px] text-center group-hover:bg-primary-100 group-hover:text-primary-600">
+                          {pair.maTuongDuong}
+                        </span>
+                      )}
+                      <span className="flex-1 break-words">{pair.tenKT}</span>
+                      <Plus className="h-3 w-3 text-gray-300 group-hover:text-primary-500 shrink-0 ml-1" />
                     </button>
                   ))}
                   {filteredAvailable.length > 100 && (

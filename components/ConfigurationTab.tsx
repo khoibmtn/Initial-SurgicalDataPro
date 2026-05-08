@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig, RolePrice } from '../contexts/ConfigContext';
-import { MachineEntry, StaffMember } from '../types';
+import { MachineEntry, StaffMember, SurgeryNamePrice } from '../types';
 import { reportService } from '../services/reportService';
+import { subscribeToSurgeryNamePrices } from '../services/surgeryNamePriceService';
+import { getUniqueNamesFromPrices } from '../services/profileService';
+import { ContextToolbar, TabLine } from './ui';
 
 // Helper component for formatted number input
 const NumberInput: React.FC<{
@@ -61,6 +64,82 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [newMachineName, setNewMachineName] = useState("");
     const [editingMachineIndex, setEditingMachineIndex] = useState<number | null>(null);
     const [editingPriceRow, setEditingPriceRow] = useState<string | null>(null);
+
+    // --- Surgery name autocomplete ---
+    const [surgeryNamePrices, setSurgeryNamePrices] = useState<SurgeryNamePrice[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [highlightedIdx, setHighlightedIdx] = useState(-1);
+    const suggestionsRef = useRef<HTMLDivElement>(null);
+    const inputWrapperRef = useRef<HTMLDivElement>(null);
+
+    // Subscribe to surgery name prices (same source as Profile)
+    useEffect(() => {
+      const unsub = subscribeToSurgeryNamePrices((data) => {
+        setSurgeryNamePrices(data);
+      });
+      return () => unsub();
+    }, []);
+
+    // All unique surgery names from price catalog
+    const allSurgeryNames = useMemo(
+      () => getUniqueNamesFromPrices(surgeryNamePrices),
+      [surgeryNamePrices]
+    );
+
+    // Remove Vietnamese diacritics for fuzzy matching
+    const removeDiacritics = useCallback((str: string) => {
+      return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+    }, []);
+
+    // Fuzzy-filtered suggestions
+    const filteredSuggestions = useMemo(() => {
+      const q = newMachineName.trim().toLowerCase();
+      if (!q || q.length < 2) return [];
+      const qNorm = removeDiacritics(q);
+      const tokens = qNorm.split(/\s+/);
+      return allSurgeryNames
+        .filter(name => {
+          const lower = name.toLowerCase();
+          // Match with diacritics first, then without
+          if (tokens.every(t => lower.includes(t))) return true;
+          const norm = removeDiacritics(lower);
+          return tokens.every(t => norm.includes(t));
+        })
+        .slice(0, 50);
+    }, [allSurgeryNames, newMachineName, removeDiacritics]);
+
+    // Close suggestions on click outside
+    useEffect(() => {
+      const handleClickOutside = (e: MouseEvent) => {
+        if (inputWrapperRef.current && !inputWrapperRef.current.contains(e.target as Node)) {
+          setShowSuggestions(false);
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const handleSelectSuggestion = useCallback((name: string) => {
+      setNewMachineName(name);
+      setShowSuggestions(false);
+      setHighlightedIdx(-1);
+    }, []);
+
+    const handleSuggestionKeyDown = useCallback((e: React.KeyboardEvent) => {
+      if (!showSuggestions || filteredSuggestions.length === 0) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHighlightedIdx(prev => Math.min(prev + 1, filteredSuggestions.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHighlightedIdx(prev => Math.max(prev - 1, 0));
+      } else if (e.key === 'Enter' && highlightedIdx >= 0) {
+        e.preventDefault();
+        handleSelectSuggestion(filteredSuggestions[highlightedIdx]);
+      } else if (e.key === 'Escape') {
+        setShowSuggestions(false);
+      }
+    }, [showSuggestions, filteredSuggestions, highlightedIdx, handleSelectSuggestion]);
     const [newDeptName, setNewDeptName] = useState("");
 
     // Section 2: Medical Staff State
@@ -724,31 +803,19 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     return (
         <div className="flex flex-col flex-1 min-h-0 font-inter text-sm">
 
-            {/* Compact Tab Navigation */}
-            <div className="flex items-center gap-1 px-4 py-1.5 border-b border-gray-200 bg-gray-50/50">
-                {([
-                    { key: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
-                    { key: 'machines', label: 'PTTT không dùng máy', icon: Activity },
-                    { key: 'registry', label: 'Mã máy', icon: Cpu },
-                    { key: 'staff', label: 'Nhân sự', icon: Users },
-                ] as const).map((tab) => {
-                    const TabIcon = tab.icon;
-                    const isActive = activeSubTab === tab.key;
-                    return (
-                        <button
-                            key={tab.key}
-                            onClick={() => setActiveSubTab(tab.key as any)}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all ${isActive
-                                ? 'bg-white text-primary-800 shadow-sm border border-gray-200'
-                                : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
-                            }`}
-                        >
-                            <TabIcon className={`h-3.5 w-3.5 ${isActive ? 'text-primary-700' : ''}`} />
-                            {tab.label}
-                        </button>
-                    );
-                })}
-            </div>
+            {/* Firebase-style Page Header: title + sub-tabs */}
+            <ContextToolbar title="Cấu hình">
+              <TabLine
+                value={activeSubTab}
+                onChange={(v) => setActiveSubTab(v as any)}
+                options={[
+                  { value: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
+                  { value: 'machines', label: 'PTTT không dùng máy', icon: Activity },
+                  { value: 'registry', label: 'Mã máy', icon: Cpu },
+                  { value: 'staff', label: 'Nhân sự', icon: Users },
+                ]}
+              />
+            </ContextToolbar>
 
             {/* Content area */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
@@ -963,20 +1030,74 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
                             <div className="bg-white rounded-xl shadow-sm border border-emerald-200 p-6 mb-6">
                                 <div className="flex gap-2">
-                                    <div className="flex-1">
+                                    <div className="flex-1" ref={inputWrapperRef} style={{ position: 'relative' }}>
                                         <label className="block text-xs font-bold text-gray-500 mb-1 tracking-tight">Tên Phẫu thuật / Thủ thuật</label>
-                                        <input
-                                            type="text"
-                                            value={newMachineName}
-                                            onChange={(e) => setNewMachineName(e.target.value)}
-                                            placeholder="Nhập tên PTTT cần bỏ qua kiểm tra máy..."
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm transition-all"
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                    editingMachineIndex !== null ? handleSaveMachineName() : handleAddMachineName();
-                                                }
-                                            }}
-                                        />
+                                        <div className="relative">
+                                          <input
+                                              type="text"
+                                              value={newMachineName}
+                                              onChange={(e) => {
+                                                setNewMachineName(e.target.value);
+                                                setShowSuggestions(true);
+                                                setHighlightedIdx(-1);
+                                              }}
+                                              onFocus={() => { if (newMachineName.trim().length >= 2) setShowSuggestions(true); }}
+                                              placeholder="Nhập tên PTTT cần bỏ qua kiểm tra máy..."
+                                              className="w-full pl-4 pr-9 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none shadow-sm transition-all"
+                                              onKeyDown={(e) => {
+                                                  handleSuggestionKeyDown(e);
+                                                  if (e.key === 'Escape') {
+                                                    if (showSuggestions) {
+                                                      setShowSuggestions(false);
+                                                    } else {
+                                                      setNewMachineName('');
+                                                    }
+                                                    return;
+                                                  }
+                                                  if (e.key === 'Enter' && highlightedIdx < 0) {
+                                                      editingMachineIndex !== null ? handleSaveMachineName() : handleAddMachineName();
+                                                      setShowSuggestions(false);
+                                                  }
+                                              }}
+                                          />
+                                          {newMachineName && (
+                                            <button
+                                              type="button"
+                                              onClick={() => { setNewMachineName(''); setShowSuggestions(false); setHighlightedIdx(-1); }}
+                                              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                                              title="Xóa (Esc)"
+                                            >
+                                              <XCircle className="h-4 w-4" />
+                                            </button>
+                                          )}
+                                        </div>
+                                        {/* Fuzzy autocomplete dropdown */}
+                                        {showSuggestions && filteredSuggestions.length > 0 && (
+                                          <div
+                                            ref={suggestionsRef}
+                                            className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden"
+                                            style={{ maxHeight: 260, overflowY: 'auto' }}
+                                          >
+                                            <div className="px-3 py-1.5 text-[10px] text-gray-400 bg-gray-50 border-b border-gray-100 font-medium">
+                                              {filteredSuggestions.length} kết quả từ danh mục ({allSurgeryNames.length} kỹ thuật)
+                                            </div>
+                                            {filteredSuggestions.map((name, idx) => (
+                                              <button
+                                                key={name}
+                                                type="button"
+                                                onMouseDown={(e) => { e.preventDefault(); handleSelectSuggestion(name); }}
+                                                onMouseEnter={() => setHighlightedIdx(idx)}
+                                                className={`w-full text-left px-4 py-2 text-xs transition-colors border-b border-gray-50 last:border-b-0 ${
+                                                  idx === highlightedIdx
+                                                    ? 'bg-emerald-50 text-emerald-800 font-medium'
+                                                    : 'text-gray-700 hover:bg-gray-50'
+                                                }`}
+                                              >
+                                                {name}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
                                     </div>
                                     <div className="flex items-end gap-2">
                                         <button

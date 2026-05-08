@@ -1,9 +1,9 @@
 /**
  * StatisticsTab — Container component
- * Manages sub-tabs (Thống kê / Biểu đồ / Cấu hình), data loading, year selection
+ * Manages sub-tabs (Thống kê / Cấu hình), data loading, year selection
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef, useTransition, useDeferredValue } from 'react';
-import { BarChart3, Settings2, Table2, Loader2, AlertTriangle, Info, ChevronDown, Download } from 'lucide-react';
+import { Settings2, Table2, Loader2, AlertTriangle, Info, BarChart3, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
 import { fetchAndAggregateYearly, computeDailyForMonth, type YearlyCacheData } from '../../services/statisticsService';
@@ -13,10 +13,10 @@ import { subscribeToChapterCatalog } from '../../services/chapterCatalogService'
 import { subscribeToProfiles } from '../../services/profileService';
 import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile } from '../../types';
 import { StatsSummary } from './StatsSummary';
-import { StatsCharts } from './StatsCharts';
 import { StatsConfig } from './StatsConfig';
+import { ContextToolbar, TabLine } from '../ui';
 
-type SubTab = 'summary' | 'charts' | 'config';
+type SubTab = 'summary' | 'config';
 
 export const StatisticsTab: React.FC = () => {
   const { config } = useConfig();
@@ -228,22 +228,17 @@ export const StatisticsTab: React.FC = () => {
     return years;
   }, [currentYear]);
 
-  const subTabs: { key: SubTab; label: string; icon: React.ReactNode }[] = [
-    { key: 'summary', label: 'Thống kê', icon: <Table2 className="h-4 w-4" /> },
-    { key: 'charts', label: 'Biểu đồ', icon: <BarChart3 className="h-4 w-4" /> },
-    { key: 'config', label: 'Cấu hình thống kê', icon: <Settings2 className="h-4 w-4" /> },
+  const subTabOptions = [
+    { value: 'summary' as const, label: 'Thống kê', icon: Table2 },
+    { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
 
   // --- Initial Loading Screen ---
   if (!initialLoaded && !error) {
     return (
-      <div className="space-y-6 animate-fade-in relative w-full mx-auto">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-lg font-bold text-primary-900 tracking-tight text-center">
-            THỐNG KÊ PHẪU THUẬT
-          </h2>
-        </div>
-        <div className="max-w-7xl mx-auto flex flex-col items-center justify-center py-24">
+      <div className="flex flex-col animate-fade-in relative w-full h-full">
+        <ContextToolbar title="Thống kê phẫu thuật" />
+        <div className="flex flex-col items-center justify-center py-24">
           <div className="relative">
             <div className="w-16 h-16 rounded-full border-4 border-primary-100 border-t-primary-600 animate-spin" />
             <div className="absolute inset-0 flex items-center justify-center">
@@ -270,36 +265,22 @@ export const StatisticsTab: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in relative w-full mx-auto">
-      {/* Title */}
-      <div className="max-w-7xl mx-auto">
-        <h2 className="text-lg font-bold text-primary-900 tracking-tight text-center">
-          THỐNG KÊ PHẪU THUẬT
-        </h2>
-      </div>
+    <div className="flex flex-col animate-fade-in relative w-full h-full">
+      {/* ── Firebase-style Page Header: title + sub-tabs ── */}
+      <ContextToolbar title="Thống kê phẫu thuật">
+        <TabLine
+          value={subTab}
+          onChange={(v) => setSubTab(v as SubTab)}
+          options={subTabOptions}
+        />
+      </ContextToolbar>
 
-      {/* Sub-tab navigation + Year selectors */}
-      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        {/* Sub-tabs */}
-        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl">
-          {subTabs.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setSubTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 ${
-                subTab === tab.key
-                  ? 'bg-white text-primary-800 shadow-md'
-                  : 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      {/* ── Tab Body ── */}
 
-        {/* Year selectors (hidden on config tab) */}
-        {subTab !== 'config' && (
+      {/* SUMMARY tab body — year selectors inside */}
+      <div style={{ display: subTab === 'summary' ? 'block' : 'none' }}>
+        {/* Year selectors bar */}
+        <div className="px-4 pt-3 pb-2">
           <div className="flex items-center gap-3 text-xs">
             <div className="flex items-center gap-1.5">
               <span className="text-gray-500 font-medium">Năm:</span>
@@ -329,12 +310,11 @@ export const StatisticsTab: React.FC = () => {
               {loading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang tải...</> : 'Tải lại'}
             </button>
           </div>
-        )}
-      </div>
+        </div>
 
       {/* Inline loading overlay for subsequent loads */}
       {loading && initialLoaded && (
-        <div className="max-w-7xl mx-auto">
+        <div className="px-4">
           <div className="bg-primary-50 border border-primary-100 rounded-xl px-4 py-2.5 flex items-center gap-3 text-xs text-primary-700">
             <Loader2 className="h-4 w-4 animate-spin text-primary-600 shrink-0" />
             <span className="font-medium">{loadingMsg || 'Đang cập nhật...'}</span>
@@ -343,8 +323,8 @@ export const StatisticsTab: React.FC = () => {
       )}
 
       {/* Validation warnings */}
-      {statsData?.validation && subTab !== 'config' && (
-        <div className="max-w-7xl mx-auto space-y-2">
+      {statsData?.validation && (
+        <div className="px-4 space-y-2">
           {/* Missing price — actual warning */}
           {statsData.validation.missingPriceMonths.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
@@ -426,36 +406,26 @@ export const StatisticsTab: React.FC = () => {
 
       {/* Error */}
       {error && (
-        <div className="max-w-7xl mx-auto bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+        <div className="px-4 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
           <strong>Lỗi:</strong> {error}
         </div>
       )}
 
-      {/* Content — all tabs always mounted, toggled via CSS display */}
-      <div className="max-w-7xl mx-auto">
-        <div style={{ display: subTab === 'summary' ? 'block' : 'none' }}>
-          {deferredStatsData ? (
-            <StatsSummary data={deferredStatsData} onMonthChange={setSelectedMonth} chapters={chapters} profiles={profiles} surgeryNamePrices={surgeryNamePrices} isDataLoading={loading || isPending || isStale} />
-          ) : !loading ? (
-            <div className="text-center py-20 text-gray-400 text-sm">
-              Chưa có dữ liệu. Nhấn "Tải lại" để bắt đầu.
-            </div>
-          ) : null}
-        </div>
+      {/* Summary Content */}
+      <div className="px-4">
+        {deferredStatsData ? (
+          <StatsSummary data={deferredStatsData} onMonthChange={setSelectedMonth} chapters={chapters} profiles={profiles} surgeryNamePrices={surgeryNamePrices} isDataLoading={loading || isPending || isStale} />
+        ) : !loading ? (
+          <div className="text-center py-20 text-gray-400 text-sm">
+            Chưa có dữ liệu. Nhấn "Tải lại" để bắt đầu.
+          </div>
+        ) : null}
+      </div>
+      </div>{/* end summary tab */}
 
-        <div style={{ display: subTab === 'charts' ? 'block' : 'none' }}>
-          {statsData ? (
-            <StatsCharts data={statsData} />
-          ) : !loading ? (
-            <div className="text-center py-20 text-gray-400 text-sm">
-              <BarChart3 className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-              <p className="font-medium">Chưa có dữ liệu</p>
-              <p className="text-xs mt-1">Nhấn "Tải lại" để bắt đầu.</p>
-            </div>
-          ) : null}
-        </div>
-
-        <div style={{ display: subTab === 'config' ? 'block' : 'none' }}>
+      {/* CONFIG tab body */}
+      <div style={{ display: subTab === 'config' ? 'block' : 'none' }}>
+        <div className="px-4 pt-3">
           <StatsConfig
             priceVersions={priceVersions}
             surgeryNamePrices={surgeryNamePrices}

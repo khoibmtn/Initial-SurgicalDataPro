@@ -113,3 +113,42 @@ export function getUniqueNamesFromPrices(
   result.sort((a, b) => a.localeCompare(b, 'vi'));
   return result;
 }
+
+/** A surgery name paired with its maTuongDuong code */
+export interface SurgeryNameCodePair {
+  tenKT: string;
+  maTuongDuong: string;
+}
+
+/**
+ * Extract unique (maTuongDuong + tenKT) pairs from the price catalog.
+ * Same tenKT with different maTuongDuong → separate entries.
+ * Dedup key = lowercase(maTuongDuong|tenKT).
+ */
+export function getUniqueNameCodePairsFromPrices(
+  namePrices: SurgeryNamePrice[]
+): SurgeryNameCodePair[] {
+  const seen = new Set<string>();
+  const result: SurgeryNameCodePair[] = [];
+
+  for (const p of namePrices) {
+    const name = p.tenKT?.trim();
+    if (!name) continue;
+    const code = (p.maTuongDuong || '').trim();
+    const key = `${code.toLowerCase()}|${name.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ tenKT: name, maTuongDuong: code });
+  }
+
+  // Sort by maTuongDuong first, then tenKT
+  result.sort((a, b) => {
+    const codeA = a.maTuongDuong || '';
+    const codeB = b.maTuongDuong || '';
+    const codeCmp = codeA.localeCompare(codeB, 'vi');
+    if (codeCmp !== 0) return codeCmp;
+    return a.tenKT.localeCompare(b.tenKT, 'vi');
+  });
+
+  return result;
+}
