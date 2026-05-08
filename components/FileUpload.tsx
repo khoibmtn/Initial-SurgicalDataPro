@@ -43,9 +43,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({ label, file, onFileSelec
         />
 
         {file ? (
-          <div className="text-center w-full">
-            <CheckCircle className={`${compact ? 'w-6 h-6' : 'w-10 h-10'} text-green-500 mx-auto mb-1`} />
-            <p className={`font-medium text-gray-900 truncate ${compact ? 'text-xs max-w-[120px]' : 'text-sm max-w-[200px]'}`}>{file.name}</p>
+          <div className={`w-full ${compact ? 'flex items-center justify-center gap-2' : 'text-center'}`}>
+            <CheckCircle className={`${compact ? 'w-5 h-5' : 'w-10 h-10'} text-green-500 shrink-0 ${compact ? '' : 'mx-auto mb-1'}`} />
+            <p className={`font-bold text-gray-900 truncate ${compact ? 'text-xs' : 'text-sm max-w-[200px]'}`}>{file.name}</p>
           </div>
         ) : (
           <div className="text-center">

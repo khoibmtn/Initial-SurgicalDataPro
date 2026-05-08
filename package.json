@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.30.0",
+    "@tanstack/react-virtual": "^3.13.24",
     "date-fns": "^4.1.0",
     "exceljs": "^4.4.0",
     "firebase": "^12.6.0",

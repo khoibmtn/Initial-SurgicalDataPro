@@ -722,68 +722,36 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     };
 
     return (
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden min-h-[600px] flex flex-col font-inter text-sm max-w-6xl mx-auto w-full">
+        <div className="flex flex-col flex-1 min-h-0 font-inter text-sm">
 
-            {/* Tab Navigation */}
-            <div className={`flex px-4 pt-4 bg-gray-50 -mb-[2px] relative z-20 border-b-2 ${activeSubTab === 'norms'
-                ? 'border-b-primary-700'
-                : activeSubTab === 'machines'
-                    ? 'border-b-emerald-600'
-                    : activeSubTab === 'registry'
-                        ? 'border-b-teal-600'
-                        : 'border-b-blue-600'
-                }`}>
-                <button
-                    onClick={() => setActiveSubTab('norms')}
-                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'norms'
-                        ? 'bg-white text-primary-700 border-primary-700 z-30 shadow-sm'
-                        : 'bg-transparent text-gray-400 border-transparent hover:text-primary-700'
-                        }`}
-                >
-                    <ClipboardList className={`h-4 w-4 ${activeSubTab === 'norms' ? 'text-primary-700' : ''}`} />
-                    Định mức & Phụ cấp
-                </button>
-                <button
-                    onClick={() => setActiveSubTab('machines')}
-                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'machines'
-                        ? 'bg-white text-emerald-700 border-emerald-600 z-30 shadow-sm'
-                        : 'bg-transparent text-gray-400 border-transparent hover:text-emerald-600'
-                        }`}
-                >
-                    <Activity className={`h-4 w-4 ${activeSubTab === 'machines' ? 'text-emerald-600' : ''}`} />
-                    PTTT không dùng máy
-                </button>
-                <button
-                    onClick={() => setActiveSubTab('registry')}
-                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'registry'
-                        ? 'bg-white text-teal-700 border-teal-600 z-30 shadow-sm'
-                        : 'bg-transparent text-gray-400 border-transparent hover:text-teal-600'
-                        }`}
-                >
-                    <Cpu className={`h-4 w-4 ${activeSubTab === 'registry' ? 'text-teal-600' : ''}`} />
-                    Mã máy
-                </button>
-                <button
-                    onClick={() => setActiveSubTab('staff')}
-                    className={`flex items-center gap-2 px-6 py-2.5 text-sm font-bold transition-all border-t-2 border-l-2 border-r-2 rounded-t-lg -mb-[2px] relative ${activeSubTab === 'staff'
-                        ? 'bg-white text-blue-700 border-blue-600 z-30 shadow-sm'
-                        : 'bg-transparent text-gray-400 border-transparent hover:text-blue-600'
-                        }`}
-                >
-                    <Users className={`h-4 w-4 ${activeSubTab === 'staff' ? 'text-blue-600' : ''}`} />
-                    Thông tin hành chính, nhân sự
-                </button>
+            {/* Compact Tab Navigation */}
+            <div className="flex items-center gap-1 px-4 py-1.5 border-b border-gray-200 bg-gray-50/50">
+                {([
+                    { key: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
+                    { key: 'machines', label: 'PTTT không dùng máy', icon: Activity },
+                    { key: 'registry', label: 'Mã máy', icon: Cpu },
+                    { key: 'staff', label: 'Nhân sự', icon: Users },
+                ] as const).map((tab) => {
+                    const TabIcon = tab.icon;
+                    const isActive = activeSubTab === tab.key;
+                    return (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveSubTab(tab.key as any)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all ${isActive
+                                ? 'bg-white text-primary-800 shadow-sm border border-gray-200'
+                                : 'text-gray-500 hover:text-gray-700 hover:bg-white/60'
+                            }`}
+                        >
+                            <TabIcon className={`h-3.5 w-3.5 ${isActive ? 'text-primary-700' : ''}`} />
+                            {tab.label}
+                        </button>
+                    );
+                })}
             </div>
 
             {/* Content area */}
-            <div className={`p-6 flex-1 overflow-y-auto bg-white border-2 rounded-b-xl z-10 ${activeSubTab === 'norms'
-                ? 'border-primary-700'
-                : activeSubTab === 'machines'
-                    ? 'border-emerald-600'
-                    : activeSubTab === 'registry'
-                        ? 'border-teal-600'
-                        : 'border-blue-600'
-                }`}>
+            <div className="p-4 flex-1 overflow-y-auto bg-white">
 
                 {activeSubTab === 'norms' && (
                     <div className="animate-fade-in">

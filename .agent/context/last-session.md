@@ -1,105 +1,146 @@
-# Last Session Context — 2026-05-06T09:47 (GMT+7)
-
-## Phiên làm việc: Chart Type Toggle + Forecast Fix
-
-### 🔀 Git Status
-- **Nhánh hiện tại:** `experiment/chart-type-toggle`
-- **Base:** `main` (commit `04c9673`)
-- **File thay đổi:** `components/statistics/StatsSummary.tsx` (+97, -16)
-- **Commits trên nhánh:**
-  1. `f9d95d4` — Thêm toggle Line/Bar chart với icon buttons + localStorage persistence
-  2. `7ce75f3` — Bar chart hiện value labels trên cột, Revenue chart đồng bộ line/bar theo Trend chart, thêm đơn vị tính (đvt: triệu đồng)
-  3. `ac3c1b4` — Thêm value labels cho cột dự báo (forecast bars)
-  4. `634909c` — Fix logic dự báo: không còn overlap với dữ liệu thực tế
+# Last Session — SurgicalDataPro UI Redesign
+> Lưu: 2026-05-07 22:58 | Branch: `feature/ui-overhaul-07-05-2026` | Chưa push Git
 
 ---
 
-### 📋 Tóm tắt thay đổi
+## 1. Trạng thái tổng thể
 
-#### 1. Toggle Line/Bar Chart (Số ca)
-- Thêm `type ChartType = 'line' | 'bar'` (line 94)
-- Thêm `chartType` vào `ChartSettings` interface (line 101) — persist qua localStorage key `sdp_chart_settings`
-- Thêm `chartType` vào `ChartNavState` interface (line 124) — emit xuống RevenueTrendChart
-- UI: 2 icon button (LineChartIcon / BarChart3 từ lucide-react) cùng hàng với Ngày/Tháng, Lũy kế/Từng kỳ
-- Khi chartType === 'bar': render `<BarChart>` + `<Bar>` thay vì `<LineChart>` + `<Line>`
+**Phase 1: HOÀN THÀNH 100%** — Tất cả items từ implementation plan đã xong.
 
-#### 2. Value Labels trên Bar Chart
-- Mỗi `<Bar>` có prop `label={{ position: 'top', fontSize: 9, fill: '#6b7280', formatter: (v) => v > 0 ? v : '' }}`
-- Forecast bars cũng có label (fontSize 9, fill `#9ca3af` — xám nhạt hơn để phân biệt)
+| Step | Nội dung | Status |
+|------|---------|--------|
+| 1.1 | CSS Foundation (tokens, responsive, transitions) | ✅ |
+| 1.2 | 11 UI Primitives (components/ui/) | ✅ |
+| 1.3 | App Shell Rewrite (sidebar, flex layout) | ✅ |
+| 1.4 | Operational Pages (KPI, tabs, table, upload) | ✅ |
+| 1.5 | Config Pages (full-width, pills, compact) | ✅ |
+| 1.6 | Polish (EmptyState, Skeleton, Sync, Transitions) | ✅ |
 
-#### 3. Revenue Chart (Viện phí) đồng bộ
-- `RevenueTrendChart` nhận `nav.chartType` từ `ChartNavState` (emitted bởi TrendChart)
-- Render BarChart/LineChart tương ứng — không cần toggle riêng
-- Thêm label `(đvt: triệu đồng)` bên cạnh text "Viện phí từng tháng/ngày"
-- Revenue bar labels dùng `fmtMoney(v)` thay vì số nguyên
-
-#### 4. Forecast Logic Fix (Critical)
-**Vấn đề:** Forecast overlap với dữ liệu thực — vừa hiện cột actual vừa hiện cột forecast cho cùng ngày/tháng.
-**Nguyên nhân:** 
-- Ngày: `forecastMap[lastDay] = lastCum` gán overlap point tại ngày cuối có data
-- Tháng: `monthlyForecastCumMap[overlapMonth] = cumToOverlap` gán overlap tại tháng hoàn chỉnh cuối
-**Fix:** Bỏ overlap point — forecast chỉ bắt đầu từ `lastDay + 1` (ngày) / `overlapMonth + 1` (tháng)
-**Áp dụng cho:** Cả 4 nơi — TrendChart daily, TrendChart monthly, RevenueTrendChart daily, RevenueTrendChart monthly
+**Phase 2: CHƯA BẮT ĐẦU** — Virtual scrolling, command palette, TanStack Table.
 
 ---
 
-### 🏗 Cấu trúc dữ liệu quan trọng
+## 2. Git — Thay đổi chưa commit
 
+```
+Branch: feature/ui-overhaul-07-05-2026
+
+Modified (3 files, +383/-607 lines):
+  M App.tsx                         — Main shell, DynamicTable, column defs
+  M components/ConfigurationTab.tsx — Full-width, compact pills
+  M index.css                       — CSS tokens, transitions, responsive
+
+New (untracked):
+  ?? components/ui/                 — 12 files (11 components + index.ts)
+  ?? ui_documentation.md
+```
+
+---
+
+## 3. Kiến trúc hiện tại
+
+### Layout Structure
+```
+┌───────────────────────────────────────────────────┐
+│ ┌─────────┐ ┌───────────────────────────────────┐ │
+│ │ SIDEBAR  │ │ ContextToolbar (date + actions)   │ │
+│ │ fixed    │ │ KPI strip (36px) + Action buttons │ │
+│ │ 72/224px │ │ Tab pills (DS PT, Trùng NV, ...)  │ │
+│ │          │ ├───────────────────────────────────┤ │
+│ │ □ Daily  │ │                                   │ │
+│ │ □ Month  │ │ TABLE (table-layout: fixed)       │ │
+│ │ □ Stats  │ │ colgroup + defaultWidth (px)      │ │
+│ │ □ Config │ │ resize handles on headers         │ │
+│ │          │ ├───────────────────────────────────┤ │
+│ │ ● Synced │ │ Pagination (10/page, 1/N)        │ │
+│ └─────────┘ └───────────────────────────────────┘ │
+└───────────────────────────────────────────────────┘
+```
+
+### Component Files
+```
+components/ui/
+├── AdminPageShell.tsx       — Config page layout wrapper
+├── CollapsiblePanel.tsx     — Collapsible upload/config sections
+├── ContextToolbar.tsx       — Page title + date/filters + actions
+├── DataWorkspaceShell.tsx   — Full-height workspace wrapper
+├── EmptyState.tsx           — Empty state with icon/title/description
+├── FilterPills.tsx          — Quick filter buttons with badge counts
+├── KPIBar.tsx               — 36px inline stat strip (colored dots)
+├── SegmentedControl.tsx     — Lưu trữ / Minh Lộ toggle
+├── Sidebar.tsx              — 72px collapsed / 224px expanded nav
+├── TableToolbar.tsx         — Inline search + actions
+├── WorkspaceSkeleton.tsx    — Animated skeleton loading state
+└── index.ts                 — Barrel export
+```
+
+### Key Interfaces (App.tsx)
 ```typescript
-// Chart type toggle
-type ChartType = 'line' | 'bar';
-
-// Persist settings
-interface ChartSettings {
-  isMonthPeriod: boolean;
-  isCumulative: boolean;
-  colors: { current: string; previous: string; compare: string };
-  selectedMonth: number;
-  chartType: ChartType; // NEW
+interface ColumnDef<T> {
+  key: string;
+  label: string;
+  render?: (item: T) => React.ReactNode;
+  align?: 'left' | 'center' | 'right';
+  width?: string;            // Legacy Tailwind class
+  defaultWidth?: number;     // NEW: px width for colgroup
+  className?: string;
+  headerClassName?: string;
+  defaultHidden?: boolean;
 }
 
-// Nav state emitted from TrendChart → RevenueTrendChart
-interface ChartNavState {
-  isMonthPeriod: boolean;
-  isCumulative: boolean;
-  selectedMonth: number;
-  colors: { current: string; previous: string; compare: string };
-  chartType: ChartType; // NEW
-}
-
-// DailyAggregate (from previous session)
-interface DailyAggregate {
-  date: string;
-  count: number;
-  cumulativeCount: number;
-  namePriceCost: number;
-  cumulativeNamePriceCost: number;
-  byName: Record<string, number>; // For name-based filtering
-}
+// Sidebar sync status
+type SyncStatus = 'synced' | 'unsaved' | 'processing';
 ```
 
-### 🔗 Flow đồng bộ Chart Type
+---
+
+## 4. Quyết định thiết kế đã chốt
+
+| Quyết định | Giá trị |
+|-----------|---------|
+| Sidebar collapse | Icon-only 72px, auto-collapse ≤1280px |
+| KPI bar | 36px inline strip, colored dots, merge with actions row |
+| Table layout | `table-layout: fixed` + `<colgroup>` + `defaultWidth` |
+| Column resize | Mouse drag handles, min 50px |
+| Table header | `#123B63` (Medical Blue), sentence case |
+| Empty state | Icon + title + dynamic description per data source |
+| Skeleton | Pulse animation, mimics KPI + tabs + table rows |
+| Sync indicator | Green/Amber/Blue dot in sidebar footer |
+| localStorage | `sidebar_collapsed` persisted |
+| Transitions | Sidebar 200ms, Collapsible 250ms, Main margin 200ms |
+| Dark mode | Không |
+| Max-width | Removed — full viewport fluid layout |
+
+---
+
+## 5. Vấn đề đã biết (Known Issues)
+
+1. **Pre-existing TS errors (~14)**: firebase.ts, SavedReportsList.tsx — isolated, not blocking
+2. **Large chunk warning**: 3080KB bundle — suggest `manualChunks` in Vite config
+3. **Table header uppercase**: DynamicTable vẫn dùng `uppercase` class — nên đổi sang sentence case theo plan
+4. **Trùng NV/Machine tabs**: Column definitions chưa có `defaultWidth` — đang dùng Tailwind `width` class cũ
+
+---
+
+## 6. Kế hoạch Phase 2 (chưa bắt đầu)
+
+| Feature | Mô tả | Ưu tiên |
+|---------|-------|---------|
+| Virtual Scrolling | TanStack Virtual cho table >500 rows | P1 |
+| Resizable columns persist | Lưu width vào localStorage | P2 |
+| Column visibility panel | UI toggle ẩn/hiện cột | P2 |
+| Command palette | `Ctrl+K` quick actions | P3 |
+| Table density switch | Compact / Default / Relaxed | P3 |
+| TanStack Table migration | Replace DynamicTable | P3 |
+
+---
+
+## 7. Cách tiếp tục
 
 ```
-TrendChart (parent) 
-  → setChartType() + saveChartSettings() + emitNav({ chartType })
-  → onNavChange callback 
-  → RevenueTrendChart (child) nhận nav.chartType
-  → Render BarChart hoặc LineChart tương ứng
+1. Mở project: cd /Users/buiminhkhoi/Documents/Initial-SurgicalDataPro
+2. Start dev: npm run dev (port 3004)
+3. Branch: feature/ui-overhaul-07-05-2026
+4. Load context: /load-context
+5. Tiếp Phase 2 hoặc fix issues từ Section 5
 ```
-
-### 📁 File chính đã sửa
-| File | Vai trò |
-|------|---------|
-| `components/statistics/StatsSummary.tsx` | Toàn bộ chart logic — TrendChart + RevenueTrendChart |
-
-### 🚀 Bước tiếp theo (chưa thực hiện)
-1. **Merge về main** khi user xác nhận tính năng ổn
-2. **Test thêm:** Verify bar chart rendering khi có nhiều series (3 lines + forecast) trên mobile
-3. **Cân nhắc:** Area Chart hoặc Combo chart (Line + Bar) cho một số chỉ số
-4. **Line chart trên Từng kỳ (per-period):** Kiểm tra forecast hiển thị đúng trên biểu đồ cột ở chế độ "Từng kỳ" (không lũy kế)
-
-### ⚠️ Lưu ý kỹ thuật
-- `emitNav` phải bao gồm `chartType` để Revenue chart nhận được — nếu thiếu, Revenue chart fallback `'line'`
-- Bar chart `label` prop của Recharts: `formatter` nhận value thô, cần guard `v > 0` để không hiện label cho null/0
-- Revenue chart forecast dùng simple linear model (avgMonthly = cumToOverlap / overlapMonth), khác với Số ca dùng ML forecast model

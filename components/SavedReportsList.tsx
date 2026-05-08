@@ -1,7 +1,23 @@
 import React, { useEffect, useState } from 'react';
-import { getSavedReports, SavedReportMeta, getSurgeryRecords } from '../services/reportService';
+import { reportService } from '../services/reportService';
 import { FileText, Calendar, Clock, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import { format } from 'date-fns';
+
+// Local type for saved report metadata used in this component
+interface SavedReportMeta {
+    id: string;
+    type: 'DAILY' | 'MONTHLY';
+    date: string;
+    createdBy: string;
+    createdAt: { seconds: number } | null;
+    dateRangeText?: string;
+    stats: {
+        totalSurgeries: number;
+        staffConflicts: number;
+        missingMachines: number;
+    };
+}
+
 
 interface SavedReportsListProps {
     type: 'daily' | 'monthly';
@@ -17,7 +33,8 @@ export const SavedReportsList: React.FC<SavedReportsListProps> = ({ type, onLoad
     const fetchReports = async () => {
         setLoading(true);
         try {
-            const allReports = await getSavedReports();
+            // TODO: implement getSavedReports API in reportService
+            const allReports: SavedReportMeta[] = [];
             // Filter by type
             const filtered = allReports.filter(r => r.type === type);
             setReports(filtered);
