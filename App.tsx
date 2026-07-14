@@ -3004,10 +3004,9 @@ const InnerApp: React.FC = () => {
   };
 
   /**
-   * Smart auto-save: checks for duplicates before saving.
-   * - If no data from EXCEL → skip (already in STORAGE)
-   * - If all records are new → save silently
-   * - If duplicates exist → show confirm dialog, then execute afterSave callback
+   * Silent auto-save for Print/Download actions.
+   * Saves only NEW records, skips duplicates silently (no confirmation dialog).
+   * reportService.saveReport() already handles dedup internally.
    * @param afterSave Optional callback to run after save completes (e.g., print, download)
    */
   const ensureDataSaved = async (afterSave?: () => void): Promise<void> => {
@@ -3017,17 +3016,35 @@ const InnerApp: React.FC = () => {
       return;
     }
 
+    try {
+      await executeSave();
+      afterSave?.();
+    } catch (error) {
+      console.error('Error in ensureDataSaved:', error);
+      afterSave?.();
+    }
+  };
+
+  /**
+   * Explicit save handler for the Lưu button.
+   * Checks for duplicates first — if found, shows confirmation dialog.
+   */
+  const handleSaveData = async () => {
+    if (currentReport.dataSource !== 'EXCEL' || !currentReport.result?.validRecords) {
+      // STORAGE data or no data — save directly (for auto-filled GV updates etc.)
+      await executeSave();
+      return;
+    }
+
     const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
     const records = currentReport.result.validRecords;
 
     try {
-      // Check for duplicates first
       const { newCount, duplicateCount, updatableCount } = await reportService.checkDuplicates(records, type);
 
       if (duplicateCount === 0) {
-        // No duplicates — save silently and run callback
+        // No duplicates — save directly
         await executeSave();
-        afterSave?.();
       } else {
         // Duplicates found — show confirm dialog
         const totalRecords = records.length;
@@ -3043,21 +3060,13 @@ const InnerApp: React.FC = () => {
           onConfirm: async () => {
             setSaveConfirm({ show: false, message: '', onConfirm: null });
             await executeSave();
-            afterSave?.();
           }
         });
       }
     } catch (error) {
-      console.error('Error in ensureDataSaved:', error);
-      // On error, fall back to direct save
+      console.error('Error checking duplicates:', error);
       await executeSave();
-      afterSave?.();
     }
-  };
-
-  // Backward-compatible handler for the Lưu button
-  const handleSaveData = async () => {
-    await ensureDataSaved();
   };
 
   const handleTimeChange = (val: string, setter: (v: string) => void) => {
