@@ -57,7 +57,73 @@ function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): Persi
 
 export const reportService = {
     /**
-     * Save a processed report to Firestore
+     * Check for duplicate records without saving
+     * Returns counts of new, duplicate, and updatable records
+     */
+    async checkDuplicates(
+        records: SurgeryRecord[],
+        type: 'DAILY' | 'MONTHLY'
+    ): Promise<{ newCount: number, duplicateCount: number, updatableCount: number }> {
+        try {
+            if (records.length === 0) return { newCount: 0, duplicateCount: 0, updatableCount: 0 };
+
+            const sortedDates = records
+                .map(r => r.start ? r.start.toISOString() : '')
+                .filter(d => d !== '')
+                .sort();
+
+            if (sortedDates.length === 0) return { newCount: records.length, duplicateCount: 0, updatableCount: 0 };
+
+            const minDate = sortedDates[0];
+            const maxDate = sortedDates[sortedDates.length - 1];
+
+            const q = query(
+                collectionGroup(db, 'processed_records'),
+                where('type', '==', type),
+                where('ngayBD', '>=', minDate),
+                where('ngayBD', '<=', maxDate)
+            );
+
+            const snapshot = await getDocs(q);
+            const existingRecords = new Map<string, { gv: string }>();
+
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data() as PersistedSurgeryRecord;
+                const key = `${data.patientId}_${data.ngayBD}_${data.tenKT}`;
+                existingRecords.set(key, { gv: data.gv || '' });
+            });
+
+            let newCount = 0;
+            let duplicateCount = 0;
+            let updatableCount = 0;
+
+            records.forEach(rec => {
+                const recDate = rec.start ? rec.start.toISOString() : '';
+                const key = `${rec.patientId}_${recDate}_${rec.tenKT}`;
+                const existing = existingRecords.get(key);
+
+                if (!existing) {
+                    newCount++;
+                } else {
+                    const newHasGv = rec.gv && rec.gv.trim() !== '';
+                    const oldHasGv = existing.gv && existing.gv.trim() !== '';
+                    if (newHasGv && !oldHasGv) {
+                        updatableCount++;
+                    } else {
+                        duplicateCount++;
+                    }
+                }
+            });
+
+            return { newCount, duplicateCount, updatableCount };
+        } catch (error) {
+            console.error("Error checking duplicates:", error);
+            return { newCount: records.length, duplicateCount: 0, updatableCount: 0 };
+        }
+    },
+
+    /**
+     * Save a processed report to Firestore (force mode skips duplicate check)
      * @param records List of validated surgery records
      * @param type Report Type (DAILY | MONTHLY)
      * @param userId ID of the user creating the report

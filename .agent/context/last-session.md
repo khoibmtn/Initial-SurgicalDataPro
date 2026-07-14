@@ -1,146 +1,130 @@
-# Last Session — SurgicalDataPro UI Redesign
-> Lưu: 2026-05-07 22:58 | Branch: `feature/ui-overhaul-07-05-2026` | Chưa push Git
+# Last Session Context — 2026-05-08 23:00 (UTC+7)
+
+## 🔀 Git State
+- **Branch**: `temp-08-05-2026-23h00` (from `main`)
+- **Last commit**: `c8a8875` — `feat: profile modal - dedup by maTuongDuong+tenKT, wider modal, fuzzy search`
+- **Remote**: `origin/main` synced ✅
 
 ---
 
-## 1. Trạng thái tổng thể
-
-**Phase 1: HOÀN THÀNH 100%** — Tất cả items từ implementation plan đã xong.
-
-| Step | Nội dung | Status |
-|------|---------|--------|
-| 1.1 | CSS Foundation (tokens, responsive, transitions) | ✅ |
-| 1.2 | 11 UI Primitives (components/ui/) | ✅ |
-| 1.3 | App Shell Rewrite (sidebar, flex layout) | ✅ |
-| 1.4 | Operational Pages (KPI, tabs, table, upload) | ✅ |
-| 1.5 | Config Pages (full-width, pills, compact) | ✅ |
-| 1.6 | Polish (EmptyState, Skeleton, Sync, Transitions) | ✅ |
-
-**Phase 2: CHƯA BẮT ĐẦU** — Virtual scrolling, command palette, TanStack Table.
+## 🎯 Session Objective
+Modernize the Profile "Add Technique" modal in `ProfileConfig.tsx` — changing deduplication from single-field (`tenKT`) to composite key (`maTuongDuong + tenKT`), adding 2-column display, wider modal with text wrapping, and fuzzy search with diacritics support.
 
 ---
 
-## 2. Git — Thay đổi chưa commit
+## ✅ Completed Tasks
 
-```
-Branch: feature/ui-overhaul-07-05-2026
+### 1. Composite Key Deduplication
+- **Before**: `getUniqueNamesFromPrices()` → dedup by `tenKT` only → ~3,497 unique entries
+- **After**: `getUniqueNameCodePairsFromPrices()` → dedup by `maTuongDuong|tenKT` combo → ~4,490 unique entries
+- Same `tenKT` with different `maTuongDuong` → appears as separate rows
+- **File**: `services/profileService.ts` lines 117-154
 
-Modified (3 files, +383/-607 lines):
-  M App.tsx                         — Main shell, DynamicTable, column defs
-  M components/ConfigurationTab.tsx — Full-width, compact pills
-  M index.css                       — CSS tokens, transitions, responsive
-
-New (untracked):
-  ?? components/ui/                 — 12 files (11 components + index.ts)
-  ?? ui_documentation.md
-```
-
----
-
-## 3. Kiến trúc hiện tại
-
-### Layout Structure
-```
-┌───────────────────────────────────────────────────┐
-│ ┌─────────┐ ┌───────────────────────────────────┐ │
-│ │ SIDEBAR  │ │ ContextToolbar (date + actions)   │ │
-│ │ fixed    │ │ KPI strip (36px) + Action buttons │ │
-│ │ 72/224px │ │ Tab pills (DS PT, Trùng NV, ...)  │ │
-│ │          │ ├───────────────────────────────────┤ │
-│ │ □ Daily  │ │                                   │ │
-│ │ □ Month  │ │ TABLE (table-layout: fixed)       │ │
-│ │ □ Stats  │ │ colgroup + defaultWidth (px)      │ │
-│ │ □ Config │ │ resize handles on headers         │ │
-│ │          │ ├───────────────────────────────────┤ │
-│ │ ● Synced │ │ Pagination (10/page, 1/N)        │ │
-│ └─────────┘ └───────────────────────────────────┘ │
-└───────────────────────────────────────────────────┘
-```
-
-### Component Files
-```
-components/ui/
-├── AdminPageShell.tsx       — Config page layout wrapper
-├── CollapsiblePanel.tsx     — Collapsible upload/config sections
-├── ContextToolbar.tsx       — Page title + date/filters + actions
-├── DataWorkspaceShell.tsx   — Full-height workspace wrapper
-├── EmptyState.tsx           — Empty state with icon/title/description
-├── FilterPills.tsx          — Quick filter buttons with badge counts
-├── KPIBar.tsx               — 36px inline stat strip (colored dots)
-├── SegmentedControl.tsx     — Lưu trữ / Minh Lộ toggle
-├── Sidebar.tsx              — 72px collapsed / 224px expanded nav
-├── TableToolbar.tsx         — Inline search + actions
-├── WorkspaceSkeleton.tsx    — Animated skeleton loading state
-└── index.ts                 — Barrel export
-```
-
-### Key Interfaces (App.tsx)
+### 2. New Interface: `SurgeryNameCodePair`
 ```typescript
-interface ColumnDef<T> {
-  key: string;
-  label: string;
-  render?: (item: T) => React.ReactNode;
-  align?: 'left' | 'center' | 'right';
-  width?: string;            // Legacy Tailwind class
-  defaultWidth?: number;     // NEW: px width for colgroup
-  className?: string;
-  headerClassName?: string;
-  defaultHidden?: boolean;
+export interface SurgeryNameCodePair {
+  tenKT: string;
+  maTuongDuong: string;
 }
+```
 
-// Sidebar sync status
-type SyncStatus = 'synced' | 'unsaved' | 'processing';
+### 3. Profile Modal UI — 2-Column Layout
+- **Code badge**: `<span>` with `font-mono`, `bg-gray-100`, `min-w-[80px]` → shows `maTuongDuong`
+- **Surgery name**: `break-words` (auto-wraps instead of truncating)
+- **Modal width**: `max-w-md` → `max-w-2xl`
+- When clicking `+`, only `tenKT` is stored in profile (not `maTuongDuong`)
+- **File**: `components/statistics/ProfileConfig.tsx`
+
+### 4. Fuzzy Search (Non-Diacritic Vietnamese)
+- `removeDiacritics()` — strips diacritical marks: `NFD + regex` + đ→d, Đ→D
+- Multi-token matching: `"cat ruot"` → matches `"Cắt ruột"` in any combo
+- Searches across both `maTuongDuong` and `tenKT` combined
+- **File**: `components/statistics/ProfileConfig.tsx` lines 46-65
+
+### 5. Filtering Logic
+- `availablePairs`: Excludes items whose `tenKT` (lowercase) already exists in the selected profile's `surgeryNames`
+- When adding: double-checks tenKT existence → shows toast if duplicate
+- After adding: ALL rows with that `tenKT` disappear from available list (even if different codes)
+
+---
+
+## 📁 Files Modified This Session
+
+| File | Changes |
+|------|---------|
+| `services/profileService.ts` | Added `SurgeryNameCodePair` interface + `getUniqueNameCodePairsFromPrices()` helper |
+| `components/statistics/ProfileConfig.tsx` | Rewired modal to use pair-based dedup, 2-column layout, wider modal, fuzzy search |
+
+---
+
+## 🏗️ Key Architecture Notes
+
+### Data Flow: Profile "Add Technique" Modal
+```
+Firebase RTDB surgery_name_prices
+  → subscribeToSurgeryNamePrices() [surgeryNamePriceService.ts]
+  → surgeryNamePrices state [StatisticsTab.tsx]
+  → passed as props to ProfileConfig
+  → getUniqueNameCodePairsFromPrices() → dedup by code|name combo
+  → availablePairs: filter out tenKT already in profile
+  → filteredAvailable: fuzzy search with diacritics stripping
+  → UI: 2-column (code badge + name)
+  → handleAddSurgery(): stores only tenKT in Firestore
+```
+
+### SurgeryNamePrice Record Structure
+```typescript
+interface SurgeryNamePrice {
+  id: string;
+  tenKT: string;           // Surgery name
+  price: number;            // Service price (VND)
+  effectiveFrom: string;    // ISO date
+  effectiveTo: string | null;
+  createdAt: number;
+  maTuongDuong?: string;    // Equivalent code (MA_TUONG_DUONG)
+}
+```
+
+### Profile Storage
+- **Collection**: `surgery_profiles` (Firestore)
+- **surgeryNames**: `string[]` — stores lowercase `tenKT` only (no codes)
+- Profile filtering in stats uses lowercase match against record `tenKT`
+
+### Two Dedup Helpers Coexist
+1. `getUniqueNamesFromPrices()` — returns `string[]` (tenKT only) — used by `ConfigurationTab.tsx` autocomplete
+2. `getUniqueNameCodePairsFromPrices()` — returns `SurgeryNameCodePair[]` — used by `ProfileConfig.tsx` modal
+
+### Fuzzy Search Pattern (Reusable)
+```typescript
+const removeDiacritics = (str: string) =>
+  str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+
+// Multi-token fuzzy:
+const qNorm = removeDiacritics(query.toLowerCase());
+const tokens = qNorm.split(/\s+/);
+items.filter(item => {
+  const norm = removeDiacritics(item.toLowerCase());
+  return tokens.every(t => norm.includes(t));
+});
 ```
 
 ---
 
-## 4. Quyết định thiết kế đã chốt
+## 📊 Current Feature State
 
-| Quyết định | Giá trị |
-|-----------|---------|
-| Sidebar collapse | Icon-only 72px, auto-collapse ≤1280px |
-| KPI bar | 36px inline strip, colored dots, merge with actions row |
-| Table layout | `table-layout: fixed` + `<colgroup>` + `defaultWidth` |
-| Column resize | Mouse drag handles, min 50px |
-| Table header | `#123B63` (Medical Blue), sentence case |
-| Empty state | Icon + title + dynamic description per data source |
-| Skeleton | Pulse animation, mimics KPI + tabs + table rows |
-| Sync indicator | Green/Amber/Blue dot in sidebar footer |
-| localStorage | `sidebar_collapsed` persisted |
-| Transitions | Sidebar 200ms, Collapsible 250ms, Main margin 200ms |
-| Dark mode | Không |
-| Max-width | Removed — full viewport fluid layout |
+| Feature | Status | Location |
+|---------|--------|----------|
+| Profile CRUD | ✅ Complete | ProfileConfig.tsx |
+| Add technique modal (code+name) | ✅ Complete | ProfileConfig.tsx |
+| Fuzzy search (no diacritics) | ✅ Complete | ProfileConfig.tsx, ConfigurationTab.tsx |
+| PTTT config autocomplete | ✅ Complete | ConfigurationTab.tsx |
+| Chapter catalog management | ✅ Complete | StatisticsTab.tsx |
+| Surgery price catalog | ✅ Complete | SurgeryNamePriceConfig.tsx |
+| Statistics filtering (all/chapter/profile) | ✅ Complete | StatisticsTab.tsx |
 
 ---
 
-## 5. Vấn đề đã biết (Known Issues)
-
-1. **Pre-existing TS errors (~14)**: firebase.ts, SavedReportsList.tsx — isolated, not blocking
-2. **Large chunk warning**: 3080KB bundle — suggest `manualChunks` in Vite config
-3. **Table header uppercase**: DynamicTable vẫn dùng `uppercase` class — nên đổi sang sentence case theo plan
-4. **Trùng NV/Machine tabs**: Column definitions chưa có `defaultWidth` — đang dùng Tailwind `width` class cũ
-
----
-
-## 6. Kế hoạch Phase 2 (chưa bắt đầu)
-
-| Feature | Mô tả | Ưu tiên |
-|---------|-------|---------|
-| Virtual Scrolling | TanStack Virtual cho table >500 rows | P1 |
-| Resizable columns persist | Lưu width vào localStorage | P2 |
-| Column visibility panel | UI toggle ẩn/hiện cột | P2 |
-| Command palette | `Ctrl+K` quick actions | P3 |
-| Table density switch | Compact / Default / Relaxed | P3 |
-| TanStack Table migration | Replace DynamicTable | P3 |
-
----
-
-## 7. Cách tiếp tục
-
-```
-1. Mở project: cd /Users/buiminhkhoi/Documents/Initial-SurgicalDataPro
-2. Start dev: npm run dev (port 3004)
-3. Branch: feature/ui-overhaul-07-05-2026
-4. Load context: /load-context
-5. Tiếp Phase 2 hoặc fix issues từ Section 5
-```
+## 🔮 Potential Next Steps
+- Consider extracting `removeDiacritics` to a shared `utils/` file (currently duplicated in ConfigurationTab and ProfileConfig)
+- Virtualized list for the modal if catalog grows beyond 5,000+ entries
+- Keyboard navigation (Up/Down/Enter) in the profile modal like ConfigurationTab autocomplete

@@ -1125,6 +1125,7 @@ const InnerApp: React.FC = () => {
   const [monthlyStorageState, setMonthlyStorageState] = useState<ReportState>(initialReportState);
   const [monthlyUploadState, setMonthlyUploadState] = useState<ReportState>(initialReportState);
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
+  const [saveConfirm, setSaveConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
 
   const currentType = (activeTab === 'monthly') ? 'monthly' : 'daily';
   const activeDataTab = activeDataTabs[currentType] || 'storage';
@@ -1530,14 +1531,13 @@ const InnerApp: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
 
-  const handleDownload = () => {
+  const executeDownload = () => {
     if (!currentReport.result?.validRecords) {
       addToast("Chưa có dữ liệu để tải xuống.", 'error');
       return;
     }
 
     try {
-      // Regenerate workbook with current data (including any updates made after initial processing)
       addToast("Đang tạo file Excel...", 'success');
 
       const freshResult = reprocessSurgicalRecords(
@@ -1560,6 +1560,15 @@ const InnerApp: React.FC = () => {
     }
   };
 
+  const handleDownload = async () => {
+    // Auto-save trước khi tải Excel nếu dữ liệu từ EXCEL
+    if (currentReport.dataSource === 'EXCEL' && currentReport.result?.validRecords) {
+      await ensureDataSaved(executeDownload);
+      return;
+    }
+    executeDownload();
+  };
+
   // --- Excel Dropdown ---
   const [isExcelDropdownOpen, setIsExcelDropdownOpen] = useState(false);
   const excelDropdownRef = useRef<HTMLDivElement>(null);
@@ -1574,7 +1583,7 @@ const InnerApp: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleDownloadFormatted = async () => {
+  const executeDownloadFormatted = async () => {
     if (!currentReport.result?.validRecords) {
       addToast('Chưa có dữ liệu để tải xuống.', 'error');
       return;
@@ -1583,7 +1592,6 @@ const InnerApp: React.FC = () => {
     try {
       addToast('Đang tạo file Excel định dạng...', 'success');
 
-      // Re-generate raw workbook for non-formatted sheets
       const freshResult = reprocessSurgicalRecords(
         currentReport.result.validRecords,
         config,
@@ -1619,6 +1627,15 @@ const InnerApp: React.FC = () => {
       console.error('Formatted download failed:', e);
       addToast('Lỗi khi tải file: ' + e.message, 'error');
     }
+  };
+
+  const handleDownloadFormatted = async () => {
+    // Auto-save trước khi tải Excel định dạng nếu dữ liệu từ EXCEL
+    if (currentReport.dataSource === 'EXCEL' && currentReport.result?.validRecords) {
+      await ensureDataSaved(() => executeDownloadFormatted());
+      return;
+    }
+    await executeDownloadFormatted();
   };
 
   // Create a hash of the config that strictly affects processing results (excluding UI settings)
@@ -2324,9 +2341,18 @@ const InnerApp: React.FC = () => {
     
     // Tự động lưu dữ liệu trước khi in nếu dữ liệu lấy từ EXCEL
     if (currentReport.dataSource === 'EXCEL' && currentReport.result?.validRecords) {
-      await handleSaveData();
+      await ensureDataSaved(() => {
+        // After save, proceed with print (called as callback)
+        executePrintLogic(type, orientation);
+      });
+      return;
     }
 
+    // Non-EXCEL source or no data: proceed directly
+    executePrintLogic(type, orientation);
+  };
+
+  const executePrintLogic = (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
     if (type === 'list') {
       // Prepare List Print
       const listPrintConfig: any = {
@@ -2900,16 +2926,16 @@ const InnerApp: React.FC = () => {
     }
   };
 
-  const handleSaveData = async () => {
+  // --- Core Save Logic (used by all save triggers: Print, Download, Lưu) ---
+  const executeSave = async (): Promise<boolean> => {
     if (!currentReport.result || !currentReport.result.validRecords) {
-      addToast("Không có dữ liệu hợp lệ để lưu.", "error"); // warning -> error
-      return;
+      addToast("Không có dữ liệu hợp lệ để lưu.", "error");
+      return false;
     }
 
     setIsSaving(true);
     try {
       const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
-
       const userId = "anonymous_user";
 
       const { savedCount, skippedCount, updatedCount } = await reportService.saveReport(
@@ -2941,12 +2967,10 @@ const InnerApp: React.FC = () => {
         addToast(msg, 'success');
         // NẾU TỪ EXCEL LƯU THÀNH CÔNG, reload lại từ STORAGE để đảm bảo mọi record đều có ID và firestorePath chuẩn
         if (currentReport.dataSource === 'EXCEL') {
-          // Lấy lại ngày hiện tại của báo cáo
           const dateFrom = currentReport.filters?.dateFrom;
           const dateTo = currentReport.filters?.dateTo;
           if (dateFrom && dateTo) {
              addToast("Đang đồng bộ dữ liệu vào hệ thống lưu trữ...", "success");
-             // Tự động load lại từ storage
              reportService.getReports(dateFrom, dateTo, type).then(records => {
                 if (records.length > 0) {
                   const convertedRecs: SurgeryRecord[] = records.map(r => ({
@@ -2968,13 +2992,72 @@ const InnerApp: React.FC = () => {
           }
         }
       }
+      return true;
 
     } catch (error) {
       console.error(error);
       addToast("Lỗi khi lưu dữ liệu. Vui lòng thử lại.", "error");
+      return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  /**
+   * Smart auto-save: checks for duplicates before saving.
+   * - If no data from EXCEL → skip (already in STORAGE)
+   * - If all records are new → save silently
+   * - If duplicates exist → show confirm dialog, then execute afterSave callback
+   * @param afterSave Optional callback to run after save completes (e.g., print, download)
+   */
+  const ensureDataSaved = async (afterSave?: () => void): Promise<void> => {
+    // Only auto-save data from EXCEL source
+    if (currentReport.dataSource !== 'EXCEL' || !currentReport.result?.validRecords) {
+      afterSave?.();
+      return;
+    }
+
+    const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
+    const records = currentReport.result.validRecords;
+
+    try {
+      // Check for duplicates first
+      const { newCount, duplicateCount, updatableCount } = await reportService.checkDuplicates(records, type);
+
+      if (duplicateCount === 0) {
+        // No duplicates — save silently and run callback
+        await executeSave();
+        afterSave?.();
+      } else {
+        // Duplicates found — show confirm dialog
+        const totalRecords = records.length;
+        let message = `Trong ${totalRecords} bản ghi từ file Excel:\n`;
+        if (newCount > 0) message += `• ${newCount} bản ghi mới sẽ được lưu\n`;
+        if (updatableCount > 0) message += `• ${updatableCount} bản ghi sẽ được cập nhật giúp việc\n`;
+        message += `• ${duplicateCount} bản ghi đã tồn tại trong hệ thống\n\n`;
+        message += `Bạn có muốn tiếp tục lưu dữ liệu không? (Các bản ghi trùng lặp sẽ được bỏ qua)`;
+
+        setSaveConfirm({
+          show: true,
+          message,
+          onConfirm: async () => {
+            setSaveConfirm({ show: false, message: '', onConfirm: null });
+            await executeSave();
+            afterSave?.();
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error in ensureDataSaved:', error);
+      // On error, fall back to direct save
+      await executeSave();
+      afterSave?.();
+    }
+  };
+
+  // Backward-compatible handler for the Lưu button
+  const handleSaveData = async () => {
+    await ensureDataSaved();
   };
 
   const handleTimeChange = (val: string, setter: (v: string) => void) => {
@@ -3070,6 +3153,37 @@ const InnerApp: React.FC = () => {
                 className="px-5 py-2.5 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-all shadow-sm"
               >
                 Xác nhận xóa
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save Confirm Modal (for duplicate detection) */}
+      {saveConfirm.show && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-blue-50 border-b border-blue-100 px-6 py-4 flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-xl">
+                <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
+              </div>
+              <h3 className="font-bold text-lg text-blue-900">Xác nhận lưu dữ liệu</h3>
+            </div>
+            <div className="px-6 py-5">
+              <div className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{saveConfirm.message}</div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
+              <button
+                onClick={() => setSaveConfirm({ show: false, message: '', onConfirm: null })}
+                className="px-5 py-2.5 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-sm"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                onClick={() => saveConfirm.onConfirm?.()}
+                className="px-5 py-2.5 text-sm font-bold text-white bg-primary-700 rounded-xl hover:bg-primary-800 transition-all shadow-sm"
+              >
+                Tiếp tục lưu
               </button>
             </div>
           </div>
