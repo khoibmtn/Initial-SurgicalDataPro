@@ -1,50 +1,56 @@
-# Last Session Context — 2026-05-08 23:00 (UTC+7)
+# Last Session Context — 2026-07-14 22:49 (UTC+7)
 
 ## 🔀 Git State
-- **Branch**: `temp-08-05-2026-23h00` (from `main`)
-- **Last commit**: `c8a8875` — `feat: profile modal - dedup by maTuongDuong+tenKT, wider modal, fuzzy search`
+- **Branch**: `temp-14-07-2026-22h39` (from `main`)
+- **Last commit**: `0599696` — `fix: only prompt duplicate confirm on explicit Save button, Print/Download save silently`
+- **Previous commit**: `1f637b3` — `feat: auto-save Excel data on Print/Download actions with duplicate detection dialog`
 - **Remote**: `origin/main` synced ✅
 
 ---
 
 ## 🎯 Session Objective
-Modernize the Profile "Add Technique" modal in `ProfileConfig.tsx` — changing deduplication from single-field (`tenKT`) to composite key (`maTuongDuong + tenKT`), adding 2-column display, wider modal with text wrapping, and fuzzy search with diacritics support.
+Fix bug where Excel data from "Minh Lộ" tab was NOT saved to storage when users printed or downloaded Excel without pressing the "Lưu" button. Implement smart auto-save with duplicate detection.
 
 ---
 
 ## ✅ Completed Tasks
 
-### 1. Composite Key Deduplication
-- **Before**: `getUniqueNamesFromPrices()` → dedup by `tenKT` only → ~3,497 unique entries
-- **After**: `getUniqueNameCodePairsFromPrices()` → dedup by `maTuongDuong|tenKT` combo → ~4,490 unique entries
-- Same `tenKT` with different `maTuongDuong` → appears as separate rows
-- **File**: `services/profileService.ts` lines 117-154
+### 1. Bug Analysis: Missing Auto-Save on Download
+- **Root cause**: `handleDownload()` and `handleDownloadFormatted()` had NO save logic
+- Only `handlePrintClick()` had auto-save (calling `handleSaveData()`)
+- Users who only downloaded Excel never had their data persisted to Firestore
 
-### 2. New Interface: `SurgeryNameCodePair`
-```typescript
-export interface SurgeryNameCodePair {
-  tenKT: string;
-  maTuongDuong: string;
-}
+### 2. New Architecture: Unified Save Flow
+Refactored save logic into 3 layers:
+
+```
+executeSave()          — Core save logic (calls reportService.saveReport)
+ensureDataSaved()      — Silent auto-save for Print/Download (no duplicate dialog)
+handleSaveData()       — Explicit save for Lưu button (checks duplicates, shows dialog)
 ```
 
-### 3. Profile Modal UI — 2-Column Layout
-- **Code badge**: `<span>` with `font-mono`, `bg-gray-100`, `min-w-[80px]` → shows `maTuongDuong`
-- **Surgery name**: `break-words` (auto-wraps instead of truncating)
-- **Modal width**: `max-w-md` → `max-w-2xl`
-- When clicking `+`, only `tenKT` is stored in profile (not `maTuongDuong`)
-- **File**: `components/statistics/ProfileConfig.tsx`
+### 3. `reportService.checkDuplicates()` — New Method
+- **File**: `services/reportService.ts` lines 58-125
+- Queries Firestore for existing records in same date range
+- Returns `{ newCount, duplicateCount, updatableCount }` without saving
+- Used by `handleSaveData()` to decide whether to show confirmation dialog
 
-### 4. Fuzzy Search (Non-Diacritic Vietnamese)
-- `removeDiacritics()` — strips diacritical marks: `NFD + regex` + đ→d, Đ→D
-- Multi-token matching: `"cat ruot"` → matches `"Cắt ruột"` in any combo
-- Searches across both `maTuongDuong` and `tenKT` combined
-- **File**: `components/statistics/ProfileConfig.tsx` lines 46-65
+### 4. Auto-Save on Print/Download
+- `handleDownload()` → calls `ensureDataSaved(executeDownload)` when `dataSource === 'EXCEL'`
+- `handleDownloadFormatted()` → calls `ensureDataSaved(executeDownloadFormatted)` when `dataSource === 'EXCEL'`
+- `handlePrintClick()` → calls `ensureDataSaved(executePrintLogic)` when `dataSource === 'EXCEL'`
+- All 3 save silently — only new records saved, duplicates skipped without prompt
 
-### 5. Filtering Logic
-- `availablePairs`: Excludes items whose `tenKT` (lowercase) already exists in the selected profile's `surgeryNames`
-- When adding: double-checks tenKT existence → shows toast if duplicate
-- After adding: ALL rows with that `tenKT` disappear from available list (even if different codes)
+### 5. Duplicate Confirmation Dialog (Lưu Button Only)
+- **New state**: `saveConfirm` (similar pattern to `deleteConfirm`)
+- **Blue-themed modal** (vs red for delete) with title "Xác nhận lưu dữ liệu"
+- Shows breakdown: X new, Y updatable, Z duplicates
+- User can choose "Tiếp tục lưu" or "Hủy bỏ"
+
+### 6. Refactored Print Logic
+- Split `handlePrintClick()` into:
+  - `handlePrintClick()` — handles save-before-print routing
+  - `executePrintLogic()` — actual print preparation (list/payment configs)
 
 ---
 
@@ -52,61 +58,45 @@ export interface SurgeryNameCodePair {
 
 | File | Changes |
 |------|---------|
-| `services/profileService.ts` | Added `SurgeryNameCodePair` interface + `getUniqueNameCodePairsFromPrices()` helper |
-| `components/statistics/ProfileConfig.tsx` | Rewired modal to use pair-based dedup, 2-column layout, wider modal, fuzzy search |
+| `services/reportService.ts` | Added `checkDuplicates()` method (~65 lines) |
+| `App.tsx` | Refactored save logic: `executeSave`, `ensureDataSaved`, `handleSaveData`, `executeDownload`, `executeDownloadFormatted`, `executePrintLogic`. Added `saveConfirm` state + modal UI |
 
 ---
 
 ## 🏗️ Key Architecture Notes
 
-### Data Flow: Profile "Add Technique" Modal
+### Save Flow Decision Tree
 ```
-Firebase RTDB surgery_name_prices
-  → subscribeToSurgeryNamePrices() [surgeryNamePriceService.ts]
-  → surgeryNamePrices state [StatisticsTab.tsx]
-  → passed as props to ProfileConfig
-  → getUniqueNameCodePairsFromPrices() → dedup by code|name combo
-  → availablePairs: filter out tenKT already in profile
-  → filteredAvailable: fuzzy search with diacritics stripping
-  → UI: 2-column (code badge + name)
-  → handleAddSurgery(): stores only tenKT in Firestore
-```
-
-### SurgeryNamePrice Record Structure
-```typescript
-interface SurgeryNamePrice {
-  id: string;
-  tenKT: string;           // Surgery name
-  price: number;            // Service price (VND)
-  effectiveFrom: string;    // ISO date
-  effectiveTo: string | null;
-  createdAt: number;
-  maTuongDuong?: string;    // Equivalent code (MA_TUONG_DUONG)
-}
+User Action → Which handler?
+├── Print menu item → handlePrintClick()
+│   └→ dataSource === 'EXCEL'?
+│       ├→ YES: ensureDataSaved(executePrintLogic) — save silently, then print
+│       └→ NO:  executePrintLogic() — print directly
+├── Excel download → handleDownload() / handleDownloadFormatted()
+│   └→ dataSource === 'EXCEL'?
+│       ├→ YES: ensureDataSaved(executeDownload) — save silently, then download
+│       └→ NO:  executeDownload() — download directly
+└── Lưu button → handleSaveData()
+    └→ dataSource === 'EXCEL'?
+        ├→ YES: checkDuplicates() → duplicates?
+        │   ├→ NO:  executeSave() — save directly
+        │   └→ YES: show saveConfirm dialog → user confirms → executeSave()
+        └→ NO:  executeSave() — save directly (for GV auto-fill updates etc.)
 ```
 
-### Profile Storage
-- **Collection**: `surgery_profiles` (Firestore)
-- **surgeryNames**: `string[]` — stores lowercase `tenKT` only (no codes)
-- Profile filtering in stats uses lowercase match against record `tenKT`
+### Key Principle
+- `reportService.saveReport()` already handles dedup internally (skips existing, updates GV-only)
+- `ensureDataSaved()` leverages this — no need for extra check
+- `handleSaveData()` adds UX layer — informs user about duplicates before committing
 
-### Two Dedup Helpers Coexist
-1. `getUniqueNamesFromPrices()` — returns `string[]` (tenKT only) — used by `ConfigurationTab.tsx` autocomplete
-2. `getUniqueNameCodePairsFromPrices()` — returns `SurgeryNameCodePair[]` — used by `ProfileConfig.tsx` modal
+### Two Confirm Dialogs
+1. `deleteConfirm` — Red theme — for record deletion
+2. `saveConfirm` — Blue/primary theme — for duplicate-aware saving
 
-### Fuzzy Search Pattern (Reusable)
-```typescript
-const removeDiacritics = (str: string) =>
-  str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
-
-// Multi-token fuzzy:
-const qNorm = removeDiacritics(query.toLowerCase());
-const tokens = qNorm.split(/\s+/);
-items.filter(item => {
-  const norm = removeDiacritics(item.toLowerCase());
-  return tokens.every(t => norm.includes(t));
-});
-```
+### Data Source Tracking
+- `dataSource: 'EXCEL'` → data came from uploaded file, needs saving
+- `dataSource: 'STORAGE'` → data already in Firestore, no save needed
+- After successful save from EXCEL, `executeSave()` reloads from storage → changes `dataSource` to `'STORAGE'`
 
 ---
 
@@ -121,10 +111,14 @@ items.filter(item => {
 | Chapter catalog management | ✅ Complete | StatisticsTab.tsx |
 | Surgery price catalog | ✅ Complete | SurgeryNamePriceConfig.tsx |
 | Statistics filtering (all/chapter/profile) | ✅ Complete | StatisticsTab.tsx |
+| Auto-save on Print/Download | ✅ Complete | App.tsx |
+| Duplicate detection dialog (Lưu) | ✅ Complete | App.tsx |
+| Silent auto-save (In/Excel) | ✅ Complete | App.tsx |
 
 ---
 
 ## 🔮 Potential Next Steps
-- Consider extracting `removeDiacritics` to a shared `utils/` file (currently duplicated in ConfigurationTab and ProfileConfig)
+- Extract `removeDiacritics` to shared `utils/` file (currently duplicated in ConfigurationTab and ProfileConfig)
 - Virtualized list for the modal if catalog grows beyond 5,000+ entries
-- Keyboard navigation (Up/Down/Enter) in the profile modal like ConfigurationTab autocomplete
+- Keyboard navigation (Up/Down/Enter) in the profile modal
+- Consider adding a visual indicator when auto-save completes during Print/Download (currently only toast)
