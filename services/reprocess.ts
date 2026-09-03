@@ -13,6 +13,16 @@ function isOverlap(
     return aStart <= bEnd && bStart <= aEnd;
 }
 
+/**
+ * Check if two records belong to the same surgical session.
+ * Same patient + same start/end time = same session (multiple procedures in one operation).
+ */
+function isSameSession(a: SurgeryRecord, b: SurgeryRecord): boolean {
+    if (a.patientId !== b.patientId) return false;
+    if (!a.start || !b.start || !a.end || !b.end) return false;
+    return a.start.getTime() === b.start.getTime() && a.end.getTime() === b.end.getTime();
+}
+
 export function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig): StaffConflict[] {
     type StaffInstance = {
         name: string;
@@ -68,6 +78,7 @@ export function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig
                 const a = list[i].rec;
                 const b = list[j].rec;
                 if (a.key === b.key) continue;
+                if (isSameSession(a, b)) continue; // Same patient, same time = same surgical session
 
                 if (a.start && a.end && b.start && b.end && isOverlap(a.start, a.end, b.start, b.end)) {
                     let isConflict = false;
@@ -146,6 +157,7 @@ export function detectMachineConflicts(records: SurgeryRecord[]): MachineConflic
                 const a = list[j].rec;
                 if (!a.start || !a.end) continue;
                 if (a.key && b.key && a.key === b.key) continue; // Same record guard
+                if (isSameSession(a, b)) continue; // Same patient, same time = same surgical session
 
                 if (isOverlap(a.start, a.end, b.start, b.end)) {
                     // Deduplicate pair
