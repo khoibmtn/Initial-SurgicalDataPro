@@ -2303,30 +2303,7 @@ const InnerApp: React.FC = () => {
         )
       };
 
-      // --- Split view: DS Phẫu thuật (top) + Thanh toán (bottom) ---
-      const listRowStyle = (r: SurgeryRecord) => (config.timeRules[r.loaiPTTT]?.min && r.timeMinutes < config.timeRules[r.loaiPTTT].min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
-
       return (
-        <div className="flex flex-col gap-3">
-          {/* Top: DS Phẫu thuật (read-only) */}
-          <div className="max-h-[45vh] overflow-auto">
-            <DynamicTable
-              data={filteredList}
-              columns={columnsList}
-              tableName="DS Phẫu thuật (xem nhanh)"
-              dateFormat={dateFormat}
-              onDateFormatChange={updateDateFormat}
-              rowsPerPage={rowsPerPage}
-              onRowsPerPageChange={updateRowsPerPage}
-              defaultVisibleCols={visibleCols['list']}
-              onVisibleColsChange={(cols) => updateVisibleCols('list', cols)}
-              rowStyle={listRowStyle}
-              searchTerm={currentReport.searchTerms.list}
-              onSearchChange={(val) => updateSearchTerm('list', val)}
-            />
-          </div>
-
-          {/* Bottom: Bảng Thanh toán */}
           <DynamicTable
             data={filtered}
             columns={paymentCols}
@@ -2345,7 +2322,6 @@ const InnerApp: React.FC = () => {
             extraHeaderRow={ExtraHeader}
             customRowRender={customRowRender}
           />
-        </div>
       );
     }
     return null;
