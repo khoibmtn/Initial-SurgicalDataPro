@@ -1,15 +1,21 @@
 /**
  * SpecialtyComparisonTab — Phân tích so sánh phẫu thuật theo chuyên khoa
  * Tab thứ 2 trong trang Thống kê phẫu thuật
- * Hỗ trợ chế độ xem theo Tháng (mặc định) và Khoảng tháng linh hoạt (Quý, 6 tháng, năm...)
- * Hỗ trợ chuyển nhóm thủ công cho từng kỹ thuật & nhóm chuyên khoa tùy chỉnh
- * Giao diện combobox tinh gọn, chiều cao dòng vừa phải, thẩm mỹ cao
+ *
+ * Tính năng nổi bật:
+ * 1. Chế độ xem theo Tháng và Khoảng tháng linh hoạt (Quý, 6 tháng, năm...)
+ * 2. Phân loại chuẩn 3 cấp: User Override > Khoa của BS Phẫu thuật chính > Từ khóa CTCH vs Ngoại TH
+ * 3. Hỗ trợ tạo nhóm chuyên khoa mới tùy chỉnh trong tab Cấu hình
+ * 4. Combobox chuyển nhóm hiển thị rõ tên chuyên khoa, thiết kế gọn gàng, tinh tế
+ * 5. Bảng "Tất cả chuyên khoa" dạng dọc hợp nhất toàn bộ danh sách, có phân trang ghi nhớ tùy chọn
+ * 6. Sắp xếp đa trạng thái 3 chu kỳ (Giảm dần ↓ -> Tăng dần ↑ -> Hủy bỏ ↺) trên từng cột số liệu
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart3, Download, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   Search, Filter, CheckCircle2, ChevronDown, ChevronRight, Layers, FileSpreadsheet,
-  Calendar, Activity, Sparkles, SlidersHorizontal, ArrowRight, Info, PlusCircle
+  Calendar, Activity, Sparkles, SlidersHorizontal, ArrowRight, Info,
+  ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronsLeft, ChevronsRight
 } from 'lucide-react';
 import { StaffMember } from '../../types';
 import {
@@ -24,6 +30,7 @@ import {
   PeriodMetadata,
   saveSpecialtyOverride,
   getSpecialtyOverrides,
+  ComparisonRow,
 } from '../../services/specialtyComparisonService';
 import { exportSpecialtyComparisonExcel } from '../../services/excelExportComparisonService';
 
@@ -32,6 +39,13 @@ interface Props {
   initialYear?: number;
   initialMonth?: number;
 }
+
+type SortColumnKey = 'tenKT' | 'specialty' | 'currentCount' | 'prevCount' | 'prevChangePct' | 'samePeriodCount' | 'samePeriodChangePct' | 'status';
+type SortDirection = 'asc' | 'desc' | null;
+
+const STORAGE_PAGE_SIZE_KEY = 'sdp_comparison_page_size';
+const STORAGE_SORT_COL_KEY = 'sdp_comparison_sort_col';
+const STORAGE_SORT_DIR_KEY = 'sdp_comparison_sort_dir';
 
 export const SpecialtyComparisonTab: React.FC<Props> = ({
   staffList,
@@ -58,6 +72,21 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   const [selectedSpecialty, setSelectedSpecialty] = useState<SpecialtyCode | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'ALERT' | 'POSITIVE'>('all');
+
+  // Sorting state (3-state: desc -> asc -> null)
+  const [sortCol, setSortCol] = useState<SortColumnKey | null>(() => {
+    return (localStorage.getItem(STORAGE_SORT_COL_KEY) as SortColumnKey) || null;
+  });
+  const [sortDir, setSortDir] = useState<SortDirection>(() => {
+    return (localStorage.getItem(STORAGE_SORT_DIR_KEY) as SortDirection) || null;
+  });
+
+  // Pagination state
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem(STORAGE_PAGE_SIZE_KEY);
+    return saved ? Number(saved) : 20;
+  });
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   // Data & loading state
   const [loading, setLoading] = useState<boolean>(false);
@@ -118,12 +147,52 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     loadData();
   }, [loadData]);
 
+  // Reset current page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedSpecialty, searchTerm, filterStatus, pageSize]);
+
   // Handle reassigning a surgery to another specialty
   const handleReassignSpecialty = (tenKT: string, newSpecialty: SpecialtyCode) => {
     saveSpecialtyOverride(tenKT, newSpecialty);
     const targetSpec = allSpecialtiesList.find(s => s.code === newSpecialty);
     showToast(`Đã chuyển "${tenKT}" sang nhóm ${targetSpec?.name || newSpecialty}`);
     loadData();
+  };
+
+  // Handle Column Header Sort Click (Cycle: desc -> asc -> null)
+  const handleSortClick = (colKey: SortColumnKey) => {
+    let nextDir: SortDirection = 'desc';
+
+    if (sortCol === colKey) {
+      if (sortDir === 'desc') {
+        nextDir = 'asc';
+      } else if (sortDir === 'asc') {
+        nextDir = null; // Hủy bỏ
+      } else {
+        nextDir = 'desc';
+      }
+    } else {
+      nextDir = colKey === 'tenKT' || colKey === 'specialty' ? 'asc' : 'desc';
+    }
+
+    const nextCol = nextDir === null ? null : colKey;
+    setSortCol(nextCol);
+    setSortDir(nextDir);
+
+    if (nextCol) {
+      localStorage.setItem(STORAGE_SORT_COL_KEY, nextCol);
+      localStorage.setItem(STORAGE_SORT_DIR_KEY, nextDir as string);
+    } else {
+      localStorage.removeItem(STORAGE_SORT_COL_KEY);
+      localStorage.removeItem(STORAGE_SORT_DIR_KEY);
+    }
+  };
+
+  // Change page size and persist
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    localStorage.setItem(STORAGE_PAGE_SIZE_KEY, String(newSize));
   };
 
   // Quick Range Presets
@@ -187,37 +256,131 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     };
   }, [groups, periodMeta]);
 
-  // Filter groups according to search & filters
-  const filteredGroups = useMemo(() => {
+  // Sorter Function
+  const sortRows = useCallback((rows: ComparisonRow[]): ComparisonRow[] => {
+    if (!sortCol || !sortDir) {
+      // Default order: ALERT first, then POSITIVE, then NORMAL, then currentCount desc
+      return [...rows].sort((a, b) => {
+        const order = { ALERT: 1, POSITIVE: 2, NORMAL: 3 };
+        if (order[a.status] !== order[b.status]) {
+          return order[a.status] - order[b.status];
+        }
+        if (b.currentCount !== a.currentCount) {
+          return b.currentCount - a.currentCount;
+        }
+        return a.tenKT.localeCompare(b.tenKT, 'vi');
+      });
+    }
+
+    return [...rows].sort((a, b) => {
+      let valA: any = a[sortCol];
+      let valB: any = b[sortCol];
+
+      if (sortCol === 'status') {
+        const order = { ALERT: 1, POSITIVE: 2, NORMAL: 3 };
+        valA = order[a.status];
+        valB = order[b.status];
+      }
+
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        const cmp = valA.localeCompare(valB, 'vi');
+        return sortDir === 'asc' ? cmp : -cmp;
+      }
+
+      // Handle nulls in percentage
+      if (valA === null && valB === null) return 0;
+      if (valA === null) return 1;
+      if (valB === null) return -1;
+
+      if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [sortCol, sortDir]);
+
+  // Combined Rows for "Tất cả chuyên khoa" (Unified Vertical Table)
+  const allCombinedRows = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
+    let rows: ComparisonRow[] = [];
 
-    return groups
-      .filter(g => selectedSpecialty === 'all' || g.specialty.code === selectedSpecialty)
-      // Hide empty custom groups in 'all' view unless they have rows
-      .filter(g => !g.specialty.isCustom || g.rows.length > 0 || selectedSpecialty === g.specialty.code)
-      .map(g => {
-        let filteredRows = g.rows;
+    groups.forEach(g => {
+      rows.push(...g.rows);
+    });
 
-        if (term) {
-          filteredRows = filteredRows.filter(r => r.tenKT.toLowerCase().includes(term) || r.note.toLowerCase().includes(term));
-        }
+    if (term) {
+      rows = rows.filter(r => r.tenKT.toLowerCase().includes(term) || r.note.toLowerCase().includes(term) || r.specialtyName.toLowerCase().includes(term));
+    }
 
-        if (filterStatus !== 'all') {
-          filteredRows = filteredRows.filter(r => r.status === filterStatus);
-        }
+    if (filterStatus !== 'all') {
+      rows = rows.filter(r => r.status === filterStatus);
+    }
 
-        return {
-          ...g,
-          rows: filteredRows,
-        };
-      })
-      .filter(g => g.rows.length > 0 || (selectedSpecialty !== 'all' && selectedSpecialty === g.specialty.code));
-  }, [groups, selectedSpecialty, searchTerm, filterStatus]);
+    return sortRows(rows);
+  }, [groups, searchTerm, filterStatus, sortRows]);
+
+  // Filter groups for specific specialty view
+  const filteredSingleGroup = useMemo(() => {
+    if (selectedSpecialty === 'all') return null;
+
+    const grp = groups.find(g => g.specialty.code === selectedSpecialty);
+    if (!grp) return null;
+
+    const term = searchTerm.trim().toLowerCase();
+    let rows = grp.rows;
+
+    if (term) {
+      rows = rows.filter(r => r.tenKT.toLowerCase().includes(term) || r.note.toLowerCase().includes(term));
+    }
+
+    if (filterStatus !== 'all') {
+      rows = rows.filter(r => r.status === filterStatus);
+    }
+
+    return {
+      ...grp,
+      rows: sortRows(rows),
+    };
+  }, [groups, selectedSpecialty, searchTerm, filterStatus, sortRows]);
+
+  // Paginated rows for "Tất cả chuyên khoa"
+  const paginatedAllRows = useMemo(() => {
+    if (pageSize === -1) return allCombinedRows;
+    const start = (currentPage - 1) * pageSize;
+    return allCombinedRows.slice(start, start + pageSize);
+  }, [allCombinedRows, currentPage, pageSize]);
+
+  const totalPages = pageSize === -1 ? 1 : Math.max(1, Math.ceil(allCombinedRows.length / pageSize));
 
   const fmtPctStr = (val: number | null) => {
     if (val === null) return '—';
     const sign = val > 0 ? '+' : '';
     return `${sign}${val.toFixed(1)}%`;
+  };
+
+  // Helper render sort header icon
+  const renderSortIcon = (colKey: SortColumnKey) => {
+    if (sortCol !== colKey) {
+      return <ArrowUpDown className="h-3 w-3 text-white/40 group-hover/th:text-white/80 transition-colors inline-block ml-1" />;
+    }
+    if (sortDir === 'asc') {
+      return <ArrowUp className="h-3.5 w-3.5 text-amber-300 font-bold inline-block ml-1 animate-pulse" />;
+    }
+    if (sortDir === 'desc') {
+      return <ArrowDown className="h-3.5 w-3.5 text-amber-300 font-bold inline-block ml-1 animate-pulse" />;
+    }
+    return null;
+  };
+
+  // Specialty Badge Helper
+  const getSpecialtyBadgeColor = (code: SpecialtyCode) => {
+    switch (code) {
+      case 'ngoai_th': return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'ctch': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      case 'mat': return 'bg-amber-50 text-amber-700 border-amber-200';
+      case 'tmh': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+      case 'phu_san': return 'bg-rose-50 text-rose-700 border-rose-200';
+      default: return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    }
   };
 
   return (
@@ -549,9 +712,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
           }`}
         >
-          <span>Tất cả chuyên khoa</span>
+          <span>Tất cả chuyên khoa (Toàn viện)</span>
           <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${selectedSpecialty === 'all' ? 'bg-primary-900 text-white' : 'bg-gray-100 text-gray-600'}`}>
-            {groups.length}
+            {overallKPIs.totalDistinctSurgeries}
           </span>
         </button>
 
@@ -560,7 +723,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
           const hasAlerts = (grp?.alertCount || 0) > 0;
           const totalCur = grp?.totalCurrent || 0;
 
-          // Don't show custom group pills with 0 cases unless it's currently selected
           if (spec.isCustom && totalCur === 0 && selectedSpecialty !== spec.code) {
             return null;
           }
@@ -594,233 +756,651 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
         })}
       </div>
 
-      {/* ── Main Data Tables (Per Specialty) ── */}
+      {/* ── Main Data View ── */}
       {loading ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 flex flex-col items-center justify-center gap-2.5">
           <div className="w-8 h-8 rounded-full border-3 border-primary-100 border-t-primary-600 animate-spin" />
           <p className="text-xs font-semibold text-gray-700">Đang tổng hợp và phân tích dữ liệu 3 kỳ...</p>
         </div>
-      ) : filteredGroups.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 flex flex-col items-center justify-center text-center">
-          <Layers className="h-8 w-8 text-gray-300 mb-1.5" />
-          <h4 className="font-bold text-gray-700 text-xs">Không tìm thấy dữ liệu phẫu thuật phù hợp</h4>
-          <p className="text-[11px] text-gray-500 mt-0.5 max-w-sm">
-            Không có ca phẫu thuật nào trong kỳ {periodMeta?.currentLabel || ''} hoặc theo bộ lọc hiện tại.
-          </p>
+      ) : selectedSpecialty === 'all' ? (
+        /* ═══════════════════════════════════════════════════════════════════════
+           CHẾ ĐỘ "TẤT CẢ CHUYÊN KHOA": BẢNG DỌC HỢP NHẤT + PHÂN TRANG + SẮP XẾP
+           ═══════════════════════════════════════════════════════════════════════ */
+        <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden flex flex-col">
+          {/* Header Banner */}
+          <div className="bg-[#003366] text-white px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+              <h3 className="font-bold text-sm tracking-wide uppercase">
+                BẢNG PHÂN TÍCH TỔNG HỢP TOÀN VIỆN - TẤT CẢ CHUYÊN KHOA
+              </h3>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs">
+              <span className="bg-[#002244] px-2.5 py-1 rounded text-gray-200 font-medium text-[11px]">
+                Tổng số ca: <strong className="text-white font-bold">{overallKPIs.totalCurrent}</strong>
+              </span>
+              {overallKPIs.totalAlerts > 0 && (
+                <span className="bg-red-500/90 text-white px-2 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
+                  🚨 {overallKPIs.totalAlerts} cảnh báo
+                </span>
+              )}
+              {overallKPIs.totalPositives > 0 && (
+                <span className="bg-emerald-500/90 text-white px-2 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
+                  🌿 {overallKPIs.totalPositives} tích cực
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Subtitle bar */}
+          <div className="bg-[#d9edf7] text-[#003366] px-3 py-1 text-[11px] italic text-center border-b border-[#bce8f1]">
+            {periodMeta?.subtitle || ''}
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300 select-none">
+                  {/* Tên phẫu thuật */}
+                  <th
+                    onClick={() => handleSortClick('tenKT')}
+                    className="px-3 py-2 text-left min-w-[320px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    title="Nhấn để sắp xếp (Giảm -> Tăng -> Hủy)"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span>Tên phẫu thuật</span>
+                      {renderSortIcon('tenKT')}
+                    </div>
+                  </th>
+
+                  {/* Chuyên khoa */}
+                  <th
+                    onClick={() => handleSortClick('specialty')}
+                    className="px-2.5 py-2 w-36 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    title="Nhấn để sắp xếp theo chuyên khoa"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>Chuyên khoa</span>
+                      {renderSortIcon('specialty')}
+                    </div>
+                  </th>
+
+                  {/* Kỳ hiện tại */}
+                  <th
+                    onClick={() => handleSortClick('currentCount')}
+                    className="px-2 py-2 w-20 border-r border-blue-800 bg-[#0d4277] cursor-pointer hover:bg-blue-900 transition-colors group/th"
+                    title="Nhấn để sắp xếp theo số ca kỳ này"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>{periodMeta?.currentLabel || 'Kỳ này'}</span>
+                      {renderSortIcon('currentCount')}
+                    </div>
+                  </th>
+
+                  {/* Kỳ trước */}
+                  <th
+                    onClick={() => handleSortClick('prevCount')}
+                    className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    title="Nhấn để sắp xếp theo số ca kỳ trước"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>{periodMeta?.prevLabel || 'Kỳ trước'}</span>
+                      {renderSortIcon('prevCount')}
+                    </div>
+                  </th>
+
+                  {/* So kỳ trước */}
+                  <th
+                    onClick={() => handleSortClick('prevChangePct')}
+                    className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    title="Nhấn để sắp xếp theo % so kỳ trước"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>{periodMeta?.prevColTitle || 'So kỳ trước'}</span>
+                      {renderSortIcon('prevChangePct')}
+                    </div>
+                  </th>
+
+                  {/* Cùng kỳ */}
+                  <th
+                    onClick={() => handleSortClick('samePeriodCount')}
+                    className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    title="Nhấn để sắp xếp theo số ca cùng kỳ"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>{periodMeta?.samePeriodLabel || 'Cùng kỳ'}</span>
+                      {renderSortIcon('samePeriodCount')}
+                    </div>
+                  </th>
+
+                  {/* So cùng kỳ */}
+                  <th
+                    onClick={() => handleSortClick('samePeriodChangePct')}
+                    className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    title="Nhấn để sắp xếp theo % so cùng kỳ"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>So cùng kỳ</span>
+                      {renderSortIcon('samePeriodChangePct')}
+                    </div>
+                  </th>
+
+                  {/* Nhận định */}
+                  <th
+                    onClick={() => handleSortClick('status')}
+                    className="px-2 py-2 w-28 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    title="Nhấn để sắp xếp theo nhận định cảnh báo / tích cực"
+                  >
+                    <div className="flex items-center justify-center">
+                      <span>Nhận định</span>
+                      {renderSortIcon('status')}
+                    </div>
+                  </th>
+
+                  {/* Ghi chú */}
+                  <th className="px-3 py-2 text-left min-w-[160px]">Ghi chú</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-gray-200">
+                {paginatedAllRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                      Không tìm thấy ca phẫu thuật nào phù hợp
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedAllRows.map((r, idx) => {
+                    const isAlert = r.status === 'ALERT';
+                    const isPositive = r.status === 'POSITIVE';
+                    const badgeClass = getSpecialtyBadgeColor(r.specialty);
+
+                    return (
+                      <tr
+                        key={`${r.specialty}-${r.tenKT}-${idx}`}
+                        className={`transition-colors hover:bg-blue-50/40 group ${
+                          isAlert
+                            ? 'bg-orange-50/40'
+                            : isPositive
+                            ? 'bg-emerald-50/30'
+                            : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
+                        }`}
+                      >
+                        {/* Tên phẫu thuật */}
+                        <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
+                          <span className="leading-snug text-xs">{r.tenKT}</span>
+                        </td>
+
+                        {/* Chuyên khoa + Combobox chuyển nhóm */}
+                        <td className="px-2 py-1.5 border-r border-gray-200">
+                          <div className="flex items-center justify-center">
+                            <select
+                              value={r.specialty}
+                              onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value)}
+                              className={`h-6 min-w-[90px] text-[10.5px] font-bold rounded-md px-1.5 py-0.5 border cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500 ${badgeClass}`}
+                              title="Chuyển chuyên khoa cho kỹ thuật này"
+                            >
+                              {allSpecialtiesList.map(s => (
+                                <option key={s.code} value={s.code} className="bg-white text-gray-800 font-medium">
+                                  {s.shortName}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </td>
+
+                        {/* Kỳ hiện tại */}
+                        <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
+                          {r.currentCount}
+                        </td>
+
+                        {/* Kỳ trước */}
+                        <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
+                          {r.prevCount}
+                        </td>
+
+                        {/* So kỳ trước */}
+                        <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                          r.prevChangePct !== null && r.prevChangePct < 0
+                            ? 'text-red-600'
+                            : r.prevChangePct !== null && r.prevChangePct > 0
+                            ? 'text-emerald-700'
+                            : 'text-gray-600'
+                        }`}>
+                          {fmtPctStr(r.prevChangePct)}
+                        </td>
+
+                        {/* Cùng kỳ */}
+                        <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
+                          {periodMeta?.hasSamePeriodData ? r.samePeriodCount : '—'}
+                        </td>
+
+                        {/* So cùng kỳ */}
+                        <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                          r.samePeriodChangePct !== null && r.samePeriodChangePct < 0
+                            ? 'text-red-600'
+                            : r.samePeriodChangePct !== null && r.samePeriodChangePct > 0
+                            ? 'text-emerald-700'
+                            : 'text-gray-600'
+                        }`}>
+                          {periodMeta?.hasSamePeriodData ? fmtPctStr(r.samePeriodChangePct) : '—'}
+                        </td>
+
+                        {/* Nhận định */}
+                        <td className="px-2 py-1 text-center border-r border-gray-200">
+                          {isAlert && (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
+                              CẢNH BÁO
+                            </span>
+                          )}
+                          {isPositive && (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
+                              TÍCH CỰC
+                            </span>
+                          )}
+                          {!isAlert && !isPositive && (
+                            <span className="text-gray-400 font-medium">—</span>
+                          )}
+                        </td>
+
+                        {/* Ghi chú */}
+                        <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
+                          {r.note}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+
+              {/* Totals Footer */}
+              <tfoot>
+                <tr className="bg-[#F2F4F7] font-bold text-gray-900 border-t-2 border-[#003366] text-xs">
+                  <td colSpan={2} className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
+                    TỔNG CỘNG TOÀN VIỆN ({overallKPIs.totalDistinctSurgeries} kỹ thuật)
+                  </td>
+                  <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
+                    {overallKPIs.totalCurrent}
+                  </td>
+                  <td className="px-2 py-2 text-center border-r border-gray-300">
+                    {overallKPIs.totalPrev}
+                  </td>
+                  <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
+                    overallKPIs.prevChangePct !== null && overallKPIs.prevChangePct < 0 ? 'text-red-600' : 'text-emerald-700'
+                  }`}>
+                    {fmtPctStr(overallKPIs.prevChangePct)}
+                  </td>
+                  <td className="px-2 py-2 text-center border-r border-gray-300">
+                    {periodMeta?.hasSamePeriodData ? overallKPIs.totalSamePeriod : '—'}
+                  </td>
+                  <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
+                    overallKPIs.samePeriodChangePct !== null && overallKPIs.samePeriodChangePct < 0 ? 'text-red-600' : 'text-emerald-700'
+                  }`}>
+                    {periodMeta?.hasSamePeriodData ? fmtPctStr(overallKPIs.samePeriodChangePct) : '—'}
+                  </td>
+                  <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
+                  <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
+                    Cảnh báo: {overallKPIs.totalAlerts} | Tích cực: {overallKPIs.totalPositives}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* ── Pagination Bar ── */}
+          <div className="bg-gray-50 px-3.5 py-2.5 border-t border-gray-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 text-gray-600 font-medium">
+              <span>Hiển thị</span>
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                className="bg-white border border-gray-300 rounded px-2 py-1 text-xs font-semibold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 cursor-pointer shadow-2xs"
+              >
+                <option value={10}>10 dòng</option>
+                <option value={20}>20 dòng</option>
+                <option value={50}>50 dòng</option>
+                <option value={100}>100 dòng</option>
+                <option value={-1}>Tất cả ({allCombinedRows.length})</option>
+              </select>
+              <span>/ trang (Tổng số: <strong>{allCombinedRows.length}</strong> phẫu thuật)</span>
+              {sortCol && (
+                <span className="text-primary-700 text-[11px] bg-primary-50 px-2 py-0.5 rounded border border-primary-200 ml-2">
+                  Đang sắp xếp: <strong>{sortCol}</strong> ({sortDir === 'asc' ? 'Tăng dần ↑' : 'Giảm dần ↓'})
+                  <button
+                    type="button"
+                    onClick={() => { setSortCol(null); setSortDir(null); localStorage.removeItem(STORAGE_SORT_COL_KEY); localStorage.removeItem(STORAGE_SORT_DIR_KEY); }}
+                    className="ml-1 text-red-500 hover:text-red-700 font-bold cursor-pointer"
+                    title="Hủy sắp xếp"
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </div>
+
+            {pageSize !== -1 && totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="p-1 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs cursor-pointer"
+                  title="Trang đầu"
+                >
+                  <ChevronsLeft className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="p-1 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs cursor-pointer"
+                  title="Trang trước"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+
+                <span className="px-2 py-1 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded shadow-2xs">
+                  {currentPage} / {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="p-1 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs cursor-pointer"
+                  title="Trang sau"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  className="p-1 rounded bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs cursor-pointer"
+                  title="Trang cuối"
+                >
+                  <ChevronsRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-4">
-          {filteredGroups.map(group => {
-            const prevTotalChange = group.totalPrev > 0 ? ((group.totalCurrent - group.totalPrev) / group.totalPrev) * 100 : null;
-            const samePeriodTotalChange = (periodMeta?.hasSamePeriodData && group.totalSamePeriod > 0)
-              ? ((group.totalCurrent - group.totalSamePeriod) / group.totalSamePeriod) * 100
-              : null;
-
-            return (
-              <div
-                key={group.specialty.code}
-                className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden"
-              >
-                {/* ── Table Header Banner (Navy Blue Theme) ── */}
-                <div className="bg-[#003366] text-white px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
-                    <h3 className="font-bold text-sm tracking-wide uppercase flex items-center gap-1.5">
-                      <span>PHÂN TÍCH PHẪU THUẬT - {group.specialty.name}</span>
-                      {group.specialty.isCustom && (
-                        <span className="text-[10px] lowercase font-normal px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-400/30">
-                          nhóm tùy chỉnh
-                        </span>
-                      )}
-                    </h3>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span className="bg-[#002244] px-2 py-0.5 rounded text-gray-200 font-medium text-[11px]">
-                      Tổng ca: <strong className="text-white font-bold">{group.totalCurrent}</strong>
+        /* ═══════════════════════════════════════════════════════════════════════
+           CHẾ ĐỘ XEM TỪNG CHUYÊN KHOA CỤ THỂ
+           ═══════════════════════════════════════════════════════════════════════ */
+        filteredSingleGroup && (
+          <div className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden">
+            {/* Table Header Banner */}
+            <div className="bg-[#003366] text-white px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                <h3 className="font-bold text-sm tracking-wide uppercase flex items-center gap-1.5">
+                  <span>PHÂN TÍCH PHẪU THUẬT - {filteredSingleGroup.specialty.name}</span>
+                  {filteredSingleGroup.specialty.isCustom && (
+                    <span className="text-[10px] lowercase font-normal px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                      nhóm tùy chỉnh
                     </span>
-                    {group.alertCount > 0 && (
-                      <span className="bg-red-500/90 text-white px-1.5 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
-                        🚨 {group.alertCount} cảnh báo
-                      </span>
-                    )}
-                    {group.positiveCount > 0 && (
-                      <span className="bg-emerald-500/90 text-white px-1.5 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
-                        🌿 {group.positiveCount} tích cực
-                      </span>
-                    )}
-                  </div>
-                </div>
+                  )}
+                </h3>
+              </div>
 
-                {/* ── Subtitle bar (Soft blue) ── */}
-                <div className="bg-[#d9edf7] text-[#003366] px-3 py-1 text-[11px] italic text-center border-b border-[#bce8f1]">
-                  {periodMeta?.subtitle || ''}
-                </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="bg-[#002244] px-2.5 py-1 rounded text-gray-200 font-medium text-[11px]">
+                  Tổng ca: <strong className="text-white font-bold">{filteredSingleGroup.totalCurrent}</strong>
+                </span>
+                {filteredSingleGroup.alertCount > 0 && (
+                  <span className="bg-red-500/90 text-white px-2 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
+                    🚨 {filteredSingleGroup.alertCount} cảnh báo
+                  </span>
+                )}
+                {filteredSingleGroup.positiveCount > 0 && (
+                  <span className="bg-emerald-500/90 text-white px-2 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
+                    🌿 {filteredSingleGroup.positiveCount} tích cực
+                  </span>
+                )}
+              </div>
+            </div>
 
-                {/* ── Table Body ── */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left border-collapse">
-                    <thead>
-                      <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300">
-                        <th className="px-3 py-2 text-left min-w-[340px] border-r border-blue-800">
-                          Tên phẫu thuật
-                        </th>
-                        <th className="px-2 py-2 w-20 border-r border-blue-800 bg-[#0d4277]">{periodMeta?.currentLabel || 'Kỳ này'}</th>
-                        <th className="px-2 py-2 w-20 border-r border-blue-800">{periodMeta?.prevLabel || 'Kỳ trước'}</th>
-                        <th className="px-2 py-2 w-24 border-r border-blue-800">{periodMeta?.prevColTitle || 'So kỳ trước'}</th>
-                        <th className="px-2 py-2 w-20 border-r border-blue-800">{periodMeta?.samePeriodLabel || 'Cùng kỳ'}</th>
-                        <th className="px-2 py-2 w-24 border-r border-blue-800">So cùng kỳ</th>
-                        <th className="px-2 py-2 w-28 border-r border-blue-800">Nhận định</th>
-                        <th className="px-3 py-2 text-left min-w-[180px]">Ghi chú</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {group.rows.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="px-3 py-6 text-center text-gray-400 italic text-xs">
-                            {group.specialty.isCustom
-                              ? 'Chưa có kỹ thuật nào được chuyển vào nhóm tùy chỉnh này'
-                              : 'Không có ca phẫu thuật nào trong chuyên khoa này'}
+            {/* Subtitle bar */}
+            <div className="bg-[#d9edf7] text-[#003366] px-3 py-1 text-[11px] italic text-center border-b border-[#bce8f1]">
+              {periodMeta?.subtitle || ''}
+            </div>
+
+            {/* Table Body */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead>
+                  <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300 select-none">
+                    <th
+                      onClick={() => handleSortClick('tenKT')}
+                      className="px-3 py-2 text-left min-w-[340px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Nhấn để sắp xếp tên phẫu thuật"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>Tên phẫu thuật</span>
+                        {renderSortIcon('tenKT')}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => handleSortClick('currentCount')}
+                      className="px-2 py-2 w-20 border-r border-blue-800 bg-[#0d4277] cursor-pointer hover:bg-blue-900 transition-colors group/th"
+                      title="Nhấn để sắp xếp số ca kỳ này"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>{periodMeta?.currentLabel || 'Kỳ này'}</span>
+                        {renderSortIcon('currentCount')}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => handleSortClick('prevCount')}
+                      className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Nhấn để sắp xếp số ca kỳ trước"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>{periodMeta?.prevLabel || 'Kỳ trước'}</span>
+                        {renderSortIcon('prevCount')}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => handleSortClick('prevChangePct')}
+                      className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Nhấn để sắp xếp % so kỳ trước"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>{periodMeta?.prevColTitle || 'So kỳ trước'}</span>
+                        {renderSortIcon('prevChangePct')}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => handleSortClick('samePeriodCount')}
+                      className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Nhấn để sắp xếp số ca cùng kỳ"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>{periodMeta?.samePeriodLabel || 'Cùng kỳ'}</span>
+                        {renderSortIcon('samePeriodCount')}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => handleSortClick('samePeriodChangePct')}
+                      className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Nhấn để sắp xếp % so cùng kỳ"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>So cùng kỳ</span>
+                        {renderSortIcon('samePeriodChangePct')}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => handleSortClick('status')}
+                      className="px-2 py-2 w-28 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Nhấn để sắp xếp theo nhận định"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>Nhận định</span>
+                        {renderSortIcon('status')}
+                      </div>
+                    </th>
+
+                    <th className="px-3 py-2 text-left min-w-[180px]">Ghi chú</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-gray-200">
+                  {filteredSingleGroup.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                        {filteredSingleGroup.specialty.isCustom
+                          ? 'Chưa có kỹ thuật nào được chuyển vào nhóm tùy chỉnh này'
+                          : 'Không có ca phẫu thuật nào trong chuyên khoa này'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSingleGroup.rows.map((r, idx) => {
+                      const isAlert = r.status === 'ALERT';
+                      const isPositive = r.status === 'POSITIVE';
+                      const badgeClass = getSpecialtyBadgeColor(r.specialty);
+
+                      return (
+                        <tr
+                          key={`${r.tenKT}-${idx}`}
+                          className={`transition-colors hover:bg-blue-50/40 group ${
+                            isAlert
+                              ? 'bg-orange-50/40'
+                              : isPositive
+                              ? 'bg-emerald-50/30'
+                              : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
+                          }`}
+                        >
+                          {/* Tên phẫu thuật + Combobox chuyển nhóm */}
+                          <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
+                            <div className="flex items-center justify-between gap-2.5">
+                              <span className="flex-1 leading-snug text-xs">{r.tenKT}</span>
+                              <div className="shrink-0 flex items-center">
+                                <select
+                                  value={r.specialty}
+                                  onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value)}
+                                  className={`h-6 min-w-[85px] text-[10.5px] font-bold rounded-md px-1.5 py-0.5 border cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500 ${badgeClass}`}
+                                  title="Chuyển chuyên khoa cho kỹ thuật này"
+                                >
+                                  {allSpecialtiesList.map(s => (
+                                    <option key={s.code} value={s.code} className="bg-white text-gray-800 font-medium">
+                                      {s.shortName}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Kỳ hiện tại */}
+                          <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
+                            {r.currentCount}
+                          </td>
+
+                          {/* Kỳ trước */}
+                          <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
+                            {r.prevCount}
+                          </td>
+
+                          {/* So kỳ trước */}
+                          <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                            r.prevChangePct !== null && r.prevChangePct < 0
+                              ? 'text-red-600'
+                              : r.prevChangePct !== null && r.prevChangePct > 0
+                              ? 'text-emerald-700'
+                              : 'text-gray-600'
+                          }`}>
+                            {fmtPctStr(r.prevChangePct)}
+                          </td>
+
+                          {/* Cùng kỳ */}
+                          <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
+                            {periodMeta?.hasSamePeriodData ? r.samePeriodCount : '—'}
+                          </td>
+
+                          {/* So cùng kỳ */}
+                          <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                            r.samePeriodChangePct !== null && r.samePeriodChangePct < 0
+                              ? 'text-red-600'
+                              : r.samePeriodChangePct !== null && r.samePeriodChangePct > 0
+                              ? 'text-emerald-700'
+                              : 'text-gray-600'
+                          }`}>
+                            {periodMeta?.hasSamePeriodData ? fmtPctStr(r.samePeriodChangePct) : '—'}
+                          </td>
+
+                          {/* Nhận định */}
+                          <td className="px-2 py-1 text-center border-r border-gray-200">
+                            {isAlert && (
+                              <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
+                                CẢNH BÁO
+                              </span>
+                            )}
+                            {isPositive && (
+                              <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
+                                TÍCH CỰC
+                              </span>
+                            )}
+                            {!isAlert && !isPositive && (
+                              <span className="text-gray-400 font-medium">—</span>
+                            )}
+                          </td>
+
+                          {/* Ghi chú */}
+                          <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
+                            {r.note}
                           </td>
                         </tr>
-                      ) : (
-                        group.rows.map((r, idx) => {
-                          const isAlert = r.status === 'ALERT';
-                          const isPositive = r.status === 'POSITIVE';
+                      );
+                    })
+                  )}
+                </tbody>
 
-                          return (
-                            <tr
-                              key={`${r.tenKT}-${idx}`}
-                              className={`transition-colors hover:bg-blue-50/40 group ${
-                                isAlert
-                                  ? 'bg-orange-50/40'
-                                  : isPositive
-                                  ? 'bg-emerald-50/30'
-                                  : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
-                              }`}
-                            >
-                              {/* Tên phẫu thuật + Combobox chuyển nhóm tinh gọn */}
-                              <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
-                                <div className="flex items-center justify-between gap-2.5">
-                                  <span className="flex-1 leading-snug text-xs">{r.tenKT}</span>
-                                  <div className="shrink-0 flex items-center">
-                                    <select
-                                      value={r.specialty}
-                                      onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value)}
-                                      className="h-5 text-[10px] font-semibold bg-gray-50/90 hover:bg-white text-gray-600 hover:text-primary-800 border border-gray-200 hover:border-primary-400 rounded px-1.5 py-0 cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500"
-                                      title="Chuyển chuyên khoa cho kỹ thuật này"
-                                    >
-                                      {allSpecialtiesList.map(s => (
-                                        <option key={s.code} value={s.code}>
-                                          {s.code === r.specialty ? `✓ ${s.shortName}` : `→ ${s.shortName}`}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                </div>
-                              </td>
-
-                              {/* Kỳ hiện tại */}
-                              <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
-                                {r.currentCount}
-                              </td>
-
-                              {/* Kỳ trước */}
-                              <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
-                                {r.prevCount}
-                              </td>
-
-                              {/* So kỳ trước */}
-                              <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                                r.prevChangePct !== null && r.prevChangePct < 0
-                                  ? 'text-red-600'
-                                  : r.prevChangePct !== null && r.prevChangePct > 0
-                                  ? 'text-emerald-700'
-                                  : 'text-gray-600'
-                              }`}>
-                                {fmtPctStr(r.prevChangePct)}
-                              </td>
-
-                              {/* Cùng kỳ */}
-                              <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
-                                {periodMeta?.hasSamePeriodData ? r.samePeriodCount : '—'}
-                              </td>
-
-                              {/* So cùng kỳ */}
-                              <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                                r.samePeriodChangePct !== null && r.samePeriodChangePct < 0
-                                  ? 'text-red-600'
-                                  : r.samePeriodChangePct !== null && r.samePeriodChangePct > 0
-                                  ? 'text-emerald-700'
-                                  : 'text-gray-600'
-                              }`}>
-                                {periodMeta?.hasSamePeriodData ? fmtPctStr(r.samePeriodChangePct) : '—'}
-                              </td>
-
-                              {/* Nhận định */}
-                              <td className="px-2 py-1 text-center border-r border-gray-200">
-                                {isAlert && (
-                                  <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
-                                    CẢNH BÁO
-                                  </span>
-                                )}
-                                {isPositive && (
-                                  <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
-                                    TÍCH CỰC
-                                  </span>
-                                )}
-                                {!isAlert && !isPositive && (
-                                  <span className="text-gray-400 font-medium">—</span>
-                                )}
-                              </td>
-
-                              {/* Ghi chú */}
-                              <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                                {r.note}
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-
-                    {/* ── Table Footer Totals ── */}
-                    <tfoot>
-                      <tr className="bg-[#F2F4F7] font-bold text-gray-900 border-t-2 border-[#003366] text-xs">
-                        <td className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
-                          TỔNG CỘNG
-                        </td>
-                        <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
-                          {group.totalCurrent}
-                        </td>
-                        <td className="px-2 py-2 text-center border-r border-gray-300">
-                          {group.totalPrev}
-                        </td>
-                        <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
-                          prevTotalChange !== null && prevTotalChange < 0 ? 'text-red-600' : 'text-emerald-700'
-                        }`}>
-                          {fmtPctStr(prevTotalChange)}
-                        </td>
-                        <td className="px-2 py-2 text-center border-r border-gray-300">
-                          {periodMeta?.hasSamePeriodData ? group.totalSamePeriod : '—'}
-                        </td>
-                        <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
-                          samePeriodTotalChange !== null && samePeriodTotalChange < 0 ? 'text-red-600' : 'text-emerald-700'
-                        }`}>
-                          {periodMeta?.hasSamePeriodData ? fmtPctStr(samePeriodTotalChange) : '—'}
-                        </td>
-                        <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
-                        <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
-                          Cảnh báo: {group.alertCount} | Tích cực: {group.positiveCount}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                {/* Footer */}
+                <tfoot>
+                  <tr className="bg-[#F2F4F7] font-bold text-gray-900 border-t-2 border-[#003366] text-xs">
+                    <td className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
+                      TỔNG CỘNG
+                    </td>
+                    <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
+                      {filteredSingleGroup.totalCurrent}
+                    </td>
+                    <td className="px-2 py-2 text-center border-r border-gray-300">
+                      {filteredSingleGroup.totalPrev}
+                    </td>
+                    <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
+                      filteredSingleGroup.totalPrev > 0 && ((filteredSingleGroup.totalCurrent - filteredSingleGroup.totalPrev) / filteredSingleGroup.totalPrev) < 0 ? 'text-red-600' : 'text-emerald-700'
+                    }`}>
+                      {fmtPctStr(filteredSingleGroup.totalPrev > 0 ? ((filteredSingleGroup.totalCurrent - filteredSingleGroup.totalPrev) / filteredSingleGroup.totalPrev) * 100 : null)}
+                    </td>
+                    <td className="px-2 py-2 text-center border-r border-gray-300">
+                      {periodMeta?.hasSamePeriodData ? filteredSingleGroup.totalSamePeriod : '—'}
+                    </td>
+                    <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
+                      periodMeta?.hasSamePeriodData && filteredSingleGroup.totalSamePeriod > 0 && ((filteredSingleGroup.totalCurrent - filteredSingleGroup.totalSamePeriod) / filteredSingleGroup.totalSamePeriod) < 0 ? 'text-red-600' : 'text-emerald-700'
+                    }`}>
+                      {periodMeta?.hasSamePeriodData && filteredSingleGroup.totalSamePeriod > 0 ? fmtPctStr(((filteredSingleGroup.totalCurrent - filteredSingleGroup.totalSamePeriod) / filteredSingleGroup.totalSamePeriod) * 100) : '—'}
+                    </td>
+                    <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
+                    <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
+                      Cảnh báo: {filteredSingleGroup.alertCount} | Tích cực: {filteredSingleGroup.positiveCount}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )
       )}
     </div>
   );
