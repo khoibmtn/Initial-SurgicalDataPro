@@ -14,9 +14,10 @@ import { subscribeToProfiles } from '../../services/profileService';
 import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile } from '../../types';
 import { StatsSummary } from './StatsSummary';
 import { StatsConfig } from './StatsConfig';
+import { SpecialtyComparisonTab } from './SpecialtyComparisonTab';
 import { ContextToolbar, TabLine } from '../ui';
 
-type SubTab = 'summary' | 'config';
+type SubTab = 'summary' | 'comparison' | 'config';
 
 export const StatisticsTab: React.FC = () => {
   const { config } = useConfig();
@@ -230,6 +231,7 @@ export const StatisticsTab: React.FC = () => {
 
   const subTabOptions = [
     { value: 'summary' as const, label: 'Thống kê', icon: Table2 },
+    { value: 'comparison' as const, label: 'Phân tích so sánh', icon: BarChart3 },
     { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
 
@@ -422,6 +424,15 @@ export const StatisticsTab: React.FC = () => {
         ) : null}
       </div>
       </div>{/* end summary tab */}
+
+      {/* COMPARISON tab body */}
+      <div style={{ display: subTab === 'comparison' ? 'block' : 'none' }}>
+        <SpecialtyComparisonTab
+          staffList={config.staffList || []}
+          initialYear={primaryYear}
+          initialMonth={selectedMonth}
+        />
+      </div>
 
       {/* CONFIG tab body */}
       <div style={{ display: subTab === 'config' ? 'block' : 'none' }}>

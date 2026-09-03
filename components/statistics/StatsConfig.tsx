@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx';
 import {
   Plus, Download, Upload, Trash2, Edit3, Save, X, FileSpreadsheet,
   CheckCircle2, AlertTriangle, ChevronDown, ChevronRight,
-  DollarSign, BookOpen, Briefcase, Users,
+  DollarSign, BookOpen, Briefcase, Users, SlidersHorizontal, TrendingDown, TrendingUp
 } from 'lucide-react';
 import {
   SurgeryPriceVersion,
@@ -31,8 +31,13 @@ import {
 import { SurgeryNamePriceConfig } from './SurgeryNamePriceConfig';
 import { ChapterCatalogConfig } from './ChapterCatalogConfig';
 import { ProfileConfig } from './ProfileConfig';
+import {
+  getComparisonThresholdConfig,
+  saveComparisonThresholdConfig,
+  ComparisonConfig
+} from '../../services/specialtyComparisonService';
 
-type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'labor-price' | 'profile';
+type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'labor-price' | 'profile' | 'comparison-threshold';
 
 const SUB_TAB_KEY = 'sdp_config_sub_tab';
 
@@ -86,9 +91,32 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   const [importPreview, setImportPreview] = useState<ImportedPriceData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Threshold settings state
+  const [thresholdForm, setThresholdForm] = useState<ComparisonConfig>(getComparisonThresholdConfig);
+  const [thresholdSaving, setThresholdSaving] = useState(false);
+
   useEffect(() => {
     localStorage.setItem(SUB_TAB_KEY, configSubTab);
+    if (configSubTab === 'comparison-threshold') {
+      setThresholdForm(getComparisonThresholdConfig());
+    }
   }, [configSubTab]);
+
+  const handleSaveThreshold = () => {
+    if (thresholdForm.alertThreshold <= 0 || thresholdForm.positiveThreshold <= 0) {
+      showToast('Ngưỡng phần trăm phải lớn hơn 0', 'error');
+      return;
+    }
+    setThresholdSaving(true);
+    try {
+      saveComparisonThresholdConfig(thresholdForm);
+      showToast('Đã lưu cấu hình ngưỡng phân tích thành công!');
+    } catch (e: any) {
+      showToast('Lỗi lưu cấu hình', 'error');
+    } finally {
+      setThresholdSaving(false);
+    }
+  };
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -226,6 +254,7 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
     { key: 'chapter-catalog', label: 'Danh mục chương', icon: <BookOpen className="h-3.5 w-3.5" /> },
     { key: 'labor-price', label: 'Bảng giá nhân công', icon: <Briefcase className="h-3.5 w-3.5" /> },
     { key: 'profile', label: 'Profile', icon: <Users className="h-3.5 w-3.5" /> },
+    { key: 'comparison-threshold', label: 'Ngưỡng phân tích', icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -491,6 +520,100 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
 
       <div style={{ display: configSubTab === 'profile' ? 'block' : 'none' }}>
         <ProfileConfig profiles={profiles} surgeryNamePrices={surgeryNamePrices} />
+      </div>
+
+      {/* Threshold Config Sub-tab */}
+      <div style={{ display: configSubTab === 'comparison-threshold' ? 'block' : 'none' }}>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 max-w-3xl">
+          <div className="flex items-center gap-2.5 pb-4 border-b border-gray-100">
+            <div className="w-9 h-9 rounded-lg bg-primary-50 text-primary-700 flex items-center justify-center">
+              <SlidersHorizontal className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-gray-800">Cấu hình Ngưỡng Phân tích So sánh Chuyên khoa</h3>
+              <p className="text-xs text-gray-500">Tùy chỉnh tỷ lệ % tăng/giảm để tự động gán nhận định Cảnh báo hoặc Tích cực</p>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-6">
+            {/* Alert Threshold */}
+            <div className="p-4 rounded-xl bg-orange-50/50 border border-orange-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-[#FCE4D6] text-[#C00000] border border-orange-200">
+                    CẢNH BÁO
+                  </span>
+                  <label className="text-sm font-bold text-gray-800">Ngưỡng giảm để cảnh báo (%)</label>
+                </div>
+                <p className="text-xs text-gray-500 max-w-md">
+                  Khi số ca phẫu thuật giảm từ mức này trở lên (so với tháng trước hoặc cùng kỳ năm trước), hoặc không phát sinh trong kỳ hiện tại.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-red-600">-</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={thresholdForm.alertThreshold}
+                  onChange={(e) => setThresholdForm(prev => ({ ...prev, alertThreshold: Number(e.target.value) }))}
+                  className="w-24 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold text-right text-red-700 focus:outline-none focus:ring-2 focus:ring-red-400 shadow-xs"
+                />
+                <span className="text-sm font-bold text-gray-600">%</span>
+              </div>
+            </div>
+
+            {/* Positive Threshold */}
+            <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md text-xs font-bold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200">
+                    TÍCH CỰC
+                  </span>
+                  <label className="text-sm font-bold text-gray-800">Ngưỡng tăng để đánh giá tích cực (%)</label>
+                </div>
+                <p className="text-xs text-gray-500 max-w-md">
+                  Khi số ca phẫu thuật tăng từ mức này trở lên (so với tháng trước hoặc cùng kỳ năm trước), hoặc mới phát sinh trong kỳ hiện tại.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-emerald-600">+</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  step="1"
+                  value={thresholdForm.positiveThreshold}
+                  onChange={(e) => setThresholdForm(prev => ({ ...prev, positiveThreshold: Number(e.target.value) }))}
+                  className="w-24 px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-bold text-right text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 shadow-xs"
+                />
+                <span className="text-sm font-bold text-gray-600">%</span>
+              </div>
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-2 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setThresholdForm({ alertThreshold: 10, positiveThreshold: 5 })}
+                className="text-xs text-gray-500 hover:text-gray-700 underline cursor-pointer"
+              >
+                Khôi phục mặc định (10% & 5%)
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveThreshold}
+                disabled={thresholdSaving}
+                className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-primary-700 hover:bg-primary-800 text-white font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+              >
+                <Save className="h-4 w-4" />
+                <span>{thresholdSaving ? 'Đang lưu...' : 'Lưu cấu hình ngưỡng'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
