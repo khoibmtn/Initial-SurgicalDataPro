@@ -3532,7 +3532,7 @@ const InnerApp: React.FC = () => {
                     </div>
 
                     {/* All table containers always mounted, toggled via CSS */}
-                    <div className="w-full bg-white px-4 py-3 flex-1 min-h-0">
+                    <div className="w-full bg-white px-4 py-3 flex-1 min-h-0" key={currentReport.activeTable}>
                       {(currentReport.listFile || currentReport.dataSource === 'STORAGE') && renderTableContent()}
                     </div>
                   </div>
