@@ -1800,20 +1800,22 @@ const InnerApp: React.FC = () => {
   // Separate columns definition for Missing Machines (stripping machine-related & reason)
   const columnsMissing = useMemo<ColumnDef<SurgeryRecord>[]>(() => columnsList.filter(c => c.key !== 'machine' && c.key !== 'machineId' && c.key !== 'machineCode' && c.key !== 'reason'), [columnsList]);
 
+  const ROLE_LABELS: Record<string, string> = { PT_CHINH: 'PT Chính', PT_PHU: 'PT Phụ', BS_GM: 'BS GM', KTV_GM: 'KTV GM', TDC: 'TDC', GV: 'GV' };
+
   const columnsStaff = useMemo<ColumnDef<StaffConflict>[]>(() => [
     { key: 'stt', label: '#', align: 'center', defaultWidth: 40 },
-    { key: 'staffName', label: 'Nhân viên trùng', defaultWidth: 150, headerClassName: 'text-center' },
-    { key: 'role', label: 'Vai trò', defaultWidth: 90, headerClassName: 'text-center' },
+    { key: 'staffName', label: 'Nhân viên trùng', render: (c) => c.staffName || '-', defaultWidth: 150, headerClassName: 'text-center' },
+    { key: 'role', label: 'Vai trò', render: (c) => ROLE_LABELS[c.role] || c.role || '-', defaultWidth: 90, headerClassName: 'text-center' },
 
     // PATIENT 1 BLOCK (White/Default)
-    { key: 'patientId1', label: 'Mã BN 1', defaultWidth: 80, headerClassName: 'text-center' },
-    { key: 'patientName1', label: 'Tên BN 1', defaultWidth: 150, headerClassName: 'text-center' },
-    { key: 'tenKT1', label: 'Tên KT 1', defaultWidth: 200, headerClassName: 'text-center' },
+    { key: 'patientId1', label: 'Mã BN 1', render: (c) => c.patientId1 || '-', defaultWidth: 80, headerClassName: 'text-center' },
+    { key: 'patientName1', label: 'Tên BN 1', render: (c) => c.patientName1 || '-', defaultWidth: 150, headerClassName: 'text-center' },
+    { key: 'tenKT1', label: 'Tên KT 1', render: (c) => c.tenKT1 || '-', defaultWidth: 200, headerClassName: 'text-center' },
     { key: 'ptChinh1', label: 'PT Chính 1', render: (c) => c.rec1.ptChinh || '-', defaultWidth: 100, headerClassName: 'text-center' },
     { key: 'ptPhu1', label: 'PT Phụ 1', render: (c) => c.rec1.ptPhu || '-', defaultWidth: 100, headerClassName: 'text-center' },
     { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', defaultWidth: 100, headerClassName: 'text-center' },
     { key: 'ktvGM1', label: 'KTV GM 1', render: (c) => c.rec1.ktvGM || '-', defaultWidth: 100, headerClassName: 'text-center' },
-    { key: 'bsGM', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', defaultWidth: 100, headerClassName: 'text-center' },
+    { key: 'bsGM1', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', defaultWidth: 100, headerClassName: 'text-center' },
     { key: 'gv1', label: 'GV 1', render: (c) => c.rec1.gv || '-', defaultWidth: 100, headerClassName: 'text-center' },
     { key: 'start1', label: 'BĐ 1', render: (c) => formatDate(c.start1, dateFormat), defaultWidth: 120, className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
     { key: 'end1', label: 'KT 1', render: (c) => formatDate(c.end1, dateFormat), defaultWidth: 120, className: 'text-red-700 font-semibold', headerClassName: 'bg-red-100 text-red-800 text-center' },
@@ -1821,9 +1823,9 @@ const InnerApp: React.FC = () => {
     // PATIENT 2 BLOCK (Highlighted - Blue, darker header)
     { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), defaultWidth: 120, className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), defaultWidth: 120, className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
-    { key: 'patientId2', label: 'Mã BN 2', defaultWidth: 80, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
-    { key: 'patientName2', label: 'Tên BN 2', defaultWidth: 180, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
-    { key: 'tenKT2', label: 'Tên KT 2', defaultWidth: 250, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientId2', label: 'Mã BN 2', render: (c) => c.patientId2 || '-', defaultWidth: 80, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientName2', label: 'Tên BN 2', render: (c) => c.patientName2 || '-', defaultWidth: 180, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'tenKT2', label: 'Tên KT 2', render: (c) => c.tenKT2 || '-', defaultWidth: 250, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'ptChinh2', label: 'PT Chính 2', render: (c) => c.rec2.ptChinh || '-', defaultWidth: 100, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', defaultWidth: 140, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', defaultWidth: 140, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
@@ -1834,12 +1836,12 @@ const InnerApp: React.FC = () => {
 
   const columnsMachine = useMemo<ColumnDef<MachineConflict>[]>(() => [
     { key: 'stt', label: '#', align: 'center', defaultWidth: 40 },
-    { key: 'machine', label: 'Máy trùng', defaultWidth: 200, headerClassName: 'text-center' },
+    { key: 'machine', label: 'Máy trùng', render: (c) => c.machine || '-', defaultWidth: 200, headerClassName: 'text-center' },
 
     // PATIENT 1 BLOCK - Red text for time columns
-    { key: 'patientId1', label: 'Mã BN 1', defaultWidth: 80, headerClassName: 'text-center' },
-    { key: 'patientName1', label: 'Tên BN 1', defaultWidth: 150, headerClassName: 'text-center' },
-    { key: 'tenKT1', label: 'Tên KT 1', defaultWidth: 200, headerClassName: 'text-center' },
+    { key: 'patientId1', label: 'Mã BN 1', render: (c) => c.patientId1 || '-', defaultWidth: 80, headerClassName: 'text-center' },
+    { key: 'patientName1', label: 'Tên BN 1', render: (c) => c.patientName1 || '-', defaultWidth: 150, headerClassName: 'text-center' },
+    { key: 'tenKT1', label: 'Tên KT 1', render: (c) => c.tenKT1 || '-', defaultWidth: 200, headerClassName: 'text-center' },
     { key: 'ptPhu1', label: 'PT Phụ 1', render: (c) => c.rec1.ptPhu || '-', defaultWidth: 100, headerClassName: 'text-center' },
     { key: 'tdc1', label: 'TDC 1', render: (c) => c.rec1.tdc || '-', defaultWidth: 100, headerClassName: 'text-center' },
     { key: 'bsgm1', label: 'BS GM 1', render: (c) => c.rec1.bsGM || '-', defaultWidth: 100, headerClassName: 'text-center' },
@@ -1849,9 +1851,9 @@ const InnerApp: React.FC = () => {
     // PATIENT 2 BLOCK (Highlighted - Blue, darker header)
     { key: 'start2', label: 'BĐ 2', render: (c) => formatDate(c.start2, dateFormat), defaultWidth: 120, className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'end2', label: 'KT 2', render: (c) => formatDate(c.end2, dateFormat), defaultWidth: 120, className: 'bg-primary-500/5 text-primary-800 font-semibold group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
-    { key: 'patientId2', label: 'Mã BN 2', defaultWidth: 80, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
-    { key: 'patientName2', label: 'Tên BN 2', defaultWidth: 150, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
-    { key: 'tenKT2', label: 'Tên KT 2', defaultWidth: 200, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientId2', label: 'Mã BN 2', render: (c) => c.patientId2 || '-', defaultWidth: 80, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'patientName2', label: 'Tên BN 2', render: (c) => c.patientName2 || '-', defaultWidth: 150, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
+    { key: 'tenKT2', label: 'Tên KT 2', render: (c) => c.tenKT2 || '-', defaultWidth: 200, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'ptPhu2', label: 'PT Phụ 2', render: (c) => c.rec2.ptPhu || '-', defaultWidth: 100, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'tdc2', label: 'TDC 2', render: (c) => c.rec2.tdc || '-', defaultWidth: 100, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
     { key: 'bsgm2', label: 'BS GM 2', render: (c) => c.rec2.bsGM || '-', defaultWidth: 100, className: 'bg-primary-500/5 text-primary-900 group-hover:bg-primary-500/20', headerClassName: 'bg-primary-300 text-primary-900 font-bold text-center' },
@@ -1895,7 +1897,11 @@ const InnerApp: React.FC = () => {
   const filteredList = useMemo(() => {
     let list = (currentReport.result?.validRecords || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules));
     if (filterEmptyGV) {
-      list = list.filter(r => !r.gv || r.gv.trim() === '');
+      list = list.filter(r => {
+        if (!r.gv) return true;
+        const cleaned = r.gv.trim().replace(/[\u00A0\u200B]/g, '');
+        return cleaned === '' || cleaned === '-';
+      });
     }
     return list;
   }, [currentReport.result?.validRecords, currentReport.searchTerms.list, config.timeRules, listSearchableCols, filterEmptyGV]);
@@ -2297,24 +2303,50 @@ const InnerApp: React.FC = () => {
         )
       };
 
-      return <DynamicTable
-        data={filtered}
-        columns={paymentCols}
-        tableName="Bảng Thanh toán phẫu thuật, thủ thuật"
-        dateFormat={dateFormat}
-        onDateFormatChange={updateDateFormat}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={updateRowsPerPage}
-        defaultVisibleCols={visibleCols['payment']}
-        onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)}
-        searchableCols={paymentSearchableCols}
-        searchTerm={currentReport.searchTerms.payment}
-        onSearchChange={(val) => updateSearchTerm('payment', val)}
-        customThead={CustomThead}
-        customTfoot={ExtraFooter}
-        extraHeaderRow={ExtraHeader}
-        customRowRender={customRowRender}
-      />;
+      // --- Split view: DS Phẫu thuật (top) + Thanh toán (bottom) ---
+      const listRowStyle = (r: SurgeryRecord) => (config.timeRules[r.loaiPTTT]?.min && r.timeMinutes < config.timeRules[r.loaiPTTT].min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
+
+      return (
+        <div className="flex flex-col gap-3">
+          {/* Top: DS Phẫu thuật (read-only) */}
+          <div className="max-h-[45vh] overflow-auto">
+            <DynamicTable
+              data={filteredList}
+              columns={columnsList}
+              tableName="DS Phẫu thuật (xem nhanh)"
+              dateFormat={dateFormat}
+              onDateFormatChange={updateDateFormat}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={updateRowsPerPage}
+              defaultVisibleCols={visibleCols['list']}
+              onVisibleColsChange={(cols) => updateVisibleCols('list', cols)}
+              rowStyle={listRowStyle}
+              searchTerm={currentReport.searchTerms.list}
+              onSearchChange={(val) => updateSearchTerm('list', val)}
+            />
+          </div>
+
+          {/* Bottom: Bảng Thanh toán */}
+          <DynamicTable
+            data={filtered}
+            columns={paymentCols}
+            tableName="Bảng Thanh toán phẫu thuật, thủ thuật"
+            dateFormat={dateFormat}
+            onDateFormatChange={updateDateFormat}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={updateRowsPerPage}
+            defaultVisibleCols={visibleCols['payment']}
+            onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)}
+            searchableCols={paymentSearchableCols}
+            searchTerm={currentReport.searchTerms.payment}
+            onSearchChange={(val) => updateSearchTerm('payment', val)}
+            customThead={CustomThead}
+            customTfoot={ExtraFooter}
+            extraHeaderRow={ExtraHeader}
+            customRowRender={customRowRender}
+          />
+        </div>
+      );
     }
     return null;
   };
@@ -2411,8 +2443,17 @@ const InnerApp: React.FC = () => {
           }
         });
 
+        const totalPT = Object.entries(surgeryCounts)
+          .filter(([loai]) => loai.startsWith('P'))
+          .reduce((s, [, c]) => s + c, 0);
+        const totalTT = Object.entries(surgeryCounts)
+          .filter(([loai]) => loai.startsWith('T'))
+          .reduce((s, [, c]) => s + c, 0);
+
         const ListSurgeryStatsBlock = (
           <div className="flex flex-col gap-0.5 mt-2">
+            {totalPT > 0 && <div className="font-bold underline">Tổng số phẫu thuật: {Number.isInteger(totalPT) ? totalPT : totalPT.toFixed(2)} ca</div>}
+            {totalTT > 0 && <div className="font-bold underline">Tổng số thủ thuật: {Number.isInteger(totalTT) ? totalTT : totalTT.toFixed(2)} ca</div>}
             {Object.entries(surgeryCounts)
               .filter(([_, count]) => count > 0)
               .sort((a, b) => {
@@ -2557,8 +2598,17 @@ const InnerApp: React.FC = () => {
         TKPL: "Thủ thuật Khác/KPL",
       };
 
+      const totalPT_pay = Object.entries(surgeryCountsByType)
+        .filter(([loai]) => loai.startsWith('P'))
+        .reduce((s, [, c]) => s + c, 0);
+      const totalTT_pay = Object.entries(surgeryCountsByType)
+        .filter(([loai]) => loai.startsWith('T'))
+        .reduce((s, [, c]) => s + c, 0);
+
       const PrintPaymentStats = (
         <div className="flex flex-col gap-0.5 mt-2">
+          {totalPT_pay > 0 && <div className="font-bold underline">Tổng số phẫu thuật: {Number.isInteger(totalPT_pay) ? totalPT_pay : totalPT_pay.toFixed(2)} ca</div>}
+          {totalTT_pay > 0 && <div className="font-bold underline">Tổng số thủ thuật: {Number.isInteger(totalTT_pay) ? totalTT_pay : totalTT_pay.toFixed(2)} ca</div>}
           {Object.entries(surgeryCountsByType)
             .filter(([_, count]) => count > 0)
             .sort((a, b) => {
