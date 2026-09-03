@@ -36,10 +36,16 @@ import {
   saveComparisonThresholdConfig,
   getSpecialtyOverrides,
   removeSpecialtyOverride,
-  SPECIALTIES,
+  getAllSpecialties,
+  getCustomSpecialties,
+  saveCustomSpecialty,
+  deleteCustomSpecialty,
+  SpecialtyMeta,
+  DEFAULT_SPECIALTIES,
   SpecialtyCode,
   ComparisonConfig
 } from '../../services/specialtyComparisonService';
+import { PlusCircle } from 'lucide-react';
 
 type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'labor-price' | 'profile' | 'comparison-threshold';
 
@@ -95,18 +101,44 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   const [importPreview, setImportPreview] = useState<ImportedPriceData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Threshold settings state
+  // Threshold & Custom Specialties settings state
   const [thresholdForm, setThresholdForm] = useState<ComparisonConfig>(getComparisonThresholdConfig);
   const [thresholdSaving, setThresholdSaving] = useState(false);
   const [overridesList, setOverridesList] = useState<Record<string, SpecialtyCode>>(getSpecialtyOverrides);
+  const [customGroups, setCustomGroups] = useState<SpecialtyMeta[]>(getCustomSpecialties);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupShortName, setNewGroupShortName] = useState('');
 
   useEffect(() => {
     localStorage.setItem(SUB_TAB_KEY, configSubTab);
     if (configSubTab === 'comparison-threshold') {
       setThresholdForm(getComparisonThresholdConfig());
       setOverridesList(getSpecialtyOverrides());
+      setCustomGroups(getCustomSpecialties());
     }
   }, [configSubTab]);
+
+  const handleAddCustomGroup = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) {
+      showToast('Vui lòng nhập tên nhóm chuyên khoa mới', 'error');
+      return;
+    }
+    const created = saveCustomSpecialty(newGroupName, newGroupShortName);
+    setCustomGroups(getCustomSpecialties());
+    setNewGroupName('');
+    setNewGroupShortName('');
+    showToast(`Đã tạo nhóm chuyên khoa mới "${created.name}"`);
+  };
+
+  const handleDeleteCustomGroup = (code: string, name: string) => {
+    if (window.confirm(`Bạn có chắc muốn xóa nhóm "${name}"? Các kỹ thuật trong nhóm này sẽ trở về phân loại tự động.`)) {
+      deleteCustomSpecialty(code);
+      setCustomGroups(getCustomSpecialties());
+      setOverridesList(getSpecialtyOverrides());
+      showToast(`Đã xóa nhóm "${name}"`);
+    }
+  };
 
   const handleSaveThreshold = () => {
     if (thresholdForm.alertThreshold <= 0 || thresholdForm.positiveThreshold <= 0) {
@@ -620,9 +652,96 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
             </div>
           </div>
 
-          {/* Custom Specialty Overrides Section */}
+          {/* Custom Specialties Creation Section */}
           <div className="mt-8 pt-6 border-t border-gray-100">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                <span>Tạo nhóm chuyên khoa mới (Tùy chỉnh)</span>
+                <span className="px-2 py-0.2 rounded-full text-[11px] bg-emerald-100 text-emerald-800 font-extrabold">
+                  {customGroups.length} nhóm thêm mới
+                </span>
+              </h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Nhóm mới tạo chỉ nhận các kỹ thuật do bạn <strong>tự chuyển đến</strong> (ưu tiên hàng đầu trong phân loại, độc lập hoàn toàn với phân loại tự động).
+            </p>
+
+            {/* Form tạo nhóm mới */}
+            <form onSubmit={handleAddCustomGroup} className="p-4 rounded-xl bg-gray-50 border border-gray-200 flex flex-col sm:flex-row items-end gap-3 mb-4">
+              <div className="flex-1 w-full space-y-1">
+                <label className="text-[11px] font-bold text-gray-700">Tên chuyên khoa mới *</label>
+                <input
+                  type="text"
+                  placeholder="VD: Phẫu thuật Tạo hình - Thẩm mỹ, Răng Hàm Mặt..."
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+
+              <div className="w-full sm:w-44 space-y-1">
+                <label className="text-[11px] font-bold text-gray-700">Tên viết tắt (hiển thị nút/tab)</label>
+                <input
+                  type="text"
+                  placeholder="VD: Thẩm mỹ, RHM..."
+                  value={newGroupShortName}
+                  onChange={(e) => setNewGroupShortName(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                <span>Tạo nhóm</span>
+              </button>
+            </form>
+
+            {/* Danh sách nhóm tùy chỉnh */}
+            {customGroups.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border border-gray-200 mb-6">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-gray-100 font-bold text-gray-700">
+                    <tr>
+                      <th className="px-3 py-2">Tên nhóm chuyên khoa</th>
+                      <th className="px-3 py-2 w-36">Tên viết tắt</th>
+                      <th className="px-3 py-2 w-28">Phân loại</th>
+                      <th className="px-3 py-2 w-20 text-center">Xóa</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {customGroups.map((grp) => (
+                      <tr key={grp.code} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 font-bold text-gray-800">{grp.name}</td>
+                        <td className="px-3 py-2 text-gray-600 font-semibold">{grp.shortName}</td>
+                        <td className="px-3 py-2">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            User tùy chỉnh
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCustomGroup(grp.code as string, grp.name)}
+                            className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                            title="Xóa nhóm này"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Custom Specialty Overrides Section */}
+          <div className="mt-6 pt-6 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                 <span>Danh mục kỹ thuật đã chuyển nhóm thủ công</span>
                 <span className="px-2 py-0.2 rounded-full text-[11px] bg-primary-100 text-primary-800 font-extrabold">
@@ -650,7 +769,8 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {Object.entries(overridesList).map(([tenKT, specCode]) => {
-                      const specMeta = SPECIALTIES.find(s => s.code === specCode);
+                      const allSpecs = getAllSpecialties();
+                      const specMeta = allSpecs.find(s => s.code === specCode);
                       return (
                         <tr key={tenKT} className="hover:bg-gray-50">
                           <td className="px-3 py-2 font-medium text-gray-800">{tenKT}</td>

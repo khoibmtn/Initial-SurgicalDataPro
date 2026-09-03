@@ -1,20 +1,22 @@
 /**
- * SpecialtyComparisonTab — Phân tích so sánh phẫu thuật theo 5 chuyên khoa
+ * SpecialtyComparisonTab — Phân tích so sánh phẫu thuật theo chuyên khoa
  * Tab thứ 2 trong trang Thống kê phẫu thuật
  * Hỗ trợ chế độ xem theo Tháng (mặc định) và Khoảng tháng linh hoạt (Quý, 6 tháng, năm...)
- * Hỗ trợ chuyển nhóm thủ công cho từng kỹ thuật với lưu trữ vĩnh viễn (User Overrides)
+ * Hỗ trợ chuyển nhóm thủ công cho từng kỹ thuật & nhóm chuyên khoa tùy chỉnh
+ * Giao diện combobox tinh gọn, chiều cao dòng vừa phải, thẩm mỹ cao
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart3, Download, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   Search, Filter, CheckCircle2, ChevronDown, ChevronRight, Layers, FileSpreadsheet,
-  Calendar, Activity, Sparkles, SlidersHorizontal, ArrowRight, Info, ArrowLeftRight
+  Calendar, Activity, Sparkles, SlidersHorizontal, ArrowRight, Info, PlusCircle
 } from 'lucide-react';
 import { StaffMember } from '../../types';
 import {
   getSpecialtyComparisonData,
   SpecialtyReportGroup,
-  SPECIALTIES,
+  SpecialtyMeta,
+  getAllSpecialties,
   SpecialtyCode,
   ComparisonConfig,
   getComparisonThresholdConfig,
@@ -60,6 +62,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   // Data & loading state
   const [loading, setLoading] = useState<boolean>(false);
   const [groups, setGroups] = useState<SpecialtyReportGroup[]>([]);
+  const [allSpecialtiesList, setAllSpecialtiesList] = useState<SpecialtyMeta[]>(getAllSpecialties);
   const [periodMeta, setPeriodMeta] = useState<PeriodMetadata | null>(null);
   const [thresholdConfig, setThresholdConfig] = useState<ComparisonConfig>(getComparisonThresholdConfig);
   const [exporting, setExporting] = useState<boolean>(false);
@@ -94,6 +97,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     try {
       const cfg = getComparisonThresholdConfig();
       setThresholdConfig(cfg);
+      setAllSpecialtiesList(getAllSpecialties());
 
       const periodSpec: PeriodSpec = periodMode === 'single'
         ? { mode: 'single', targetMonth: selectedMonth, targetYear: selectedYear }
@@ -117,8 +121,8 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   // Handle reassigning a surgery to another specialty
   const handleReassignSpecialty = (tenKT: string, newSpecialty: SpecialtyCode) => {
     saveSpecialtyOverride(tenKT, newSpecialty);
-    const targetSpec = SPECIALTIES.find(s => s.code === newSpecialty);
-    showToast(`Đã chuyển kỹ thuật "${tenKT}" sang nhóm ${targetSpec?.name || newSpecialty}`);
+    const targetSpec = allSpecialtiesList.find(s => s.code === newSpecialty);
+    showToast(`Đã chuyển "${tenKT}" sang nhóm ${targetSpec?.name || newSpecialty}`);
     loadData();
   };
 
@@ -189,6 +193,8 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
     return groups
       .filter(g => selectedSpecialty === 'all' || g.specialty.code === selectedSpecialty)
+      // Hide empty custom groups in 'all' view unless they have rows
+      .filter(g => !g.specialty.isCustom || g.rows.length > 0 || selectedSpecialty === g.specialty.code)
       .map(g => {
         let filteredRows = g.rows;
 
@@ -215,10 +221,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   };
 
   return (
-    <div className="flex flex-col gap-5 p-4 max-w-[1600px] mx-auto w-full animate-fade-in">
+    <div className="flex flex-col gap-4 p-4 max-w-[1600px] mx-auto w-full animate-fade-in">
       {/* ── Toast Notification ── */}
       {toast && (
-        <div className={`fixed top-16 right-5 z-50 px-4 py-2.5 rounded-lg shadow-lg border text-sm font-medium flex items-center gap-2 animate-slide-in ${
+        <div className={`fixed top-16 right-5 z-50 px-4 py-2 rounded-lg shadow-lg border text-xs font-semibold flex items-center gap-2 animate-slide-in ${
           toast.type === 'error' ? 'bg-red-50 text-red-800 border-red-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'
         }`}>
           {toast.type === 'error' ? <AlertTriangle className="h-4 w-4 text-red-600" /> : <CheckCircle2 className="h-4 w-4 text-emerald-600" />}
@@ -227,18 +233,18 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       )}
 
       {/* ── Top Toolbar: Mode Switcher & Time Selectors ── */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-2xs p-3.5 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Left: Mode Toggle & Selectors */}
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Mode Switcher */}
-            <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200 shadow-2xs">
+            <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200 shadow-2xs">
               <button
                 type="button"
                 onClick={() => setPeriodMode('single')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
                   periodMode === 'single'
-                    ? 'bg-white text-primary-800 shadow-xs'
+                    ? 'bg-white text-primary-800 shadow-2xs'
                     : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -247,9 +253,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => setPeriodMode('range')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
                   periodMode === 'range'
-                    ? 'bg-white text-primary-800 shadow-xs'
+                    ? 'bg-white text-primary-800 shadow-2xs'
                     : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
@@ -259,14 +265,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
             {/* Single Month Selectors */}
             {periodMode === 'single' ? (
-              <div className="flex items-center gap-2 bg-primary-50/60 border border-primary-100 rounded-lg px-3 py-1.5">
-                <Calendar className="h-4 w-4 text-primary-700 shrink-0" />
+              <div className="flex items-center gap-2 bg-primary-50/50 border border-primary-100/80 rounded-lg px-2.5 py-1">
+                <Calendar className="h-3.5 w-3.5 text-primary-700 shrink-0" />
                 <span className="text-xs font-bold text-primary-900">Kỳ phân tích:</span>
 
                 <select
                   value={selectedMonth}
                   onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                  className="bg-white border border-primary-200 rounded-md px-2 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-xs cursor-pointer"
+                  className="bg-white border border-primary-200 rounded px-2 py-0.5 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs cursor-pointer"
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                     <option key={m} value={m}>Tháng {m}</option>
@@ -276,7 +282,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <select
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(Number(e.target.value))}
-                  className="bg-white border border-primary-200 rounded-md px-2 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-xs cursor-pointer"
+                  className="bg-white border border-primary-200 rounded px-2 py-0.5 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs cursor-pointer"
                 >
                   {yearOptions.map((y) => (
                     <option key={y} value={y}>Năm {y}</option>
@@ -285,14 +291,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               </div>
             ) : (
               /* Range Selectors: From ... To ... */
-              <div className="flex flex-wrap items-center gap-2 bg-primary-50/60 border border-primary-100 rounded-lg px-3 py-1.5">
-                <Calendar className="h-4 w-4 text-primary-700 shrink-0" />
+              <div className="flex flex-wrap items-center gap-2 bg-primary-50/50 border border-primary-100/80 rounded-lg px-2.5 py-1">
+                <Calendar className="h-3.5 w-3.5 text-primary-700 shrink-0" />
                 <span className="text-xs font-bold text-primary-900">Từ:</span>
 
                 <select
                   value={fromMonth}
                   onChange={(e) => setFromMonth(Number(e.target.value))}
-                  className="bg-white border border-primary-200 rounded-md px-2 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-xs cursor-pointer"
+                  className="bg-white border border-primary-200 rounded px-2 py-0.5 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs cursor-pointer"
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                     <option key={m} value={m}>Tháng {m}</option>
@@ -306,20 +312,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     setFromYear(yr);
                     setToYear(yr);
                   }}
-                  className="bg-white border border-primary-200 rounded-md px-2 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-xs cursor-pointer"
+                  className="bg-white border border-primary-200 rounded px-2 py-0.5 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs cursor-pointer"
                 >
                   {yearOptions.map((y) => (
                     <option key={y} value={y}>Năm {y}</option>
                   ))}
                 </select>
 
-                <ArrowRight className="h-3.5 w-3.5 text-primary-400 mx-0.5 shrink-0" />
+                <ArrowRight className="h-3 w-3 text-primary-400 mx-0.5 shrink-0" />
 
                 <span className="text-xs font-bold text-primary-900">Đến:</span>
                 <select
                   value={toMonth}
                   onChange={(e) => setToMonth(Number(e.target.value))}
-                  className="bg-white border border-primary-200 rounded-md px-2 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-xs cursor-pointer"
+                  className="bg-white border border-primary-200 rounded px-2 py-0.5 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs cursor-pointer"
                 >
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                     <option key={m} value={m} disabled={toYear === fromYear && m < fromMonth}>
@@ -331,7 +337,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <select
                   value={toYear}
                   onChange={(e) => setToYear(Number(e.target.value))}
-                  className="bg-white border border-primary-200 rounded-md px-2 py-1 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-xs cursor-pointer"
+                  className="bg-white border border-primary-200 rounded px-2 py-0.5 text-xs font-bold text-gray-800 focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs cursor-pointer"
                 >
                   {yearOptions.map((y) => (
                     <option key={y} value={y} disabled={y < fromYear}>{y}</option>
@@ -344,7 +350,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             <button
               onClick={loadData}
               disabled={loading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 text-xs font-semibold hover:bg-gray-100 transition-colors shadow-xs cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 text-xs font-semibold hover:bg-gray-100 transition-colors shadow-2xs cursor-pointer"
               title="Làm mới dữ liệu"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin text-primary-600' : 'text-gray-500'}`} />
@@ -353,7 +359,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
           </div>
 
           {/* Right: Search & Excel Export */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             {/* Search Box */}
             <div className="relative">
               <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -362,7 +368,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 placeholder="Tìm tên phẫu thuật..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-lg w-48 sm:w-56 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 transition-all placeholder:text-gray-400"
+                className="pl-8 pr-3 py-1 text-xs bg-gray-50 border border-gray-200 rounded-lg w-44 sm:w-52 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 transition-all placeholder:text-gray-400"
               />
             </div>
 
@@ -370,7 +376,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             <button
               onClick={handleExportExcel}
               disabled={exporting || loading}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
               <span>{exporting ? 'Đang xuất...' : 'Xuất Excel'}</span>
@@ -438,7 +444,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
         {/* Dynamic Comparison Explanation */}
         {periodMeta && (
-          <div className="text-xs text-gray-600 bg-gray-50/80 rounded-lg px-3 py-1.5 border border-gray-200/80 flex flex-wrap items-center justify-between gap-2">
+          <div className="text-[11.5px] text-gray-600 bg-gray-50/80 rounded-lg px-3 py-1.5 border border-gray-200/70 flex flex-wrap items-center justify-between gap-2">
             <div>
               Kỳ phân tích: <strong className="text-primary-900 font-bold">{periodMeta.currentLabel}</strong>
               <span className="text-gray-400 mx-1.5">|</span>
@@ -460,13 +466,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       {/* ── KPI Summary Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Card 1: Total Cases */}
-        <div className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-xs flex items-center justify-between">
+        <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-2xs flex items-center justify-between">
           <div>
-            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+            <p className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
               Tổng số ca {periodMeta?.currentLabel || ''}
             </p>
-            <h3 className="text-2xl font-extrabold text-primary-950 mt-0.5">{overallKPIs.totalCurrent.toLocaleString('vi-VN')}</h3>
-            <div className="flex items-center gap-2 mt-1 text-[11px]">
+            <h3 className="text-xl font-extrabold text-primary-950 mt-0.5">{overallKPIs.totalCurrent.toLocaleString('vi-VN')}</h3>
+            <div className="flex items-center gap-1.5 mt-0.5 text-[11px]">
               <span className={`font-semibold flex items-center gap-0.5 ${
                 overallKPIs.prevChangePct !== null && overallKPIs.prevChangePct >= 0 ? 'text-emerald-600' : 'text-red-600'
               }`}>
@@ -475,27 +481,27 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               </span>
             </div>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center text-primary-700 shrink-0">
-            <Activity className="h-5 w-5" />
+          <div className="w-9 h-9 rounded-lg bg-primary-50 border border-primary-100 flex items-center justify-center text-primary-700 shrink-0">
+            <Activity className="h-4 w-4" />
           </div>
         </div>
 
         {/* Card 2: Cảnh báo */}
         <div
           onClick={() => setFilterStatus(prev => prev === 'ALERT' ? 'all' : 'ALERT')}
-          className={`bg-white rounded-xl border p-3.5 shadow-xs flex items-center justify-between cursor-pointer transition-all ${
+          className={`bg-white rounded-xl border p-3 shadow-2xs flex items-center justify-between cursor-pointer transition-all ${
             filterStatus === 'ALERT' ? 'border-red-500 ring-2 ring-red-100 bg-red-50/20' : 'border-gray-200 hover:border-red-300'
           }`}
         >
           <div>
-            <p className="text-[11px] font-bold text-red-700 uppercase tracking-wider flex items-center gap-1">
+            <p className="text-[10.5px] font-bold text-red-700 uppercase tracking-wider flex items-center gap-1">
               <AlertTriangle className="h-3 w-3 text-red-600" />
               Chỉ tiêu CẢNH BÁO (giảm ≥{thresholdConfig.alertThreshold}%)
             </p>
-            <h3 className="text-2xl font-extrabold text-red-600 mt-0.5">{overallKPIs.totalAlerts} <span className="text-xs font-normal text-gray-500">kỹ thuật</span></h3>
-            <p className="text-[11px] text-gray-500 mt-1">Bao gồm ca giảm mạnh & không phát sinh</p>
+            <h3 className="text-xl font-extrabold text-red-600 mt-0.5">{overallKPIs.totalAlerts} <span className="text-xs font-normal text-gray-500">kỹ thuật</span></h3>
+            <p className="text-[10.5px] text-gray-500 mt-0.5">Bao gồm ca giảm mạnh & không phát sinh</p>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0 font-extrabold text-sm">
+          <div className="w-9 h-9 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center text-red-600 shrink-0 font-extrabold text-xs">
             🚨
           </div>
         </div>
@@ -503,41 +509,41 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
         {/* Card 3: Tích cực */}
         <div
           onClick={() => setFilterStatus(prev => prev === 'POSITIVE' ? 'all' : 'POSITIVE')}
-          className={`bg-white rounded-xl border p-3.5 shadow-xs flex items-center justify-between cursor-pointer transition-all ${
+          className={`bg-white rounded-xl border p-3 shadow-2xs flex items-center justify-between cursor-pointer transition-all ${
             filterStatus === 'POSITIVE' ? 'border-emerald-500 ring-2 ring-emerald-100 bg-emerald-50/20' : 'border-gray-200 hover:border-emerald-300'
           }`}
         >
           <div>
-            <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+            <p className="text-[10.5px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
               <TrendingUp className="h-3 w-3 text-emerald-600" />
               Chỉ tiêu TÍCH CỰC (tăng ≥{thresholdConfig.positiveThreshold}%)
             </p>
-            <h3 className="text-2xl font-extrabold text-emerald-600 mt-0.5">{overallKPIs.totalPositives} <span className="text-xs font-normal text-gray-500">kỹ thuật</span></h3>
-            <p className="text-[11px] text-gray-500 mt-1">Bao gồm ca tăng trưởng & mới phát sinh</p>
+            <h3 className="text-xl font-extrabold text-emerald-600 mt-0.5">{overallKPIs.totalPositives} <span className="text-xs font-normal text-gray-500">kỹ thuật</span></h3>
+            <p className="text-[10.5px] text-gray-500 mt-0.5">Bao gồm ca tăng trưởng & mới phát sinh</p>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 font-extrabold text-sm">
+          <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0 font-extrabold text-xs">
             🌿
           </div>
         </div>
 
         {/* Card 4: Tổng số kỹ thuật */}
-        <div className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-xs flex items-center justify-between">
+        <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-2xs flex items-center justify-between">
           <div>
-            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Danh mục kỹ thuật phát sinh</p>
-            <h3 className="text-2xl font-extrabold text-gray-800 mt-0.5">{overallKPIs.totalDistinctSurgeries} <span className="text-xs font-normal text-gray-500">kỹ thuật</span></h3>
-            <p className="text-[11px] text-gray-500 mt-1">Chia theo 5 chuyên khoa</p>
+            <p className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">Danh mục kỹ thuật</p>
+            <h3 className="text-xl font-extrabold text-gray-800 mt-0.5">{overallKPIs.totalDistinctSurgeries} <span className="text-xs font-normal text-gray-500">kỹ thuật</span></h3>
+            <p className="text-[10.5px] text-gray-500 mt-0.5">Phát sinh theo các chuyên khoa</p>
           </div>
-          <div className="w-10 h-10 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-600 shrink-0">
-            <Layers className="h-5 w-5" />
+          <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-600 shrink-0">
+            <Layers className="h-4 w-4" />
           </div>
         </div>
       </div>
 
       {/* ── Specialty Filter Pills ── */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         <button
           onClick={() => setSelectedSpecialty('all')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 ${
+          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5 ${
             selectedSpecialty === 'all'
               ? 'bg-primary-800 text-white'
               : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
@@ -549,28 +555,39 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
           </span>
         </button>
 
-        {SPECIALTIES.map(spec => {
+        {allSpecialtiesList.map(spec => {
           const grp = groups.find(g => g.specialty.code === spec.code);
           const hasAlerts = (grp?.alertCount || 0) > 0;
+          const totalCur = grp?.totalCurrent || 0;
+
+          // Don't show custom group pills with 0 cases unless it's currently selected
+          if (spec.isCustom && totalCur === 0 && selectedSpecialty !== spec.code) {
+            return null;
+          }
 
           return (
             <button
               key={spec.code}
               onClick={() => setSelectedSpecialty(spec.code)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5 ${
                 selectedSpecialty === spec.code
                   ? 'bg-primary-800 text-white'
                   : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
               }`}
             >
               <span>{spec.name}</span>
+              {spec.isCustom && (
+                <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                  Tùy chỉnh
+                </span>
+              )}
               {hasAlerts && (
-                <span className="w-2 h-2 rounded-full bg-red-500 shrink-0 animate-pulse" title="Có cảnh báo" />
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0 animate-pulse" title="Có cảnh báo" />
               )}
               <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                 selectedSpecialty === spec.code ? 'bg-primary-900 text-white' : 'bg-gray-100 text-gray-600'
               }`}>
-                {grp?.totalCurrent || 0}
+                {totalCur}
               </span>
             </button>
           );
@@ -579,20 +596,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
       {/* ── Main Data Tables (Per Specialty) ── */}
       {loading ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-16 flex flex-col items-center justify-center gap-3">
-          <div className="w-10 h-10 rounded-full border-4 border-primary-100 border-t-primary-600 animate-spin" />
-          <p className="text-sm font-semibold text-gray-700">Đang tổng hợp và phân tích dữ liệu 3 kỳ...</p>
+        <div className="bg-white rounded-xl border border-gray-200 p-12 flex flex-col items-center justify-center gap-2.5">
+          <div className="w-8 h-8 rounded-full border-3 border-primary-100 border-t-primary-600 animate-spin" />
+          <p className="text-xs font-semibold text-gray-700">Đang tổng hợp và phân tích dữ liệu 3 kỳ...</p>
         </div>
       ) : filteredGroups.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-16 flex flex-col items-center justify-center text-center">
-          <Layers className="h-10 w-10 text-gray-300 mb-2" />
-          <h4 className="font-bold text-gray-700 text-sm">Không tìm thấy dữ liệu phẫu thuật phù hợp</h4>
-          <p className="text-xs text-gray-500 mt-1 max-w-sm">
+        <div className="bg-white rounded-xl border border-gray-200 p-12 flex flex-col items-center justify-center text-center">
+          <Layers className="h-8 w-8 text-gray-300 mb-1.5" />
+          <h4 className="font-bold text-gray-700 text-xs">Không tìm thấy dữ liệu phẫu thuật phù hợp</h4>
+          <p className="text-[11px] text-gray-500 mt-0.5 max-w-sm">
             Không có ca phẫu thuật nào trong kỳ {periodMeta?.currentLabel || ''} hoặc theo bộ lọc hiện tại.
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4">
           {filteredGroups.map(group => {
             const prevTotalChange = group.totalPrev > 0 ? ((group.totalCurrent - group.totalPrev) / group.totalPrev) * 100 : null;
             const samePeriodTotalChange = (periodMeta?.hasSamePeriodData && group.totalSamePeriod > 0)
@@ -602,28 +619,33 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             return (
               <div
                 key={group.specialty.code}
-                className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
+                className="bg-white rounded-xl border border-gray-200 shadow-2xs overflow-hidden"
               >
                 {/* ── Table Header Banner (Navy Blue Theme) ── */}
-                <div className="bg-[#003366] text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                    <h3 className="font-bold text-base tracking-wide uppercase">
-                      PHÂN TÍCH PHẪU THUẬT - {group.specialty.name}
+                <div className="bg-[#003366] text-white px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    <h3 className="font-bold text-sm tracking-wide uppercase flex items-center gap-1.5">
+                      <span>PHÂN TÍCH PHẪU THUẬT - {group.specialty.name}</span>
+                      {group.specialty.isCustom && (
+                        <span className="text-[10px] lowercase font-normal px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-200 border border-amber-400/30">
+                          nhóm tùy chỉnh
+                        </span>
+                      )}
                     </h3>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="bg-[#002244] px-2.5 py-1 rounded-md text-gray-200 font-medium">
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="bg-[#002244] px-2 py-0.5 rounded text-gray-200 font-medium text-[11px]">
                       Tổng ca: <strong className="text-white font-bold">{group.totalCurrent}</strong>
                     </span>
                     {group.alertCount > 0 && (
-                      <span className="bg-red-500/90 text-white px-2 py-0.5 rounded-md font-bold text-[11px] flex items-center gap-1">
+                      <span className="bg-red-500/90 text-white px-1.5 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
                         🚨 {group.alertCount} cảnh báo
                       </span>
                     )}
                     {group.positiveCount > 0 && (
-                      <span className="bg-emerald-500/90 text-white px-2 py-0.5 rounded-md font-bold text-[11px] flex items-center gap-1">
+                      <span className="bg-emerald-500/90 text-white px-1.5 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
                         🌿 {group.positiveCount} tích cực
                       </span>
                     )}
@@ -631,7 +653,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 </div>
 
                 {/* ── Subtitle bar (Soft blue) ── */}
-                <div className="bg-[#d9edf7] text-[#003366] px-4 py-1.5 text-[11.5px] italic text-center border-b border-[#bce8f1]">
+                <div className="bg-[#d9edf7] text-[#003366] px-3 py-1 text-[11px] italic text-center border-b border-[#bce8f1]">
                   {periodMeta?.subtitle || ''}
                 </div>
 
@@ -640,23 +662,25 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
                       <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300">
-                        <th className="px-3 py-2.5 text-left min-w-[320px] border-r border-blue-800">
+                        <th className="px-3 py-2 text-left min-w-[340px] border-r border-blue-800">
                           Tên phẫu thuật
                         </th>
-                        <th className="px-2 py-2.5 w-24 border-r border-blue-800 bg-[#0d4277]">{periodMeta?.currentLabel || 'Kỳ này'}</th>
-                        <th className="px-2 py-2.5 w-24 border-r border-blue-800">{periodMeta?.prevLabel || 'Kỳ trước'}</th>
-                        <th className="px-2 py-2.5 w-28 border-r border-blue-800">{periodMeta?.prevColTitle || 'So kỳ trước'}</th>
-                        <th className="px-2 py-2.5 w-24 border-r border-blue-800">{periodMeta?.samePeriodLabel || 'Cùng kỳ'}</th>
-                        <th className="px-2 py-2.5 w-28 border-r border-blue-800">So cùng kỳ</th>
-                        <th className="px-3 py-2.5 w-32 border-r border-blue-800">Nhận định</th>
-                        <th className="px-3 py-2.5 text-left min-w-[200px]">Ghi chú</th>
+                        <th className="px-2 py-2 w-20 border-r border-blue-800 bg-[#0d4277]">{periodMeta?.currentLabel || 'Kỳ này'}</th>
+                        <th className="px-2 py-2 w-20 border-r border-blue-800">{periodMeta?.prevLabel || 'Kỳ trước'}</th>
+                        <th className="px-2 py-2 w-24 border-r border-blue-800">{periodMeta?.prevColTitle || 'So kỳ trước'}</th>
+                        <th className="px-2 py-2 w-20 border-r border-blue-800">{periodMeta?.samePeriodLabel || 'Cùng kỳ'}</th>
+                        <th className="px-2 py-2 w-24 border-r border-blue-800">So cùng kỳ</th>
+                        <th className="px-2 py-2 w-28 border-r border-blue-800">Nhận định</th>
+                        <th className="px-3 py-2 text-left min-w-[180px]">Ghi chú</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {group.rows.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-4 py-8 text-center text-gray-400 italic">
-                            Không có ca phẫu thuật nào trong chuyên khoa này
+                          <td colSpan={8} className="px-3 py-6 text-center text-gray-400 italic text-xs">
+                            {group.specialty.isCustom
+                              ? 'Chưa có kỹ thuật nào được chuyển vào nhóm tùy chỉnh này'
+                              : 'Không có ca phẫu thuật nào trong chuyên khoa này'}
                           </td>
                         </tr>
                       ) : (
@@ -675,20 +699,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                   : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
                               }`}
                             >
-                              {/* Tên phẫu thuật + Nút Chuyển nhóm */}
-                              <td className="px-3 py-2 font-medium text-gray-800 border-r border-gray-200">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="flex-1 leading-snug">{r.tenKT}</span>
+                              {/* Tên phẫu thuật + Combobox chuyển nhóm tinh gọn */}
+                              <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
+                                <div className="flex items-center justify-between gap-2.5">
+                                  <span className="flex-1 leading-snug text-xs">{r.tenKT}</span>
                                   <div className="shrink-0 flex items-center">
                                     <select
                                       value={r.specialty}
-                                      onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value as SpecialtyCode)}
-                                      className="text-[10px] font-bold bg-white/90 hover:bg-primary-50 text-gray-600 hover:text-primary-800 border border-gray-300 hover:border-primary-400 rounded px-1.5 py-0.5 cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500"
-                                      title="Chuyển kỹ thuật này sang chuyên khoa khác"
+                                      onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value)}
+                                      className="h-5 text-[10px] font-semibold bg-gray-50/90 hover:bg-white text-gray-600 hover:text-primary-800 border border-gray-200 hover:border-primary-400 rounded px-1.5 py-0 cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                      title="Chuyển chuyên khoa cho kỹ thuật này"
                                     >
-                                      {SPECIALTIES.map(s => (
+                                      {allSpecialtiesList.map(s => (
                                         <option key={s.code} value={s.code}>
-                                          → {s.shortName}
+                                          {s.code === r.specialty ? `✓ ${s.shortName}` : `→ ${s.shortName}`}
                                         </option>
                                       ))}
                                     </select>
@@ -697,17 +721,17 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               </td>
 
                               {/* Kỳ hiện tại */}
-                              <td className="px-2 py-2 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
+                              <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
                                 {r.currentCount}
                               </td>
 
                               {/* Kỳ trước */}
-                              <td className="px-2 py-2 text-center text-gray-700 border-r border-gray-200">
+                              <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                                 {r.prevCount}
                               </td>
 
                               {/* So kỳ trước */}
-                              <td className={`px-2 py-2 text-center font-bold border-r border-gray-200 ${
+                              <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
                                 r.prevChangePct !== null && r.prevChangePct < 0
                                   ? 'text-red-600'
                                   : r.prevChangePct !== null && r.prevChangePct > 0
@@ -718,12 +742,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               </td>
 
                               {/* Cùng kỳ */}
-                              <td className="px-2 py-2 text-center text-gray-700 border-r border-gray-200">
+                              <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                                 {periodMeta?.hasSamePeriodData ? r.samePeriodCount : '—'}
                               </td>
 
                               {/* So cùng kỳ */}
-                              <td className={`px-2 py-2 text-center font-bold border-r border-gray-200 ${
+                              <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
                                 r.samePeriodChangePct !== null && r.samePeriodChangePct < 0
                                   ? 'text-red-600'
                                   : r.samePeriodChangePct !== null && r.samePeriodChangePct > 0
@@ -734,14 +758,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               </td>
 
                               {/* Nhận định */}
-                              <td className="px-3 py-1.5 text-center border-r border-gray-200">
+                              <td className="px-2 py-1 text-center border-r border-gray-200">
                                 {isAlert && (
-                                  <span className="inline-block px-2.5 py-1 rounded-md text-[11px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
+                                  <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
                                     CẢNH BÁO
                                   </span>
                                 )}
                                 {isPositive && (
-                                  <span className="inline-block px-2.5 py-1 rounded-md text-[11px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
+                                  <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
                                     TÍCH CỰC
                                   </span>
                                 )}
@@ -751,7 +775,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               </td>
 
                               {/* Ghi chú */}
-                              <td className="px-3 py-2 text-gray-600 italic text-[11.5px]">
+                              <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
                                 {r.note}
                               </td>
                             </tr>
@@ -763,30 +787,30 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     {/* ── Table Footer Totals ── */}
                     <tfoot>
                       <tr className="bg-[#F2F4F7] font-bold text-gray-900 border-t-2 border-[#003366] text-xs">
-                        <td className="px-3 py-2.5 uppercase tracking-wide text-primary-950 border-r border-gray-300">
+                        <td className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
                           TỔNG CỘNG
                         </td>
-                        <td className="px-2 py-2.5 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
+                        <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
                           {group.totalCurrent}
                         </td>
-                        <td className="px-2 py-2.5 text-center border-r border-gray-300">
+                        <td className="px-2 py-2 text-center border-r border-gray-300">
                           {group.totalPrev}
                         </td>
-                        <td className={`px-2 py-2.5 text-center font-extrabold border-r border-gray-300 ${
+                        <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
                           prevTotalChange !== null && prevTotalChange < 0 ? 'text-red-600' : 'text-emerald-700'
                         }`}>
                           {fmtPctStr(prevTotalChange)}
                         </td>
-                        <td className="px-2 py-2.5 text-center border-r border-gray-300">
+                        <td className="px-2 py-2 text-center border-r border-gray-300">
                           {periodMeta?.hasSamePeriodData ? group.totalSamePeriod : '—'}
                         </td>
-                        <td className={`px-2 py-2.5 text-center font-extrabold border-r border-gray-300 ${
+                        <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
                           samePeriodTotalChange !== null && samePeriodTotalChange < 0 ? 'text-red-600' : 'text-emerald-700'
                         }`}>
                           {periodMeta?.hasSamePeriodData ? fmtPctStr(samePeriodTotalChange) : '—'}
                         </td>
-                        <td className="px-2 py-2.5 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
-                        <td className="px-3 py-2.5 text-gray-600 text-[11px] font-semibold">
+                        <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
+                        <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
                           Cảnh báo: {group.alertCount} | Tích cực: {group.positiveCount}
                         </td>
                       </tr>

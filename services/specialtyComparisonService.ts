@@ -1,23 +1,26 @@
 /**
  * Specialty Comparison Service
- * Phân tích so sánh số lượng phẫu thuật theo 5 chuyên khoa:
+ * Phân tích so sánh số lượng phẫu thuật theo các chuyên khoa:
  * - Ngoại tổng hợp
  * - Chấn thương chỉnh hình
  * - Mắt
  * - Tai Mũi Họng
  * - Phụ sản
+ * - Các nhóm chuyên khoa tùy chỉnh do người dùng tự tạo
  *
  * Quy tắc phân loại:
- * 1. Ưu tiên 1: Tùy chỉnh thủ công của người dùng (Custom Overrides)
+ * 1. Ưu tiên 1 (Cao nhất): Tùy chỉnh thủ công của người dùng (Custom Overrides) - áp dụng cho cả nhóm mặc định & nhóm mới tạo
  * 2. Đối với Phụ sản, Tai mũi họng, Mắt: LẤY THEO KHOA CỦA BÁC SĨ PHẪU THUẬT CHÍNH
  *    (Khoa Sản => Phụ sản, Khoa TMH => Tai Mũi Họng, Khoa Mắt => Mắt)
  * 3. Các phẫu thuật còn lại mới phân theo Chấn thương chỉnh hình và Ngoại tổng hợp.
+ * 4. Nhóm tùy chỉnh mới tạo CHỈ nhận các kỹ thuật do người dùng tự chuyển đến.
  */
 
 import { reportService } from './reportService';
 import { PersistedSurgeryRecord, StaffMember } from '../types';
 
-export type SpecialtyCode = 'ngoai_th' | 'ctch' | 'mat' | 'tmh' | 'phu_san';
+export type StandardSpecialtyCode = 'ngoai_th' | 'ctch' | 'mat' | 'tmh' | 'phu_san';
+export type SpecialtyCode = StandardSpecialtyCode | string;
 
 export interface SpecialtyMeta {
   code: SpecialtyCode;
@@ -25,15 +28,18 @@ export interface SpecialtyMeta {
   shortName: string;
   icon?: string;
   color: string;
+  isCustom?: boolean;
 }
 
-export const SPECIALTIES: SpecialtyMeta[] = [
-  { code: 'ngoai_th', name: 'Ngoại tổng hợp', shortName: 'Ngoại TH', color: 'blue' },
-  { code: 'ctch', name: 'Chấn thương chỉnh hình', shortName: 'CTCH', color: 'indigo' },
-  { code: 'mat', name: 'Mắt', shortName: 'Mắt', color: 'amber' },
-  { code: 'tmh', name: 'Tai Mũi Họng', shortName: 'TMH', color: 'cyan' },
-  { code: 'phu_san', name: 'Phụ sản', shortName: 'Phụ sản', color: 'rose' },
+export const DEFAULT_SPECIALTIES: SpecialtyMeta[] = [
+  { code: 'ngoai_th', name: 'Ngoại tổng hợp', shortName: 'Ngoại TH', color: 'blue', isCustom: false },
+  { code: 'ctch', name: 'Chấn thương chỉnh hình', shortName: 'CTCH', color: 'indigo', isCustom: false },
+  { code: 'mat', name: 'Mắt', shortName: 'Mắt', color: 'amber', isCustom: false },
+  { code: 'tmh', name: 'Tai Mũi Họng', shortName: 'TMH', color: 'cyan', isCustom: false },
+  { code: 'phu_san', name: 'Phụ sản', shortName: 'Phụ sản', color: 'rose', isCustom: false },
 ];
+
+export const SPECIALTIES = DEFAULT_SPECIALTIES;
 
 export type ComparisonStatus = 'ALERT' | 'POSITIVE' | 'NORMAL';
 
@@ -74,6 +80,7 @@ export const DEFAULT_COMPARISON_CONFIG: ComparisonConfig = {
 
 const STORAGE_CONFIG_KEY = 'sdp_comparison_threshold_config';
 const STORAGE_OVERRIDES_KEY = 'sdp_specialty_custom_overrides';
+const STORAGE_CUSTOM_GROUPS_KEY = 'sdp_custom_specialties_list';
 
 export function getComparisonThresholdConfig(): ComparisonConfig {
   try {
@@ -101,7 +108,60 @@ export function saveComparisonThresholdConfig(cfg: Partial<ComparisonConfig>): v
   }
 }
 
-// ───────────────── CUSTOM OVERRIDES QUẢN LÝ NHÓM THỦ CÔNG ─────────────────
+// ───────────────── QUẢN LÝ NHÓM CHUYÊN KHOA TÙY CHỈNH ─────────────────
+
+export function getCustomSpecialties(): SpecialtyMeta[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_CUSTOM_GROUPS_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch (e) {
+    console.error('Error loading custom specialties:', e);
+  }
+  return [];
+}
+
+export function getAllSpecialties(): SpecialtyMeta[] {
+  const custom = getCustomSpecialties();
+  return [...DEFAULT_SPECIALTIES, ...custom];
+}
+
+export function saveCustomSpecialty(name: string, shortName?: string): SpecialtyMeta {
+  const custom = getCustomSpecialties();
+  const slug = `custom_${Date.now()}`;
+  const newSpec: SpecialtyMeta = {
+    code: slug,
+    name: name.trim(),
+    shortName: shortName?.trim() || name.trim(),
+    color: 'emerald',
+    isCustom: true,
+  };
+  custom.push(newSpec);
+  localStorage.setItem(STORAGE_CUSTOM_GROUPS_KEY, JSON.stringify(custom));
+  return newSpec;
+}
+
+export function deleteCustomSpecialty(code: string): void {
+  let custom = getCustomSpecialties();
+  custom = custom.filter(s => s.code !== code);
+  localStorage.setItem(STORAGE_CUSTOM_GROUPS_KEY, JSON.stringify(custom));
+
+  // Tự động giải phóng các phẫu thuật đã gán vào nhóm này về lại phân loại tự động
+  const overrides = getSpecialtyOverrides();
+  let modified = false;
+  for (const [key, val] of Object.entries(overrides)) {
+    if (val === code) {
+      delete overrides[key];
+      modified = true;
+    }
+  }
+  if (modified) {
+    localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(overrides));
+  }
+}
+
+// ───────────────── CUSTOM OVERRIDES QUẢN LÝ GÁN THỦ CÔNG ─────────────────
 
 export function getSpecialtyOverrides(): Record<string, SpecialtyCode> {
   try {
@@ -204,9 +264,9 @@ function toSearchString(str: string): string {
 
 /**
  * Phân loại một ca phẫu thuật:
- * 1. Override do người dùng chỉnh
- * 2. Khoa của Bác sĩ phẫu thuật chính (Sản => Phụ sản, TMH => TMH, Mắt => Mắt)
- * 3. Còn lại => Phân vào CTCH nếu khớp từ khóa xương/khớp/ngón, ngược lại => Ngoại tổng hợp
+ * 1. Override do người dùng chỉnh (ƯU TIÊN CAO NHẤT - áp dụng cho cả nhóm mặc định và nhóm mới tạo)
+ * 2. Khoa của Bác sĩ phẫu thuật chính (Sản => Phụ sản, TMH => TMH, Mắt => Mắt, CTCH => CTCH)
+ * 3. Còn lại => Phân vào CTCH nếu khớp từ khóa xương/khớp/ngón/gân/mắt cá, ngược lại => Ngoại tổng hợp
  */
 export function classifySpecialty(
   tenKT: string,
@@ -216,7 +276,7 @@ export function classifySpecialty(
 ): SpecialtyCode {
   const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
 
-  // 1. Kiểm tra User Override
+  // 1. Kiểm tra User Override trước tiên
   const overrides = customOverrides || getSpecialtyOverrides();
   if (overrides[normKey]) {
     return overrides[normKey];
@@ -432,6 +492,7 @@ export async function getSpecialtyComparisonData(
 ): Promise<ComparisonAnalysisResult> {
   const config = thresholdConfig || getComparisonThresholdConfig();
   const overrides = customOverrides || getSpecialtyOverrides();
+  const allSpecialties = getAllSpecialties();
   const defs = computePeriodDefinitions(periodSpec, config);
 
   const [currentRecords, prevRecords, samePeriodRecords] = await Promise.all([
@@ -530,7 +591,12 @@ export async function getSpecialtyComparisonData(
       statusLabel = 'TÍCH CỰC';
     }
 
-    const specMeta = SPECIALTIES.find(s => s.code === item.specialty)!;
+    const specMeta = allSpecialties.find(s => s.code === item.specialty) || {
+      code: item.specialty,
+      name: item.specialty,
+      shortName: item.specialty,
+      color: 'gray',
+    };
 
     allRows.push({
       tenKT: item.displayName,
@@ -547,39 +613,43 @@ export async function getSpecialtyComparisonData(
     });
   });
 
-  const groups: SpecialtyReportGroup[] = SPECIALTIES.map(spec => {
-    const rows = allRows
-      .filter(r => r.specialty === spec.code)
-      .sort((a, b) => {
-        const order = { ALERT: 1, POSITIVE: 2, NORMAL: 3 };
-        if (order[a.status] !== order[b.status]) {
-          return order[a.status] - order[b.status];
-        }
-        if (b.currentCount !== a.currentCount) {
-          return b.currentCount - a.currentCount;
-        }
-        return a.tenKT.localeCompare(b.tenKT, 'vi');
-      });
+  // Xây dựng các group: bao gồm 5 chuyên khoa mặc định và các nhóm tùy chỉnh
+  const groups: SpecialtyReportGroup[] = allSpecialties
+    .map(spec => {
+      const rows = allRows
+        .filter(r => r.specialty === spec.code)
+        .sort((a, b) => {
+          const order = { ALERT: 1, POSITIVE: 2, NORMAL: 3 };
+          if (order[a.status] !== order[b.status]) {
+            return order[a.status] - order[b.status];
+          }
+          if (b.currentCount !== a.currentCount) {
+            return b.currentCount - a.currentCount;
+          }
+          return a.tenKT.localeCompare(b.tenKT, 'vi');
+        });
 
-    const totalCurrent = rows.reduce((sum, r) => sum + r.currentCount, 0);
-    const totalPrev = rows.reduce((sum, r) => sum + r.prevCount, 0);
-    const totalSamePeriod = rows.reduce((sum, r) => sum + r.samePeriodCount, 0);
+      const totalCurrent = rows.reduce((sum, r) => sum + r.currentCount, 0);
+      const totalPrev = rows.reduce((sum, r) => sum + r.prevCount, 0);
+      const totalSamePeriod = rows.reduce((sum, r) => sum + r.samePeriodCount, 0);
 
-    const alertCount = rows.filter(r => r.status === 'ALERT').length;
-    const positiveCount = rows.filter(r => r.status === 'POSITIVE').length;
-    const normalCount = rows.filter(r => r.status === 'NORMAL').length;
+      const alertCount = rows.filter(r => r.status === 'ALERT').length;
+      const positiveCount = rows.filter(r => r.status === 'POSITIVE').length;
+      const normalCount = rows.filter(r => r.status === 'NORMAL').length;
 
-    return {
-      specialty: spec,
-      rows,
-      totalCurrent,
-      totalPrev,
-      totalSamePeriod,
-      alertCount,
-      positiveCount,
-      normalCount,
-    };
-  });
+      return {
+        specialty: spec,
+        rows,
+        totalCurrent,
+        totalPrev,
+        totalSamePeriod,
+        alertCount,
+        positiveCount,
+        normalCount,
+      };
+    })
+    // Giữ lại 5 nhóm mặc định hoặc nhóm tùy chỉnh nếu có dữ liệu hoặc đã được định nghĩa
+    .filter(g => !g.specialty.isCustom || g.rows.length > 0 || true);
 
   return {
     groups,
