@@ -2,20 +2,21 @@
  * SpecialtyComparisonTab — Phân tích so sánh phẫu thuật theo chuyên khoa
  * Tab thứ 2 trong trang Thống kê phẫu thuật
  *
- * Tính năng nổi bật:
- * 1. Chế độ xem theo Tháng và Khoảng tháng linh hoạt (Quý, 6 tháng, năm...)
- * 2. Phân loại chuẩn 3 cấp: User Override > Khoa của BS Phẫu thuật chính > Từ khóa CTCH vs Ngoại TH
- * 3. Hỗ trợ tạo nhóm chuyên khoa mới tùy chỉnh trong tab Cấu hình
- * 4. Combobox chuyển nhóm hiển thị rõ tên chuyên khoa, thiết kế gọn gàng, tinh tế
- * 5. Bảng "Tất cả chuyên khoa" dạng dọc hợp nhất toàn bộ danh sách, có phân trang ghi nhớ tùy chọn
- * 6. Sắp xếp đa trạng thái 3 chu kỳ (Giảm dần ↓ -> Tăng dần ↑ -> Hủy bỏ ↺) trên từng cột số liệu
+ * Tính năng hoàn thiện:
+ * 1. Hiển thị chuyên khoa bằng text badge rõ ràng kèm nút chuyển nhóm (popover menu)
+ * 2. Tùy chọn Bật/Tắt hiển thị số chênh tuyệt đối (± ca) - Mặc định BẬT
+ * 3. Bảng "Tất cả chuyên khoa" dạng dọc hợp nhất toàn bộ danh sách, có phân trang ghi nhớ tùy chọn
+ * 4. Sắp xếp đa trạng thái 3 chu kỳ (Giảm dần ↓ -> Tăng dần ↑ -> Hủy bỏ ↺) trên mọi cột
+ * 5. Xuất file Excel (gồm Sheet Tổng hợp toàn viện + Các sheet chuyên khoa)
+ * 6. Xuất file CSV (chuẩn UTF-8 có BOM \uFEFF tương thích 100% với NotebookLM)
  */
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BarChart3, Download, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   Search, Filter, CheckCircle2, ChevronDown, ChevronRight, Layers, FileSpreadsheet,
   Calendar, Activity, Sparkles, SlidersHorizontal, ArrowRight, Info,
-  ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronsLeft, ChevronsRight
+  ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronsLeft, ChevronsRight,
+  ArrowLeftRight, FileText, Check, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { StaffMember } from '../../types';
 import {
@@ -32,7 +33,7 @@ import {
   getSpecialtyOverrides,
   ComparisonRow,
 } from '../../services/specialtyComparisonService';
-import { exportSpecialtyComparisonExcel } from '../../services/excelExportComparisonService';
+import { exportSpecialtyComparisonExcel, exportSpecialtyComparisonCSV } from '../../services/excelExportComparisonService';
 
 interface Props {
   staffList: StaffMember[];
@@ -40,12 +41,13 @@ interface Props {
   initialMonth?: number;
 }
 
-type SortColumnKey = 'tenKT' | 'specialty' | 'currentCount' | 'prevCount' | 'prevChangePct' | 'samePeriodCount' | 'samePeriodChangePct' | 'status';
+type SortColumnKey = 'tenKT' | 'specialty' | 'currentCount' | 'prevCount' | 'prevDiff' | 'prevChangePct' | 'samePeriodCount' | 'samePeriodDiff' | 'samePeriodChangePct' | 'status';
 type SortDirection = 'asc' | 'desc' | null;
 
 const STORAGE_PAGE_SIZE_KEY = 'sdp_comparison_page_size';
 const STORAGE_SORT_COL_KEY = 'sdp_comparison_sort_col';
 const STORAGE_SORT_DIR_KEY = 'sdp_comparison_sort_dir';
+const STORAGE_SHOW_DIFF_KEY = 'sdp_comparison_show_diff';
 
 export const SpecialtyComparisonTab: React.FC<Props> = ({
   staffList,
@@ -73,6 +75,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'ALERT' | 'POSITIVE'>('all');
 
+  // Option: Show Absolute Diff (± ca) - Default TRUE
+  const [showDiff, setShowDiff] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_SHOW_DIFF_KEY);
+    return saved !== null ? saved === 'true' : true;
+  });
+
   // Sorting state (3-state: desc -> asc -> null)
   const [sortCol, setSortCol] = useState<SortColumnKey | null>(() => {
     return (localStorage.getItem(STORAGE_SORT_COL_KEY) as SortColumnKey) || null;
@@ -88,6 +96,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   });
   const [currentPage, setCurrentPage] = useState<number>(1);
 
+  // Reassignment Popover State
+  const [openReassignKey, setOpenReassignKey] = useState<string | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+
   // Data & loading state
   const [loading, setLoading] = useState<boolean>(false);
   const [groups, setGroups] = useState<SpecialtyReportGroup[]>([]);
@@ -95,12 +107,28 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   const [periodMeta, setPeriodMeta] = useState<PeriodMetadata | null>(null);
   const [thresholdConfig, setThresholdConfig] = useState<ComparisonConfig>(getComparisonThresholdConfig);
   const [exporting, setExporting] = useState<boolean>(false);
+  const [exportingCsv, setExportingCsv] = useState<boolean>(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   };
+
+  // Close popover on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpenReassignKey(null);
+      }
+    };
+    if (openReassignKey) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [openReassignKey]);
 
   // Year options for selectors
   const yearOptions = useMemo(() => {
@@ -110,6 +138,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     }
     return years;
   }, [currentRealYear]);
+
+  // Toggle Show Diff
+  const handleToggleShowDiff = () => {
+    const next = !showDiff;
+    setShowDiff(next);
+    localStorage.setItem(STORAGE_SHOW_DIFF_KEY, String(next));
+  };
 
   // Load comparison data
   const loadData = useCallback(async () => {
@@ -147,7 +182,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     loadData();
   }, [loadData]);
 
-  // Reset current page when filters change
+  // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedSpecialty, searchTerm, filterStatus, pageSize]);
@@ -156,6 +191,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   const handleReassignSpecialty = (tenKT: string, newSpecialty: SpecialtyCode) => {
     saveSpecialtyOverride(tenKT, newSpecialty);
     const targetSpec = allSpecialtiesList.find(s => s.code === newSpecialty);
+    setOpenReassignKey(null);
     showToast(`Đã chuyển "${tenKT}" sang nhóm ${targetSpec?.name || newSpecialty}`);
     loadData();
   };
@@ -211,13 +247,31 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     }
     setExporting(true);
     try {
-      await exportSpecialtyComparisonExcel(groups, periodMeta, thresholdConfig);
+      await exportSpecialtyComparisonExcel(groups, periodMeta, thresholdConfig, showDiff);
       showToast('Đã xuất file Excel phân tích thành công!');
     } catch (err: any) {
       console.error('Export error:', err);
       showToast('Lỗi khi xuất file Excel', 'error');
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Handle Export CSV (NotebookLM)
+  const handleExportCsv = () => {
+    if (groups.length === 0 || groups.every(g => g.rows.length === 0) || !periodMeta) {
+      showToast('Không có dữ liệu để xuất CSV', 'error');
+      return;
+    }
+    setExportingCsv(true);
+    try {
+      exportSpecialtyComparisonCSV(groups, periodMeta, showDiff);
+      showToast('Đã xuất file CSV (chuẩn NotebookLM) thành công!');
+    } catch (err: any) {
+      console.error('Export CSV error:', err);
+      showToast('Lỗi khi xuất file CSV', 'error');
+    } finally {
+      setExportingCsv(false);
     }
   };
 
@@ -239,7 +293,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       totalDistinctSurgeries += g.rows.length;
     });
 
+    const prevDiff = totalCurrent - totalPrev;
     const prevChangePct = totalPrev > 0 ? ((totalCurrent - totalPrev) / totalPrev) * 100 : null;
+    const samePeriodDiff = periodMeta?.hasSamePeriodData ? (totalCurrent - totalSamePeriod) : null;
     const samePeriodChangePct = (periodMeta?.hasSamePeriodData && totalSamePeriod > 0)
       ? ((totalCurrent - totalSamePeriod) / totalSamePeriod) * 100
       : null;
@@ -247,7 +303,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     return {
       totalCurrent,
       totalPrev,
+      totalPrevDiff: prevDiff,
       totalSamePeriod,
+      totalSamePeriodDiff: samePeriodDiff,
       prevChangePct,
       samePeriodChangePct,
       totalAlerts,
@@ -259,7 +317,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   // Sorter Function
   const sortRows = useCallback((rows: ComparisonRow[]): ComparisonRow[] => {
     if (!sortCol || !sortDir) {
-      // Default order: ALERT first, then POSITIVE, then NORMAL, then currentCount desc
       return [...rows].sort((a, b) => {
         const order = { ALERT: 1, POSITIVE: 2, NORMAL: 3 };
         if (order[a.status] !== order[b.status]) {
@@ -287,7 +344,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
         return sortDir === 'asc' ? cmp : -cmp;
       }
 
-      // Handle nulls in percentage
       if (valA === null && valB === null) return 0;
       if (valA === null) return 1;
       if (valB === null) return -1;
@@ -298,7 +354,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     });
   }, [sortCol, sortDir]);
 
-  // Combined Rows for "Tất cả chuyên khoa" (Unified Vertical Table)
+  // Combined Rows for "Tất cả chuyên khoa"
   const allCombinedRows = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     let rows: ComparisonRow[] = [];
@@ -318,7 +374,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     return sortRows(rows);
   }, [groups, searchTerm, filterStatus, sortRows]);
 
-  // Filter groups for specific specialty view
+  // Single specialty group rows
   const filteredSingleGroup = useMemo(() => {
     if (selectedSpecialty === 'all') return null;
 
@@ -342,7 +398,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     };
   }, [groups, selectedSpecialty, searchTerm, filterStatus, sortRows]);
 
-  // Paginated rows for "Tất cả chuyên khoa"
+  // Paginated rows
   const paginatedAllRows = useMemo(() => {
     if (pageSize === -1) return allCombinedRows;
     const start = (currentPage - 1) * pageSize;
@@ -355,6 +411,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     if (val === null) return '—';
     const sign = val > 0 ? '+' : '';
     return `${sign}${val.toFixed(1)}%`;
+  };
+
+  const fmtDiffCell = (diff: number | null) => {
+    if (diff === null) return '—';
+    const sign = diff > 0 ? '+' : '';
+    const color = diff < 0 ? 'text-red-600 font-bold' : (diff > 0 ? 'text-emerald-700 font-bold' : 'text-gray-500');
+    return <span className={color}>{sign}{diff}</span>;
   };
 
   // Helper render sort header icon
@@ -374,12 +437,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   // Specialty Badge Helper
   const getSpecialtyBadgeColor = (code: SpecialtyCode) => {
     switch (code) {
-      case 'ngoai_th': return 'bg-blue-50 text-blue-700 border-blue-200';
-      case 'ctch': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
-      case 'mat': return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'tmh': return 'bg-cyan-50 text-cyan-700 border-cyan-200';
-      case 'phu_san': return 'bg-rose-50 text-rose-700 border-rose-200';
-      default: return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'ngoai_th': return 'bg-blue-50 text-blue-800 border-blue-200';
+      case 'ctch': return 'bg-indigo-50 text-indigo-800 border-indigo-200';
+      case 'mat': return 'bg-amber-50 text-amber-800 border-amber-200';
+      case 'tmh': return 'bg-cyan-50 text-cyan-800 border-cyan-200';
+      case 'phu_san': return 'bg-rose-50 text-rose-800 border-rose-200';
+      default: return 'bg-emerald-50 text-emerald-800 border-emerald-200';
     }
   };
 
@@ -521,8 +584,23 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             </button>
           </div>
 
-          {/* Right: Search & Excel Export */}
-          <div className="flex items-center gap-2.5">
+          {/* Right: Options & Export Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Toggle Show Absolute Diff */}
+            <button
+              type="button"
+              onClick={handleToggleShowDiff}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+                showDiff
+                  ? 'bg-blue-50 text-primary-900 border-primary-300'
+                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+              }`}
+              title="Bật/Tắt hiển thị cột số chênh tuyệt đối (± ca)"
+            >
+              {showDiff ? <ToggleRight className="h-4 w-4 text-primary-600" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+              <span>Hiện số chênh (± ca)</span>
+            </button>
+
             {/* Search Box */}
             <div className="relative">
               <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -531,9 +609,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 placeholder="Tìm tên phẫu thuật..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 pr-3 py-1 text-xs bg-gray-50 border border-gray-200 rounded-lg w-44 sm:w-52 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 transition-all placeholder:text-gray-400"
+                className="pl-8 pr-3 py-1 text-xs bg-gray-50 border border-gray-200 rounded-lg w-40 sm:w-48 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 transition-all placeholder:text-gray-400"
               />
             </div>
+
+            {/* Export CSV Button (NotebookLM) */}
+            <button
+              onClick={handleExportCsv}
+              disabled={exportingCsv || loading}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
+              title="Xuất CSV chuẩn UTF-8 tương thích NotebookLM"
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              <span>{exportingCsv ? 'Đang xuất CSV...' : 'Xuất CSV (NotebookLM)'}</span>
+            </button>
 
             {/* Export Excel Button */}
             <button
@@ -640,7 +729,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 overallKPIs.prevChangePct !== null && overallKPIs.prevChangePct >= 0 ? 'text-emerald-600' : 'text-red-600'
               }`}>
                 {overallKPIs.prevChangePct !== null && overallKPIs.prevChangePct >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                {fmtPctStr(overallKPIs.prevChangePct)} (so {periodMeta?.prevLabel || 'kỳ trước'})
+                {fmtPctStr(overallKPIs.prevChangePct)} {showDiff ? `(${overallKPIs.totalPrevDiff > 0 ? '+' : ''}${overallKPIs.totalPrevDiff} ca)` : ''}
               </span>
             </div>
           </div>
@@ -806,7 +895,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   {/* Tên phẫu thuật */}
                   <th
                     onClick={() => handleSortClick('tenKT')}
-                    className="px-3 py-2 text-left min-w-[320px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    className="px-3 py-2 text-left min-w-[300px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                     title="Nhấn để sắp xếp (Giảm -> Tăng -> Hủy)"
                   >
                     <div className="flex items-center justify-between">
@@ -818,7 +907,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   {/* Chuyên khoa */}
                   <th
                     onClick={() => handleSortClick('specialty')}
-                    className="px-2.5 py-2 w-36 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    className="px-2.5 py-2 w-32 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                     title="Nhấn để sắp xếp theo chuyên khoa"
                   >
                     <div className="flex items-center justify-center">
@@ -830,7 +919,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   {/* Kỳ hiện tại */}
                   <th
                     onClick={() => handleSortClick('currentCount')}
-                    className="px-2 py-2 w-20 border-r border-blue-800 bg-[#0d4277] cursor-pointer hover:bg-blue-900 transition-colors group/th"
+                    className="px-2 py-2 w-18 border-r border-blue-800 bg-[#0d4277] cursor-pointer hover:bg-blue-900 transition-colors group/th"
                     title="Nhấn để sắp xếp theo số ca kỳ này"
                   >
                     <div className="flex items-center justify-center">
@@ -842,7 +931,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   {/* Kỳ trước */}
                   <th
                     onClick={() => handleSortClick('prevCount')}
-                    className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    className="px-2 py-2 w-18 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                     title="Nhấn để sắp xếp theo số ca kỳ trước"
                   >
                     <div className="flex items-center justify-center">
@@ -851,10 +940,24 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     </div>
                   </th>
 
-                  {/* So kỳ trước */}
+                  {/* Cột Số chênh kỳ trước (Hiệu số) */}
+                  {showDiff && (
+                    <th
+                      onClick={() => handleSortClick('prevDiff')}
+                      className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Số chênh lệch tuyệt đối: Kỳ này - Kỳ trước (ca)"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>± Kỳ trước</span>
+                        {renderSortIcon('prevDiff')}
+                      </div>
+                    </th>
+                  )}
+
+                  {/* So kỳ trước (%) */}
                   <th
                     onClick={() => handleSortClick('prevChangePct')}
-                    className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    className="px-2 py-2 w-22 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                     title="Nhấn để sắp xếp theo % so kỳ trước"
                   >
                     <div className="flex items-center justify-center">
@@ -866,7 +969,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   {/* Cùng kỳ */}
                   <th
                     onClick={() => handleSortClick('samePeriodCount')}
-                    className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    className="px-2 py-2 w-18 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                     title="Nhấn để sắp xếp theo số ca cùng kỳ"
                   >
                     <div className="flex items-center justify-center">
@@ -875,10 +978,24 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     </div>
                   </th>
 
-                  {/* So cùng kỳ */}
+                  {/* Cột Số chênh cùng kỳ (Hiệu số) */}
+                  {showDiff && (
+                    <th
+                      onClick={() => handleSortClick('samePeriodDiff')}
+                      className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Số chênh lệch tuyệt đối: Kỳ này - Cùng kỳ (ca)"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>± Cùng kỳ</span>
+                        {renderSortIcon('samePeriodDiff')}
+                      </div>
+                    </th>
+                  )}
+
+                  {/* So cùng kỳ (%) */}
                   <th
                     onClick={() => handleSortClick('samePeriodChangePct')}
-                    className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    className="px-2 py-2 w-22 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                     title="Nhấn để sắp xếp theo % so cùng kỳ"
                   >
                     <div className="flex items-center justify-center">
@@ -900,14 +1017,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   </th>
 
                   {/* Ghi chú */}
-                  <th className="px-3 py-2 text-left min-w-[160px]">Ghi chú</th>
+                  <th className="px-3 py-2 text-left min-w-[150px]">Ghi chú</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-gray-200">
                 {paginatedAllRows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                    <td colSpan={showDiff ? 11 : 9} className="px-3 py-8 text-center text-gray-400 italic text-xs">
                       Không tìm thấy ca phẫu thuật nào phù hợp
                     </td>
                   </tr>
@@ -916,6 +1033,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     const isAlert = r.status === 'ALERT';
                     const isPositive = r.status === 'POSITIVE';
                     const badgeClass = getSpecialtyBadgeColor(r.specialty);
+                    const isPopoverOpen = openReassignKey === `${r.specialty}:::${r.tenKT}`;
 
                     return (
                       <tr
@@ -933,22 +1051,48 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           <span className="leading-snug text-xs">{r.tenKT}</span>
                         </td>
 
-                        {/* Chuyên khoa + Combobox chuyển nhóm */}
-                        <td className="px-2 py-1.5 border-r border-gray-200">
-                          <div className="flex items-center justify-center">
-                            <select
-                              value={r.specialty}
-                              onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value)}
-                              className={`h-6 min-w-[90px] text-[10.5px] font-bold rounded-md px-1.5 py-0.5 border cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500 ${badgeClass}`}
-                              title="Chuyển chuyên khoa cho kỹ thuật này"
+                        {/* Chuyên khoa: Text Badge + Nút chuyển popover menu */}
+                        <td className="px-2 py-1.5 border-r border-gray-200 relative">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold border tracking-wide shadow-2xs whitespace-nowrap ${badgeClass}`}>
+                              {r.specialtyName}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setOpenReassignKey(isPopoverOpen ? null : `${r.specialty}:::${r.tenKT}`)}
+                              className="p-1 rounded bg-gray-100 hover:bg-primary-100 text-gray-500 hover:text-primary-800 transition-colors shadow-2xs cursor-pointer"
+                              title="Đổi chuyên khoa cho kỹ thuật này"
                             >
-                              {allSpecialtiesList.map(s => (
-                                <option key={s.code} value={s.code} className="bg-white text-gray-800 font-medium">
-                                  {s.shortName}
-                                </option>
-                              ))}
-                            </select>
+                              <ArrowLeftRight className="h-3 w-3" />
+                            </button>
                           </div>
+
+                          {/* Popover Selection Menu */}
+                          {isPopoverOpen && (
+                            <div
+                              ref={popoverRef}
+                              className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 text-xs animate-in fade-in zoom-in-95"
+                            >
+                              <div className="px-2.5 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                                Chuyển sang nhóm:
+                              </div>
+                              <div className="max-h-56 overflow-y-auto py-1">
+                                {allSpecialtiesList.map(s => (
+                                  <button
+                                    key={s.code}
+                                    type="button"
+                                    onClick={() => handleReassignSpecialty(r.tenKT, s.code)}
+                                    className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-primary-50 transition-colors cursor-pointer ${
+                                      s.code === r.specialty ? 'font-bold text-primary-800 bg-primary-50/50' : 'text-gray-700'
+                                    }`}
+                                  >
+                                    <span>{s.name}</span>
+                                    {s.code === r.specialty && <Check className="h-3.5 w-3.5 text-primary-600" />}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </td>
 
                         {/* Kỳ hiện tại */}
@@ -961,7 +1105,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           {r.prevCount}
                         </td>
 
-                        {/* So kỳ trước */}
+                        {/* Số chênh kỳ trước */}
+                        {showDiff && (
+                          <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                            {fmtDiffCell(r.prevDiff)}
+                          </td>
+                        )}
+
+                        {/* So kỳ trước (%) */}
                         <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
                           r.prevChangePct !== null && r.prevChangePct < 0
                             ? 'text-red-600'
@@ -977,7 +1128,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           {periodMeta?.hasSamePeriodData ? r.samePeriodCount : '—'}
                         </td>
 
-                        {/* So cùng kỳ */}
+                        {/* Số chênh cùng kỳ */}
+                        {showDiff && (
+                          <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                            {periodMeta?.hasSamePeriodData ? fmtDiffCell(r.samePeriodDiff) : '—'}
+                          </td>
+                        )}
+
+                        {/* So cùng kỳ (%) */}
                         <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
                           r.samePeriodChangePct !== null && r.samePeriodChangePct < 0
                             ? 'text-red-600'
@@ -1027,6 +1185,11 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <td className="px-2 py-2 text-center border-r border-gray-300">
                     {overallKPIs.totalPrev}
                   </td>
+                  {showDiff && (
+                    <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
+                      {fmtDiffCell(overallKPIs.totalPrevDiff)}
+                    </td>
+                  )}
                   <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
                     overallKPIs.prevChangePct !== null && overallKPIs.prevChangePct < 0 ? 'text-red-600' : 'text-emerald-700'
                   }`}>
@@ -1035,6 +1198,11 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <td className="px-2 py-2 text-center border-r border-gray-300">
                     {periodMeta?.hasSamePeriodData ? overallKPIs.totalSamePeriod : '—'}
                   </td>
+                  {showDiff && (
+                    <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
+                      {periodMeta?.hasSamePeriodData ? fmtDiffCell(overallKPIs.totalSamePeriodDiff) : '—'}
+                    </td>
+                  )}
                   <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
                     overallKPIs.samePeriodChangePct !== null && overallKPIs.samePeriodChangePct < 0 ? 'text-red-600' : 'text-emerald-700'
                   }`}>
@@ -1176,7 +1344,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300 select-none">
                     <th
                       onClick={() => handleSortClick('tenKT')}
-                      className="px-3 py-2 text-left min-w-[340px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      className="px-3 py-2 text-left min-w-[320px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                       title="Nhấn để sắp xếp tên phẫu thuật"
                     >
                       <div className="flex items-center justify-between">
@@ -1187,7 +1355,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
                     <th
                       onClick={() => handleSortClick('currentCount')}
-                      className="px-2 py-2 w-20 border-r border-blue-800 bg-[#0d4277] cursor-pointer hover:bg-blue-900 transition-colors group/th"
+                      className="px-2 py-2 w-18 border-r border-blue-800 bg-[#0d4277] cursor-pointer hover:bg-blue-900 transition-colors group/th"
                       title="Nhấn để sắp xếp số ca kỳ này"
                     >
                       <div className="flex items-center justify-center">
@@ -1198,7 +1366,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
                     <th
                       onClick={() => handleSortClick('prevCount')}
-                      className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      className="px-2 py-2 w-18 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                       title="Nhấn để sắp xếp số ca kỳ trước"
                     >
                       <div className="flex items-center justify-center">
@@ -1207,9 +1375,23 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       </div>
                     </th>
 
+                    {/* Số chênh kỳ trước */}
+                    {showDiff && (
+                      <th
+                        onClick={() => handleSortClick('prevDiff')}
+                        className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                        title="Số chênh lệch tuyệt đối: Kỳ này - Kỳ trước (ca)"
+                      >
+                        <div className="flex items-center justify-center">
+                          <span>± Kỳ trước</span>
+                          {renderSortIcon('prevDiff')}
+                        </div>
+                      </th>
+                    )}
+
                     <th
                       onClick={() => handleSortClick('prevChangePct')}
-                      className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      className="px-2 py-2 w-22 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                       title="Nhấn để sắp xếp % so kỳ trước"
                     >
                       <div className="flex items-center justify-center">
@@ -1220,7 +1402,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
                     <th
                       onClick={() => handleSortClick('samePeriodCount')}
-                      className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      className="px-2 py-2 w-18 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                       title="Nhấn để sắp xếp số ca cùng kỳ"
                     >
                       <div className="flex items-center justify-center">
@@ -1229,9 +1411,23 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       </div>
                     </th>
 
+                    {/* Số chênh cùng kỳ */}
+                    {showDiff && (
+                      <th
+                        onClick={() => handleSortClick('samePeriodDiff')}
+                        className="px-2 py-2 w-20 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                        title="Số chênh lệch tuyệt đối: Kỳ này - Cùng kỳ (ca)"
+                      >
+                        <div className="flex items-center justify-center">
+                          <span>± Cùng kỳ</span>
+                          {renderSortIcon('samePeriodDiff')}
+                        </div>
+                      </th>
+                    )}
+
                     <th
                       onClick={() => handleSortClick('samePeriodChangePct')}
-                      className="px-2 py-2 w-24 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      className="px-2 py-2 w-22 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
                       title="Nhấn để sắp xếp % so cùng kỳ"
                     >
                       <div className="flex items-center justify-center">
@@ -1251,14 +1447,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       </div>
                     </th>
 
-                    <th className="px-3 py-2 text-left min-w-[180px]">Ghi chú</th>
+                    <th className="px-3 py-2 text-left min-w-[160px]">Ghi chú</th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-gray-200">
                   {filteredSingleGroup.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                      <td colSpan={showDiff ? 10 : 8} className="px-3 py-8 text-center text-gray-400 italic text-xs">
                         {filteredSingleGroup.specialty.isCustom
                           ? 'Chưa có kỹ thuật nào được chuyển vào nhóm tùy chỉnh này'
                           : 'Không có ca phẫu thuật nào trong chuyên khoa này'}
@@ -1268,7 +1464,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     filteredSingleGroup.rows.map((r, idx) => {
                       const isAlert = r.status === 'ALERT';
                       const isPositive = r.status === 'POSITIVE';
-                      const badgeClass = getSpecialtyBadgeColor(r.specialty);
+                      const isPopoverOpen = openReassignKey === `${r.specialty}:::${r.tenKT}`;
 
                       return (
                         <tr
@@ -1281,25 +1477,46 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
                           }`}
                         >
-                          {/* Tên phẫu thuật + Combobox chuyển nhóm */}
-                          <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
-                            <div className="flex items-center justify-between gap-2.5">
+                          {/* Tên phẫu thuật + Nút chuyển chuyên khoa */}
+                          <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200 relative">
+                            <div className="flex items-center justify-between gap-2">
                               <span className="flex-1 leading-snug text-xs">{r.tenKT}</span>
-                              <div className="shrink-0 flex items-center">
-                                <select
-                                  value={r.specialty}
-                                  onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value)}
-                                  className={`h-6 min-w-[85px] text-[10.5px] font-bold rounded-md px-1.5 py-0.5 border cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500 ${badgeClass}`}
-                                  title="Chuyển chuyên khoa cho kỹ thuật này"
-                                >
-                                  {allSpecialtiesList.map(s => (
-                                    <option key={s.code} value={s.code} className="bg-white text-gray-800 font-medium">
-                                      {s.shortName}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setOpenReassignKey(isPopoverOpen ? null : `${r.specialty}:::${r.tenKT}`)}
+                                className="p-1 rounded bg-gray-100 hover:bg-primary-100 text-gray-500 hover:text-primary-800 transition-colors shadow-2xs shrink-0 cursor-pointer"
+                                title="Đổi chuyên khoa cho kỹ thuật này"
+                              >
+                                <ArrowLeftRight className="h-3 w-3" />
+                              </button>
                             </div>
+
+                            {/* Popover Selection Menu */}
+                            {isPopoverOpen && (
+                              <div
+                                ref={popoverRef}
+                                className="absolute z-50 top-full right-4 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 text-xs animate-in fade-in zoom-in-95"
+                              >
+                                <div className="px-2.5 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                                  Chuyển sang nhóm:
+                                </div>
+                                <div className="max-h-56 overflow-y-auto py-1">
+                                  {allSpecialtiesList.map(s => (
+                                    <button
+                                      key={s.code}
+                                      type="button"
+                                      onClick={() => handleReassignSpecialty(r.tenKT, s.code)}
+                                      className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-primary-50 transition-colors cursor-pointer ${
+                                        s.code === r.specialty ? 'font-bold text-primary-800 bg-primary-50/50' : 'text-gray-700'
+                                      }`}
+                                    >
+                                      <span>{s.name}</span>
+                                      {s.code === r.specialty && <Check className="h-3.5 w-3.5 text-primary-600" />}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </td>
 
                           {/* Kỳ hiện tại */}
@@ -1311,6 +1528,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                             {r.prevCount}
                           </td>
+
+                          {/* Số chênh kỳ trước */}
+                          {showDiff && (
+                            <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                              {fmtDiffCell(r.prevDiff)}
+                            </td>
+                          )}
 
                           {/* So kỳ trước */}
                           <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
@@ -1328,8 +1552,15 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             {periodMeta?.hasSamePeriodData ? r.samePeriodCount : '—'}
                           </td>
 
+                          {/* Số chênh cùng kỳ */}
+                          {showDiff && (
+                            <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                              {periodMeta?.hasSamePeriodData ? fmtDiffCell(r.samePeriodDiff) : '—'}
+                            </td>
+                          )}
+
                           {/* So cùng kỳ */}
-                          <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                          <td className={`px-2 py-2 text-center font-bold border-r border-gray-200 ${
                             r.samePeriodChangePct !== null && r.samePeriodChangePct < 0
                               ? 'text-red-600'
                               : r.samePeriodChangePct !== null && r.samePeriodChangePct > 0
@@ -1378,6 +1609,11 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     <td className="px-2 py-2 text-center border-r border-gray-300">
                       {filteredSingleGroup.totalPrev}
                     </td>
+                    {showDiff && (
+                      <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
+                        {fmtDiffCell(filteredSingleGroup.totalCurrent - filteredSingleGroup.totalPrev)}
+                      </td>
+                    )}
                     <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
                       filteredSingleGroup.totalPrev > 0 && ((filteredSingleGroup.totalCurrent - filteredSingleGroup.totalPrev) / filteredSingleGroup.totalPrev) < 0 ? 'text-red-600' : 'text-emerald-700'
                     }`}>
@@ -1386,6 +1622,11 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     <td className="px-2 py-2 text-center border-r border-gray-300">
                       {periodMeta?.hasSamePeriodData ? filteredSingleGroup.totalSamePeriod : '—'}
                     </td>
+                    {showDiff && (
+                      <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
+                        {periodMeta?.hasSamePeriodData ? fmtDiffCell(filteredSingleGroup.totalCurrent - filteredSingleGroup.totalSamePeriod) : '—'}
+                      </td>
+                    )}
                     <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
                       periodMeta?.hasSamePeriodData && filteredSingleGroup.totalSamePeriod > 0 && ((filteredSingleGroup.totalCurrent - filteredSingleGroup.totalSamePeriod) / filteredSingleGroup.totalSamePeriod) < 0 ? 'text-red-600' : 'text-emerald-700'
                     }`}>

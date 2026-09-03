@@ -49,8 +49,10 @@ export interface ComparisonRow {
   specialtyName: string;
   currentCount: number;
   prevCount: number;
+  prevDiff: number;
   prevChangePct: number | null;
   samePeriodCount: number;
+  samePeriodDiff: number | null;
   samePeriodChangePct: number | null;
   status: ComparisonStatus;
   statusLabel: 'CẢNH BÁO' | 'TÍCH CỰC' | 'ỔN ĐỊNH';
@@ -598,14 +600,19 @@ export async function getSpecialtyComparisonData(
       color: 'gray',
     };
 
+    const prevDiff = cur - prev;
+    const samePeriodDiff = hasSamePeriodData ? (cur - same) : null;
+
     allRows.push({
       tenKT: item.displayName,
       specialty: item.specialty,
       specialtyName: specMeta.name,
       currentCount: cur,
       prevCount: prev,
+      prevDiff,
       prevChangePct,
       samePeriodCount: hasSamePeriodData ? same : 0,
+      samePeriodDiff,
       samePeriodChangePct,
       status,
       statusLabel,
