@@ -2,10 +2,11 @@
  * Excel Export Service for Specialty Comparison
  * Xuất báo cáo Excel phân tích so sánh phẫu thuật 5 chuyên khoa
  * Mỗi chuyên khoa là 1 Sheet riêng biệt chuẩn màu sắc & format y tế
+ * Hỗ trợ cả chế độ Tháng đơn và Khoảng tháng linh hoạt
  */
 
 import ExcelJS from 'exceljs';
-import { SpecialtyReportGroup, ComparisonConfig } from './specialtyComparisonService';
+import { SpecialtyReportGroup, ComparisonConfig, PeriodMetadata } from './specialtyComparisonService';
 
 const FONT_NAME = 'Times New Roman';
 
@@ -18,26 +19,14 @@ const thinBorder: Partial<ExcelJS.Borders> = {
 
 export async function exportSpecialtyComparisonExcel(
   groups: SpecialtyReportGroup[],
-  targetYear: number,
-  targetMonth: number,
+  periodMeta: PeriodMetadata,
   config: ComparisonConfig
 ): Promise<void> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'SurgicalDataPro';
   wb.created = new Date();
 
-  // Xác định tháng trước & cùng kỳ
-  let prevMonth = targetMonth - 1;
-  let prevYear = targetYear;
-  if (prevMonth === 0) {
-    prevMonth = 12;
-    prevYear = targetYear - 1;
-  }
-  const samePeriodMonth = targetMonth;
-  const samePeriodYear = targetYear - 1;
-
   for (const group of groups) {
-    // Tên sheet (giới hạn <= 31 ký tự cho Excel)
     const sheetName = group.specialty.name.substring(0, 31);
     const ws = wb.addWorksheet(sheetName, {
       views: [{ showGridLines: true }],
@@ -70,7 +59,7 @@ export async function exportSpecialtyComparisonExcel(
     ws.getRow(1).height = 30;
 
     // ── Row 2: Subtitle (Light Blue) ──
-    const subtitleText = `So sánh tháng ${targetMonth}/${targetYear} với tháng ${prevMonth}/${prevYear} và tháng ${samePeriodMonth}/${samePeriodYear}. Ngưỡng tích cực từ ${config.positiveThreshold}%; cảnh báo khi giảm từ ${config.alertThreshold}% hoặc không phát sinh trong kỳ hiện tại.`;
+    const subtitleText = periodMeta.subtitle;
     ws.mergeCells('A2:H2');
     const subCell = ws.getCell('A2');
     subCell.value = subtitleText;
@@ -87,10 +76,10 @@ export async function exportSpecialtyComparisonExcel(
     const headerRow = ws.getRow(3);
     headerRow.values = [
       'Tên phẫu thuật',
-      `T${targetMonth}/${targetYear}`,
-      `T${prevMonth}/${prevYear}`,
-      'So tháng trước',
-      `T${samePeriodMonth}/${samePeriodYear}`,
+      periodMeta.currentLabel,
+      periodMeta.prevLabel,
+      periodMeta.prevColTitle,
+      periodMeta.samePeriodLabel,
       'So cùng kỳ',
       'Nhận định',
       'Ghi chú',
@@ -131,8 +120,8 @@ export async function exportSpecialtyComparisonExcel(
         r.currentCount,
         r.prevCount,
         fmtPctStr(r.prevChangePct),
-        r.samePeriodCount,
-        fmtPctStr(r.samePeriodChangePct),
+        periodMeta.hasSamePeriodData ? r.samePeriodCount : '',
+        periodMeta.hasSamePeriodData ? fmtPctStr(r.samePeriodChangePct) : '',
         r.statusLabel,
         r.note,
       ];
@@ -144,7 +133,7 @@ export async function exportSpecialtyComparisonExcel(
       cellA.alignment = { horizontal: 'left', vertical: 'middle' };
       cellA.border = thinBorder;
 
-      // Col B: Kỳ hiện tại (Soft Light Blue tint)
+      // Col B: Kỳ hiện tại
       const cellB = row.getCell(2);
       cellB.font = { name: FONT_NAME, size: 11, bold: true };
       cellB.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -155,13 +144,13 @@ export async function exportSpecialtyComparisonExcel(
       };
       cellB.border = thinBorder;
 
-      // Col C: Tháng trước
+      // Col C: Kỳ trước
       const cellC = row.getCell(3);
       cellC.font = { name: FONT_NAME, size: 11 };
       cellC.alignment = { horizontal: 'center', vertical: 'middle' };
       cellC.border = thinBorder;
 
-      // Col D: So tháng trước
+      // Col D: So kỳ trước
       const cellD = row.getCell(4);
       cellD.font = {
         name: FONT_NAME,
@@ -228,7 +217,9 @@ export async function exportSpecialtyComparisonExcel(
     // ── Summary Row ──
     const summaryRow = ws.getRow(curRowIdx);
     const prevTotalChange = group.totalPrev > 0 ? ((group.totalCurrent - group.totalPrev) / group.totalPrev) * 100 : null;
-    const samePeriodTotalChange = group.totalSamePeriod > 0 ? ((group.totalCurrent - group.totalSamePeriod) / group.totalSamePeriod) * 100 : null;
+    const samePeriodTotalChange = (periodMeta.hasSamePeriodData && group.totalSamePeriod > 0)
+      ? ((group.totalCurrent - group.totalSamePeriod) / group.totalSamePeriod) * 100
+      : null;
 
     const fmtPctTotStr = (val: number | null) => {
       if (val === null) return '';
@@ -241,8 +232,8 @@ export async function exportSpecialtyComparisonExcel(
       group.totalCurrent,
       group.totalPrev,
       fmtPctTotStr(prevTotalChange),
-      group.totalSamePeriod,
-      fmtPctTotStr(samePeriodTotalChange),
+      periodMeta.hasSamePeriodData ? group.totalSamePeriod : '',
+      periodMeta.hasSamePeriodData ? fmtPctTotStr(samePeriodTotalChange) : '',
       '',
       `Cảnh báo: ${group.alertCount} | Tích cực: ${group.positiveCount}`,
     ];
@@ -274,7 +265,7 @@ export async function exportSpecialtyComparisonExcel(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `Phan_tich_so_sanh_phau_thuat_T${targetMonth}_${targetYear}.xlsx`;
+  a.download = periodMeta.exportFilename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
