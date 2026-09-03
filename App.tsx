@@ -154,7 +154,7 @@ const formatDate = (val: any, fmt: string) => {
 
 // --- Components ---
 
-const ToastContainer = ({ toasts, removeToast }: { toasts: { id: string, message: string, type: 'error' | 'success' }[], removeToast: (id: string) => void }) => {
+const ToastContainer = ({ toasts, removeToast }: { toasts: { id: string, message: React.ReactNode, type: 'error' | 'success' }[], removeToast: (id: string) => void }) => {
   return (
     <div className="fixed top-20 right-4 z-50 flex flex-col gap-2 pointer-events-none">
       {toasts.map(toast => (
@@ -1339,12 +1339,12 @@ const InnerApp: React.FC = () => {
     });
   };
 
-  const [toasts, setToasts] = useState<{ id: string, message: string, type: 'error' | 'success' }[]>([]);
+  const [toasts, setToasts] = useState<{ id: string, message: React.ReactNode, type: 'error' | 'success' }[]>([]);
 
-  const addToast = (message: string, type: 'error' | 'success') => {
+  const addToast = (message: React.ReactNode, type: 'error' | 'success', duration = 6000) => {
     const id = crypto.randomUUID();
     setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => removeToast(id), 5000);
+    setTimeout(() => removeToast(id), duration);
   };
   const removeToast = (id: string) => { setToasts(prev => prev.filter(t => t.id !== id)); };
 
@@ -1375,7 +1375,14 @@ const InnerApp: React.FC = () => {
       listFile: f,
       listDateRange: res.dateRangeText || ""
     }, 'upload');
-    addToast(`✓ File "${f.name}" hợp lệ`, 'success');
+    const reportName = currentType === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo hàng ngày';
+    addToast(
+      <span>
+        Bạn vừa tải dữ liệu Minh Lộ vào <strong className="text-red-600 font-bold">{reportName}</strong>. Lưu ý: sau khi kiểm tra, nếu dữ liệu chuẩn, hãy bấm Lưu để lưu dữ liệu vào bộ nhớ
+      </span>,
+      'success',
+      7000
+    );
   };
 
   // Reset file uploads và dữ liệu liên quan cho từng loại báo cáo
