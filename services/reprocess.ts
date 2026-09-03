@@ -131,31 +131,50 @@ export function detectMachineConflicts(records: SurgeryRecord[]): MachineConflic
     }
 
     const conflicts: MachineConflict[] = [];
+    const seenPairs = new Set<string>();
 
     for (const [, list] of machineMap.entries()) {
         list.sort((a, b) => (a.rec.start!.getTime() - b.rec.start!.getTime()));
-        for (let i = 0; i < list.length; i++) {
-            for (let j = i + 1; j < list.length; j++) {
-                const a = list[i].rec;
-                const b = list[j].rec;
-                if (a.start && a.end && b.start && b.end && isOverlap(a.start, a.end, b.start, b.end)) {
-                    conflicts.push({
-                        machine: list[i].machine,
-                        machineCode: list[i].machineCode,
-                        patientId1: a.patientId,
-                        patientName1: a.patientName,
-                        tenKT1: a.tenKT,
-                        start1: a.start,
-                        end1: a.end,
-                        patientId2: b.patientId,
-                        patientName2: b.patientName,
-                        tenKT2: b.tenKT,
-                        start2: b.start,
-                        end2: b.end,
-                        rec1: a,
-                        rec2: b,
-                    });
+
+        // Sweep-line: for each record, only pair with the closest preceding overlap
+        // to avoid N*(N-1)/2 combinatorial explosion
+        for (let i = 1; i < list.length; i++) {
+            const b = list[i].rec;
+            if (!b.start || !b.end) continue;
+
+            for (let j = i - 1; j >= 0; j--) {
+                const a = list[j].rec;
+                if (!a.start || !a.end) continue;
+                if (a.key && b.key && a.key === b.key) continue; // Same record guard
+
+                if (isOverlap(a.start, a.end, b.start, b.end)) {
+                    // Deduplicate pair
+                    const pairKey = a.key && b.key
+                        ? [a.key, b.key].sort().join('||')
+                        : `${a.patientId}_${a.tenKT}_${a.start.getTime()}||${b.patientId}_${b.tenKT}_${b.start.getTime()}`;
+                    if (!seenPairs.has(pairKey)) {
+                        seenPairs.add(pairKey);
+                        conflicts.push({
+                            machine: list[i].machine,
+                            machineCode: list[i].machineCode,
+                            patientId1: a.patientId,
+                            patientName1: a.patientName,
+                            tenKT1: a.tenKT,
+                            start1: a.start,
+                            end1: a.end,
+                            patientId2: b.patientId,
+                            patientName2: b.patientName,
+                            tenKT2: b.tenKT,
+                            start2: b.start,
+                            end2: b.end,
+                            rec1: a,
+                            rec2: b,
+                        });
+                    }
+                    break; // Only pair with closest preceding overlap
                 }
+
+                if (a.end <= b.start) break;
             }
         }
     }
@@ -798,6 +817,15 @@ function collectThanhToanData_New(records: SurgeryRecord[], config: AppConfig) {
 }
 
 export function recalculateResultFromRecords(records: SurgeryRecord[], config: AppConfig): Partial<ProcessingResult> {
+    // Generate unique keys for records (critical for conflict dedup)
+    records.forEach((r) => {
+        if (!r.key) {
+            const d = r.end || r.start || new Date();
+            const dateKey = `${d.getFullYear()}${d.getMonth()}${d.getDate()}`;
+            r.key = `${r.patientId}-${r.patientName}-${dateKey}-${r.tenKT}`;
+        }
+    });
+
     const staffConflicts = detectStaffConflicts(records, config);
     const machineConflicts = detectMachineConflicts(records);
 
