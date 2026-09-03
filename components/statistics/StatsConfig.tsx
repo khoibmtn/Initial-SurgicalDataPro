@@ -34,6 +34,10 @@ import { ProfileConfig } from './ProfileConfig';
 import {
   getComparisonThresholdConfig,
   saveComparisonThresholdConfig,
+  getSpecialtyOverrides,
+  removeSpecialtyOverride,
+  SPECIALTIES,
+  SpecialtyCode,
   ComparisonConfig
 } from '../../services/specialtyComparisonService';
 
@@ -94,11 +98,13 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   // Threshold settings state
   const [thresholdForm, setThresholdForm] = useState<ComparisonConfig>(getComparisonThresholdConfig);
   const [thresholdSaving, setThresholdSaving] = useState(false);
+  const [overridesList, setOverridesList] = useState<Record<string, SpecialtyCode>>(getSpecialtyOverrides);
 
   useEffect(() => {
     localStorage.setItem(SUB_TAB_KEY, configSubTab);
     if (configSubTab === 'comparison-threshold') {
       setThresholdForm(getComparisonThresholdConfig());
+      setOverridesList(getSpecialtyOverrides());
     }
   }, [configSubTab]);
 
@@ -612,6 +618,68 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
                 <span>{thresholdSaving ? 'Đang lưu...' : 'Lưu cấu hình ngưỡng'}</span>
               </button>
             </div>
+          </div>
+
+          {/* Custom Specialty Overrides Section */}
+          <div className="mt-8 pt-6 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                <span>Danh mục kỹ thuật đã chuyển nhóm thủ công</span>
+                <span className="px-2 py-0.2 rounded-full text-[11px] bg-primary-100 text-primary-800 font-extrabold">
+                  {Object.keys(overridesList).length}
+                </span>
+              </h4>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Các kỹ thuật bạn đã dùng nút "Chuyển nhóm" trong bảng phân tích sẽ được ghi nhớ tại đây và tự động xếp vào chuyên khoa mới.
+            </p>
+
+            {Object.keys(overridesList).length === 0 ? (
+              <div className="text-center py-6 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-400 italic">
+                Chưa có kỹ thuật nào được chuyển nhóm thủ công. Bạn có thể chuyển nhóm trực tiếp trên từng dòng của bảng phân tích.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-gray-100 font-bold text-gray-700">
+                    <tr>
+                      <th className="px-3 py-2">Tên kỹ thuật phẫu thuật</th>
+                      <th className="px-3 py-2 w-48">Chuyên khoa đã gán</th>
+                      <th className="px-3 py-2 w-20 text-center">Xóa</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {Object.entries(overridesList).map(([tenKT, specCode]) => {
+                      const specMeta = SPECIALTIES.find(s => s.code === specCode);
+                      return (
+                        <tr key={tenKT} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-gray-800">{tenKT}</td>
+                          <td className="px-3 py-2 font-bold text-primary-800">
+                            <span className="px-2 py-0.5 rounded bg-primary-50 border border-primary-200">
+                              {specMeta?.name || specCode}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                removeSpecialtyOverride(tenKT);
+                                setOverridesList(getSpecialtyOverrides());
+                                showToast(`Đã xóa gán thủ công cho "${tenKT}"`);
+                              }}
+                              className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                              title="Khôi phục phân loại tự động"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>

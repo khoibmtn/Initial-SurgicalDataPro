@@ -2,12 +2,13 @@
  * SpecialtyComparisonTab — Phân tích so sánh phẫu thuật theo 5 chuyên khoa
  * Tab thứ 2 trong trang Thống kê phẫu thuật
  * Hỗ trợ chế độ xem theo Tháng (mặc định) và Khoảng tháng linh hoạt (Quý, 6 tháng, năm...)
+ * Hỗ trợ chuyển nhóm thủ công cho từng kỹ thuật với lưu trữ vĩnh viễn (User Overrides)
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   BarChart3, Download, RefreshCw, AlertTriangle, TrendingUp, TrendingDown,
   Search, Filter, CheckCircle2, ChevronDown, ChevronRight, Layers, FileSpreadsheet,
-  Calendar, Activity, Sparkles, SlidersHorizontal, ArrowRight, Info
+  Calendar, Activity, Sparkles, SlidersHorizontal, ArrowRight, Info, ArrowLeftRight
 } from 'lucide-react';
 import { StaffMember } from '../../types';
 import {
@@ -19,6 +20,8 @@ import {
   getComparisonThresholdConfig,
   PeriodSpec,
   PeriodMetadata,
+  saveSpecialtyOverride,
+  getSpecialtyOverrides,
 } from '../../services/specialtyComparisonService';
 import { exportSpecialtyComparisonExcel } from '../../services/excelExportComparisonService';
 
@@ -78,7 +81,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
   // Load comparison data
   const loadData = useCallback(async () => {
-    // Validate range mode
     if (periodMode === 'range') {
       const fromTotal = fromYear * 12 + fromMonth;
       const toTotal = toYear * 12 + toMonth;
@@ -111,6 +113,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Handle reassigning a surgery to another specialty
+  const handleReassignSpecialty = (tenKT: string, newSpecialty: SpecialtyCode) => {
+    saveSpecialtyOverride(tenKT, newSpecialty);
+    const targetSpec = SPECIALTIES.find(s => s.code === newSpecialty);
+    showToast(`Đã chuyển kỹ thuật "${tenKT}" sang nhóm ${targetSpec?.name || newSpecialty}`);
+    loadData();
+  };
 
   // Quick Range Presets
   const applyQuickPreset = (fM: number, tM: number, yr: number) => {
@@ -377,49 +387,49 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => applyQuickPreset(1, 3, fromYear)}
-              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors cursor-pointer"
             >
               Quý 1 (T1-T3)
             </button>
             <button
               type="button"
               onClick={() => applyQuickPreset(4, 6, fromYear)}
-              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors cursor-pointer"
             >
               Quý 2 (T4-T6)
             </button>
             <button
               type="button"
               onClick={() => applyQuickPreset(7, 9, fromYear)}
-              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors cursor-pointer"
             >
               Quý 3 (T7-T9)
             </button>
             <button
               type="button"
               onClick={() => applyQuickPreset(10, 12, fromYear)}
-              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors cursor-pointer"
             >
               Quý 4 (T10-T12)
             </button>
             <button
               type="button"
               onClick={() => applyQuickPreset(1, 6, fromYear)}
-              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors cursor-pointer"
             >
               6 tháng đầu (T1-T6)
             </button>
             <button
               type="button"
               onClick={() => applyQuickPreset(7, 12, fromYear)}
-              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors cursor-pointer"
             >
               6 tháng cuối (T7-T12)
             </button>
             <button
               type="button"
               onClick={() => applyQuickPreset(1, 12, fromYear)}
-              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors"
+              className="px-2 py-0.5 rounded-md bg-gray-100 hover:bg-primary-100 text-gray-700 hover:text-primary-800 font-medium transition-colors cursor-pointer"
             >
               Cả năm (T1-T12)
             </button>
@@ -630,7 +640,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
                       <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300">
-                        <th className="px-3 py-2.5 text-left min-w-[280px] border-r border-blue-800">Tên phẫu thuật</th>
+                        <th className="px-3 py-2.5 text-left min-w-[320px] border-r border-blue-800">
+                          Tên phẫu thuật
+                        </th>
                         <th className="px-2 py-2.5 w-24 border-r border-blue-800 bg-[#0d4277]">{periodMeta?.currentLabel || 'Kỳ này'}</th>
                         <th className="px-2 py-2.5 w-24 border-r border-blue-800">{periodMeta?.prevLabel || 'Kỳ trước'}</th>
                         <th className="px-2 py-2.5 w-28 border-r border-blue-800">{periodMeta?.prevColTitle || 'So kỳ trước'}</th>
@@ -655,7 +667,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           return (
                             <tr
                               key={`${r.tenKT}-${idx}`}
-                              className={`transition-colors hover:bg-blue-50/40 ${
+                              className={`transition-colors hover:bg-blue-50/40 group ${
                                 isAlert
                                   ? 'bg-orange-50/40'
                                   : isPositive
@@ -663,9 +675,25 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                   : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
                               }`}
                             >
-                              {/* Tên phẫu thuật */}
+                              {/* Tên phẫu thuật + Nút Chuyển nhóm */}
                               <td className="px-3 py-2 font-medium text-gray-800 border-r border-gray-200">
-                                {r.tenKT}
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="flex-1 leading-snug">{r.tenKT}</span>
+                                  <div className="shrink-0 flex items-center">
+                                    <select
+                                      value={r.specialty}
+                                      onChange={(e) => handleReassignSpecialty(r.tenKT, e.target.value as SpecialtyCode)}
+                                      className="text-[10px] font-bold bg-white/90 hover:bg-primary-50 text-gray-600 hover:text-primary-800 border border-gray-300 hover:border-primary-400 rounded px-1.5 py-0.5 cursor-pointer shadow-2xs transition-all focus:outline-none focus:ring-1 focus:ring-primary-500"
+                                      title="Chuyển kỹ thuật này sang chuyên khoa khác"
+                                    >
+                                      {SPECIALTIES.map(s => (
+                                        <option key={s.code} value={s.code}>
+                                          → {s.shortName}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
                               </td>
 
                               {/* Kỳ hiện tại */}

@@ -7,9 +7,11 @@
  * - Tai Mũi Họng
  * - Phụ sản
  *
- * Hỗ trợ 2 chế độ:
- * 1. Chế độ Tháng (mặc định): So sánh 1 tháng cụ thể (T_m/Y) với tháng liền kề (T_{m-1}/Y) và cùng kỳ (T_m/Y-1).
- * 2. Chế độ Khoảng (linh hoạt): So sánh từ tháng X đến tháng Y của năm Z với kỳ liền kề trước đó (K tháng) và cùng kỳ năm trước (Z-1).
+ * Quy tắc phân loại:
+ * 1. Ưu tiên 1: Tùy chỉnh thủ công của người dùng (Custom Overrides)
+ * 2. Đối với Phụ sản, Tai mũi họng, Mắt: LẤY THEO KHOA CỦA BÁC SĨ PHẪU THUẬT CHÍNH
+ *    (Khoa Sản => Phụ sản, Khoa TMH => Tai Mũi Họng, Khoa Mắt => Mắt)
+ * 3. Các phẫu thuật còn lại mới phân theo Chấn thương chỉnh hình và Ngoại tổng hợp.
  */
 
 import { reportService } from './reportService';
@@ -71,6 +73,7 @@ export const DEFAULT_COMPARISON_CONFIG: ComparisonConfig = {
 };
 
 const STORAGE_CONFIG_KEY = 'sdp_comparison_threshold_config';
+const STORAGE_OVERRIDES_KEY = 'sdp_specialty_custom_overrides';
 
 export function getComparisonThresholdConfig(): ComparisonConfig {
   try {
@@ -98,14 +101,46 @@ export function saveComparisonThresholdConfig(cfg: Partial<ComparisonConfig>): v
   }
 }
 
+// ───────────────── CUSTOM OVERRIDES QUẢN LÝ NHÓM THỦ CÔNG ─────────────────
+
+export function getSpecialtyOverrides(): Record<string, SpecialtyCode> {
+  try {
+    const raw = localStorage.getItem(STORAGE_OVERRIDES_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {
+    console.error('Error loading specialty overrides:', e);
+  }
+  return {};
+}
+
+export function saveSpecialtyOverride(tenKT: string, specialty: SpecialtyCode): void {
+  try {
+    const current = getSpecialtyOverrides();
+    const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
+    current[normKey] = specialty;
+    localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(current));
+  } catch (e) {
+    console.error('Error saving specialty override:', e);
+  }
+}
+
+export function removeSpecialtyOverride(tenKT: string): void {
+  try {
+    const current = getSpecialtyOverrides();
+    const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
+    delete current[normKey];
+    localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(current));
+  } catch (e) {
+    console.error('Error removing specialty override:', e);
+  }
+}
+
 // ───────────────── CẤU TRÚC KỲ PHÂN TÍCH ─────────────────
 
 export interface PeriodSpec {
   mode: 'single' | 'range';
-  // Single mode
   targetMonth: number;
   targetYear: number;
-  // Range mode
   fromMonth?: number;
   fromYear?: number;
   toMonth?: number;
@@ -114,14 +149,14 @@ export interface PeriodSpec {
 
 export interface PeriodMetadata {
   mode: 'single' | 'range';
-  currentLabel: string;        // e.g. "T7/2026" hoặc "T7-T9/2026"
-  prevLabel: string;           // e.g. "T6/2026" hoặc "T4-T6/2026"
-  samePeriodLabel: string;     // e.g. "T7/2025" hoặc "T7-T9/2025"
-  prevColTitle: string;        // "So tháng trước" hoặc "So kỳ trước"
-  subtitle: string;            // Phụ đề đầy đủ
-  exportFilename: string;      // Tên file Excel
-  hasSamePeriodData: boolean;  // True nếu có dữ liệu cùng kỳ
-  hasPrevData: boolean;        // True nếu có dữ liệu kỳ trước
+  currentLabel: string;
+  prevLabel: string;
+  samePeriodLabel: string;
+  prevColTitle: string;
+  subtitle: string;
+  exportFilename: string;
+  hasSamePeriodData: boolean;
+  hasPrevData: boolean;
 }
 
 export interface ComparisonAnalysisResult {
@@ -129,40 +164,29 @@ export interface ComparisonAnalysisResult {
   periodMeta: PeriodMetadata;
 }
 
-// ───────────────── PHÂN LOẠI CHUYÊN KHOA THÔNG MINH ─────────────────
+// ───────────────── PHÂN LOẠI CHUYÊN KHOA CHUẨN XÁC ─────────────────
 
-const KEYWORDS_MAT = [
-  'mộng', 'quặm', 'u mi', 'kết mạc', 'thể thủy tinh', 'thuy tinh the', 'giác mạc', 'giac mac',
-  'võng mạc', 'vong mac', 'glôcôm', 'glocom', 'cườm', 'nhãn cầu', 'nhan cau', 'lệ đạo', 'le dao',
-  'túi lệ', 'tui le', 'da mi', 'khâu mi', 'bóc mộng', 'tật khúc xạ', 'lasik', 'phaco', 'bệnh mắt',
-  'khoét củng mạc', 'cắt mống mắt', 'mắt'
-];
-
-const KEYWORDS_TMH = [
-  'amidan', 'a-mi-đan', 'v.a', 'va ', 'nạo va', 'vành tai', 'dái tai', 'u bã đậu dái tai', 'u nang vành tai',
-  'vách ngăn', 'vẹo vách ngăn', 'xoang', 'nội soi mũi xoang', 'thanh quản', 'hạt xơ thanh dây',
-  'polyp thanh quản', 'polyp mũi', 'màng nhĩ', 'vá nhĩ', 'viêm tai giữa', 'xương chũm',
-  'rò luân nhĩ', 'cầm máu mũi', 'tai mũi họng', 'tai-mũi-họng', 'thanh nhiệt', 'mũi', 'họng', 'tai '
-];
-
-const KEYWORDS_PHU_SAN = [
-  'lấy thai', 'mổ đẻ', 'thai ngoài tử cung', 'chửa ngoài tử cung', 'u nang buồng trứng', 'buồng trứng',
-  'cắt tử cung', 'tử cung', 'bóc nhân xơ tử cung', 'sa sinh dục', 'sa tử cung', 'chửa trứng',
-  'khâu vòng cổ tử cung', 'nạo hút thai', 'phá thai', 'soi cổ tử cung', 'vòi tử cung', 'phần phụ',
-  'tầng sinh môn', 'khâu tầng sinh môn', 'bóc u nang buồng trứng', 'thai ', 'sản khoa', 'phụ khoa'
-];
-
+/**
+ * Danh sách từ khóa đặc thù cho Chấn thương chỉnh hình
+ */
 const KEYWORDS_CTCH = [
-  'gãy xương', 'gay xuong', 'xương', 'xuong', 'kết hợp xương', 'ket hop xuong', 'tháo phương tiện',
-  'tháo nẹp', 'thao nep', 'rút đinh', 'rut dinh', 'tháo đinh', 'thao dinh', 'tháo vít', 'thao vit',
-  'nẹp vít', 'nep vit', 'đinh nội tủy', 'dinh noi tuy', 'xuyên kim', 'xuyen kim', 'kirschner',
+  // Xương & Gãy xương
+  'gãy xương', 'gay xuong', 'xương', 'xuong', 'kết hợp xương', 'ket hop xuong', 'khx',
+  'tháo phương tiện', 'tháo nẹp', 'thao nep', 'rút đinh', 'rut dinh', 'tháo đinh', 'thao dinh',
+  'tháo vít', 'thao vit', 'nẹp vít', 'nep vit', 'đinh nội tủy', 'dinh noi tuy', 'xuyên kim', 'xuyen kim', 'kirschner',
+  // Khớp & Dây chằng
   'khớp', 'khop', 'khớp háng', 'khop hang', 'khớp gối', 'khop goi', 'khớp vai', 'khop vai',
   'khớp cổ chân', 'khop co chan', 'khớp khuỷu', 'khop khuyu', 'khớp cổ tay', 'khop co tay',
   'dây chằng', 'day chang', 'tái tạo dây chằng', 'tai tao day chang', 'sụn chêm', 'sun chem',
   'nội soi khớp', 'noi soi khop', 'trật khớp', 'trat khop', 'thay khớp', 'thay khop',
+  // Ngón tay & Ngón chân & Đốt bàn & Mắt cá
+  'ngón tay', 'ngon tay', 'ngón chân', 'ngon chan', 'đốt bàn', 'dot ban', 'đốt ngón', 'dot ngon',
+  'tháo bỏ các ngón', 'tháo ngón', 'tháo đốt', 'thao dot', 'thao ngon', 'cắt cụt ngón', 'mỏm cụt', 'mom cut',
+  'mắt cá', 'mat ca', 'mắt cá cổ chân', 'mắt cá trong', 'mắt cá ngoài',
+  // Gân & Cơ & Chi
   'đứt gân', 'dut gan', 'gân', 'gan ', 'nối gân', 'noi gan', 'chuyển gân', 'chuyen gan',
   'bao hoạt dịch', 'nang bao hoạt dịch', 'ống cổ tay', 'ong co tay', 'ngón tay lò xo', 'ngon tay co sung',
-  'ngón tay cò súng', 'cắt cụt', 'tháo ngón', 'tháo đốt', 'bó bột', 'nắn chỉnh', 'chỉnh hình',
+  'ngón tay cò súng', 'cắt cụt', 'bó bột', 'nắn chỉnh', 'chỉnh hình',
   'khuyết hổng phần mềm chi', 'viêm xương tủy', 'xương đòn', 'xương cánh tay', 'xương cẳng tay',
   'xương quay', 'xương trụ', 'xương đùi', 'xương bánh chè', 'xương chày', 'xương mác', 'xương gót'
 ];
@@ -178,51 +202,70 @@ function toSearchString(str: string): string {
     .trim();
 }
 
+/**
+ * Phân loại một ca phẫu thuật:
+ * 1. Override do người dùng chỉnh
+ * 2. Khoa của Bác sĩ phẫu thuật chính (Sản => Phụ sản, TMH => TMH, Mắt => Mắt)
+ * 3. Còn lại => Phân vào CTCH nếu khớp từ khóa xương/khớp/ngón, ngược lại => Ngoại tổng hợp
+ */
 export function classifySpecialty(
   tenKT: string,
   ptChinhName?: string,
-  staffList?: StaffMember[]
+  staffList?: StaffMember[],
+  customOverrides?: Record<string, SpecialtyCode>
 ): SpecialtyCode {
-  const normKT = toSearchString(tenKT);
+  const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
 
-  for (const kw of KEYWORDS_MAT) {
-    if (normKT.includes(toSearchString(kw))) return 'mat';
+  // 1. Kiểm tra User Override
+  const overrides = customOverrides || getSpecialtyOverrides();
+  if (overrides[normKey]) {
+    return overrides[normKey];
   }
 
-  for (const kw of KEYWORDS_TMH) {
-    if (normKT.includes(toSearchString(kw))) return 'tmh';
-  }
-
-  for (const kw of KEYWORDS_PHU_SAN) {
-    if (normKT.includes(toSearchString(kw))) return 'phu_san';
-  }
-
+  // 2. Tìm Khoa của Bác sĩ phẫu thuật chính
   if (ptChinhName && staffList && staffList.length > 0) {
     const cleanDoc = ptChinhName.trim().toLowerCase();
-    const docStaff = staffList.find(s => s.name.trim().toLowerCase() === cleanDoc);
-    if (docStaff && docStaff.department) {
-      const deptNorm = toSearchString(docStaff.department);
-      if (deptNorm.includes('mat')) return 'mat';
-      if (deptNorm.includes('tai mui hong') || deptNorm.includes('tmh')) return 'tmh';
-      if (deptNorm.includes('san') || deptNorm.includes('phu san')) return 'phu_san';
-    }
-  }
+    const docStaff = staffList.find(s => {
+      const sName = s.name.trim().toLowerCase();
+      return cleanDoc === sName || cleanDoc.includes(sName) || sName.includes(cleanDoc);
+    });
 
-  for (const kw of KEYWORDS_CTCH) {
-    if (normKT.includes(toSearchString(kw))) return 'ctch';
-  }
-
-  if (ptChinhName && staffList && staffList.length > 0) {
-    const cleanDoc = ptChinhName.trim().toLowerCase();
-    const docStaff = staffList.find(s => s.name.trim().toLowerCase() === cleanDoc);
     if (docStaff && docStaff.department) {
-      const deptNorm = toSearchString(docStaff.department);
-      if (deptNorm.includes('chan thuong') || deptNorm.includes('ctch') || deptNorm.includes('chinh hinh')) {
+      const dept = docStaff.department.trim().toLowerCase();
+      const deptNorm = toSearchString(dept);
+
+      // Khoa Phụ sản => Phụ sản
+      if (deptNorm.includes('san') || deptNorm.includes('phu san') || dept.includes('sản')) {
+        return 'phu_san';
+      }
+
+      // Khoa Tai Mũi Họng => Tai Mũi Họng
+      if (deptNorm.includes('tai mui hong') || dept.includes('tmh') || deptNorm.includes('tai mui')) {
+        return 'tmh';
+      }
+
+      // Khoa Mắt => Mắt
+      if (dept.includes('mắt') || dept.includes('mat') || deptNorm.includes('khoa mat')) {
+        return 'mat';
+      }
+
+      // Khoa Chấn thương chỉnh hình => CTCH
+      if (deptNorm.includes('chan thuong') || dept.includes('ctch') || deptNorm.includes('chinh hinh')) {
         return 'ctch';
       }
     }
   }
 
+  // 3. Phân định giữa CTCH và Ngoại tổng hợp dựa trên từ khóa kỹ thuật
+  const normKT = toSearchString(tenKT);
+
+  for (const kw of KEYWORDS_CTCH) {
+    if (normKT.includes(toSearchString(kw))) {
+      return 'ctch';
+    }
+  }
+
+  // Mặc định các phẫu thuật ngoại khoa còn lại thuộc Ngoại tổng hợp
   return 'ngoai_th';
 }
 
@@ -232,9 +275,6 @@ function daysInMonth(month: number, year: number): number {
   return new Date(year, month, 0).getDate();
 }
 
-/**
- * Lấy danh sách bản ghi trong một khoảng ngày ISO
- */
 async function getRecordsBetweenDates(dateFrom: string, dateTo: string): Promise<PersistedSurgeryRecord[]> {
   try {
     const [monthly, daily] = await Promise.all([
@@ -250,9 +290,6 @@ async function getRecordsBetweenDates(dateFrom: string, dateTo: string): Promise
   }
 }
 
-/**
- * Tính toán mốc thời gian và nhãn cho 3 kỳ phân tích
- */
 export function computePeriodDefinitions(spec: PeriodSpec, config: ComparisonConfig): {
   currentDateFrom: string;
   currentDateTo: string;
@@ -315,21 +352,17 @@ export function computePeriodDefinitions(spec: PeriodSpec, config: ComparisonCon
       },
     };
   } else {
-    // Range mode
     const fromM = spec.fromMonth || 1;
     const fromY = spec.fromYear || spec.targetYear || new Date().getFullYear();
     const toM = spec.toMonth || fromM;
     const toY = spec.toYear || fromY;
 
-    // Tổng số tháng K
     const kMonths = (toY - fromY) * 12 + (toM - fromM) + 1;
 
-    // 1. Kỳ hiện tại
     const currentLastDay = daysInMonth(toM, toY);
     const currentDateFrom = `${fromY}-${String(fromM).padStart(2, '0')}-01T00:00:00.000Z`;
     const currentDateTo = `${toY}-${String(toM).padStart(2, '0')}-${String(currentLastDay).padStart(2, '0')}T23:59:59.999Z`;
 
-    // 2. Kỳ trước (Lùi kMonths tháng từ trước fromM/fromY)
     let prevEndM = fromM - 1;
     let prevEndY = fromY;
     if (prevEndM === 0) {
@@ -345,7 +378,6 @@ export function computePeriodDefinitions(spec: PeriodSpec, config: ComparisonCon
     const prevDateFrom = `${prevStartY}-${String(prevStartM).padStart(2, '0')}-01T00:00:00.000Z`;
     const prevDateTo = `${prevEndY}-${String(prevEndM).padStart(2, '0')}-${String(prevLastDay).padStart(2, '0')}T23:59:59.999Z`;
 
-    // 3. Cùng kỳ năm trước (Cùng khoảng fromM..toM của năm trước)
     const samePeriodStartY = fromY - 1;
     const samePeriodEndY = toY - 1;
     const samePeriodLastDay = daysInMonth(toM, samePeriodEndY);
@@ -353,7 +385,6 @@ export function computePeriodDefinitions(spec: PeriodSpec, config: ComparisonCon
     const samePeriodDateFrom = `${samePeriodStartY}-${String(fromM).padStart(2, '0')}-01T00:00:00.000Z`;
     const samePeriodDateTo = `${samePeriodEndY}-${String(toM).padStart(2, '0')}-${String(samePeriodLastDay).padStart(2, '0')}T23:59:59.999Z`;
 
-    // Nhãn hiển thị
     const formatRangeLabel = (startM: number, startY: number, endM: number, endY: number) => {
       if (startM === endM && startY === endY) {
         return `T${startM}/${startY}`;
@@ -393,18 +424,16 @@ export function computePeriodDefinitions(spec: PeriodSpec, config: ComparisonCon
   }
 }
 
-/**
- * Lấy dữ liệu phân tích so sánh đầy đủ (hỗ trợ cả Tháng và Khoảng)
- */
 export async function getSpecialtyComparisonData(
   periodSpec: PeriodSpec,
   staffList: StaffMember[],
-  thresholdConfig?: ComparisonConfig
+  thresholdConfig?: ComparisonConfig,
+  customOverrides?: Record<string, SpecialtyCode>
 ): Promise<ComparisonAnalysisResult> {
   const config = thresholdConfig || getComparisonThresholdConfig();
+  const overrides = customOverrides || getSpecialtyOverrides();
   const defs = computePeriodDefinitions(periodSpec, config);
 
-  // Lấy dữ liệu 3 kỳ song song
   const [currentRecords, prevRecords, samePeriodRecords] = await Promise.all([
     getRecordsBetweenDates(defs.currentDateFrom, defs.currentDateTo),
     getRecordsBetweenDates(defs.prevDateFrom, defs.prevDateTo),
@@ -431,7 +460,7 @@ export async function getSpecialtyComparisonData(
     period: 'current' | 'prev' | 'samePeriod'
   ) => {
     if (!r.tenKT) return;
-    const specialty = classifySpecialty(r.tenKT, r.ptChinh, staffList);
+    const specialty = classifySpecialty(r.tenKT, r.ptChinh, staffList, overrides);
     const normName = r.tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
     const key = `${specialty}:::${normName}`;
 
@@ -462,19 +491,16 @@ export async function getSpecialtyComparisonData(
     const prev = item.prev;
     const same = item.samePeriod;
 
-    // Tính % so kỳ trước
     let prevChangePct: number | null = null;
     if (prev > 0) {
       prevChangePct = ((cur - prev) / prev) * 100;
     }
 
-    // Tính % so cùng kỳ (chỉ tính khi có dữ liệu cùng kỳ)
     let samePeriodChangePct: number | null = null;
     if (hasSamePeriodData && same > 0) {
       samePeriodChangePct = ((cur - same) / same) * 100;
     }
 
-    // Đánh giá Nhận định & Ghi chú
     let status: ComparisonStatus = 'NORMAL';
     let statusLabel: 'CẢNH BÁO' | 'TÍCH CỰC' | 'ỔN ĐỊNH' = 'ỔN ĐỊNH';
     let note = '';
@@ -482,28 +508,21 @@ export async function getSpecialtyComparisonData(
     const alertThreshold = config.alertThreshold;
     const positiveThreshold = config.positiveThreshold;
 
-    // 1. Không phát sinh trong kỳ hiện tại
     if (cur === 0 && (prev > 0 || (hasSamePeriodData && same > 0))) {
       status = 'ALERT';
       statusLabel = 'CẢNH BÁO';
       note = `Không phát sinh trong ${defs.meta.currentLabel}`;
-    }
-    // 2. Mới phát sinh trong kỳ hiện tại
-    else if (cur > 0 && prev === 0 && (!hasSamePeriodData || same === 0)) {
+    } else if (cur > 0 && prev === 0 && (!hasSamePeriodData || same === 0)) {
       status = 'POSITIVE';
       statusLabel = 'TÍCH CỰC';
       note = `Mới phát sinh trong ${defs.meta.currentLabel}`;
-    }
-    // 3. CẢNH BÁO: Giảm >= ngưỡng ở kỳ trước HOẶC cùng kỳ
-    else if (
+    } else if (
       (prevChangePct !== null && prevChangePct <= -alertThreshold) ||
       (hasSamePeriodData && samePeriodChangePct !== null && samePeriodChangePct <= -alertThreshold)
     ) {
       status = 'ALERT';
       statusLabel = 'CẢNH BÁO';
-    }
-    // 4. TÍCH CỰC: Tăng >= ngưỡng ở kỳ trước HOẶC cùng kỳ
-    else if (
+    } else if (
       (prevChangePct !== null && prevChangePct >= positiveThreshold) ||
       (hasSamePeriodData && samePeriodChangePct !== null && samePeriodChangePct >= positiveThreshold)
     ) {
@@ -528,7 +547,6 @@ export async function getSpecialtyComparisonData(
     });
   });
 
-  // Gom theo từng Chuyên khoa và sắp xếp: ALERT -> POSITIVE -> NORMAL
   const groups: SpecialtyReportGroup[] = SPECIALTIES.map(spec => {
     const rows = allRows
       .filter(r => r.specialty === spec.code)
