@@ -83,6 +83,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
   // Metric mode: 'count' (Số lượng) | 'revenue' (Viện phí)
   const [metricMode, setMetricMode] = useState<'count' | 'revenue'>('count');
+  const [fullMoneyFormat, setFullMoneyFormat] = useState(false);
 
   // Download menu dropdown state
   const [openDownloadMenu, setOpenDownloadMenu] = useState<boolean>(false);
@@ -469,6 +470,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
   const fmtMoney = (amount: number | null | undefined) => {
     if (!amount || amount === 0) return '0 ₫';
+    if (fullMoneyFormat) {
+      return `${amount.toLocaleString('vi-VN')} ₫`;
+    }
     if (Math.abs(amount) >= 1_000_000_000) {
       return `${(amount / 1_000_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} tỷ`;
     }
@@ -689,6 +693,23 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <span>Viện phí</span>
               </button>
             </div>
+
+            {/* Toggle Full Money Format (chỉ hiện khi metricMode = revenue) */}
+            {metricMode === 'revenue' && (
+              <button
+                type="button"
+                onClick={() => setFullMoneyFormat(prev => !prev)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+                  fullMoneyFormat
+                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                }`}
+                title={fullMoneyFormat ? 'Đang hiện số tiền đầy đủ. Bấm để rút gọn.' : 'Đang hiện số tiền rút gọn. Bấm để hiện đầy đủ.'}
+              >
+                {fullMoneyFormat ? <ToggleRight className="h-4 w-4 text-emerald-600" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                <span>{fullMoneyFormat ? 'Số tiền đầy đủ' : 'Số tiền rút gọn'}</span>
+              </button>
+            )}
 
             {/* Toggle Show Absolute Diff */}
             <button

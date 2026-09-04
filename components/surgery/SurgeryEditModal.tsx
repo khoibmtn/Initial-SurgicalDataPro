@@ -147,7 +147,7 @@ function computeDurationMinutes(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Subcomponent: DateTimeField — Nhóm Ngày (type="date") + Giờ (type="time")
+// Subcomponent: DateTimeField — Nhóm Ngày (type="date") + Giờ (text HH:mm 24h)
 // ─────────────────────────────────────────────────────────────────────────────
 interface DateTimeFieldProps {
   label: string;
@@ -168,12 +168,58 @@ const DateTimeField: React.FC<DateTimeFieldProps> = ({
   onEscRevert,
   required = false,
 }) => {
+  const [localTime, setLocalTime] = useState(timeValue);
+  const timeInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync khi prop thay đổi từ bên ngoài (ESC revert, initial load)
+  useEffect(() => {
+    setLocalTime(timeValue);
+  }, [timeValue]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
       onEscRevert?.();
     }
+  };
+
+  /** Validate và format chuỗi HH:mm, trả về chuỗi hợp lệ hoặc null */
+  const parseTimeInput = (raw: string): string | null => {
+    const cleaned = raw.replace(/[^\d:]/g, '');
+    // Thử match HH:mm
+    const match = cleaned.match(/^(\d{1,2}):?(\d{0,2})$/);
+    if (!match) return null;
+    let hh = parseInt(match[1], 10);
+    let mm = match[2] ? parseInt(match[2], 10) : 0;
+    if (isNaN(hh) || hh < 0 || hh > 23) return null;
+    if (isNaN(mm) || mm < 0 || mm > 59) return null;
+    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  };
+
+  const handleTimeBlur = () => {
+    const parsed = parseTimeInput(localTime);
+    if (parsed) {
+      setLocalTime(parsed);
+      if (parsed !== timeValue) {
+        onTimeChange(parsed);
+      }
+    } else if (localTime.trim() === '') {
+      // Cho phép xoá trống
+      setLocalTime('');
+      onTimeChange('');
+    } else {
+      // Không hợp lệ → revert
+      setLocalTime(timeValue);
+    }
+  };
+
+  const handleTimeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      (e.target as HTMLInputElement).blur();
+    }
+    handleKeyDown(e);
   };
 
   return (
@@ -193,12 +239,16 @@ const DateTimeField: React.FC<DateTimeFieldProps> = ({
         <span className="text-gray-300 font-light select-none">|</span>
         <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
         <input
-          type="time"
-          value={timeValue}
-          onChange={e => onTimeChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="text-xs bg-transparent border-0 outline-none text-gray-800 font-medium w-[4.5rem] cursor-pointer"
-          step="60"
+          ref={timeInputRef}
+          type="text"
+          inputMode="numeric"
+          value={localTime}
+          onChange={e => setLocalTime(e.target.value)}
+          onBlur={handleTimeBlur}
+          onKeyDown={handleTimeKeyDown}
+          placeholder="HH:mm"
+          maxLength={5}
+          className="text-xs bg-transparent border-0 outline-none text-gray-800 font-medium w-12 font-mono text-center"
         />
       </div>
     </div>
