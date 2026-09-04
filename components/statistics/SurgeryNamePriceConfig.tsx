@@ -175,12 +175,12 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
 
   // Advanced filter states
   const [showFilters, setShowFilters] = useState(false);
-  const [hideCostItems, setHideCostItems] = useState(false);
-  const [filterHasPrice, setFilterHasPrice] = useState(false);
+  const [validityMode, setValidityMode] = useState<'all' | 'active' | 'expired' | 'range'>('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
-  const [filterCurrentlyValid, setFilterCurrentlyValid] = useState(false);
+  const [priceMode, setPriceMode] = useState<'all' | 'has_price' | 'zero_price' | 'custom'>('all');
   const [filterPrice, setFilterPrice] = useState('');
+  const [hideCostItems, setHideCostItems] = useState(false);
   const [filterProfile, setFilterProfile] = useState('');
   const [showExcelMenu, setShowExcelMenu] = useState(false);
 
@@ -203,6 +203,32 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
     setTimeout(() => setToast(null), 4000);
   };
 
+  // Helper kiểm tra ngày yyyy-mm-dd hợp lệ
+  const isValidDateString = (s: string): boolean => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const d = new Date(s);
+    return !isNaN(d.getTime());
+  };
+
+  const isFilterActive =
+    validityMode !== 'all' ||
+    (validityMode === 'range' && Boolean(filterDateFrom || filterDateTo)) ||
+    priceMode !== 'all' ||
+    (priceMode === 'custom' && Boolean(filterPrice.trim())) ||
+    hideCostItems ||
+    Boolean(filterProfile);
+
+  const handleResetFilters = () => {
+    setValidityMode('all');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+    setPriceMode('all');
+    setFilterPrice('');
+    setHideCostItems(false);
+    setFilterProfile('');
+    setPage(0);
+  };
+
   // --- Filter + Sort + Paginate (redesigned) ---
   const filtered = useMemo(() => {
     let result = surgeryNamePrices;
@@ -217,43 +243,49 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
       );
     }
 
-    // Filter: chỉ DM chưa có giá
-    if (filterZeroPrice) {
-      result = result.filter(p => p.price === 0);
-    }
-
-    // Filter: chỉ DM có giá > 0
-    if (filterHasPrice) {
+    // 1. Filter: Giá theo priceMode
+    if (priceMode === 'has_price') {
       result = result.filter(p => p.price > 0);
+    } else if (priceMode === 'zero_price') {
+      result = result.filter(p => p.price === 0);
+    } else if (priceMode === 'custom' && filterPrice.trim()) {
+      const priceFn = parsePriceFilter(filterPrice);
+      if (priceFn) {
+        result = result.filter(p => priceFn(p.price));
+      }
     }
 
-    // Filter: ẩn DM đã có trong DM chi phí
-    if (hideCostItems) {
-      result = result.filter(p => !costRefIds.has(p.id));
-    }
-
-    // Filter: hiệu lực theo ngày
-    if (filterCurrentlyValid) {
+    // 2. Filter: Hiệu lực theo validityMode
+    if (validityMode === 'active') {
       result = result.filter(p => {
         if (p.effectiveFrom && p.effectiveFrom > today) return false;
         if (p.effectiveTo && p.effectiveTo < today) return false;
         return true;
       });
-    }
-    if (filterDateFrom) {
-      result = result.filter(p => !p.effectiveTo || p.effectiveTo >= filterDateFrom);
-    }
-    if (filterDateTo) {
-      result = result.filter(p => !p.effectiveFrom || p.effectiveFrom <= filterDateTo);
+    } else if (validityMode === 'expired') {
+      result = result.filter(p => Boolean(p.effectiveTo && p.effectiveTo < today));
+    } else if (validityMode === 'range') {
+      // Khi 2 ô trống => coi như hiển thị tất cả. Nếu có ngày hợp lệ => lọc tức thì.
+      const hasFrom = isValidDateString(filterDateFrom);
+      const hasTo = isValidDateString(filterDateTo);
+
+      if (hasFrom && hasTo) {
+        const fromD = filterDateFrom <= filterDateTo ? filterDateFrom : filterDateTo;
+        const toD = filterDateFrom <= filterDateTo ? filterDateTo : filterDateFrom;
+        result = result.filter(p => (!p.effectiveTo || p.effectiveTo >= fromD) && (!p.effectiveFrom || p.effectiveFrom <= toD));
+      } else if (hasFrom) {
+        result = result.filter(p => !p.effectiveTo || p.effectiveTo >= filterDateFrom);
+      } else if (hasTo) {
+        result = result.filter(p => !p.effectiveFrom || p.effectiveFrom <= filterDateTo);
+      }
     }
 
-    // Filter: đơn giá (parse operator)
-    const priceFn = parsePriceFilter(filterPrice);
-    if (priceFn) {
-      result = result.filter(p => priceFn(p.price));
+    // 3. Filter: ẩn DM đã có trong DM chi phí
+    if (hideCostItems) {
+      result = result.filter(p => !costRefIds.has(p.id));
     }
 
-    // Filter: profile
+    // 4. Filter: profile
     if (filterProfile && profiles.length > 0) {
       const prof = profiles.find(pr => pr.id === filterProfile);
       if (prof) {
@@ -271,7 +303,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return result;
-  }, [surgeryNamePrices, searchTerm, filterZeroPrice, filterHasPrice, hideCostItems, filterCurrentlyValid, filterDateFrom, filterDateTo, filterPrice, filterProfile, profiles, costRefIds, sortField, sortDir]);
+  }, [surgeryNamePrices, searchTerm, priceMode, filterPrice, validityMode, filterDateFrom, filterDateTo, hideCostItems, filterProfile, profiles, costRefIds, sortField, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -672,79 +704,197 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           <button
             onClick={() => setShowFilters(v => !v)}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border rounded-lg transition-colors whitespace-nowrap ${
-              showFilters || hideCostItems || filterHasPrice || filterCurrentlyValid || filterDateFrom || filterDateTo || filterPrice || filterProfile
-                ? 'border-primary-400 bg-primary-50 text-primary-700'
+              showFilters || isFilterActive
+                ? 'border-primary-400 bg-primary-50 text-primary-700 font-bold'
                 : 'border-gray-300 text-gray-500 hover:bg-gray-50'
             }`}
           >
             <Filter className="h-3.5 w-3.5" />
             Bộ lọc
+            {isFilterActive && (
+              <span className="w-1.5 h-1.5 rounded-full bg-primary-600 animate-pulse" />
+            )}
           </button>
         </InstantTooltip>
       </div>
 
       {/* Advanced Filter Panel */}
       {showFilters && (
-        <div className="bg-gray-50/80 border border-gray-200 rounded-xl p-3 space-y-3">
-          <div className="flex flex-wrap items-end gap-3">
-            {/* Hiệu lực */}
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs">
-                <input type="checkbox" checked={filterCurrentlyValid} onChange={e => { setFilterCurrentlyValid(e.target.checked); setPage(0); }} className="rounded border-gray-300 text-primary-600" />
-                <span className="font-semibold text-gray-600">Còn hiệu lực</span>
-              </label>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-gray-500 font-semibold">Từ:</span>
-              <input type="date" value={filterDateFrom} onChange={e => { setFilterDateFrom(e.target.value); setPage(0); }} className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none" />
-              <span className="text-[10px] text-gray-500 font-semibold">Đến:</span>
-              <input type="date" value={filterDateTo} onChange={e => { setFilterDateTo(e.target.value); setPage(0); }} className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none" />
+        <div className="bg-gray-50/90 border border-gray-200 rounded-xl p-3 space-y-3 animate-fade-in shadow-2xs">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 1. Combobox Hiệu lực: Tất cả / Còn hiệu lực / Hết hiệu lực / Khoảng hiệu lực */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={validityMode}
+                onChange={e => {
+                  setValidityMode(e.target.value as any);
+                  setPage(0);
+                }}
+                className="px-2.5 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none bg-white text-gray-700 shadow-2xs"
+                title="Lọc theo tình trạng hiệu lực"
+              >
+                <option value="all">Hiệu lực: Tất cả</option>
+                <option value="active">Còn hiệu lực</option>
+                <option value="expired">Hết hiệu lực</option>
+                <option value="range">Khoảng hiệu lực...</option>
+              </select>
+
+              {/* Khi chọn 'Khoảng hiệu lực' mới hiển thị 2 ô Từ ... Đến */}
+              {validityMode === 'range' && (
+                <div className="flex items-center gap-1.5 animate-fade-in">
+                  <span className="text-[10px] text-gray-500 font-semibold">Từ:</span>
+                  <input
+                    type="date"
+                    value={filterDateFrom}
+                    max={filterDateTo || undefined}
+                    onChange={e => { setFilterDateFrom(e.target.value); setPage(0); }}
+                    className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none bg-white shadow-2xs"
+                    title="Hiệu lực từ ngày (bỏ trống = từ trước tới nay)"
+                  />
+                  <span className="text-[10px] text-gray-500 font-semibold">Đến:</span>
+                  <input
+                    type="date"
+                    value={filterDateTo}
+                    min={filterDateFrom || undefined}
+                    onChange={e => { setFilterDateTo(e.target.value); setPage(0); }}
+                    className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none bg-white shadow-2xs"
+                    title="Hiệu lực đến ngày (bỏ trống = đến hiện tại/tương lai)"
+                  />
+                  {(filterDateFrom || filterDateTo) && (
+                    <button
+                      onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setPage(0); }}
+                      className="text-gray-400 hover:text-gray-600 text-xs px-0.5"
+                      title="Xóa ngày"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Đơn giá */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-gray-500 font-semibold">Giá:</span>
+            <div className="h-4 w-px bg-gray-300 hidden sm:block" />
+
+            {/* 2. Toggle chuyển đổi trạng thái Giá: Tất cả / Có giá / Chưa có giá / Khoảng giá */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center p-0.5 bg-gray-200/80 rounded-lg text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => { setPriceMode('all'); setPage(0); }}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    priceMode === 'all'
+                      ? 'bg-white text-gray-800 shadow-2xs font-bold'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                >
+                  Tất cả
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPriceMode('has_price'); setPage(0); }}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    priceMode === 'has_price'
+                      ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                  title="Chỉ hiện danh mục có đơn giá > 0"
+                >
+                  Có giá
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPriceMode('zero_price'); setPage(0); }}
+                  className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
+                    priceMode === 'zero_price'
+                      ? 'bg-white text-amber-700 shadow-2xs font-bold'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                  title="Chỉ hiện danh mục chưa có giá (đơn giá = 0)"
+                >
+                  Chưa có giá
+                  {zeroPriceCount > 0 && (
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                      priceMode === 'zero_price' ? 'bg-amber-100 text-amber-800' : 'bg-gray-300 text-gray-700'
+                    }`}>
+                      {zeroPriceCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPriceMode('custom'); setPage(0); }}
+                  className={`px-2.5 py-1 rounded-md transition-all ${
+                    priceMode === 'custom'
+                      ? 'bg-white text-indigo-700 shadow-2xs font-bold'
+                      : 'text-gray-500 hover:text-gray-800'
+                  }`}
+                  title="Lọc theo khoảng giá hoặc toán tử tự nhập"
+                >
+                  Khoảng giá
+                </button>
+              </div>
+
+              {/* Khi chọn 'Khoảng giá' mới hiển thị box nhập khoảng giá */}
+              {priceMode === 'custom' && (
+                <div className="flex items-center gap-1.5 animate-fade-in">
+                  <input
+                    type="text"
+                    value={filterPrice}
+                    onChange={e => { setFilterPrice(e.target.value); setPage(0); }}
+                    placeholder=">500000, 500k-1tr..."
+                    autoFocus
+                    className="w-36 px-2.5 py-1 text-xs border border-indigo-300 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none font-mono bg-white shadow-2xs"
+                    title="Gõ toán tử: >500000, >500k, <=1tr, =500k, hoặc khoảng: 500k-1tr"
+                  />
+                  {filterPrice && (
+                    <button
+                      onClick={() => { setFilterPrice(''); setPage(0); }}
+                      className="text-gray-400 hover:text-gray-600 text-xs px-0.5"
+                      title="Xóa giá"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="h-4 w-px bg-gray-300 hidden sm:block" />
+
+            {/* 3. Checkbox Ẩn DM CP */}
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" title="Ẩn những danh mục đã được thêm vào DM Chi phí PTTT.">
               <input
-                type="text"
-                value={filterPrice}
-                onChange={e => { setFilterPrice(e.target.value); setPage(0); }}
-                placeholder=">500000, 500k-1tr"
-                className="w-32 px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none font-mono"
-                title="Gõ toán tử: >500000, <=1000000, =500000, hoặc khoảng: 500000-1000000"
+                type="checkbox"
+                checked={hideCostItems}
+                onChange={e => { setHideCostItems(e.target.checked); setPage(0); }}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
-            </div>
-
-            {/* Checkboxes */}
-            <label className="flex items-center gap-1.5 text-xs cursor-pointer" title="Chỉ hiện danh mục có đơn giá > 0">
-              <input type="checkbox" checked={filterHasPrice} onChange={e => { setFilterHasPrice(e.target.checked); setFilterZeroPrice(false); setPage(0); }} className="rounded border-gray-300 text-emerald-600" />
-              <span className="font-semibold text-gray-600">Có giá</span>
-            </label>
-            <label className="flex items-center gap-1.5 text-xs cursor-pointer" title="Chỉ hiện danh mục chưa có giá (giá = 0)">
-              <input type="checkbox" checked={filterZeroPrice} onChange={e => { setFilterZeroPrice(e.target.checked); setFilterHasPrice(false); setPage(0); }} className="rounded border-gray-300 text-amber-600" />
-              <span className="font-semibold text-gray-600">Chưa có giá</span>
-              {zeroPriceCount > 0 && <span className="bg-amber-200 text-amber-800 px-1 py-0.5 rounded-full text-[9px] font-bold">{zeroPriceCount}</span>}
-            </label>
-            <label className="flex items-center gap-1.5 text-xs cursor-pointer" title="Ẩn những danh mục đã được thêm vào DM Chi phí PTTT. Bỏ check để hiển thị đầy đủ.">
-              <input type="checkbox" checked={hideCostItems} onChange={e => { setHideCostItems(e.target.checked); setPage(0); }} className="rounded border-gray-300 text-blue-600" />
               <span className="font-semibold text-gray-600">Ẩn DM CP</span>
             </label>
 
-            {/* Profile */}
+            {/* 4. Dropdown Profile */}
             {profiles.length > 0 && (
-              <select value={filterProfile} onChange={e => { setFilterProfile(e.target.value); setPage(0); }} className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none" title="Lọc theo profile nhóm kỹ thuật">
+              <select
+                value={filterProfile}
+                onChange={e => { setFilterProfile(e.target.value); setPage(0); }}
+                className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none bg-white text-gray-700 shadow-2xs font-medium"
+                title="Lọc theo profile nhóm kỹ thuật"
+              >
                 <option value="">-- Profile --</option>
                 {profiles.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
               </select>
             )}
 
-            {/* Reset all filters */}
-            <button
-              onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCurrentlyValid(false); setFilterHasPrice(false); setFilterZeroPrice(false); setHideCostItems(false); setFilterPrice(''); setFilterProfile(''); setPage(0); }}
-              className="text-[10px] text-red-500 hover:text-red-700 font-semibold cursor-pointer"
-              title="Xóa tất cả bộ lọc"
-            >
-              Xóa lọc
-            </button>
+            {/* 5. Reset all filters button */}
+            {isFilterActive && (
+              <button
+                onClick={handleResetFilters}
+                className="text-xs text-red-500 hover:text-red-700 font-semibold cursor-pointer ml-auto flex items-center gap-1 transition-colors px-2 py-1 rounded-md hover:bg-red-50"
+                title="Xóa tất cả bộ lọc về mặc định"
+              >
+                ✕ Xóa lọc
+              </button>
+            )}
           </div>
         </div>
       )}
