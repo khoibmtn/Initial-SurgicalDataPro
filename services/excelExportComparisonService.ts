@@ -7,7 +7,7 @@
  */
 
 import ExcelJS from 'exceljs';
-import { SpecialtyReportGroup, ComparisonConfig, PeriodMetadata, ComparisonRow } from './specialtyComparisonService';
+import { SpecialtyReportGroup, ComparisonConfig, PeriodMetadata, ComparisonRow, FinancialCategory, CostSubtype } from './specialtyComparisonService';
 
 const FONT_NAME = 'Times New Roman';
 
@@ -30,17 +30,174 @@ const fmtDiffStr = (val: number | null) => {
   return `${sign}${val}`;
 };
 
+function getFinancialLabel(financialCategory: FinancialCategory = 'revenue', costSubtype: CostSubtype = 'all'): string {
+  if (financialCategory === 'revenue') return 'Viện phí';
+  if (financialCategory === 'profit') return 'Lợi nhuận';
+  if (costSubtype === 'medic') return 'CP Thuốc';
+  if (costSubtype === 'vtth') return 'CP VTTH';
+  if (costSubtype === 'labor') return 'CP Nhân công';
+  return 'Tổng Chi phí';
+}
+
+function getExportRowMetrics(
+  r: ComparisonRow,
+  isRev: boolean,
+  financialCategory: FinancialCategory = 'revenue',
+  costSubtype: CostSubtype = 'all',
+  hasSamePeriodData: boolean = true
+) {
+  if (!isRev) {
+    return {
+      cur: r.currentCount,
+      prev: r.prevCount,
+      diff: r.prevDiff,
+      pct: r.prevChangePct,
+      same: hasSamePeriodData ? r.samePeriodCount : null,
+      sameDiff: r.samePeriodDiff,
+      samePct: r.samePeriodChangePct,
+      isValid: true,
+    };
+  }
+
+  if (financialCategory === 'revenue') {
+    return {
+      cur: r.currentRevenue,
+      prev: r.prevRevenue,
+      diff: r.prevRevenueDiff,
+      pct: r.prevRevenueChangePct,
+      same: hasSamePeriodData ? r.samePeriodRevenue : null,
+      sameDiff: r.samePeriodRevenueDiff,
+      samePct: r.samePeriodRevenueChangePct,
+      isValid: true,
+    };
+  }
+
+  if (financialCategory === 'profit') {
+    const isValid = r.hasCostConfig;
+    const cur = isValid ? r.currentProfit : 0;
+    const prev = isValid ? r.prevProfit : 0;
+    const diff = cur - prev;
+    const pct = prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+    const same = hasSamePeriodData && isValid ? r.samePeriodProfit : null;
+    const sameDiff = hasSamePeriodData && isValid ? (cur - (r.samePeriodProfit || 0)) : null;
+    const samePct = (hasSamePeriodData && isValid && (r.samePeriodProfit || 0) !== 0)
+      ? ((cur - (r.samePeriodProfit || 0)) / Math.abs(r.samePeriodProfit)) * 100
+      : null;
+    return { cur, prev, diff, pct, same, sameDiff, samePct, isValid };
+  }
+
+  // Cost
+  if (costSubtype === 'labor') {
+    const cur = r.currentLaborCost;
+    const prev = r.prevLaborCost;
+    const diff = cur - prev;
+    const pct = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+    const same = hasSamePeriodData ? r.samePeriodLaborCost : null;
+    const sameDiff = hasSamePeriodData ? (cur - (r.samePeriodLaborCost || 0)) : null;
+    const samePct = (hasSamePeriodData && (r.samePeriodLaborCost || 0) > 0)
+      ? ((cur - (r.samePeriodLaborCost || 0)) / (r.samePeriodLaborCost || 1)) * 100
+      : null;
+    return { cur, prev, diff, pct, same, sameDiff, samePct, isValid: true };
+  }
+
+  const isValid = r.hasCostConfig;
+  let cur = 0, prev = 0, sameVal: number | null = null;
+  if (costSubtype === 'medic') {
+    cur = isValid ? r.currentMedicCost : 0;
+    prev = isValid ? r.prevMedicCost : 0;
+    sameVal = hasSamePeriodData && isValid ? r.samePeriodMedicCost : null;
+  } else if (costSubtype === 'vtth') {
+    cur = isValid ? r.currentVtthCost : 0;
+    prev = isValid ? r.prevVtthCost : 0;
+    sameVal = hasSamePeriodData && isValid ? r.samePeriodVtthCost : null;
+  } else {
+    // all
+    cur = isValid ? r.currentTotalCost : 0;
+    prev = isValid ? r.prevTotalCost : 0;
+    sameVal = hasSamePeriodData && isValid ? r.samePeriodTotalCost : null;
+  }
+
+  const diff = cur - prev;
+  const pct = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+  const sameDiff = hasSamePeriodData && isValid && sameVal !== null ? (cur - sameVal) : null;
+  const samePct = (hasSamePeriodData && isValid && sameVal !== null && sameVal > 0)
+    ? ((cur - sameVal) / sameVal) * 100
+    : null;
+  return { cur, prev, diff, pct, same: sameVal, sameDiff, samePct, isValid };
+}
+function getExportGroupMetrics(
+  group: SpecialtyReportGroup,
+  isRev: boolean,
+  financialCategory: FinancialCategory = 'revenue',
+  costSubtype: CostSubtype = 'all',
+  hasSamePeriodData: boolean = true
+) {
+  if (!isRev) {
+    const cur = group.totalCurrent;
+    const prev = group.totalPrev;
+    const same = hasSamePeriodData ? group.totalSamePeriod : null;
+    const diff = cur - prev;
+    const pct = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+    const sameDiff = hasSamePeriodData ? (cur - (same || 0)) : null;
+    const samePct = (hasSamePeriodData && (same || 0) > 0) ? ((cur - (same || 0)) / (same || 1)) * 100 : null;
+    return { cur, prev, diff, pct, same, sameDiff, samePct };
+  }
+
+  let cur = 0;
+  let prev = 0;
+  let same: number | null = null;
+
+  if (financialCategory === 'revenue') {
+    cur = group.totalCurrentRevenue;
+    prev = group.totalPrevRevenue;
+    same = hasSamePeriodData ? group.totalSamePeriodRevenue : null;
+  } else if (financialCategory === 'profit') {
+    cur = group.totalCurrentProfit;
+    prev = group.totalPrevProfit;
+    same = hasSamePeriodData ? group.totalSamePeriodProfit : null;
+  } else {
+    // cost
+    if (costSubtype === 'medic') {
+      cur = group.totalCurrentMedicCost;
+      prev = group.totalPrevMedicCost;
+      same = hasSamePeriodData ? group.totalSamePeriodMedicCost : null;
+    } else if (costSubtype === 'vtth') {
+      cur = group.totalCurrentVtthCost;
+      prev = group.totalPrevVtthCost;
+      same = hasSamePeriodData ? group.totalSamePeriodVtthCost : null;
+    } else if (costSubtype === 'labor') {
+      cur = group.totalCurrentLaborCost;
+      prev = group.totalPrevLaborCost;
+      same = hasSamePeriodData ? group.totalSamePeriodLaborCost : null;
+    } else {
+      // all
+      cur = group.totalCurrentTotalCost;
+      prev = group.totalPrevTotalCost;
+      same = hasSamePeriodData ? group.totalSamePeriodTotalCost : null;
+    }
+  }
+
+  const diff = cur - prev;
+  const pct = prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+  const sameDiff = hasSamePeriodData && same !== null ? (cur - same) : null;
+  const samePct = (hasSamePeriodData && same !== null && same !== 0) ? ((cur - same) / Math.abs(same)) * 100 : null;
+  return { cur, prev, diff, pct, same, sameDiff, samePct };
+}
+
 export async function exportSpecialtyComparisonExcel(
   groups: SpecialtyReportGroup[],
   periodMeta: PeriodMetadata,
   config: ComparisonConfig,
   showDiff: boolean = true,
-  metricMode: 'count' | 'revenue' = 'count'
+  metricMode: 'count' | 'revenue' = 'count',
+  financialCategory: FinancialCategory = 'revenue',
+  costSubtype: CostSubtype = 'all'
 ): Promise<void> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'SurgicalDataPro';
   wb.created = new Date();
   const isRev = metricMode === 'revenue';
+  const finLabel = getFinancialLabel(financialCategory, costSubtype);
   const unitLabel = isRev ? 'VNĐ' : 'ca';
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -75,7 +232,7 @@ export async function exportSpecialtyComparisonExcel(
   // Row 1: Title
   wsAll.mergeCells(`A1:${lastColLetterAll}1`);
   const titleCellAll = wsAll.getCell('A1');
-  titleCellAll.value = `BÁO CÁO PHÂN TÍCH ${isRev ? 'VIỆN PHÍ ' : ''}PHẪU THUẬT TOÀN VIỆN - TẤT CẢ CHUYÊN KHOA`;
+  titleCellAll.value = `BÁO CÁO PHÂN TÍCH ${isRev ? finLabel.toUpperCase() + ' ' : ''}PHẪU THUẬT TOÀN VIỆN - TẤT CẢ CHUYÊN KHOA`;
   titleCellAll.font = { name: FONT_NAME, size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
   titleCellAll.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
   titleCellAll.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -94,12 +251,12 @@ export async function exportSpecialtyComparisonExcel(
   const headerValuesAll = [
     'Tên phẫu thuật',
     'Chuyên khoa',
-    `${periodMeta.currentLabel}${isRev ? ' (VNĐ)' : ''}`,
-    `${periodMeta.prevLabel}${isRev ? ' (VNĐ)' : ''}`,
+    `${periodMeta.currentLabel}${isRev ? ` (${finLabel})` : ''}`,
+    `${periodMeta.prevLabel}${isRev ? ` (${finLabel})` : ''}`,
   ];
   if (showDiff) headerValuesAll.push(`± Kỳ trước (${unitLabel})`);
   headerValuesAll.push(periodMeta.prevColTitle);
-  headerValuesAll.push(`${periodMeta.samePeriodLabel}${isRev ? ' (VNĐ)' : ''}`);
+  headerValuesAll.push(`${periodMeta.samePeriodLabel}${isRev ? ` (${finLabel})` : ''}`);
   if (showDiff) headerValuesAll.push(`± Cùng kỳ (${unitLabel})`);
   headerValuesAll.push('So cùng kỳ');
   headerValuesAll.push('Nhận định');
@@ -127,26 +284,21 @@ export async function exportSpecialtyComparisonExcel(
   groups.forEach(g => allUnifiedRows.push(...g.rows));
 
   let curRowIdxAll = 4;
-  let grandTotalCur = 0;
-  let grandTotalPrev = 0;
-  let grandTotalSame = 0;
   let grandAlertCount = 0;
   let grandPositiveCount = 0;
 
   for (const r of allUnifiedRows) {
-    const curVal = isRev ? r.currentRevenue : r.currentCount;
-    const prevVal = isRev ? r.prevRevenue : r.prevCount;
-    const sameVal = isRev ? r.samePeriodRevenue : r.samePeriodCount;
-    const prevDiffVal = isRev ? r.prevRevenueDiff : r.prevDiff;
-    const prevChangePctVal = isRev ? r.prevRevenueChangePct : r.prevChangePct;
-    const sameDiffVal = isRev ? r.samePeriodRevenueDiff : r.samePeriodDiff;
-    const sameChangePctVal = isRev ? r.samePeriodRevenueChangePct : r.samePeriodChangePct;
-
-    grandTotalCur += curVal;
-    grandTotalPrev += prevVal;
-    grandTotalSame += sameVal;
+    const metrics = getExportRowMetrics(r, isRev, financialCategory, costSubtype, periodMeta.hasSamePeriodData);
     if (r.status === 'ALERT') grandAlertCount++;
     if (r.status === 'POSITIVE') grandPositiveCount++;
+
+    const curVal = metrics.isValid ? metrics.cur : '—';
+    const prevVal = metrics.isValid ? metrics.prev : '—';
+    const sameVal = metrics.isValid ? (periodMeta.hasSamePeriodData ? metrics.same : '') : (periodMeta.hasSamePeriodData ? '—' : '');
+    const prevDiffVal = metrics.isValid ? metrics.diff : null;
+    const prevChangePctVal = metrics.isValid ? metrics.pct : null;
+    const sameDiffVal = (metrics.isValid && periodMeta.hasSamePeriodData) ? metrics.sameDiff : null;
+    const sameChangePctVal = (metrics.isValid && periodMeta.hasSamePeriodData) ? metrics.samePct : null;
 
     const row = wsAll.getRow(curRowIdxAll);
     const rowValues = [
@@ -155,13 +307,18 @@ export async function exportSpecialtyComparisonExcel(
       curVal,
       prevVal,
     ];
-    if (showDiff) rowValues.push(fmtDiffStr(prevDiffVal) as any);
-    rowValues.push(fmtPctStr(prevChangePctVal) as any);
-    rowValues.push(periodMeta.hasSamePeriodData ? sameVal : ('' as any));
-    if (showDiff) rowValues.push(periodMeta.hasSamePeriodData ? (fmtDiffStr(sameDiffVal) as any) : ('' as any));
-    rowValues.push(periodMeta.hasSamePeriodData ? (fmtPctStr(sameChangePctVal) as any) : ('' as any));
+    if (showDiff) rowValues.push((prevDiffVal !== null ? fmtDiffStr(prevDiffVal) : (metrics.isValid ? '' : '—')) as any);
+    rowValues.push((prevChangePctVal !== null ? fmtPctStr(prevChangePctVal) : (metrics.isValid ? '' : '—')) as any);
+    rowValues.push(sameVal as any);
+    if (showDiff) rowValues.push((sameDiffVal !== null ? fmtDiffStr(sameDiffVal) : (metrics.isValid ? '' : (periodMeta.hasSamePeriodData ? '—' : ''))) as any);
+    rowValues.push((sameChangePctVal !== null ? fmtPctStr(sameChangePctVal) : (metrics.isValid ? '' : (periodMeta.hasSamePeriodData ? '—' : ''))) as any);
     rowValues.push(r.statusLabel as any);
-    rowValues.push(r.note as any);
+    
+    let noteText = r.note || '';
+    if (!metrics.isValid) {
+      noteText = noteText ? `${noteText} (Chưa có định mức CP)` : 'Chưa có định mức CP';
+    }
+    rowValues.push(noteText as any);
 
     row.values = rowValues;
     row.height = 20;
@@ -187,13 +344,23 @@ export async function exportSpecialtyComparisonExcel(
     curRowIdxAll++;
   }
 
-  // Summary Row Sheet 1
+  // Summary Row Sheet 1: Grand total aggregated from groups
+  let grandTotalCur = 0;
+  let grandTotalPrev = 0;
+  let grandTotalSame = 0;
+  for (const g of groups) {
+    const gMetrics = getExportGroupMetrics(g, isRev, financialCategory, costSubtype, periodMeta.hasSamePeriodData);
+    grandTotalCur += gMetrics.cur;
+    grandTotalPrev += gMetrics.prev;
+    grandTotalSame += (gMetrics.same || 0);
+  }
+
   const summaryRowAll = wsAll.getRow(curRowIdxAll);
   const grandPrevDiff = grandTotalCur - grandTotalPrev;
-  const grandPrevChange = grandTotalPrev > 0 ? ((grandTotalCur - grandTotalPrev) / grandTotalPrev) * 100 : null;
+  const grandPrevChange = grandTotalPrev !== 0 ? ((grandTotalCur - grandTotalPrev) / Math.abs(grandTotalPrev)) * 100 : null;
   const grandSameDiff = periodMeta.hasSamePeriodData ? (grandTotalCur - grandTotalSame) : null;
-  const grandSameChange = (periodMeta.hasSamePeriodData && grandTotalSame > 0)
-    ? ((grandTotalCur - grandTotalSame) / grandTotalSame) * 100
+  const grandSameChange = (periodMeta.hasSamePeriodData && grandTotalSame !== 0)
+    ? ((grandTotalCur - grandTotalSame) / Math.abs(grandTotalSame)) * 100
     : null;
 
   const summaryValuesAll = [
@@ -257,7 +424,7 @@ export async function exportSpecialtyComparisonExcel(
     // Row 1: Title
     ws.mergeCells(`A1:${lastLetter}1`);
     const titleCell = ws.getCell('A1');
-    titleCell.value = `PHÂN TÍCH ${isRev ? 'VIỆN PHÍ ' : ''}PHẪU THUẬT - ${group.specialty.name.toUpperCase()}`;
+    titleCell.value = `PHÂN TÍCH ${isRev ? finLabel.toUpperCase() + ' ' : ''}PHẪU THUẬT - ${group.specialty.name.toUpperCase()}`;
     titleCell.font = { name: FONT_NAME, size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
     titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
     titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -275,12 +442,12 @@ export async function exportSpecialtyComparisonExcel(
     // Row 3: Headers
     const headerValues = [
       'Tên phẫu thuật',
-      `${periodMeta.currentLabel}${isRev ? ' (VNĐ)' : ''}`,
-      `${periodMeta.prevLabel}${isRev ? ' (VNĐ)' : ''}`,
+      `${periodMeta.currentLabel}${isRev ? ` (${finLabel})` : ''}`,
+      `${periodMeta.prevLabel}${isRev ? ` (${finLabel})` : ''}`,
     ];
     if (showDiff) headerValues.push(`± Kỳ trước (${unitLabel})`);
     headerValues.push(periodMeta.prevColTitle);
-    headerValues.push(`${periodMeta.samePeriodLabel}${isRev ? ' (VNĐ)' : ''}`);
+    headerValues.push(`${periodMeta.samePeriodLabel}${isRev ? ` (${finLabel})` : ''}`);
     if (showDiff) headerValues.push(`± Cùng kỳ (${unitLabel})`);
     headerValues.push('So cùng kỳ');
     headerValues.push('Nhận định');
@@ -306,13 +473,14 @@ export async function exportSpecialtyComparisonExcel(
     // Data Rows
     let curRowIdx = 4;
     for (const r of group.rows) {
-      const curVal = isRev ? r.currentRevenue : r.currentCount;
-      const prevVal = isRev ? r.prevRevenue : r.prevCount;
-      const sameVal = isRev ? r.samePeriodRevenue : r.samePeriodCount;
-      const prevDiffVal = isRev ? r.prevRevenueDiff : r.prevDiff;
-      const prevChangePctVal = isRev ? r.prevRevenueChangePct : r.prevChangePct;
-      const sameDiffVal = isRev ? r.samePeriodRevenueDiff : r.samePeriodDiff;
-      const sameChangePctVal = isRev ? r.samePeriodRevenueChangePct : r.samePeriodChangePct;
+      const metrics = getExportRowMetrics(r, isRev, financialCategory, costSubtype, periodMeta.hasSamePeriodData);
+      const curVal = metrics.isValid ? metrics.cur : '—';
+      const prevVal = metrics.isValid ? metrics.prev : '—';
+      const sameVal = metrics.isValid ? (periodMeta.hasSamePeriodData ? metrics.same : '') : (periodMeta.hasSamePeriodData ? '—' : '');
+      const prevDiffVal = metrics.isValid ? metrics.diff : null;
+      const prevChangePctVal = metrics.isValid ? metrics.pct : null;
+      const sameDiffVal = (metrics.isValid && periodMeta.hasSamePeriodData) ? metrics.sameDiff : null;
+      const sameChangePctVal = (metrics.isValid && periodMeta.hasSamePeriodData) ? metrics.samePct : null;
 
       const row = ws.getRow(curRowIdx);
       const rowValues = [
@@ -320,13 +488,18 @@ export async function exportSpecialtyComparisonExcel(
         curVal,
         prevVal,
       ];
-      if (showDiff) rowValues.push(fmtDiffStr(prevDiffVal) as any);
-      rowValues.push(fmtPctStr(prevChangePctVal) as any);
-      rowValues.push(periodMeta.hasSamePeriodData ? sameVal : ('' as any));
-      if (showDiff) rowValues.push(periodMeta.hasSamePeriodData ? (fmtDiffStr(sameDiffVal) as any) : ('' as any));
-      rowValues.push(periodMeta.hasSamePeriodData ? (fmtPctStr(sameChangePctVal) as any) : ('' as any));
+      if (showDiff) rowValues.push((prevDiffVal !== null ? fmtDiffStr(prevDiffVal) : (metrics.isValid ? '' : '—')) as any);
+      rowValues.push((prevChangePctVal !== null ? fmtPctStr(prevChangePctVal) : (metrics.isValid ? '' : '—')) as any);
+      rowValues.push(sameVal as any);
+      if (showDiff) rowValues.push((sameDiffVal !== null ? fmtDiffStr(sameDiffVal) : (metrics.isValid ? '' : (periodMeta.hasSamePeriodData ? '—' : ''))) as any);
+      rowValues.push((sameChangePctVal !== null ? fmtPctStr(sameChangePctVal) : (metrics.isValid ? '' : (periodMeta.hasSamePeriodData ? '—' : ''))) as any);
       rowValues.push(r.statusLabel as any);
-      rowValues.push(r.note as any);
+      
+      let noteText = r.note || '';
+      if (!metrics.isValid) {
+        noteText = noteText ? `${noteText} (Chưa có định mức CP)` : 'Chưa có định mức CP';
+      }
+      rowValues.push(noteText as any);
 
       row.values = rowValues;
       row.height = 20;
@@ -353,15 +526,16 @@ export async function exportSpecialtyComparisonExcel(
 
     // Summary Row
     const summaryRow = ws.getRow(curRowIdx);
-    const curTot = isRev ? group.totalCurrentRevenue : group.totalCurrent;
-    const prevTot = isRev ? group.totalPrevRevenue : group.totalPrev;
-    const sameTot = isRev ? group.totalSamePeriodRevenue : group.totalSamePeriod;
+    const gMetrics = getExportGroupMetrics(group, isRev, financialCategory, costSubtype, periodMeta.hasSamePeriodData);
+    const curTot = gMetrics.cur;
+    const prevTot = gMetrics.prev;
+    const sameTot = gMetrics.same || 0;
 
     const prevDiff = curTot - prevTot;
-    const prevTotalChange = prevTot > 0 ? ((curTot - prevTot) / prevTot) * 100 : null;
+    const prevTotalChange = prevTot !== 0 ? ((curTot - prevTot) / Math.abs(prevTot)) * 100 : null;
     const sameDiff = periodMeta.hasSamePeriodData ? (curTot - sameTot) : null;
-    const samePeriodTotalChange = (periodMeta.hasSamePeriodData && sameTot > 0)
-      ? ((curTot - sameTot) / sameTot) * 100
+    const samePeriodTotalChange = (periodMeta.hasSamePeriodData && sameTot !== 0)
+      ? ((curTot - sameTot) / Math.abs(sameTot)) * 100
       : null;
 
     const summaryValues = [
@@ -402,7 +576,10 @@ export async function exportSpecialtyComparisonExcel(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const fileNameSuffix = isRev ? '_Vien_phi' : '';
+  let fileNameSuffix = '';
+  if (isRev) {
+    fileNameSuffix = `_${finLabel.replace(/\s+/g, '_')}`;
+  }
   a.download = periodMeta.exportFilename.replace(/\.xlsx$/i, `${fileNameSuffix}.xlsx`);
   document.body.appendChild(a);
   a.click();
@@ -418,11 +595,14 @@ export function exportSpecialtyComparisonCSV(
   groups: SpecialtyReportGroup[],
   periodMeta: PeriodMetadata,
   showDiff: boolean = true,
-  metricMode: 'count' | 'revenue' = 'count'
+  metricMode: 'count' | 'revenue' = 'count',
+  financialCategory: FinancialCategory = 'revenue',
+  costSubtype: CostSubtype = 'all'
 ): void {
   const allRows: ComparisonRow[] = [];
   groups.forEach(g => allRows.push(...g.rows));
   const isRev = metricMode === 'revenue';
+  const finLabel = getFinancialLabel(financialCategory, costSubtype);
   const unitLabel = isRev ? 'VNĐ' : 'ca';
 
   // CSV escape helper
@@ -435,14 +615,14 @@ export function exportSpecialtyComparisonCSV(
   const headers: string[] = [
     'Tên phẫu thuật',
     'Chuyên khoa',
-    `${isRev ? 'Viện phí' : 'Số ca'} ${periodMeta.currentLabel}${isRev ? ' (VNĐ)' : ''}`,
-    `${isRev ? 'Viện phí' : 'Số ca'} ${periodMeta.prevLabel}${isRev ? ' (VNĐ)' : ''}`,
+    `${isRev ? finLabel : 'Số ca'} ${periodMeta.currentLabel}${isRev ? ' (VNĐ)' : ''}`,
+    `${isRev ? finLabel : 'Số ca'} ${periodMeta.prevLabel}${isRev ? ' (VNĐ)' : ''}`,
   ];
   if (showDiff) {
     headers.push(`Chênh lệch so ${periodMeta.prevLabel} (${unitLabel})`);
   }
   headers.push(`Tỷ lệ so ${periodMeta.prevLabel} (%)`);
-  headers.push(`${isRev ? 'Viện phí' : 'Số ca'} ${periodMeta.samePeriodLabel}${isRev ? ' (VNĐ)' : ''}`);
+  headers.push(`${isRev ? finLabel : 'Số ca'} ${periodMeta.samePeriodLabel}${isRev ? ' (VNĐ)' : ''}`);
   if (showDiff) {
     headers.push(`Chênh lệch so cùng kỳ ${periodMeta.samePeriodLabel} (${unitLabel})`);
   }
@@ -454,13 +634,19 @@ export function exportSpecialtyComparisonCSV(
   csvLines.push(headers.map(escapeCsv).join(','));
 
   for (const r of allRows) {
-    const curVal = isRev ? r.currentRevenue : r.currentCount;
-    const prevVal = isRev ? r.prevRevenue : r.prevCount;
-    const sameVal = isRev ? r.samePeriodRevenue : r.samePeriodCount;
-    const prevDiffVal = isRev ? r.prevRevenueDiff : r.prevDiff;
-    const prevChangePctVal = isRev ? r.prevRevenueChangePct : r.prevChangePct;
-    const sameDiffVal = isRev ? r.samePeriodRevenueDiff : r.samePeriodDiff;
-    const sameChangePctVal = isRev ? r.samePeriodRevenueChangePct : r.samePeriodChangePct;
+    const metrics = getExportRowMetrics(r, isRev, financialCategory, costSubtype, periodMeta.hasSamePeriodData);
+    const curVal = metrics.isValid ? metrics.cur : '—';
+    const prevVal = metrics.isValid ? metrics.prev : '—';
+    const sameVal = metrics.isValid ? (periodMeta.hasSamePeriodData ? metrics.same : '') : (periodMeta.hasSamePeriodData ? '—' : '');
+    const prevDiffVal = metrics.isValid ? metrics.diff : '';
+    const prevChangePctVal = metrics.isValid ? metrics.pct : null;
+    const sameDiffVal = (metrics.isValid && periodMeta.hasSamePeriodData) ? metrics.sameDiff : '';
+    const sameChangePctVal = (metrics.isValid && periodMeta.hasSamePeriodData) ? metrics.samePct : null;
+
+    let noteText = r.note || '';
+    if (!metrics.isValid) {
+      noteText = noteText ? `${noteText} (Chưa có định mức CP)` : 'Chưa có định mức CP';
+    }
 
     const line: any[] = [
       r.tenKT,
@@ -469,12 +655,12 @@ export function exportSpecialtyComparisonCSV(
       prevVal,
     ];
     if (showDiff) line.push(prevDiffVal);
-    line.push(prevChangePctVal !== null ? `${prevChangePctVal > 0 ? '+' : ''}${prevChangePctVal.toFixed(1)}%` : '');
-    line.push(periodMeta.hasSamePeriodData ? sameVal : '');
-    if (showDiff) line.push(periodMeta.hasSamePeriodData && sameDiffVal !== null ? sameDiffVal : '');
-    line.push(periodMeta.hasSamePeriodData && sameChangePctVal !== null ? `${sameChangePctVal > 0 ? '+' : ''}${sameChangePctVal.toFixed(1)}%` : '');
+    line.push(prevChangePctVal !== null ? `${prevChangePctVal > 0 ? '+' : ''}${prevChangePctVal.toFixed(1)}%` : (metrics.isValid ? '' : '—'));
+    line.push(sameVal);
+    if (showDiff) line.push(sameDiffVal);
+    line.push(sameChangePctVal !== null ? `${sameChangePctVal > 0 ? '+' : ''}${sameChangePctVal.toFixed(1)}%` : (metrics.isValid ? '' : (periodMeta.hasSamePeriodData ? '—' : '')));
     line.push(r.statusLabel);
-    line.push(r.note);
+    line.push(noteText);
 
     csvLines.push(line.map(escapeCsv).join(','));
   }
@@ -485,7 +671,10 @@ export function exportSpecialtyComparisonCSV(
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const fileNameSuffix = isRev ? '_Vien_phi' : '';
+  let fileNameSuffix = '';
+  if (isRev) {
+    fileNameSuffix = `_${finLabel.replace(/\s+/g, '_')}`;
+  }
   const csvFilename = periodMeta.exportFilename.replace(/\.xlsx$/i, `${fileNameSuffix}.csv`);
   a.download = csvFilename;
   document.body.appendChild(a);

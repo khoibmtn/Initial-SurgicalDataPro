@@ -279,8 +279,19 @@ export interface SurgeryCostItem {
   donGia: number;                // Copy từ DM giá (đơn giá DVKT VNĐ)
   medicCost: number;             // Chi phí thuốc (VNĐ, > 0)
   vtthCost: number;              // Chi phí VTTH (VNĐ, > 0)
-  effectiveFrom: string;         // "2026-01-01" ISO date
-  effectiveTo: string | null;    // null = đang hiệu lực
+  
+  // Hiệu lực DVKT (đồng bộ từ DM giá)
+  dvktEffectiveFrom: string;     // "2026-01-01" ISO date
+  dvktEffectiveTo: string | null;// null = hiện tại
+
+  // Hiệu lực Chi phí (do người dùng quản lý riêng)
+  costEffectiveFrom: string;     // "2026-01-01" ISO date
+  costEffectiveTo: string | null;// null = hiện tại
+
+  // Tương thích ngược với dữ liệu cũ
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
+
   createdAt: number;
   updatedAt: number;
 }
@@ -492,10 +503,17 @@ export interface RefillCandidateItem {
   conflictWarning?: string; // Cảnh báo khi cùng catalogId có nhiều mức giá BHYT
 }
 
+
 export interface RefillProcessReport {
   totalExcelRecords: number;
   catalogUpdatedCount: number;
   catalogCreatedCount: number;
   dataBackfilledCount: number;
+}
+
+export interface RolePrice {
+  'Chính': number;
+  'Phụ': number;
+  'Giúp việc': number;
 }
 

@@ -18,7 +18,9 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronsLeft, ChevronsRight,
   ArrowLeftRight, FileText, Check, ToggleLeft, ToggleRight, DollarSign
 } from 'lucide-react';
-import { StaffMember } from '../../types';
+import { StaffMember, SurgeryCostItem } from '../../types';
+import { useConfig } from '../../contexts/ConfigContext';
+import { subscribeToCostItems } from '../../services/surgeryCostService';
 import {
   getSpecialtyComparisonData,
   SpecialtyReportGroup,
@@ -32,6 +34,8 @@ import {
   saveSpecialtyOverride,
   getSpecialtyOverrides,
   ComparisonRow,
+  FinancialCategory,
+  CostSubtype,
 } from '../../services/specialtyComparisonService';
 import { exportSpecialtyComparisonExcel, exportSpecialtyComparisonCSV } from '../../services/excelExportComparisonService';
 
@@ -49,6 +53,155 @@ const STORAGE_SORT_COL_KEY = 'sdp_comparison_sort_col';
 const STORAGE_SORT_DIR_KEY = 'sdp_comparison_sort_dir';
 const STORAGE_SHOW_DIFF_KEY = 'sdp_comparison_show_diff';
 
+function getRowMetricDisplay(
+  r: ComparisonRow,
+  metricMode: 'count' | 'revenue',
+  financialCategory: FinancialCategory = 'revenue',
+  costSubtype: CostSubtype = 'all',
+  hasSamePeriodData: boolean = true
+) {
+  if (metricMode === 'count') {
+    return {
+      cur: r.currentCount,
+      prev: r.prevCount,
+      diff: r.prevDiff,
+      pct: r.prevChangePct,
+      same: hasSamePeriodData ? r.samePeriodCount : null,
+      sameDiff: r.samePeriodDiff,
+      samePct: r.samePeriodChangePct,
+      isValid: true,
+    };
+  }
+
+  if (financialCategory === 'revenue') {
+    return {
+      cur: r.currentRevenue,
+      prev: r.prevRevenue,
+      diff: r.prevRevenueDiff,
+      pct: r.prevRevenueChangePct,
+      same: hasSamePeriodData ? r.samePeriodRevenue : null,
+      sameDiff: r.samePeriodRevenueDiff,
+      samePct: r.samePeriodRevenueChangePct,
+      isValid: true,
+    };
+  }
+
+  if (financialCategory === 'profit') {
+    const isValid = r.hasCostConfig;
+    const cur = isValid ? r.currentProfit : 0;
+    const prev = isValid ? r.prevProfit : 0;
+    const diff = cur - prev;
+    const pct = prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+    const same = hasSamePeriodData && isValid ? r.samePeriodProfit : null;
+    const sameDiff = hasSamePeriodData && isValid ? (cur - (r.samePeriodProfit || 0)) : null;
+    const samePct = (hasSamePeriodData && isValid && (r.samePeriodProfit || 0) !== 0)
+      ? ((cur - (r.samePeriodProfit || 0)) / Math.abs(r.samePeriodProfit)) * 100
+      : null;
+    return { cur, prev, diff, pct, same, sameDiff, samePct, isValid };
+  }
+
+  // Cost
+  if (costSubtype === 'labor') {
+    const cur = r.currentLaborCost;
+    const prev = r.prevLaborCost;
+    const diff = cur - prev;
+    const pct = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+    const same = hasSamePeriodData ? r.samePeriodLaborCost : null;
+    const sameDiff = hasSamePeriodData ? (cur - (r.samePeriodLaborCost || 0)) : null;
+    const samePct = (hasSamePeriodData && (r.samePeriodLaborCost || 0) > 0)
+      ? ((cur - (r.samePeriodLaborCost || 0)) / (r.samePeriodLaborCost || 1)) * 100
+      : null;
+    return { cur, prev, diff, pct, same, sameDiff, samePct, isValid: true };
+  }
+
+  const isValid = r.hasCostConfig;
+  let cur = 0, prev = 0, sameVal: number | null = null;
+  if (costSubtype === 'medic') {
+    cur = isValid ? r.currentMedicCost : 0;
+    prev = isValid ? r.prevMedicCost : 0;
+    sameVal = hasSamePeriodData && isValid ? r.samePeriodMedicCost : null;
+  } else if (costSubtype === 'vtth') {
+    cur = isValid ? r.currentVtthCost : 0;
+    prev = isValid ? r.prevVtthCost : 0;
+    sameVal = hasSamePeriodData && isValid ? r.samePeriodVtthCost : null;
+  } else {
+    // all
+    cur = isValid ? r.currentTotalCost : 0;
+    prev = isValid ? r.prevTotalCost : 0;
+    sameVal = hasSamePeriodData && isValid ? r.samePeriodTotalCost : null;
+  }
+
+  const diff = cur - prev;
+  const pct = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+  const sameDiff = hasSamePeriodData && isValid && sameVal !== null ? (cur - sameVal) : null;
+  const samePct = (hasSamePeriodData && isValid && sameVal !== null && sameVal > 0)
+    ? ((cur - sameVal) / sameVal) * 100
+    : null;
+  return { cur, prev, diff, pct, same: sameVal, sameDiff, samePct, isValid };
+}
+
+function getGroupMetricDisplay(
+  group: SpecialtyReportGroup,
+  metricMode: 'count' | 'revenue',
+  financialCategory: FinancialCategory = 'revenue',
+  costSubtype: CostSubtype = 'all',
+  hasSamePeriodData: boolean = true
+) {
+  if (!group) {
+    return { cur: 0, prev: 0, diff: 0, pct: null, same: null, sameDiff: null, samePct: null };
+  }
+  if (metricMode === 'count') {
+    const cur = group.totalCurrent || 0;
+    const prev = group.totalPrev || 0;
+    const same = hasSamePeriodData ? (group.totalSamePeriod || 0) : null;
+    const diff = cur - prev;
+    const pct = prev > 0 ? ((cur - prev) / prev) * 100 : null;
+    const sameDiff = hasSamePeriodData ? (cur - (same || 0)) : null;
+    const samePct = (hasSamePeriodData && (same || 0) > 0) ? ((cur - (same || 0)) / (same || 1)) * 100 : null;
+    return { cur, prev, diff, pct, same, sameDiff, samePct };
+  }
+
+  let cur = 0;
+  let prev = 0;
+  let same: number | null = null;
+
+  if (financialCategory === 'revenue') {
+    cur = group.totalCurrentRevenue || 0;
+    prev = group.totalPrevRevenue || 0;
+    same = hasSamePeriodData ? (group.totalSamePeriodRevenue || 0) : null;
+  } else if (financialCategory === 'profit') {
+    cur = group.totalCurrentProfit || 0;
+    prev = group.totalPrevProfit || 0;
+    same = hasSamePeriodData ? (group.totalSamePeriodProfit || 0) : null;
+  } else {
+    // cost
+    if (costSubtype === 'medic') {
+      cur = group.totalCurrentMedicCost || 0;
+      prev = group.totalPrevMedicCost || 0;
+      same = hasSamePeriodData ? (group.totalSamePeriodMedicCost || 0) : null;
+    } else if (costSubtype === 'vtth') {
+      cur = group.totalCurrentVtthCost || 0;
+      prev = group.totalPrevVtthCost || 0;
+      same = hasSamePeriodData ? (group.totalSamePeriodVtthCost || 0) : null;
+    } else if (costSubtype === 'labor') {
+      cur = group.totalCurrentLaborCost || 0;
+      prev = group.totalPrevLaborCost || 0;
+      same = hasSamePeriodData ? (group.totalSamePeriodLaborCost || 0) : null;
+    } else {
+      // all
+      cur = group.totalCurrentTotalCost || 0;
+      prev = group.totalPrevTotalCost || 0;
+      same = hasSamePeriodData ? (group.totalSamePeriodTotalCost || 0) : null;
+    }
+  }
+
+  const diff = cur - prev;
+  const pct = prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+  const sameDiff = hasSamePeriodData && same !== null ? (cur - same) : null;
+  const samePct = (hasSamePeriodData && same !== null && same !== 0) ? ((cur - same) / Math.abs(same)) * 100 : null;
+  return { cur, prev, diff, pct, same, sameDiff, samePct };
+}
+
 export const SpecialtyComparisonTab: React.FC<Props> = ({
   staffList,
   initialYear,
@@ -56,6 +209,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 }) => {
   const currentRealYear = new Date().getFullYear();
   const currentRealMonth = new Date().getMonth() + 1;
+
+  const { config } = useConfig();
+  const [costItems, setCostItems] = useState<SurgeryCostItem[]>([]);
 
   // Period mode: 'single' (Tháng) | 'range' (Khoảng)
   const [periodMode, setPeriodMode] = useState<'single' | 'range'>('single');
@@ -74,6 +230,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   const [selectedSpecialty, setSelectedSpecialty] = useState<SpecialtyCode | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'ALERT' | 'POSITIVE'>('all');
+  const [filterCostStatus, setFilterCostStatus] = useState<'all' | 'WITH_COST' | 'WITHOUT_COST'>('all');
 
   // Option: Show Absolute Diff (± ca / ± tiền) - Default TRUE
   const [showDiff, setShowDiff] = useState<boolean>(() => {
@@ -83,7 +240,17 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
   // Metric mode: 'count' (Số lượng) | 'revenue' (Viện phí)
   const [metricMode, setMetricMode] = useState<'count' | 'revenue'>('count');
+  const [financialCategory, setFinancialCategory] = useState<FinancialCategory>('revenue');
+  const [costSubtype, setCostSubtype] = useState<CostSubtype>('all');
   const [fullMoneyFormat, setFullMoneyFormat] = useState(false);
+
+  // Subscribe to cost items
+  useEffect(() => {
+    const unsub = subscribeToCostItems((items) => {
+      setCostItems(items);
+    });
+    return () => unsub();
+  }, []);
 
   // Download menu dropdown state
   const [openDownloadMenu, setOpenDownloadMenu] = useState<boolean>(false);
@@ -178,7 +345,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
         ? { mode: 'single', targetMonth: selectedMonth, targetYear: selectedYear }
         : { mode: 'range', targetMonth: toMonth, targetYear: toYear, fromMonth, fromYear, toMonth, toYear };
 
-      const result = await getSpecialtyComparisonData(periodSpec, staffList, cfg);
+      const result = await getSpecialtyComparisonData(periodSpec, staffList, cfg, undefined, costItems, config.priceConfig);
       setGroups(result.groups);
       setPeriodMeta(result.periodMeta);
     } catch (err: any) {
@@ -187,7 +354,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [periodMode, selectedMonth, selectedYear, fromMonth, fromYear, toMonth, toYear, staffList]);
+  }, [periodMode, selectedMonth, selectedYear, fromMonth, fromYear, toMonth, toYear, staffList, costItems, config.priceConfig]);
 
   useEffect(() => {
     loadData();
@@ -196,7 +363,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSpecialty, searchTerm, filterStatus, pageSize]);
+  }, [selectedSpecialty, searchTerm, filterStatus, filterCostStatus, pageSize]);
 
   // Handle reassigning a surgery to another specialty
   const handleReassignSpecialty = (tenKT: string, newSpecialty: SpecialtyCode) => {
@@ -258,7 +425,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     }
     setExporting(true);
     try {
-      await exportSpecialtyComparisonExcel(groups, periodMeta, thresholdConfig, showDiff, metricMode);
+      await exportSpecialtyComparisonExcel(groups, periodMeta, thresholdConfig, showDiff, metricMode, financialCategory, costSubtype);
       showToast('Đã xuất file Excel phân tích thành công!');
     } catch (err: any) {
       console.error('Export error:', err);
@@ -276,7 +443,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     }
     setExportingCsv(true);
     try {
-      exportSpecialtyComparisonCSV(groups, periodMeta, showDiff, metricMode);
+      exportSpecialtyComparisonCSV(groups, periodMeta, showDiff, metricMode, financialCategory, costSubtype);
       showToast('Đã xuất file CSV (chuẩn NotebookLM) thành công!');
     } catch (err: any) {
       console.error('Export CSV error:', err);
@@ -286,14 +453,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     }
   };
 
-  // Overall KPIs
+  const getFinancialLabel = useCallback((cat: FinancialCategory, sub: CostSubtype): string => {
+    if (cat === 'revenue') return 'Viện phí';
+    if (cat === 'profit') return 'Lợi nhuận';
+    if (sub === 'medic') return 'CP Thuốc';
+    if (sub === 'vtth') return 'CP VTTH';
+    if (sub === 'labor') return 'CP Nhân công';
+    return 'Tổng Chi phí';
+  }, []);
+
+  // Overall KPIs (Cases, Alerts, Positives, Distinct)
   const overallKPIs = useMemo(() => {
     let totalCurrent = 0;
     let totalPrev = 0;
     let totalSamePeriod = 0;
-    let totalCurrentRevenue = 0;
-    let totalPrevRevenue = 0;
-    let totalSamePeriodRevenue = 0;
     let totalAlerts = 0;
     let totalPositives = 0;
     let totalDistinctSurgeries = 0;
@@ -302,9 +475,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       totalCurrent += g.totalCurrent;
       totalPrev += g.totalPrev;
       totalSamePeriod += g.totalSamePeriod;
-      totalCurrentRevenue += g.totalCurrentRevenue || 0;
-      totalPrevRevenue += g.totalPrevRevenue || 0;
-      totalSamePeriodRevenue += g.totalSamePeriodRevenue || 0;
       totalAlerts += g.alertCount;
       totalPositives += g.positiveCount;
       totalDistinctSurgeries += g.rows.length;
@@ -317,13 +487,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       ? ((totalCurrent - totalSamePeriod) / totalSamePeriod) * 100
       : null;
 
-    const prevRevenueDiff = totalCurrentRevenue - totalPrevRevenue;
-    const prevRevenueChangePct = totalPrevRevenue > 0 ? ((totalCurrentRevenue - totalPrevRevenue) / totalPrevRevenue) * 100 : null;
-    const samePeriodRevenueDiff = periodMeta?.hasSamePeriodData ? (totalCurrentRevenue - totalSamePeriodRevenue) : null;
-    const samePeriodRevenueChangePct = (periodMeta?.hasSamePeriodData && totalSamePeriodRevenue > 0)
-      ? ((totalCurrentRevenue - totalSamePeriodRevenue) / totalSamePeriodRevenue) * 100
-      : null;
-
     return {
       totalCurrent,
       totalPrev,
@@ -332,18 +495,51 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       totalSamePeriodDiff: samePeriodDiff,
       prevChangePct,
       samePeriodChangePct,
-      totalCurrentRevenue,
-      totalPrevRevenue,
-      totalPrevRevenueDiff: prevRevenueDiff,
-      prevRevenueChangePct,
-      totalSamePeriodRevenue,
-      totalSamePeriodRevenueDiff: samePeriodRevenueDiff,
-      samePeriodRevenueChangePct,
       totalAlerts,
       totalPositives,
       totalDistinctSurgeries,
     };
   }, [groups, periodMeta]);
+
+  // Overall Totals for currently active metricMode, financialCategory, and costSubtype
+  const overallTotals = useMemo(() => {
+    let cur = 0, prev = 0, same = 0;
+    for (const g of groups) {
+      const m = getGroupMetricDisplay(g, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+      cur += m.cur;
+      prev += m.prev;
+      same += (m.same || 0);
+    }
+    const diff = cur - prev;
+    const pct = prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+    const sameDiff = periodMeta?.hasSamePeriodData ? (cur - same) : null;
+    const samePct = (periodMeta?.hasSamePeriodData && same !== 0) ? ((cur - same) / Math.abs(same)) * 100 : null;
+    return { cur, prev, diff, pct, same, sameDiff, samePct };
+  }, [groups, metricMode, financialCategory, costSubtype, periodMeta]);
+
+  // Thống kê số lượng dịch vụ có / chưa có định mức chi phí
+  const costCoverageStats = useMemo(() => {
+    let withCost = 0;
+    let withoutCost = 0;
+    const targetGroups = selectedSpecialty === 'all'
+      ? groups
+      : groups.filter(g => g.specialty.code === selectedSpecialty);
+
+    const seen = new Set<string>();
+    for (const g of targetGroups) {
+      for (const r of g.rows) {
+        if (!seen.has(r.tenKT)) {
+          seen.add(r.tenKT);
+          if (r.hasCostConfig) {
+            withCost++;
+          } else {
+            withoutCost++;
+          }
+        }
+      }
+    }
+    return { withCost, withoutCost, total: withCost + withoutCost };
+  }, [groups, selectedSpecialty]);
 
   // Sorter Function
   const sortRows = useCallback((rows: ComparisonRow[]): ComparisonRow[] => {
@@ -354,8 +550,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
           return order[a.status] - order[b.status];
         }
         if (metricMode === 'revenue') {
-          if (b.currentRevenue !== a.currentRevenue) {
-            return b.currentRevenue - a.currentRevenue;
+          const mA = getRowMetricDisplay(a, 'revenue', financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+          const mB = getRowMetricDisplay(b, 'revenue', financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+          const curA = mA.isValid ? mA.cur : -1;
+          const curB = mB.isValid ? mB.cur : -1;
+          if (curB !== curA) {
+            return curB - curA;
           }
         } else {
           if (b.currentCount !== a.currentCount) {
@@ -367,19 +567,42 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     }
 
     return [...rows].sort((a, b) => {
-      let effectiveCol: string = sortCol;
-      if (metricMode === 'revenue') {
-        if (sortCol === 'currentCount') effectiveCol = 'currentRevenue';
-        else if (sortCol === 'prevCount') effectiveCol = 'prevRevenue';
-        else if (sortCol === 'prevDiff') effectiveCol = 'prevRevenueDiff';
-        else if (sortCol === 'prevChangePct') effectiveCol = 'prevRevenueChangePct';
-        else if (sortCol === 'samePeriodCount') effectiveCol = 'samePeriodRevenue';
-        else if (sortCol === 'samePeriodDiff') effectiveCol = 'samePeriodRevenueDiff';
-        else if (sortCol === 'samePeriodChangePct') effectiveCol = 'samePeriodRevenueChangePct';
-      }
+      let valA: any;
+      let valB: any;
 
-      let valA: any = (a as any)[effectiveCol];
-      let valB: any = (b as any)[effectiveCol];
+      if (metricMode === 'revenue') {
+        const mA = getRowMetricDisplay(a, 'revenue', financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+        const mB = getRowMetricDisplay(b, 'revenue', financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+
+        if (sortCol === 'currentCount') {
+          valA = mA.isValid ? mA.cur : null;
+          valB = mB.isValid ? mB.cur : null;
+        } else if (sortCol === 'prevCount') {
+          valA = mA.isValid ? mA.prev : null;
+          valB = mB.isValid ? mB.prev : null;
+        } else if (sortCol === 'prevDiff') {
+          valA = mA.isValid ? mA.diff : null;
+          valB = mB.isValid ? mB.diff : null;
+        } else if (sortCol === 'prevChangePct') {
+          valA = mA.isValid ? mA.pct : null;
+          valB = mB.isValid ? mB.pct : null;
+        } else if (sortCol === 'samePeriodCount') {
+          valA = mA.isValid ? mA.same : null;
+          valB = mB.isValid ? mB.same : null;
+        } else if (sortCol === 'samePeriodDiff') {
+          valA = mA.isValid ? mA.sameDiff : null;
+          valB = mB.isValid ? mB.sameDiff : null;
+        } else if (sortCol === 'samePeriodChangePct') {
+          valA = mA.isValid ? mA.samePct : null;
+          valB = mB.isValid ? mB.samePct : null;
+        } else {
+          valA = (a as any)[sortCol];
+          valB = (b as any)[sortCol];
+        }
+      } else {
+        valA = (a as any)[sortCol];
+        valB = (b as any)[sortCol];
+      }
 
       if (sortCol === 'status') {
         const order = { ALERT: 1, POSITIVE: 2, NORMAL: 3 };
@@ -400,7 +623,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       if (valA > valB) return sortDir === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [sortCol, sortDir, metricMode]);
+  }, [sortCol, sortDir, metricMode, financialCategory, costSubtype, periodMeta]);
 
   // Combined Rows for "Tất cả chuyên khoa"
   const allCombinedRows = useMemo(() => {
@@ -419,8 +642,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       rows = rows.filter(r => r.status === filterStatus);
     }
 
+    if (filterCostStatus === 'WITH_COST') {
+      rows = rows.filter(r => r.hasCostConfig);
+    } else if (filterCostStatus === 'WITHOUT_COST') {
+      rows = rows.filter(r => !r.hasCostConfig);
+    }
+
     return sortRows(rows);
-  }, [groups, searchTerm, filterStatus, sortRows]);
+  }, [groups, searchTerm, filterStatus, filterCostStatus, sortRows]);
 
   // Single specialty group rows
   const filteredSingleGroup = useMemo(() => {
@@ -440,11 +669,17 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       rows = rows.filter(r => r.status === filterStatus);
     }
 
+    if (filterCostStatus === 'WITH_COST') {
+      rows = rows.filter(r => r.hasCostConfig);
+    } else if (filterCostStatus === 'WITHOUT_COST') {
+      rows = rows.filter(r => !r.hasCostConfig);
+    }
+
     return {
       ...grp,
       rows: sortRows(rows),
     };
-  }, [groups, selectedSpecialty, searchTerm, filterStatus, sortRows]);
+  }, [groups, selectedSpecialty, searchTerm, filterStatus, filterCostStatus, sortRows]);
 
   // Paginated rows
   const paginatedAllRows = useMemo(() => {
@@ -694,38 +929,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               </button>
             </div>
 
-            {/* Toggle Full Money Format (chỉ hiện khi metricMode = revenue) */}
-            {metricMode === 'revenue' && (
-              <button
-                type="button"
-                onClick={() => setFullMoneyFormat(prev => !prev)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
-                  fullMoneyFormat
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                    : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-                }`}
-                title={fullMoneyFormat ? 'Đang hiện số tiền đầy đủ. Bấm để rút gọn.' : 'Đang hiện số tiền rút gọn. Bấm để hiện đầy đủ.'}
-              >
-                {fullMoneyFormat ? <ToggleRight className="h-4 w-4 text-emerald-600" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
-                <span>{fullMoneyFormat ? 'Số tiền đầy đủ' : 'Số tiền rút gọn'}</span>
-              </button>
-            )}
-
-            {/* Toggle Show Absolute Diff */}
-            <button
-              type="button"
-              onClick={handleToggleShowDiff}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
-                showDiff
-                  ? 'bg-blue-50 text-primary-900 border-primary-300'
-                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
-              }`}
-              title={`Bật/Tắt hiển thị cột số chênh tuyệt đối (± ${metricMode === 'revenue' ? 'tiền' : 'ca'})`}
-            >
-              {showDiff ? <ToggleRight className="h-4 w-4 text-primary-600" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
-              <span>Hiện số chênh ({metricMode === 'revenue' ? '± tiền' : '± ca'})</span>
-            </button>
-
             {/* Unified Download Button with Dropdown Menu */}
             <div className="relative" ref={downloadMenuRef}>
               <button
@@ -860,36 +1063,36 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
       {/* ── KPI Summary Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Card 1: Total Cases / Total Revenue */}
+        {/* Card 1: Total Cases / Total Revenue / Cost / Profit */}
         <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-2xs flex items-center justify-between">
           <div>
             <p className="text-[10.5px] font-bold text-gray-500 uppercase tracking-wider">
               {metricMode === 'revenue'
-                ? `Tổng viện phí ${periodMeta?.currentLabel || ''}`
+                ? `Tổng ${getFinancialLabel(financialCategory, costSubtype).toLowerCase()} ${periodMeta?.currentLabel || ''}`
                 : `Tổng số ca ${periodMeta?.currentLabel || ''}`}
             </p>
             <h3
               className="text-xl font-extrabold text-primary-950 mt-0.5"
-              title={metricMode === 'revenue' ? fmtFullMoney(overallKPIs.totalCurrentRevenue) : undefined}
+              title={metricMode === 'revenue' ? fmtFullMoney(overallTotals.cur) : undefined}
             >
               {metricMode === 'revenue'
-                ? fmtMoney(overallKPIs.totalCurrentRevenue)
-                : overallKPIs.totalCurrent.toLocaleString('vi-VN')}
+                ? fmtMoney(overallTotals.cur)
+                : overallTotals.cur.toLocaleString('vi-VN')}
             </h3>
             <div className="flex items-center gap-1.5 mt-0.5 text-[11px]">
               {metricMode === 'revenue' ? (
                 <span className={`font-semibold flex items-center gap-0.5 ${
-                  overallKPIs.prevRevenueChangePct !== null && overallKPIs.prevRevenueChangePct >= 0 ? 'text-emerald-600' : 'text-red-600'
+                  overallTotals.pct !== null && overallTotals.pct >= 0 ? 'text-emerald-600' : 'text-red-600'
                 }`}>
-                  {overallKPIs.prevRevenueChangePct !== null && overallKPIs.prevRevenueChangePct >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                  {fmtPctStr(overallKPIs.prevRevenueChangePct)} {showDiff ? `(${overallKPIs.totalPrevRevenueDiff > 0 ? '+' : ''}${fmtMoney(overallKPIs.totalPrevRevenueDiff)})` : ''}
+                  {overallTotals.pct !== null && overallTotals.pct >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                  {fmtPctStr(overallTotals.pct)} {showDiff ? `(${overallTotals.diff > 0 ? '+' : ''}${fmtMoney(overallTotals.diff)})` : ''}
                 </span>
               ) : (
                 <span className={`font-semibold flex items-center gap-0.5 ${
-                  overallKPIs.prevChangePct !== null && overallKPIs.prevChangePct >= 0 ? 'text-emerald-600' : 'text-red-600'
+                  overallTotals.pct !== null && overallTotals.pct >= 0 ? 'text-emerald-600' : 'text-red-600'
                 }`}>
-                  {overallKPIs.prevChangePct !== null && overallKPIs.prevChangePct >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                  {fmtPctStr(overallKPIs.prevChangePct)} {showDiff ? `(${overallKPIs.totalPrevDiff > 0 ? '+' : ''}${overallKPIs.totalPrevDiff} ca)` : ''}
+                  {overallTotals.pct !== null && overallTotals.pct >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                  {fmtPctStr(overallTotals.pct)} {showDiff ? `(${overallTotals.diff > 0 ? '+' : ''}${overallTotals.diff} ca)` : ''}
                 </span>
               )}
             </div>
@@ -1002,7 +1205,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
                   selectedSpecialty === spec.code ? 'bg-primary-900 text-white' : 'bg-gray-100 text-gray-600'
                 }`}>
-                  {metricMode === 'revenue' ? fmtMoney(totalCurRev) : totalCur}
+                  {(() => {
+                    if (metricMode === 'revenue') {
+                      const gM = getGroupMetricDisplay(grp as any, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+                      return fmtMoney(gM.cur);
+                    }
+                    return totalCur;
+                  })()}
                 </span>
               </button>
             );
@@ -1054,12 +1263,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
             <div className="flex items-center gap-2 text-xs">
               <span className="bg-[#002244] px-2.5 py-1 rounded text-gray-200 font-medium text-[11px]">
-                {metricMode === 'revenue' ? 'Tổng viện phí: ' : 'Tổng số ca: '}
+                {metricMode === 'revenue' ? `Tổng ${getFinancialLabel(financialCategory, costSubtype).toLowerCase()}: ` : 'Tổng số ca: '}
                 <strong
                   className="text-white font-bold"
-                  title={metricMode === 'revenue' ? fmtFullMoney(overallKPIs.totalCurrentRevenue) : undefined}
+                  title={metricMode === 'revenue' ? fmtFullMoney(overallTotals.cur) : undefined}
                 >
-                  {metricMode === 'revenue' ? fmtMoney(overallKPIs.totalCurrentRevenue) : overallKPIs.totalCurrent.toLocaleString('vi-VN')}
+                  {metricMode === 'revenue' ? fmtMoney(overallTotals.cur) : overallTotals.cur.toLocaleString('vi-VN')}
                 </strong>
               </span>
               {overallKPIs.totalAlerts > 0 && (
@@ -1075,10 +1284,177 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Subtitle bar */}
-          <div className="bg-[#d9edf7] text-[#003366] px-3 py-1 text-[11px] italic text-center border-b border-[#bce8f1]">
-            {periodMeta?.subtitle || ''}
+          {/* Subtitle bar with Right-aligned Diff Toggle & Full/Short money toggle */}
+          <div className="bg-[#d9edf7] text-[#003366] px-3 py-1.5 text-[11px] border-b border-[#bce8f1] flex items-center justify-between gap-2">
+            <div className="flex-1 text-center italic">
+              {periodMeta?.subtitle || ''}
+            </div>
+            
+            <div className="shrink-0 flex items-center gap-2">
+              {/* Toggle Show Absolute Diff */}
+              <button
+                type="button"
+                onClick={handleToggleShowDiff}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                  showDiff
+                    ? 'bg-white text-primary-800 border-primary-300'
+                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                }`}
+                title={`Bật/Tắt hiển thị cột số chênh tuyệt đối (± ${metricMode === 'revenue' ? 'tiền' : 'ca'})`}
+              >
+                {showDiff ? <ToggleRight className="h-3.5 w-3.5 text-primary-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                <span>Hiện số chênh ({metricMode === 'revenue' ? '± tiền' : '± ca'})</span>
+              </button>
+
+              {/* Full/Short money toggle */}
+              {metricMode === 'revenue' && (
+                <button
+                  type="button"
+                  onClick={() => setFullMoneyFormat(prev => !prev)}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/80 hover:bg-white text-[#003366] border border-[#bce8f1] font-semibold text-[11px] shadow-2xs cursor-pointer transition-all"
+                  title={fullMoneyFormat ? 'Đang hiện số tiền đầy đủ. Bấm để rút gọn.' : 'Đang hiện số tiền rút gọn. Bấm để hiện đầy đủ.'}
+                >
+                  {fullMoneyFormat ? <ToggleRight className="h-3.5 w-3.5 text-emerald-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                  <span>{fullMoneyFormat ? 'Số tiền đầy đủ' : 'Số tiền rút gọn'}</span>
+                </button>
+              )}
+            </div>
           </div>
+
+          {/* 2-tier Slide Toggle & Coverage Stats for mode Viện phí */}
+          {metricMode === 'revenue' && (
+            <div className="bg-white border-b border-gray-200 px-3 py-2 flex flex-wrap items-center justify-between gap-3 text-xs">
+              {/* Left: 2-tier slide toggle */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Level 1: Viện phí | Chi phí | Lợi nhuận */}
+                <div className="inline-flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setFinancialCategory('revenue')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      financialCategory === 'revenue'
+                        ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700/30'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                    }`}
+                  >
+                    Viện phí
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFinancialCategory('cost')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      financialCategory === 'cost'
+                        ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/30'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                    }`}
+                  >
+                    Chi phí
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFinancialCategory('profit')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      financialCategory === 'profit'
+                        ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/30'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                    }`}
+                  >
+                    Lợi nhuận
+                  </button>
+                </div>
+
+                {/* Level 2 (when financialCategory === 'cost'): CP Thuốc | CP VTTH | CP Nhân công | Tổng CP */}
+                {financialCategory === 'cost' && (
+                  <div className="inline-flex bg-amber-100/70 p-0.5 rounded-lg border border-amber-300 shadow-2xs animate-in fade-in zoom-in-95 items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setCostSubtype('medic')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        costSubtype === 'medic'
+                          ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                          : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                      }`}
+                    >
+                      CP Thuốc
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCostSubtype('vtth')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        costSubtype === 'vtth'
+                          ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                          : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                      }`}
+                    >
+                      CP VTTH
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCostSubtype('labor')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        costSubtype === 'labor'
+                          ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                          : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                      }`}
+                      title="Chi phí nhân công theo kíp mổ thực tế (chuẩn 100% Bảng thanh toán phẫu thuật)"
+                    >
+                      CP Nhân công
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCostSubtype('all')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                        costSubtype === 'all'
+                          ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                          : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                      }`}
+                    >
+                      Tổng CP (Thuốc + VTTH + NC)
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Right: Cost coverage badge info with Click-to-filter */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFilterCostStatus(prev => prev === 'WITH_COST' ? 'all' : 'WITH_COST')}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all cursor-pointer shadow-2xs ${
+                    filterCostStatus === 'WITH_COST'
+                      ? 'bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-300 font-bold'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300'
+                  }`}
+                  title={filterCostStatus === 'WITH_COST' ? 'Đang lọc DV có định mức CP. Bấm để hiển thị tất cả.' : 'Bấm để lọc chỉ hiển thị các DV có định mức CP.'}
+                >
+                  <CheckCircle2 className={`h-3 w-3 ${filterCostStatus === 'WITH_COST' ? 'text-white' : 'text-emerald-600'}`} />
+                  <span><strong>{costCoverageStats.withCost}</strong> có định mức CP</span>
+                  {filterCostStatus === 'WITH_COST' && (
+                    <span className="ml-0.5 text-[10px] bg-white/20 px-1 rounded">✕</span>
+                  )}
+                </button>
+
+                {costCoverageStats.withoutCost > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterCostStatus(prev => prev === 'WITHOUT_COST' ? 'all' : 'WITHOUT_COST')}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all cursor-pointer shadow-2xs ${
+                      filterCostStatus === 'WITHOUT_COST'
+                        ? 'bg-amber-600 text-white border-amber-700 ring-2 ring-amber-300 font-bold'
+                        : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 hover:border-amber-300'
+                    }`}
+                    title={filterCostStatus === 'WITHOUT_COST' ? 'Đang lọc DV chưa có định mức CP. Bấm để hiển thị tất cả.' : 'Bấm để lọc chỉ hiển thị các DV chưa có định mức CP.'}
+                  >
+                    <Info className={`h-3 w-3 ${filterCostStatus === 'WITHOUT_COST' ? 'text-white' : 'text-amber-600'}`} />
+                    <span><strong>{costCoverageStats.withoutCost}</strong> chưa có định mức CP</span>
+                    {filterCostStatus === 'WITHOUT_COST' && (
+                      <span className="ml-0.5 text-[10px] bg-white/20 px-1 rounded">✕</span>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Table */}
           <div className="overflow-x-auto">
@@ -1228,8 +1604,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     const badgeClass = getSpecialtyBadgeColor(r.specialty);
                     const isPopoverOpen = openReassignKey === `${r.specialty}:::${r.tenKT}`;
 
-                    const rowChangePct = metricMode === 'revenue' ? r.prevRevenueChangePct : r.prevChangePct;
-                    const rowSameChangePct = metricMode === 'revenue' ? r.samePeriodRevenueChangePct : r.samePeriodChangePct;
+                    const rowMetrics = getRowMetricDisplay(r, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
 
                     return (
                       <tr
@@ -1244,7 +1619,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       >
                         {/* Tên phẫu thuật */}
                         <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
-                          <span className="leading-snug text-xs">{r.tenKT}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="leading-snug text-xs">{r.tenKT}</span>
+                            {metricMode === 'revenue' && !rowMetrics.isValid && (
+                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Kỹ thuật này chưa có định mức chi phí thuốc/VTTH">
+                                Chưa có CP
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Chuyên khoa: Text Badge + Nút chuyển popover menu */}
@@ -1274,7 +1656,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               </div>
                               <div className="max-h-56 overflow-y-auto py-1">
                                 {allSpecialtiesList.map(s => (
-                                  <button
+                                   <button
                                     key={s.code}
                                     type="button"
                                     onClick={() => handleReassignSpecialty(r.tenKT, s.code)}
@@ -1294,43 +1676,61 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         {/* Kỳ hiện tại */}
                         <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
                           {metricMode === 'revenue' ? (
-                            <span title={fmtFullMoney(r.currentRevenue)}>{fmtMoney(r.currentRevenue)}</span>
+                            rowMetrics.isValid ? (
+                              <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
+                            ) : (
+                              <span className="text-gray-400 font-normal">—</span>
+                            )
                           ) : (
-                            r.currentCount
+                            rowMetrics.cur
                           )}
                         </td>
 
                         {/* Kỳ trước */}
                         <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                           {metricMode === 'revenue' ? (
-                            <span title={fmtFullMoney(r.prevRevenue)}>{fmtMoney(r.prevRevenue)}</span>
+                            rowMetrics.isValid ? (
+                              <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
+                            ) : (
+                              <span className="text-gray-400 font-normal">—</span>
+                            )
                           ) : (
-                            r.prevCount
+                            rowMetrics.prev
                           )}
                         </td>
 
                         {/* Số chênh kỳ trước */}
                         {showDiff && (
                           <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
-                            {metricMode === 'revenue' ? fmtMoneyDiffCell(r.prevRevenueDiff) : fmtDiffCell(r.prevDiff)}
+                            {metricMode === 'revenue' ? (
+                              rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.diff) : <span className="text-gray-400 font-normal">—</span>
+                            ) : (
+                              fmtDiffCell(rowMetrics.diff)
+                            )}
                           </td>
                         )}
 
                         {/* So kỳ trước (%) */}
                         <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                          rowChangePct !== null && rowChangePct < 0
+                          rowMetrics.pct !== null && rowMetrics.pct < 0
                             ? 'text-red-600'
-                            : rowChangePct !== null && rowChangePct > 0
+                            : rowMetrics.pct !== null && rowMetrics.pct > 0
                             ? 'text-emerald-700'
                             : 'text-gray-600'
                         }`}>
-                          {fmtPctStr(rowChangePct)}
+                          {rowMetrics.isValid ? fmtPctStr(rowMetrics.pct) : <span className="text-gray-400 font-normal">—</span>}
                         </td>
 
                         {/* Cùng kỳ */}
                         <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                           {periodMeta?.hasSamePeriodData
-                            ? (metricMode === 'revenue' ? <span title={fmtFullMoney(r.samePeriodRevenue)}>{fmtMoney(r.samePeriodRevenue)}</span> : r.samePeriodCount)
+                            ? (metricMode === 'revenue' ? (
+                                rowMetrics.isValid ? (
+                                  <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
+                                ) : (
+                                  <span className="text-gray-400 font-normal">—</span>
+                                )
+                              ) : rowMetrics.same)
                             : '—'}
                         </td>
 
@@ -1338,20 +1738,24 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         {showDiff && (
                           <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
                             {periodMeta?.hasSamePeriodData
-                              ? (metricMode === 'revenue' ? fmtMoneyDiffCell(r.samePeriodRevenueDiff) : fmtDiffCell(r.samePeriodDiff))
+                              ? (metricMode === 'revenue' ? (
+                                  rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.sameDiff) : <span className="text-gray-400 font-normal">—</span>
+                                ) : fmtDiffCell(rowMetrics.sameDiff))
                               : '—'}
                           </td>
                         )}
 
                         {/* So cùng kỳ (%) */}
                         <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                          rowSameChangePct !== null && rowSameChangePct < 0
+                          rowMetrics.samePct !== null && rowMetrics.samePct < 0
                             ? 'text-red-600'
-                            : rowSameChangePct !== null && rowSameChangePct > 0
+                            : rowMetrics.samePct !== null && rowMetrics.samePct > 0
                             ? 'text-emerald-700'
                             : 'text-gray-600'
                         }`}>
-                          {periodMeta?.hasSamePeriodData ? fmtPctStr(rowSameChangePct) : '—'}
+                          {periodMeta?.hasSamePeriodData ? (
+                            rowMetrics.isValid ? fmtPctStr(rowMetrics.samePct) : <span className="text-gray-400 font-normal">—</span>
+                          ) : '—'}
                         </td>
 
                         {/* Nhận định */}
@@ -1374,6 +1778,11 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         {/* Ghi chú */}
                         <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
                           {r.note}
+                          {metricMode === 'revenue' && !rowMetrics.isValid && (
+                            <span className="text-amber-700 font-normal not-italic ml-1">
+                              {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1389,52 +1798,44 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   </td>
                   <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
                     {metricMode === 'revenue' ? (
-                      <span title={fmtFullMoney(overallKPIs.totalCurrentRevenue)}>{fmtMoney(overallKPIs.totalCurrentRevenue)}</span>
+                      <span title={fmtFullMoney(overallTotals.cur)}>{fmtMoney(overallTotals.cur)}</span>
                     ) : (
-                      overallKPIs.totalCurrent.toLocaleString('vi-VN')
+                      overallTotals.cur.toLocaleString('vi-VN')
                     )}
                   </td>
                   <td className="px-2 py-2 text-center border-r border-gray-300">
                     {metricMode === 'revenue' ? (
-                      <span title={fmtFullMoney(overallKPIs.totalPrevRevenue)}>{fmtMoney(overallKPIs.totalPrevRevenue)}</span>
+                      <span title={fmtFullMoney(overallTotals.prev)}>{fmtMoney(overallTotals.prev)}</span>
                     ) : (
-                      overallKPIs.totalPrev.toLocaleString('vi-VN')
+                      overallTotals.prev.toLocaleString('vi-VN')
                     )}
                   </td>
                   {showDiff && (
                     <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
-                      {metricMode === 'revenue' ? fmtMoneyDiffCell(overallKPIs.totalPrevRevenueDiff) : fmtDiffCell(overallKPIs.totalPrevDiff)}
+                      {metricMode === 'revenue' ? fmtMoneyDiffCell(overallTotals.diff) : fmtDiffCell(overallTotals.diff)}
                     </td>
                   )}
                   <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
-                    (metricMode === 'revenue' ? overallKPIs.prevRevenueChangePct : overallKPIs.prevChangePct) !== null &&
-                    (metricMode === 'revenue' ? overallKPIs.prevRevenueChangePct! : overallKPIs.prevChangePct!) < 0
-                      ? 'text-red-600'
-                      : 'text-emerald-700'
+                    overallTotals.pct !== null && overallTotals.pct < 0 ? 'text-red-600' : 'text-emerald-700'
                   }`}>
-                    {fmtPctStr(metricMode === 'revenue' ? overallKPIs.prevRevenueChangePct : overallKPIs.prevChangePct)}
+                    {fmtPctStr(overallTotals.pct)}
                   </td>
                   <td className="px-2 py-2 text-center border-r border-gray-300">
                     {periodMeta?.hasSamePeriodData
-                      ? (metricMode === 'revenue' ? <span title={fmtFullMoney(overallKPIs.totalSamePeriodRevenue)}>{fmtMoney(overallKPIs.totalSamePeriodRevenue)}</span> : overallKPIs.totalSamePeriod.toLocaleString('vi-VN'))
+                      ? (metricMode === 'revenue' ? <span title={fmtFullMoney(overallTotals.same)}>{fmtMoney(overallTotals.same)}</span> : (overallTotals.same || 0).toLocaleString('vi-VN'))
                       : '—'}
                   </td>
                   {showDiff && (
                     <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
                       {periodMeta?.hasSamePeriodData
-                        ? (metricMode === 'revenue' ? fmtMoneyDiffCell(overallKPIs.totalSamePeriodRevenueDiff) : fmtDiffCell(overallKPIs.totalSamePeriodDiff))
+                        ? (metricMode === 'revenue' ? fmtMoneyDiffCell(overallTotals.sameDiff) : fmtDiffCell(overallTotals.sameDiff))
                         : '—'}
                     </td>
                   )}
                   <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
-                    (metricMode === 'revenue' ? overallKPIs.samePeriodRevenueChangePct : overallKPIs.samePeriodChangePct) !== null &&
-                    (metricMode === 'revenue' ? overallKPIs.samePeriodRevenueChangePct! : overallKPIs.samePeriodChangePct!) < 0
-                      ? 'text-red-600'
-                      : 'text-emerald-700'
+                    overallTotals.samePct !== null && overallTotals.samePct < 0 ? 'text-red-600' : 'text-emerald-700'
                   }`}>
-                    {periodMeta?.hasSamePeriodData
-                      ? fmtPctStr(metricMode === 'revenue' ? overallKPIs.samePeriodRevenueChangePct : overallKPIs.samePeriodChangePct)
-                      : '—'}
+                    {periodMeta?.hasSamePeriodData ? fmtPctStr(overallTotals.samePct) : '—'}
                   </td>
                   <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
                   <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
@@ -1555,15 +1956,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               </div>
 
               <div className="flex items-center gap-2 text-xs">
-                <span className="bg-[#002244] px-2.5 py-1 rounded text-gray-200 font-medium text-[11px]">
-                  {metricMode === 'revenue' ? 'Tổng viện phí: ' : 'Tổng ca: '}
-                  <strong
-                    className="text-white font-bold"
-                    title={metricMode === 'revenue' ? fmtFullMoney(filteredSingleGroup.totalCurrentRevenue) : undefined}
-                  >
-                    {metricMode === 'revenue' ? fmtMoney(filteredSingleGroup.totalCurrentRevenue) : filteredSingleGroup.totalCurrent.toLocaleString('vi-VN')}
-                  </strong>
-                </span>
+                {(() => {
+                  const gM = getGroupMetricDisplay(filteredSingleGroup, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+                  return (
+                    <span className="bg-[#002244] px-2.5 py-1 rounded text-gray-200 font-medium text-[11px]">
+                      {metricMode === 'revenue' ? `Tổng ${getFinancialLabel(financialCategory, costSubtype).toLowerCase()}: ` : 'Tổng ca: '}
+                      <strong
+                        className="text-white font-bold"
+                        title={metricMode === 'revenue' ? fmtFullMoney(gM.cur) : undefined}
+                      >
+                        {metricMode === 'revenue' ? fmtMoney(gM.cur) : gM.cur.toLocaleString('vi-VN')}
+                      </strong>
+                    </span>
+                  );
+                })()}
                 {filteredSingleGroup.alertCount > 0 && (
                   <span className="bg-red-500/90 text-white px-2 py-0.5 rounded font-bold text-[10.5px] flex items-center gap-1">
                     🚨 {filteredSingleGroup.alertCount} cảnh báo
@@ -1577,10 +1983,177 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Subtitle bar */}
-            <div className="bg-[#d9edf7] text-[#003366] px-3 py-1 text-[11px] italic text-center border-b border-[#bce8f1]">
-              {periodMeta?.subtitle || ''}
+            {/* Subtitle bar with Right-aligned Diff Toggle & Full/Short money toggle */}
+            <div className="bg-[#d9edf7] text-[#003366] px-3 py-1.5 text-[11px] border-b border-[#bce8f1] flex items-center justify-between gap-2">
+              <div className="flex-1 text-center italic">
+                {periodMeta?.subtitle || ''}
+              </div>
+
+              <div className="shrink-0 flex items-center gap-2">
+                {/* Toggle Show Absolute Diff */}
+                <button
+                  type="button"
+                  onClick={handleToggleShowDiff}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                    showDiff
+                      ? 'bg-white text-primary-800 border-primary-300'
+                      : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                  }`}
+                  title={`Bật/Tắt hiển thị cột số chênh tuyệt đối (± ${metricMode === 'revenue' ? 'tiền' : 'ca'})`}
+                >
+                  {showDiff ? <ToggleRight className="h-3.5 w-3.5 text-primary-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                  <span>Hiện số chênh ({metricMode === 'revenue' ? '± tiền' : '± ca'})</span>
+                </button>
+
+                {/* Full/Short money toggle */}
+                {metricMode === 'revenue' && (
+                  <button
+                    type="button"
+                    onClick={() => setFullMoneyFormat(prev => !prev)}
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/80 hover:bg-white text-[#003366] border border-[#bce8f1] font-semibold text-[11px] shadow-2xs cursor-pointer transition-all"
+                    title={fullMoneyFormat ? 'Đang hiện số tiền đầy đủ. Bấm để rút gọn.' : 'Đang hiện số tiền rút gọn. Bấm để hiện đầy đủ.'}
+                  >
+                    {fullMoneyFormat ? <ToggleRight className="h-3.5 w-3.5 text-emerald-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
+                    <span>{fullMoneyFormat ? 'Số tiền đầy đủ' : 'Số tiền rút gọn'}</span>
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* 2-tier Slide Toggle & Coverage Stats for mode Viện phí */}
+            {metricMode === 'revenue' && (
+              <div className="bg-white border-b border-gray-200 px-3 py-2 flex flex-wrap items-center justify-between gap-3 text-xs">
+                {/* Left: 2-tier slide toggle */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Level 1: Viện phí | Chi phí | Lợi nhuận */}
+                  <div className="inline-flex bg-gray-100 p-0.5 rounded-lg border border-gray-200 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setFinancialCategory('revenue')}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                        financialCategory === 'revenue'
+                          ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700/30'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                      }`}
+                    >
+                      Viện phí
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFinancialCategory('cost')}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                        financialCategory === 'cost'
+                          ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/30'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                      }`}
+                    >
+                      Chi phí
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFinancialCategory('profit')}
+                      className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                        financialCategory === 'profit'
+                          ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/30'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
+                      }`}
+                    >
+                      Lợi nhuận
+                    </button>
+                  </div>
+
+                  {/* Level 2 (when financialCategory === 'cost'): CP Thuốc | CP VTTH | CP Nhân công | Tổng CP */}
+                  {financialCategory === 'cost' && (
+                    <div className="inline-flex bg-amber-100/70 p-0.5 rounded-lg border border-amber-300 shadow-2xs animate-in fade-in zoom-in-95 items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setCostSubtype('medic')}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                          costSubtype === 'medic'
+                            ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                            : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                        }`}
+                      >
+                        CP Thuốc
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCostSubtype('vtth')}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                          costSubtype === 'vtth'
+                            ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                            : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                        }`}
+                      >
+                        CP VTTH
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCostSubtype('labor')}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                          costSubtype === 'labor'
+                            ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                            : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                        }`}
+                        title="Chi phí nhân công theo kíp mổ thực tế (chuẩn 100% Bảng thanh toán phẫu thuật)"
+                      >
+                        CP Nhân công
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCostSubtype('all')}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                          costSubtype === 'all'
+                            ? 'bg-amber-600 text-white shadow-sm ring-1 ring-amber-700/40'
+                            : 'text-amber-900/80 hover:text-amber-950 hover:bg-amber-200/70'
+                        }`}
+                      >
+                        Tổng CP (Thuốc + VTTH + NC)
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Cost coverage badge info with Click-to-filter */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFilterCostStatus(prev => prev === 'WITH_COST' ? 'all' : 'WITH_COST')}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all cursor-pointer shadow-2xs ${
+                      filterCostStatus === 'WITH_COST'
+                        ? 'bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-300 font-bold'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300'
+                    }`}
+                    title={filterCostStatus === 'WITH_COST' ? 'Đang lọc DV có định mức CP. Bấm để hiển thị tất cả.' : 'Bấm để lọc chỉ hiển thị các DV có định mức CP.'}
+                  >
+                    <CheckCircle2 className={`h-3 w-3 ${filterCostStatus === 'WITH_COST' ? 'text-white' : 'text-emerald-600'}`} />
+                    <span><strong>{costCoverageStats.withCost}</strong> có định mức CP</span>
+                    {filterCostStatus === 'WITH_COST' && (
+                      <span className="ml-0.5 text-[10px] bg-white/20 px-1 rounded">✕</span>
+                    )}
+                  </button>
+
+                  {costCoverageStats.withoutCost > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setFilterCostStatus(prev => prev === 'WITHOUT_COST' ? 'all' : 'WITHOUT_COST')}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all cursor-pointer shadow-2xs ${
+                        filterCostStatus === 'WITHOUT_COST'
+                          ? 'bg-amber-600 text-white border-amber-700 ring-2 ring-amber-300 font-bold'
+                          : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 hover:border-amber-300'
+                      }`}
+                      title={filterCostStatus === 'WITHOUT_COST' ? 'Đang lọc DV chưa có định mức CP. Bấm để hiển thị tất cả.' : 'Bấm để lọc chỉ hiển thị các DV chưa có định mức CP.'}
+                    >
+                      <Info className={`h-3 w-3 ${filterCostStatus === 'WITHOUT_COST' ? 'text-white' : 'text-amber-600'}`} />
+                      <span><strong>{costCoverageStats.withoutCost}</strong> chưa có định mức CP</span>
+                      {filterCostStatus === 'WITHOUT_COST' && (
+                        <span className="ml-0.5 text-[10px] bg-white/20 px-1 rounded">✕</span>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Table Body */}
             <div className="overflow-x-auto">
@@ -1711,8 +2284,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       const isPositive = r.status === 'POSITIVE';
                       const isPopoverOpen = openReassignKey === `${r.specialty}:::${r.tenKT}`;
 
-                      const rowChangePct = metricMode === 'revenue' ? r.prevRevenueChangePct : r.prevChangePct;
-                      const rowSameChangePct = metricMode === 'revenue' ? r.samePeriodRevenueChangePct : r.samePeriodChangePct;
+                      const rowMetrics = getRowMetricDisplay(r, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
 
                       return (
                         <tr
@@ -1727,8 +2299,15 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         >
                           {/* Tên phẫu thuật + Nút chuyển chuyên khoa */}
                           <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200 relative">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="flex-1 leading-snug text-xs">{r.tenKT}</span>
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-1.5 flex-wrap flex-1">
+                                <span className="leading-snug text-xs">{r.tenKT}</span>
+                                {metricMode === 'revenue' && !rowMetrics.isValid && (
+                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Kỹ thuật này chưa có định mức chi phí thuốc/VTTH">
+                                    Chưa có CP
+                                  </span>
+                                )}
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => setOpenReassignKey(isPopoverOpen ? null : `${r.specialty}:::${r.tenKT}`)}
@@ -1770,43 +2349,61 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           {/* Kỳ hiện tại */}
                           <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
                             {metricMode === 'revenue' ? (
-                              <span title={fmtFullMoney(r.currentRevenue)}>{fmtMoney(r.currentRevenue)}</span>
+                              rowMetrics.isValid ? (
+                                <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
+                              ) : (
+                                <span className="text-gray-400 font-normal">—</span>
+                              )
                             ) : (
-                              r.currentCount
+                              rowMetrics.cur
                             )}
                           </td>
 
                           {/* Kỳ trước */}
                           <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                             {metricMode === 'revenue' ? (
-                              <span title={fmtFullMoney(r.prevRevenue)}>{fmtMoney(r.prevRevenue)}</span>
+                              rowMetrics.isValid ? (
+                                <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
+                              ) : (
+                                <span className="text-gray-400 font-normal">—</span>
+                              )
                             ) : (
-                              r.prevCount
+                              rowMetrics.prev
                             )}
                           </td>
 
                           {/* Số chênh kỳ trước */}
                           {showDiff && (
                             <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
-                              {metricMode === 'revenue' ? fmtMoneyDiffCell(r.prevRevenueDiff) : fmtDiffCell(r.prevDiff)}
+                              {metricMode === 'revenue' ? (
+                                rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.diff) : <span className="text-gray-400 font-normal">—</span>
+                              ) : (
+                                fmtDiffCell(rowMetrics.diff)
+                              )}
                             </td>
                           )}
 
                           {/* So kỳ trước */}
                           <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                            rowChangePct !== null && rowChangePct < 0
+                            rowMetrics.pct !== null && rowMetrics.pct < 0
                               ? 'text-red-600'
-                              : rowChangePct !== null && rowChangePct > 0
+                              : rowMetrics.pct !== null && rowMetrics.pct > 0
                               ? 'text-emerald-700'
                               : 'text-gray-600'
                           }`}>
-                            {fmtPctStr(rowChangePct)}
+                            {rowMetrics.isValid ? fmtPctStr(rowMetrics.pct) : <span className="text-gray-400 font-normal">—</span>}
                           </td>
 
                           {/* Cùng kỳ */}
                           <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                             {periodMeta?.hasSamePeriodData
-                              ? (metricMode === 'revenue' ? <span title={fmtFullMoney(r.samePeriodRevenue)}>{fmtMoney(r.samePeriodRevenue)}</span> : r.samePeriodCount)
+                              ? (metricMode === 'revenue' ? (
+                                  rowMetrics.isValid ? (
+                                    <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
+                                  ) : (
+                                    <span className="text-gray-400 font-normal">—</span>
+                                  )
+                                ) : rowMetrics.same)
                               : '—'}
                           </td>
 
@@ -1814,20 +2411,22 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           {showDiff && (
                             <td className="px-2 py-2 text-center border-r border-gray-200 font-bold text-[11.5px]">
                               {periodMeta?.hasSamePeriodData
-                                ? (metricMode === 'revenue' ? fmtMoneyDiffCell(r.samePeriodRevenueDiff) : fmtDiffCell(r.samePeriodDiff))
+                                ? (metricMode === 'revenue' ? fmtMoneyDiffCell(rowMetrics.sameDiff) : fmtDiffCell(rowMetrics.sameDiff))
                                 : '—'}
                             </td>
                           )}
 
                           {/* So cùng kỳ */}
                           <td className={`px-2 py-2 text-center font-bold border-r border-gray-200 ${
-                            rowSameChangePct !== null && rowSameChangePct < 0
+                            rowMetrics.samePct !== null && rowMetrics.samePct < 0
                               ? 'text-red-600'
-                              : rowSameChangePct !== null && rowSameChangePct > 0
+                              : rowMetrics.samePct !== null && rowMetrics.samePct > 0
                               ? 'text-emerald-700'
                               : 'text-gray-600'
                           }`}>
-                            {periodMeta?.hasSamePeriodData ? fmtPctStr(rowSameChangePct) : '—'}
+                            {periodMeta?.hasSamePeriodData ? (
+                              rowMetrics.isValid ? fmtPctStr(rowMetrics.samePct) : <span className="text-gray-400 font-normal">—</span>
+                            ) : '—'}
                           </td>
 
                           {/* Nhận định */}
@@ -1850,6 +2449,11 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           {/* Ghi chú */}
                           <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
                             {r.note}
+                            {metricMode === 'revenue' && !rowMetrics.isValid && (
+                              <span className="text-amber-700 font-normal not-italic ml-1">
+                                {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1860,16 +2464,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 {/* Footer */}
                 <tfoot>
                   {(() => {
-                    const isRev = metricMode === 'revenue';
-                    const curVal = isRev ? filteredSingleGroup.totalCurrentRevenue : filteredSingleGroup.totalCurrent;
-                    const prevVal = isRev ? filteredSingleGroup.totalPrevRevenue : filteredSingleGroup.totalPrev;
-                    const sameVal = isRev ? filteredSingleGroup.totalSamePeriodRevenue : filteredSingleGroup.totalSamePeriod;
-
-                    const prevDiff = curVal - prevVal;
-                    const prevPct = prevVal > 0 ? (prevDiff / prevVal) * 100 : null;
-
-                    const sameDiff = periodMeta?.hasSamePeriodData ? (curVal - sameVal) : null;
-                    const samePct = (periodMeta?.hasSamePeriodData && sameVal > 0) ? ((curVal - sameVal) / sameVal) * 100 : null;
+                    const gM = getGroupMetricDisplay(filteredSingleGroup, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
 
                     return (
                       <tr className="bg-[#F2F4F7] font-bold text-gray-900 border-t-2 border-[#003366] text-xs">
@@ -1877,45 +2472,45 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           TỔNG CỘNG
                         </td>
                         <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
-                          {isRev ? (
-                            <span title={fmtFullMoney(filteredSingleGroup.totalCurrentRevenue)}>{fmtMoney(filteredSingleGroup.totalCurrentRevenue)}</span>
+                          {metricMode === 'revenue' ? (
+                            <span title={fmtFullMoney(gM.cur)}>{fmtMoney(gM.cur)}</span>
                           ) : (
-                            filteredSingleGroup.totalCurrent.toLocaleString('vi-VN')
+                            gM.cur.toLocaleString('vi-VN')
                           )}
                         </td>
                         <td className="px-2 py-2 text-center border-r border-gray-300">
-                          {isRev ? (
-                            <span title={fmtFullMoney(filteredSingleGroup.totalPrevRevenue)}>{fmtMoney(filteredSingleGroup.totalPrevRevenue)}</span>
+                          {metricMode === 'revenue' ? (
+                            <span title={fmtFullMoney(gM.prev)}>{fmtMoney(gM.prev)}</span>
                           ) : (
-                            filteredSingleGroup.totalPrev.toLocaleString('vi-VN')
+                            gM.prev.toLocaleString('vi-VN')
                           )}
                         </td>
                         {showDiff && (
                           <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
-                            {isRev ? fmtMoneyDiffCell(prevDiff) : fmtDiffCell(prevDiff)}
+                            {metricMode === 'revenue' ? fmtMoneyDiffCell(gM.diff) : fmtDiffCell(gM.diff)}
                           </td>
                         )}
                         <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
-                          prevPct !== null && prevPct < 0 ? 'text-red-600' : 'text-emerald-700'
+                          gM.pct !== null && gM.pct < 0 ? 'text-red-600' : 'text-emerald-700'
                         }`}>
-                          {fmtPctStr(prevPct)}
+                          {fmtPctStr(gM.pct)}
                         </td>
                         <td className="px-2 py-2 text-center border-r border-gray-300">
                           {periodMeta?.hasSamePeriodData
-                            ? (isRev ? <span title={fmtFullMoney(filteredSingleGroup.totalSamePeriodRevenue)}>{fmtMoney(filteredSingleGroup.totalSamePeriodRevenue)}</span> : filteredSingleGroup.totalSamePeriod.toLocaleString('vi-VN'))
+                            ? (metricMode === 'revenue' ? <span title={fmtFullMoney(gM.same)}>{fmtMoney(gM.same)}</span> : (gM.same || 0).toLocaleString('vi-VN'))
                             : '—'}
                         </td>
                         {showDiff && (
                           <td className="px-2 py-2 text-center border-r border-gray-300 font-extrabold text-[11.5px]">
                             {periodMeta?.hasSamePeriodData
-                              ? (isRev ? fmtMoneyDiffCell(sameDiff) : fmtDiffCell(sameDiff))
+                              ? (metricMode === 'revenue' ? fmtMoneyDiffCell(gM.sameDiff) : fmtDiffCell(gM.sameDiff))
                               : '—'}
                           </td>
                         )}
                         <td className={`px-2 py-2 text-center font-extrabold border-r border-gray-300 ${
-                          samePct !== null && samePct < 0 ? 'text-red-600' : 'text-emerald-700'
+                          gM.samePct !== null && gM.samePct < 0 ? 'text-red-600' : 'text-emerald-700'
                         }`}>
-                          {periodMeta?.hasSamePeriodData ? fmtPctStr(samePct) : '—'}
+                          {periodMeta?.hasSamePeriodData ? fmtPctStr(gM.samePct) : '—'}
                         </td>
                         <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
                         <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">

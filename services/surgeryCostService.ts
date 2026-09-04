@@ -41,25 +41,41 @@ export function subscribeToCostItems(
       return;
     }
 
-    const items: SurgeryCostItem[] = Object.entries(data).map(([key, val]: [string, any]) => ({
-      id: key,
-      refPriceId: val.refPriceId || '',
-      maTuongDuong: val.maTuongDuong || '',
-      tenKT: val.tenKT || '',
-      donGia: val.donGia || 0,
-      medicCost: val.medicCost || 0,
-      vtthCost: val.vtthCost || 0,
-      effectiveFrom: normalizeDate(val.effectiveFrom),
-      effectiveTo: val.effectiveTo ? normalizeDate(val.effectiveTo) : null,
-      createdAt: val.createdAt || 0,
-      updatedAt: val.updatedAt || 0,
-    }));
+    const items: SurgeryCostItem[] = Object.entries(data).map(([key, val]: [string, any]) => {
+      const dvktEffectiveFrom = normalizeDate(val.dvktEffectiveFrom || val.effectiveFrom);
+      const dvktEffectiveTo = val.dvktEffectiveTo !== undefined 
+        ? (val.dvktEffectiveTo ? normalizeDate(val.dvktEffectiveTo) : null) 
+        : (val.effectiveTo ? normalizeDate(val.effectiveTo) : null);
 
-    // Sort by tenKT then effectiveFrom desc
+      const costEffectiveFrom = normalizeDate(val.costEffectiveFrom || val.effectiveFrom);
+      const costEffectiveTo = val.costEffectiveTo !== undefined 
+        ? (val.costEffectiveTo ? normalizeDate(val.costEffectiveTo) : null) 
+        : (val.effectiveTo ? normalizeDate(val.effectiveTo) : null);
+
+      return {
+        id: key,
+        refPriceId: val.refPriceId || '',
+        maTuongDuong: val.maTuongDuong || '',
+        tenKT: val.tenKT || '',
+        donGia: val.donGia || 0,
+        medicCost: val.medicCost || 0,
+        vtthCost: val.vtthCost || 0,
+        dvktEffectiveFrom,
+        dvktEffectiveTo,
+        costEffectiveFrom,
+        costEffectiveTo,
+        effectiveFrom: costEffectiveFrom,
+        effectiveTo: costEffectiveTo,
+        createdAt: val.createdAt || 0,
+        updatedAt: val.updatedAt || 0,
+      };
+    });
+
+    // Sort by tenKT then costEffectiveFrom desc
     items.sort((a, b) => {
       const cmp = a.tenKT.localeCompare(b.tenKT, 'vi');
       if (cmp !== 0) return cmp;
-      return b.effectiveFrom.localeCompare(a.effectiveFrom);
+      return b.costEffectiveFrom.localeCompare(a.costEffectiveFrom);
     });
 
     callback(items);
@@ -81,12 +97,17 @@ export async function addCostItem(
   priceItem: SurgeryNamePrice,
   medicCost: number,
   vtthCost: number,
-  effectiveFrom: string,
-  effectiveTo: string | null = null,
+  costEffectiveFrom?: string,
+  costEffectiveTo: string | null = null,
 ): Promise<string> {
   const costRef = ref(db, COST_ITEMS_PATH);
   const newRef = push(costRef);
   const now = Date.now();
+  const dvktEffectiveFrom = normalizeDate(priceItem.effectiveFrom);
+  const dvktEffectiveTo = priceItem.effectiveTo ? normalizeDate(priceItem.effectiveTo) : null;
+  const resolvedCostFrom = normalizeDate(costEffectiveFrom || priceItem.effectiveFrom || new Date().toISOString().slice(0, 10));
+  const resolvedCostTo = costEffectiveTo ? normalizeDate(costEffectiveTo) : null;
+
   const item = {
     refPriceId: priceItem.id,
     maTuongDuong: priceItem.maTuongDuong || '',
@@ -94,8 +115,12 @@ export async function addCostItem(
     donGia: priceItem.price,
     medicCost,
     vtthCost,
-    effectiveFrom: normalizeDate(effectiveFrom),
-    effectiveTo: effectiveTo ? normalizeDate(effectiveTo) : null,
+    dvktEffectiveFrom,
+    dvktEffectiveTo,
+    costEffectiveFrom: resolvedCostFrom,
+    costEffectiveTo: resolvedCostTo,
+    effectiveFrom: resolvedCostFrom,
+    effectiveTo: resolvedCostTo,
     createdAt: now,
     updatedAt: now,
   };
@@ -107,7 +132,7 @@ export async function addCostItem(
 
 export async function updateCostItem(
   id: string,
-  updates: Partial<Pick<SurgeryCostItem, 'medicCost' | 'vtthCost' | 'effectiveFrom' | 'effectiveTo'>>
+  updates: Partial<Pick<SurgeryCostItem, 'medicCost' | 'vtthCost' | 'costEffectiveFrom' | 'costEffectiveTo' | 'effectiveFrom' | 'effectiveTo'>>
 ): Promise<void> {
   if (updates.medicCost !== undefined && (isNaN(updates.medicCost) || updates.medicCost <= 0)) {
     throw new Error('Chi phí thuốc phải là số lớn hơn 0 (> 0)');
@@ -117,9 +142,13 @@ export async function updateCostItem(
   }
   const itemRef = ref(db, `${COST_ITEMS_PATH}/${id}`);
   const normalized: any = { ...updates, updatedAt: Date.now() };
-  if (normalized.effectiveFrom) normalized.effectiveFrom = normalizeDate(normalized.effectiveFrom);
-  if (normalized.effectiveTo !== undefined) {
-    normalized.effectiveTo = normalized.effectiveTo ? normalizeDate(normalized.effectiveTo) : null;
+  if (normalized.costEffectiveFrom) {
+    normalized.costEffectiveFrom = normalizeDate(normalized.costEffectiveFrom);
+    normalized.effectiveFrom = normalized.costEffectiveFrom;
+  }
+  if (normalized.costEffectiveTo !== undefined) {
+    normalized.costEffectiveTo = normalized.costEffectiveTo ? normalizeDate(normalized.costEffectiveTo) : null;
+    normalized.effectiveTo = normalized.costEffectiveTo;
   }
   await update(itemRef, normalized);
 }
@@ -136,28 +165,29 @@ export async function deleteCostItem(
     return;
   }
 
-  // Tìm chuỗi cùng refPriceId, sắp xếp theo effectiveFrom
+  // Tìm chuỗi cùng refPriceId, sắp xếp theo costEffectiveFrom
   const siblings = allCostItems
     .filter(c => c.refPriceId === item.refPriceId && c.id !== id)
-    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+    .sort((a, b) => a.costEffectiveFrom.localeCompare(b.costEffectiveFrom));
 
   // Tìm item trước (predecessor) trong chuỗi hiệu lực
   const predecessor = siblings
-    .filter(c => c.effectiveFrom < item.effectiveFrom)
-    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
+    .filter(c => c.costEffectiveFrom < item.costEffectiveFrom)
+    .sort((a, b) => b.costEffectiveFrom.localeCompare(a.costEffectiveFrom))[0];
 
   // Tìm item sau (successor)
   const successor = siblings
-    .filter(c => c.effectiveFrom > item.effectiveFrom)
-    .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))[0];
+    .filter(c => c.costEffectiveFrom > item.costEffectiveFrom)
+    .sort((a, b) => a.costEffectiveFrom.localeCompare(b.costEffectiveFrom))[0];
 
   // Xóa item
   await remove(ref(db, `${COST_ITEMS_PATH}/${id}`));
 
-  // Nếu có predecessor → mở rộng effectiveTo để không có khoảng trống
+  // Nếu có predecessor → mở rộng costEffectiveTo để không có khoảng trống
   if (predecessor) {
-    const newEnd = successor ? dayBefore(successor.effectiveFrom) : null;
+    const newEnd = successor ? dayBefore(successor.costEffectiveFrom) : null;
     await update(ref(db, `${COST_ITEMS_PATH}/${predecessor.id}`), {
+      costEffectiveTo: newEnd,
       effectiveTo: newEnd,
       updatedAt: Date.now(),
     });
@@ -168,17 +198,21 @@ export async function deleteCostItem(
 
 export async function duplicateCostItem(
   id: string,
-  newEffectiveFrom: string,
-  allCostItems: SurgeryCostItem[]
+  newCostEffectiveFrom: string,
+  allCostItems: SurgeryCostItem[],
+  newMedicCost?: number,
+  newVtthCost?: number,
 ): Promise<string> {
   const original = allCostItems.find(c => c.id === id);
   if (!original) throw new Error('Item không tồn tại');
 
-  const normalizedFrom = normalizeDate(newEffectiveFrom);
+  const normalizedFrom = normalizeDate(newCostEffectiveFrom);
+  const closedEndDate = dayBefore(normalizedFrom);
 
-  // Tự đóng hiệu lực cũ: effectiveTo = newEffectiveFrom - 1 ngày
+  // Tự đóng hiệu lực chi phí cũ: costEffectiveTo = newCostEffectiveFrom - 1 ngày
   await update(ref(db, `${COST_ITEMS_PATH}/${id}`), {
-    effectiveTo: dayBefore(normalizedFrom),
+    costEffectiveTo: closedEndDate,
+    effectiveTo: closedEndDate,
     updatedAt: Date.now(),
   });
 
@@ -191,10 +225,14 @@ export async function duplicateCostItem(
     maTuongDuong: original.maTuongDuong,
     tenKT: original.tenKT,
     donGia: original.donGia,
-    medicCost: original.medicCost,
-    vtthCost: original.vtthCost,
+    medicCost: newMedicCost !== undefined ? newMedicCost : original.medicCost,
+    vtthCost: newVtthCost !== undefined ? newVtthCost : original.vtthCost,
+    dvktEffectiveFrom: original.dvktEffectiveFrom || original.effectiveFrom || '',
+    dvktEffectiveTo: original.dvktEffectiveTo !== undefined ? original.dvktEffectiveTo : (original.effectiveTo || null),
+    costEffectiveFrom: normalizedFrom,
+    costEffectiveTo: null, // Đang hiệu lực
     effectiveFrom: normalizedFrom,
-    effectiveTo: null, // Đang hiệu lực
+    effectiveTo: null,
     createdAt: now,
     updatedAt: now,
   });
@@ -215,7 +253,7 @@ export async function toggleCostItem(
       priceItem,
       0, // medicCost — user sẽ nhập sau
       0, // vtthCost — user sẽ nhập sau
-      priceItem.effectiveFrom,
+      priceItem.effectiveFrom, // Mặc định ngày hiệu lực chi phí = ngày hiệu lực DVKT
       priceItem.effectiveTo,
     );
   } else {
@@ -234,12 +272,13 @@ export function exportCostItemsExcel(items: SurgeryCostItem[]): void {
     'STT': i + 1,
     'Mã tương đương': item.maTuongDuong,
     'Tên DVKT': item.tenKT,
+    'Hiệu lực DVKT từ': item.dvktEffectiveFrom || '—',
+    'Hiệu lực DVKT đến': item.dvktEffectiveTo || 'Hiện tại',
     'Đơn giá (VNĐ)': item.donGia,
+    'Hiệu lực Chi phí từ': item.costEffectiveFrom || '—',
+    'Hiệu lực Chi phí đến': item.costEffectiveTo || 'Hiện tại',
     'Chi phí thuốc (VNĐ)': item.medicCost,
     'Chi phí VTTH (VNĐ)': item.vtthCost,
-    'Tổng chi phí': item.donGia + item.medicCost + item.vtthCost,
-    'Hiệu lực từ': item.effectiveFrom,
-    'Hiệu lực đến': item.effectiveTo || 'Hiện tại',
   }));
 
   const ws = XLSX.utils.json_to_sheet(rows);

@@ -17,10 +17,13 @@
  */
 
 import { reportService } from './reportService';
-import { PersistedSurgeryRecord, StaffMember } from '../types';
+import { PersistedSurgeryRecord, StaffMember, SurgeryCostItem, RolePrice } from '../types';
 
 export type StandardSpecialtyCode = 'ngoai_th' | 'ctch' | 'mat' | 'tmh' | 'phu_san';
 export type SpecialtyCode = StandardSpecialtyCode | string;
+
+export type FinancialCategory = 'revenue' | 'cost' | 'profit';
+export type CostSubtype = 'all' | 'medic' | 'vtth' | 'labor';
 
 export interface SpecialtyMeta {
   code: SpecialtyCode;
@@ -64,6 +67,28 @@ export interface ComparisonRow {
   samePeriodRevenueDiff: number | null;
   samePeriodRevenueChangePct: number | null;
 
+  // Chi phí & Lợi nhuận
+  hasCostConfig: boolean; // Có định mức chi phí thuốc/VTTH
+  currentMedicCost: number;
+  prevMedicCost: number;
+  samePeriodMedicCost: number;
+
+  currentVtthCost: number;
+  prevVtthCost: number;
+  samePeriodVtthCost: number;
+
+  currentLaborCost: number;
+  prevLaborCost: number;
+  samePeriodLaborCost: number;
+
+  currentTotalCost: number;
+  prevTotalCost: number;
+  samePeriodTotalCost: number;
+
+  currentProfit: number;
+  prevProfit: number;
+  samePeriodProfit: number;
+
   status: ComparisonStatus;
   statusLabel: 'CẢNH BÁO' | 'TÍCH CỰC' | 'ỔN ĐỊNH';
   note: string;
@@ -78,6 +103,27 @@ export interface SpecialtyReportGroup {
   totalCurrentRevenue: number;
   totalPrevRevenue: number;
   totalSamePeriodRevenue: number;
+
+  totalCurrentMedicCost: number;
+  totalPrevMedicCost: number;
+  totalSamePeriodMedicCost: number;
+
+  totalCurrentVtthCost: number;
+  totalPrevVtthCost: number;
+  totalSamePeriodVtthCost: number;
+
+  totalCurrentLaborCost: number;
+  totalPrevLaborCost: number;
+  totalSamePeriodLaborCost: number;
+
+  totalCurrentTotalCost: number;
+  totalPrevTotalCost: number;
+  totalSamePeriodTotalCost: number;
+
+  totalCurrentProfit: number;
+  totalPrevProfit: number;
+  totalSamePeriodProfit: number;
+
   alertCount: number;
   positiveCount: number;
   normalCount: number;
@@ -499,11 +545,121 @@ export function computePeriodDefinitions(spec: PeriodSpec, config: ComparisonCon
   }
 }
 
+// ───────────────── HELPER ÁNH XẠ CHI PHÍ & NHÂN CÔNG ─────────────────
+
+function normalizeMaTuongDuong(raw?: string): string {
+  if (!raw) return '';
+  return raw.trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function isCostItemGayTe(item: SurgeryCostItem): boolean {
+  const name = (item.tenKT || '').toLowerCase();
+  const mtd = (item.maTuongDuong || '').trim().toUpperCase();
+  return name.includes('[gây tê]') || name.includes('(gây tê)') || mtd.endsWith('_GT');
+}
+
+function isRecordGayTe(mtd?: string, tenKT?: string): boolean {
+  const m = (mtd || '').trim().toUpperCase();
+  const t = (tenKT || '').toLowerCase();
+  return m.endsWith('_GT') || t.includes('[gây tê]') || t.includes('(gây tê)');
+}
+
+function toLocalDateKey(raw?: string): string {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  if (/^\d{8}/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  return s;
+}
+
+export function findMatchingCostItem(
+  r: PersistedSurgeryRecord,
+  costItems: SurgeryCostItem[]
+): SurgeryCostItem | undefined {
+  if (!costItems || costItems.length === 0) return undefined;
+  const rawMTD = normalizeMaTuongDuong(r.maTuongDuong);
+  if (!rawMTD) return undefined;
+
+  const baseMTD = rawMTD.replace(/_GT$/i, '');
+  const isGT = isRecordGayTe(r.maTuongDuong, r.tenKT);
+  const dateKey = toLocalDateKey(r.ngayBD || r.ngayCD);
+
+  // 1. Lọc theo mã tương đương cơ bản
+  const candidates = costItems.filter(item => {
+    const itemBase = normalizeMaTuongDuong(item.maTuongDuong).replace(/_GT$/i, '');
+    if (itemBase !== baseMTD) return false;
+
+    // Nếu record có đơn giá, kiểm tra khớp đơn giá
+    if (r.donGia && r.donGia > 0 && item.donGia && item.donGia > 0) {
+      if (Math.abs(item.donGia - r.donGia) > 1) return false;
+    }
+    return true;
+  });
+
+  if (candidates.length === 0) return undefined;
+
+  // 2. Lọc theo hiệu lực: Ưu tiên 1 là Hiệu lực Chi phí (A4)
+  let dateMatched = candidates.filter(item => {
+    if (!dateKey) return true;
+    const from = item.costEffectiveFrom;
+    const to = item.costEffectiveTo;
+    if (from && dateKey < from) return false;
+    if (to && dateKey > to) return false;
+    return !!from;
+  });
+
+  // Fallback sang Hiệu lực DVKT nếu không khớp Hiệu lực Chi phí (A4)
+  if (dateMatched.length === 0) {
+    dateMatched = candidates.filter(item => {
+      if (!dateKey) return true;
+      const from = item.dvktEffectiveFrom || item.effectiveFrom;
+      const to = item.dvktEffectiveTo !== undefined ? item.dvktEffectiveTo : item.effectiveTo;
+      if (from && dateKey < from) return false;
+      if (to && dateKey > to) return false;
+      return true;
+    });
+  }
+
+  const pool = dateMatched.length > 0 ? dateMatched : candidates;
+
+  // 3. Phân biệt gây tê vs gây mê
+  const gtItems = pool.filter(isCostItemGayTe);
+  const gmItems = pool.filter(it => !isCostItemGayTe(it));
+
+  if (isGT) {
+    return gtItems.length > 0 ? gtItems[0] : gmItems[0];
+  } else {
+    return gmItems.length > 0 ? gmItems[0] : gtItems[0];
+  }
+}
+
+export function calculateLaborCost(
+  r: PersistedSurgeryRecord,
+  priceConfig?: Record<string, RolePrice>
+): number {
+  if (!priceConfig || !r.loaiPTTT) return 0;
+  const cfg = priceConfig[r.loaiPTTT];
+  if (!cfg) return 0;
+
+  const qty = r.soLuong || 1;
+  let unitCost = 0;
+  if (r.ptChinh && r.ptChinh.trim()) unitCost += cfg["Chính"] || 0;
+  if (r.ptPhu && r.ptPhu.trim()) unitCost += cfg["Phụ"] || 0;
+  if (r.bsGM && r.bsGM.trim()) unitCost += cfg["Chính"] || 0;
+  if (r.ktvGM && r.ktvGM.trim()) unitCost += cfg["Phụ"] || 0;
+  if (r.tdc && r.tdc.trim()) unitCost += cfg["Phụ"] || 0;
+  if (r.gv && r.gv.trim()) unitCost += cfg["Giúp việc"] || 0;
+
+  return unitCost * qty;
+}
+
 export async function getSpecialtyComparisonData(
   periodSpec: PeriodSpec,
   staffList: StaffMember[],
   thresholdConfig?: ComparisonConfig,
-  customOverrides?: Record<string, SpecialtyCode>
+  customOverrides?: Record<string, SpecialtyCode>,
+  costItems?: SurgeryCostItem[],
+  priceConfig?: Record<string, RolePrice>
 ): Promise<ComparisonAnalysisResult> {
   const config = thresholdConfig || getComparisonThresholdConfig();
   const overrides = customOverrides || getSpecialtyOverrides();
@@ -524,12 +680,33 @@ export async function getSpecialtyComparisonData(
   interface ItemCounter {
     displayName: string;
     specialty: SpecialtyCode;
+    hasCostConfig: boolean;
     current: number;
     prev: number;
     samePeriod: number;
     currentRevenue: number;
     prevRevenue: number;
     samePeriodRevenue: number;
+
+    currentMedicCost: number;
+    prevMedicCost: number;
+    samePeriodMedicCost: number;
+
+    currentVtthCost: number;
+    prevVtthCost: number;
+    samePeriodVtthCost: number;
+
+    currentLaborCost: number;
+    prevLaborCost: number;
+    samePeriodLaborCost: number;
+
+    currentTotalCost: number;
+    prevTotalCost: number;
+    samePeriodTotalCost: number;
+
+    currentProfit: number;
+    prevProfit: number;
+    samePeriodProfit: number;
   }
 
   const itemsMap = new Map<string, ItemCounter>();
@@ -551,29 +728,72 @@ export async function getSpecialtyComparisonData(
       rev = Number(r.donGia) * qty;
     }
 
+    const matchedCost = costItems ? findMatchingCostItem(r, costItems) : undefined;
+    const hasCost = !!matchedCost;
+    const medic = matchedCost ? matchedCost.medicCost * qty : 0;
+    const vtth = matchedCost ? matchedCost.vtthCost * qty : 0;
+    const labor = calculateLaborCost(r, priceConfig);
+    const totalCost = hasCost ? (medic + vtth + labor) : 0;
+    const profit = hasCost ? (rev - totalCost) : 0;
+
     if (!itemsMap.has(key)) {
       itemsMap.set(key, {
         displayName: r.tenKT.trim(),
         specialty,
+        hasCostConfig: false,
         current: 0,
         prev: 0,
         samePeriod: 0,
         currentRevenue: 0,
         prevRevenue: 0,
         samePeriodRevenue: 0,
+        currentMedicCost: 0,
+        prevMedicCost: 0,
+        samePeriodMedicCost: 0,
+        currentVtthCost: 0,
+        prevVtthCost: 0,
+        samePeriodVtthCost: 0,
+        currentLaborCost: 0,
+        prevLaborCost: 0,
+        samePeriodLaborCost: 0,
+        currentTotalCost: 0,
+        prevTotalCost: 0,
+        samePeriodTotalCost: 0,
+        currentProfit: 0,
+        prevProfit: 0,
+        samePeriodProfit: 0,
       });
     }
 
     const item = itemsMap.get(key)!;
+    if (hasCost) {
+      item.hasCostConfig = true;
+    }
+
     if (period === 'current') {
       item.current += qty;
       item.currentRevenue += rev;
+      item.currentMedicCost += medic;
+      item.currentVtthCost += vtth;
+      item.currentLaborCost += labor;
+      item.currentTotalCost += totalCost;
+      item.currentProfit += profit;
     } else if (period === 'prev') {
       item.prev += qty;
       item.prevRevenue += rev;
+      item.prevMedicCost += medic;
+      item.prevVtthCost += vtth;
+      item.prevLaborCost += labor;
+      item.prevTotalCost += totalCost;
+      item.prevProfit += profit;
     } else if (period === 'samePeriod') {
       item.samePeriod += qty;
       item.samePeriodRevenue += rev;
+      item.samePeriodMedicCost += medic;
+      item.samePeriodVtthCost += vtth;
+      item.samePeriodLaborCost += labor;
+      item.samePeriodTotalCost += totalCost;
+      item.samePeriodProfit += profit;
     }
   };
 
@@ -671,6 +891,29 @@ export async function getSpecialtyComparisonData(
       samePeriodRevenue: hasSamePeriodData ? sameRev : 0,
       samePeriodRevenueDiff,
       samePeriodRevenueChangePct,
+
+      // Chi phí & Lợi nhuận
+      hasCostConfig: item.hasCostConfig,
+      currentMedicCost: item.currentMedicCost,
+      prevMedicCost: item.prevMedicCost,
+      samePeriodMedicCost: item.samePeriodMedicCost,
+
+      currentVtthCost: item.currentVtthCost,
+      prevVtthCost: item.prevVtthCost,
+      samePeriodVtthCost: item.samePeriodVtthCost,
+
+      currentLaborCost: item.currentLaborCost,
+      prevLaborCost: item.prevLaborCost,
+      samePeriodLaborCost: item.samePeriodLaborCost,
+
+      currentTotalCost: item.currentTotalCost,
+      prevTotalCost: item.prevTotalCost,
+      samePeriodTotalCost: item.samePeriodTotalCost,
+
+      currentProfit: item.currentProfit,
+      prevProfit: item.prevProfit,
+      samePeriodProfit: item.samePeriodProfit,
+
       status,
       statusLabel,
       note,
@@ -701,6 +944,26 @@ export async function getSpecialtyComparisonData(
       const totalPrevRevenue = rows.reduce((sum, r) => sum + r.prevRevenue, 0);
       const totalSamePeriodRevenue = rows.reduce((sum, r) => sum + r.samePeriodRevenue, 0);
 
+      const totalCurrentMedicCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.currentMedicCost, 0);
+      const totalPrevMedicCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.prevMedicCost, 0);
+      const totalSamePeriodMedicCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.samePeriodMedicCost, 0);
+
+      const totalCurrentVtthCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.currentVtthCost, 0);
+      const totalPrevVtthCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.prevVtthCost, 0);
+      const totalSamePeriodVtthCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.samePeriodVtthCost, 0);
+
+      const totalCurrentLaborCost = rows.reduce((sum, r) => sum + r.currentLaborCost, 0);
+      const totalPrevLaborCost = rows.reduce((sum, r) => sum + r.prevLaborCost, 0);
+      const totalSamePeriodLaborCost = rows.reduce((sum, r) => sum + r.samePeriodLaborCost, 0);
+
+      const totalCurrentTotalCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.currentTotalCost, 0);
+      const totalPrevTotalCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.prevTotalCost, 0);
+      const totalSamePeriodTotalCost = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.samePeriodTotalCost, 0);
+
+      const totalCurrentProfit = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.currentProfit, 0);
+      const totalPrevProfit = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.prevProfit, 0);
+      const totalSamePeriodProfit = rows.filter(r => r.hasCostConfig).reduce((sum, r) => sum + r.samePeriodProfit, 0);
+
       const alertCount = rows.filter(r => r.status === 'ALERT').length;
       const positiveCount = rows.filter(r => r.status === 'POSITIVE').length;
       const normalCount = rows.filter(r => r.status === 'NORMAL').length;
@@ -714,6 +977,21 @@ export async function getSpecialtyComparisonData(
         totalCurrentRevenue,
         totalPrevRevenue,
         totalSamePeriodRevenue,
+        totalCurrentMedicCost,
+        totalPrevMedicCost,
+        totalSamePeriodMedicCost,
+        totalCurrentVtthCost,
+        totalPrevVtthCost,
+        totalSamePeriodVtthCost,
+        totalCurrentLaborCost,
+        totalPrevLaborCost,
+        totalSamePeriodLaborCost,
+        totalCurrentTotalCost,
+        totalPrevTotalCost,
+        totalSamePeriodTotalCost,
+        totalCurrentProfit,
+        totalPrevProfit,
+        totalSamePeriodProfit,
         alertCount,
         positiveCount,
         normalCount,
