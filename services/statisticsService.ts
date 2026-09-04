@@ -19,7 +19,12 @@ import {
   LOAI_PTTT_ORDER,
 } from '../types';
 import { RolePrice } from '../contexts/ConfigContext';
-import { getNamePrice } from './surgeryNamePriceService';
+import {
+  getNamePrice,
+  getNamePriceFast,
+  buildNamePricesIndex,
+  type IndexedNamePrices,
+} from './surgeryNamePriceService';
 
 // --- Constants ---
 const MAX_YEAR_RANGE = 3;
@@ -85,12 +90,35 @@ function normalizeTenKT(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// --- Raw Year Cache (in-memory to eliminate redundant Firestore calls) ---
+interface RawYearCacheEntry {
+  data: {
+    monthly: PersistedSurgeryRecord[];
+    daily: PersistedSurgeryRecord[];
+  };
+  timestamp: number;
+}
+
+const rawYearCache = new Map<number, RawYearCacheEntry>();
+
+/** Invalidate cached raw records across all years */
+export function clearRawYearCache(): void {
+  rawYearCache.clear();
+}
+
 // --- Data Fetching ---
 
-async function fetchRecordsForYear(year: number): Promise<{
+async function fetchRecordsForYear(year: number, bypassCache = false): Promise<{
   monthly: PersistedSurgeryRecord[];
   daily: PersistedSurgeryRecord[];
 }> {
+  if (!bypassCache) {
+    const cached = rawYearCache.get(year);
+    if (cached) {
+      return cached.data;
+    }
+  }
+
   const dateFrom = `${year}-01-01T00:00:00.000Z`;
   const dateTo = `${year}-12-31T23:59:59.999Z`;
 
@@ -99,7 +127,9 @@ async function fetchRecordsForYear(year: number): Promise<{
     reportService.getReports(dateFrom, dateTo, 'DAILY'),
   ]);
 
-  return { monthly, daily };
+  const data = { monthly, daily };
+  rawYearCache.set(year, { data, timestamp: Date.now() });
+  return data;
 }
 
 // --- Price Lookup ---
@@ -169,20 +199,22 @@ function buildMonthIndex(
   dailyRecords: PersistedSurgeryRecord[]
 ): Map<number, { records: PersistedSurgeryRecord[]; source: 'MONTHLY' | 'DAILY' }> {
   const monthlyByMonth = new Map<number, PersistedSurgeryRecord[]>();
-  const dailyByMonth = new Map<number, PersistedSurgeryRecord[]>();
-
   for (const r of monthlyRecords) {
     const my = getMonthYear(r.ngayBD);
     if (my && my.year === year) {
-      if (!monthlyByMonth.has(my.month)) monthlyByMonth.set(my.month, []);
-      monthlyByMonth.get(my.month)!.push(r);
+      const list = monthlyByMonth.get(my.month);
+      if (list) list.push(r);
+      else monthlyByMonth.set(my.month, [r]);
     }
   }
+
+  const dailyByMonth = new Map<number, PersistedSurgeryRecord[]>();
   for (const r of dailyRecords) {
     const my = getMonthYear(r.ngayBD);
     if (my && my.year === year) {
-      if (!dailyByMonth.has(my.month)) dailyByMonth.set(my.month, []);
-      dailyByMonth.get(my.month)!.push(r);
+      const list = dailyByMonth.get(my.month);
+      if (list) list.push(r);
+      else dailyByMonth.set(my.month, [r]);
     }
   }
 
@@ -236,9 +268,13 @@ function aggregateMonth(
   laborPrices: Record<string, RolePrice>,
   missingPriceMonths: string[],
   nameMap: Map<string, string>,
-  namePrices: SurgeryNamePrice[] = [],
+  namePricesInput: SurgeryNamePrice[] | IndexedNamePrices = [],
   missingSurgeryNameTracker?: { names: Set<string>; records: { maBN: string; tenKT: string; ngayPT: string }[] }
 ): MonthlyAggregate {
+  const indexedNamePrices = Array.isArray(namePricesInput)
+    ? buildNamePricesIndex(namePricesInput)
+    : namePricesInput;
+
   const byType: Record<string, number> = {};
   const byTypeEquivalent: Record<string, number> = {};
   const byName: Record<string, number> = {};
@@ -280,7 +316,7 @@ function aggregateMonth(
     totalLaborCost += labCost;
     laborCostByType[loai] = (laborCostByType[loai] || 0) + labCost;
 
-    // Name-based price lookup: Ưu tiên thanhTien/donGia trên record, nếu chưa có mới query getNamePrice
+    // Name-based price lookup: Ưu tiên thanhTien/donGia trên record, nếu chưa có mới query getNamePriceFast
     let npCost = 0;
     let hasRecordPrice = false;
 
@@ -293,7 +329,7 @@ function aggregateMonth(
     }
 
     if (!hasRecordPrice) {
-      const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
+      const nameResult = getNamePriceFast(r.tenKT, r.ngayBD, indexedNamePrices);
       if (!nameResult.found && r.tenKT?.trim() && missingSurgeryNameTracker) {
         const name = r.tenKT.trim();
         const dateStr = r.ngayBD ? toLocalDateKey(r.ngayBD) : '';
@@ -306,17 +342,8 @@ function aggregateMonth(
       }
       npCost = nameResult.price * qty;
 
-      if (normalized && nameResult.found && !maTuongDuongByName[normalized]) {
-        const localDate = toLocalDateKey(r.ngayBD);
-        const matched = namePrices.find(p =>
-          normalizeTenKT(p.tenKT) === normalized &&
-          p.effectiveFrom <= localDate &&
-          (!p.effectiveTo || p.effectiveTo >= localDate) &&
-          p.maTuongDuong
-        );
-        if (matched?.maTuongDuong) {
-          maTuongDuongByName[normalized] = matched.maTuongDuong;
-        }
+      if (normalized && nameResult.matchedItem?.maTuongDuong && !maTuongDuongByName[normalized]) {
+        maTuongDuongByName[normalized] = nameResult.matchedItem.maTuongDuong;
       }
     } else {
       if (normalized && r.maTuongDuong && !maTuongDuongByName[normalized]) {
@@ -351,8 +378,12 @@ function aggregateDaily(
   records: PersistedSurgeryRecord[],
   priceVersions: SurgeryPriceVersion[],
   laborPrices: Record<string, RolePrice>,
-  namePrices: SurgeryNamePrice[] = []
+  namePricesInput: SurgeryNamePrice[] | IndexedNamePrices = []
 ): DailyAggregate[] {
+  const indexedNamePrices = Array.isArray(namePricesInput)
+    ? buildNamePricesIndex(namePricesInput)
+    : namePricesInput;
+
   const byDate = new Map<string, PersistedSurgeryRecord[]>();
 
   for (const r of records) {
@@ -381,14 +412,14 @@ function aggregateDaily(
       const { price } = getServicePrice(loai, r.ngayBD, priceVersions);
       daySvcCost += price * qty;
       dayLabCost += getLaborCost(loai, qty, laborPrices);
-      // Ưu tiên r.thanhTien / r.donGia, fallback query getNamePrice
+      // Ưu tiên r.thanhTien / r.donGia, fallback query getNamePriceFast
       let dayNpCost = 0;
       if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien))) {
         dayNpCost = Number(r.thanhTien);
       } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia))) {
         dayNpCost = Number(r.donGia) * qty;
       } else {
-        const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
+        const nameResult = getNamePriceFast(r.tenKT, r.ngayBD, indexedNamePrices);
         dayNpCost = nameResult.price * qty;
       }
       dayNameCost += dayNpCost;
@@ -805,20 +836,29 @@ export async function fetchAndAggregateYearly(
   compareYear: number,
   priceVersions: SurgeryPriceVersion[],
   laborPrices: Record<string, RolePrice>,
-  namePrices: SurgeryNamePrice[] = []
+  namePrices: SurgeryNamePrice[] = [],
+  bypassCache = false
 ): Promise<YearlyCacheData> {
   if (Math.abs(primaryYear - compareYear) > MAX_YEAR_RANGE) {
     throw new Error(`Chỉ hỗ trợ so sánh tối đa ${MAX_YEAR_RANGE} năm`);
   }
 
+  if (bypassCache) {
+    rawYearCache.delete(primaryYear);
+    rawYearCache.delete(compareYear);
+  }
+
   const t0 = performance.now();
 
   const [primaryData, compareData] = await Promise.all([
-    fetchRecordsForYear(primaryYear),
-    fetchRecordsForYear(compareYear),
+    fetchRecordsForYear(primaryYear, bypassCache),
+    fetchRecordsForYear(compareYear, bypassCache),
   ]);
 
   console.log(`[stats] Firestore fetch: ${(performance.now() - t0).toFixed(0)}ms`);
+
+  // Build high-performance O(1) index once for all 24 months + daily
+  const indexedNamePrices = buildNamePricesIndex(namePrices);
 
   // Yield to browser
   await new Promise(resolve => setTimeout(resolve, 0));
@@ -851,11 +891,11 @@ export async function fetchAndAggregateYearly(
   };
   const nameMap = new Map<string, string>();
 
-  // Aggregate monthly for primary year (using pre-indexed data)
+  // Aggregate monthly for primary year (using pre-indexed data & fast price lookup)
   const primary: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
     const { records, source } = getRecordsFromIndex(m, primaryIndexed);
-    primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
+    primary.push(aggregateMonth(m, primaryYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, indexedNamePrices, missingSurgeryNameTracker));
   }
 
   // Yield after primary aggregation
@@ -865,7 +905,7 @@ export async function fetchAndAggregateYearly(
   const compare: MonthlyAggregate[] = [];
   for (let m = 1; m <= 12; m++) {
     const { records, source } = getRecordsFromIndex(m, compareIndexed);
-    compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, namePrices, missingSurgeryNameTracker));
+    compare.push(aggregateMonth(m, compareYear, records, source, priceVersions, laborPrices, missingPriceMonths, nameMap, indexedNamePrices, missingSurgeryNameTracker));
   }
 
   // Yield after compare aggregation
@@ -884,19 +924,19 @@ export async function fetchAndAggregateYearly(
     try {
       const prevYearNum = compareYear - 1;
       if (prevYearNum >= primaryYear - MAX_YEAR_RANGE) {
-        const prevYearData = await fetchRecordsForYear(prevYearNum);
+        const prevYearData = await fetchRecordsForYear(prevYearNum, bypassCache);
         const prevIndex = buildMonthIndex(prevYearNum, prevYearData.monthly, prevYearData.daily);
         const prevNameMap = new Map<string, string>();
         prevYearMonthly = [];
         for (let m = 1; m <= 12; m++) {
           const entry = prevIndex.get(m) || { records: [], source: 'DAILY' as const };
-          prevYearMonthly.push(aggregateMonth(m, prevYearNum, entry.records, entry.source, priceVersions, laborPrices, [], prevNameMap, namePrices));
+          prevYearMonthly.push(aggregateMonth(m, prevYearNum, entry.records, entry.source, priceVersions, laborPrices, [], prevNameMap, indexedNamePrices));
         }
       }
     } catch { /* gracefully degrade to single-year index */ }
 
     const { records: forecastRecords } = getRecordsFromIndex(realMonth, primaryIndexed);
-    const forecastDailyData = aggregateDaily(forecastRecords, priceVersions, laborPrices, namePrices);
+    const forecastDailyData = aggregateDaily(forecastRecords, priceVersions, laborPrices, indexedNamePrices);
     forecast = calculateForecast(
       forecastDailyData, daysInMonth(realMonth, currentYear), lastYearSameMonth,
       primary, compare, realMonth, primaryYear, compareYear, prevYearMonthly
@@ -929,7 +969,7 @@ export async function fetchAndAggregateYearly(
 /**
  * STEP 2: Compute daily aggregation for a specific selectedMonth.
  * Uses pre-indexed raw records from YearlyCacheData — NO Firestore queries.
- * Typically completes in <100ms.
+ * Typically completes in <50ms.
  */
 export function computeDailyForMonth(
   selectedMonth: number,
@@ -939,10 +979,11 @@ export function computeDailyForMonth(
   namePrices: SurgeryNamePrice[] = []
 ): Pick<StatisticsData, 'currentMonthDaily' | 'previousMonthDaily' | 'compareMonthDaily' | 'anomalies' | 'paceVsLastYear'> {
   const t0 = performance.now();
+  const indexedNamePrices = buildNamePricesIndex(namePrices);
 
   // Current month daily
   const { records } = getRecordsFromIndex(selectedMonth, yearlyCache.primaryIndexed);
-  const currentMonthDaily = aggregateDaily(records, priceVersions, laborPrices, namePrices);
+  const currentMonthDaily = aggregateDaily(records, priceVersions, laborPrices, indexedNamePrices);
 
   // Previous month daily
   const prevMonth = selectedMonth === 1 ? 12 : selectedMonth - 1;
@@ -950,15 +991,15 @@ export function computeDailyForMonth(
   let previousMonthDaily: DailyAggregate[] = [];
   if (prevMonthYear === yearlyCache.primaryYear) {
     const { records: prevRecords } = getRecordsFromIndex(prevMonth, yearlyCache.primaryIndexed);
-    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, namePrices);
+    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, indexedNamePrices);
   } else if (prevMonthYear === yearlyCache.compareYear) {
     const { records: prevRecords } = getRecordsFromIndex(prevMonth, yearlyCache.compareIndexed);
-    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, namePrices);
+    previousMonthDaily = aggregateDaily(prevRecords, priceVersions, laborPrices, indexedNamePrices);
   }
 
   // Compare year same month daily
   const { records: compareRecords } = getRecordsFromIndex(selectedMonth, yearlyCache.compareIndexed);
-  const compareMonthDaily = aggregateDaily(compareRecords, priceVersions, laborPrices, namePrices);
+  const compareMonthDaily = aggregateDaily(compareRecords, priceVersions, laborPrices, indexedNamePrices);
 
   const anomalies = detectAnomalies(currentMonthDaily);
   const paceVsLastYear = calculatePace(currentMonthDaily, compareMonthDaily);

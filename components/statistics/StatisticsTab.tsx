@@ -3,10 +3,10 @@
  * Manages sub-tabs (Thống kê / Cấu hình), data loading, year selection
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef, useTransition, useDeferredValue } from 'react';
-import { Settings2, Table2, Loader2, AlertTriangle, Info, BarChart3, Download } from 'lucide-react';
+import { Settings2, Table2, Loader2, AlertTriangle, Info, BarChart3, Download, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
-import { fetchAndAggregateYearly, computeDailyForMonth, type YearlyCacheData } from '../../services/statisticsService';
+import { fetchAndAggregateYearly, computeDailyForMonth, clearRawYearCache, type YearlyCacheData } from '../../services/statisticsService';
 import { subscribeToPriceVersions } from '../../services/pricingService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { subscribeToChapterCatalog } from '../../services/chapterCatalogService';
@@ -47,7 +47,6 @@ export const StatisticsTab: React.FC = () => {
   // Track whether price subscriptions have delivered first data
   const priceVersionsReady = useRef(false);
   const namePricesReady = useRef(false);
-  const initialLoadTriggered = useRef(false);
 
   // --- Yearly cache (core optimization) ---
   // Cache key includes year pair + price config hash to auto-invalidate when prices change
@@ -98,14 +97,15 @@ export const StatisticsTab: React.FC = () => {
     return unsub;
   }, []);
 
-  // --- Full yearly fetch (expensive: Firestore queries + 24× aggregation) ---
+  // --- Full yearly fetch (Firestore queries + 24× aggregation) ---
   const loadYearlyData = useCallback(async (
     pYear: number,
     cYear: number,
     month: number,
     pv: SurgeryPriceVersion[],
     np: SurgeryNamePrice[],
-    isInitial = false
+    isInitial = false,
+    clearRawCache = false
   ) => {
     setLoading(true);
     setError(null);
@@ -114,8 +114,11 @@ export const StatisticsTab: React.FC = () => {
       : `Đang tải lại dữ liệu năm ${pYear} & ${cYear}...`
     );
     try {
+      if (clearRawCache) {
+        clearRawYearCache();
+      }
       const yearlyCache = await fetchAndAggregateYearly(
-        pYear, cYear, pv, config.priceConfig, np
+        pYear, cYear, pv, config.priceConfig, np, clearRawCache
       );
 
       // Store in cache
@@ -137,7 +140,7 @@ export const StatisticsTab: React.FC = () => {
           validation: yearlyCache.validation,
         });
       });
-      if (isInitial) setInitialLoaded(true);
+      setInitialLoaded(true);
     } catch (err: any) {
       setError(err.message || 'Lỗi tải dữ liệu');
       console.error('Statistics fetch error:', err);
@@ -164,19 +167,6 @@ export const StatisticsTab: React.FC = () => {
       } : prev);
     });
   }, [config.priceConfig]);
-
-  // Initial auto-load: wait for both price subscriptions, then load once
-  useEffect(() => {
-    if (
-      priceVersionsReady.current &&
-      namePricesReady.current &&
-      !initialLoadTriggered.current
-    ) {
-      initialLoadTriggered.current = true;
-      loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices, true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [priceVersions, surgeryNamePrices]);
 
   // Reload when year changes → full fetch; month change → daily-only from cache
   const prevParams = useRef({ primaryYear, compareYear, selectedMonth });
@@ -214,10 +204,13 @@ export const StatisticsTab: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [priceVersions, surgeryNamePrices, config.priceConfig, initialLoaded]);
 
-  // Manual reload — always clears cache
-  const handleReload = () => {
-    yearCacheRef.current = null;
-    loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
+  // Manual load or reload
+  const handleLoadData = (forceRefresh = false) => {
+    if (forceRefresh) {
+      yearCacheRef.current = null;
+      clearRawYearCache();
+    }
+    loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices, !initialLoaded, forceRefresh);
   };
 
   // Year options
@@ -234,37 +227,6 @@ export const StatisticsTab: React.FC = () => {
     { value: 'comparison' as const, label: 'Phân tích so sánh', icon: BarChart3 },
     { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
-
-  // --- Initial Loading Screen ---
-  if (!initialLoaded && !error) {
-    return (
-      <div className="flex flex-col animate-fade-in relative w-full h-full">
-        <ContextToolbar title="Thống kê phẫu thuật" />
-        <div className="flex flex-col items-center justify-center py-24">
-          <div className="relative">
-            <div className="w-16 h-16 rounded-full border-4 border-primary-100 border-t-primary-600 animate-spin" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <BarChart3 className="h-6 w-6 text-primary-600" />
-            </div>
-          </div>
-          <p className="mt-5 text-sm font-semibold text-primary-800">Đang tải dữ liệu thống kê</p>
-          <p className="mt-1.5 text-xs text-gray-500 animate-pulse">
-            {loadingMsg || 'Đang kết nối & đồng bộ bảng giá...'}
-          </p>
-          <div className="mt-4 flex items-center gap-2 text-[10px] text-gray-400">
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${priceVersionsReady.current ? 'bg-green-400' : 'bg-gray-300 animate-pulse'}`} />
-              Bảng giá DV
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${namePricesReady.current ? 'bg-green-400' : 'bg-gray-300 animate-pulse'}`} />
-              DM giá tên PT ({surgeryNamePrices.length.toLocaleString()})
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col animate-fade-in relative w-full h-full">
@@ -305,20 +267,27 @@ export const StatisticsTab: React.FC = () => {
               </select>
             </div>
             <button
-              onClick={handleReload}
+              onClick={() => handleLoadData(initialLoaded)}
               disabled={loading}
-              className="ml-2 px-3 py-1.5 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 disabled:opacity-50 transition-colors flex items-center gap-1.5"
+              className="ml-2 px-3 py-1.5 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"
+              title={initialLoaded ? "Tải lại dữ liệu mới nhất từ hệ thống" : "Bắt đầu tải dữ liệu thống kê"}
             >
-              {loading ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang tải...</> : 'Tải lại'}
+              {loading ? (
+                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang tải...</>
+              ) : initialLoaded ? (
+                <><RefreshCw className="h-3.5 w-3.5" /> Tải lại</>
+              ) : (
+                <><Download className="h-3.5 w-3.5" /> Tải dữ liệu</>
+              )}
             </button>
           </div>
         </div>
 
-      {/* Inline loading overlay for subsequent loads */}
-      {loading && initialLoaded && (
-        <div className="px-4">
-          <div className="bg-primary-50 border border-primary-100 rounded-xl px-4 py-2.5 flex items-center gap-3 text-xs text-primary-700">
-            <Loader2 className="h-4 w-4 animate-spin text-primary-600 shrink-0" />
+      {/* Inline loading overlay when reloading with existing data */}
+      {loading && statsData && (
+        <div className="px-4 mb-2">
+          <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 flex items-center gap-3 text-xs text-blue-800">
+            <Loader2 className="h-4 w-4 animate-spin text-blue-600 shrink-0" />
             <span className="font-medium">{loadingMsg || 'Đang cập nhật...'}</span>
           </div>
         </div>
@@ -414,14 +383,63 @@ export const StatisticsTab: React.FC = () => {
       )}
 
       {/* Summary Content */}
-      <div className="px-4">
+      <div className="px-4 pb-8">
         {deferredStatsData ? (
-          <StatsSummary data={deferredStatsData} onMonthChange={setSelectedMonth} chapters={chapters} profiles={profiles} surgeryNamePrices={surgeryNamePrices} isDataLoading={loading || isPending || isStale} />
-        ) : !loading ? (
-          <div className="text-center py-20 text-gray-400 text-sm">
-            Chưa có dữ liệu. Nhấn "Tải lại" để bắt đầu.
+          <StatsSummary
+            data={deferredStatsData}
+            onMonthChange={setSelectedMonth}
+            chapters={chapters}
+            profiles={profiles}
+            surgeryNamePrices={surgeryNamePrices}
+            isDataLoading={loading || isPending || isStale}
+          />
+        ) : loading ? (
+          /* Loading isolated inside Summary Tab */
+          <div className="bg-white rounded-2xl border border-gray-100 p-8 shadow-sm flex flex-col items-center justify-center text-center my-6 min-h-[360px]">
+            <div className="relative mb-4">
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-700">
+                <Table2 className="h-8 w-8 text-blue-700" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 bg-white p-1 rounded-full shadow-sm">
+                <Loader2 className="h-5 w-5 text-primary-700 animate-spin" />
+              </div>
+            </div>
+            <h3 className="text-base font-bold text-gray-800 mb-1.5">
+              Đang tải và tổng hợp dữ liệu phẫu thuật
+            </h3>
+            <p className="text-xs text-gray-500 font-medium max-w-md mb-4">
+              {loadingMsg || `Đang nạp dữ liệu năm ${primaryYear} & ${compareYear}...`}
+            </p>
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-[11px] text-blue-700">
+              <Info className="h-3.5 w-3.5 shrink-0" />
+              <span>Tiến trình chạy ngầm. Bạn có thể mở tab "Phân tích so sánh" hoặc "Cấu hình" mà không bị gián đoạn.</span>
+            </div>
           </div>
-        ) : null}
+        ) : (
+          /* Empty state before loading */
+          <div className="bg-white rounded-2xl border border-gray-100 p-10 shadow-sm flex flex-col items-center justify-center text-center my-6 min-h-[360px]">
+            <div className="w-16 h-16 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-700 mb-4 shadow-sm">
+              <BarChart3 className="h-8 w-8" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">
+              Thống kê phẫu thuật năm {primaryYear} & {compareYear}
+            </h3>
+            <p className="text-xs text-gray-500 max-w-md mb-6 leading-relaxed">
+              Dữ liệu chưa được nạp nhằm tăng tốc mở trang và tiết kiệm tài nguyên mạng.
+              Nhấn nút bên dưới để bắt đầu tải và tổng hợp số liệu 2 năm phẫu thuật.
+            </p>
+            <button
+              onClick={() => handleLoadData(false)}
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-primary-700 hover:bg-primary-800 text-white text-xs font-bold shadow-md shadow-primary-700/20 transition-all transform active:scale-95"
+            >
+              <Download className="h-4 w-4" />
+              Tải dữ liệu năm {primaryYear} & {compareYear}
+            </button>
+            <p className="text-[11px] text-gray-400 mt-4">
+              💡 Các tab "Phân tích so sánh" và "Cấu hình thống kê" luôn sẵn sàng hoạt động độc lập.
+            </p>
+          </div>
+        )}
       </div>
       </div>{/* end summary tab */}
 

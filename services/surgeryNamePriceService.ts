@@ -146,6 +146,71 @@ export function getNamePrice(
   };
 }
 
+// --- Pre-indexed Map for high-performance O(1) Lookups ---
+
+export interface IndexedNamePrices {
+  byNormalizedName: Map<string, SurgeryNamePrice[]>;
+}
+
+/** Pre-indexes name prices by normalized tenKT once to eliminate O(N*M) scans */
+export function buildNamePricesIndex(namePrices: SurgeryNamePrice[]): IndexedNamePrices {
+  const byNormalizedName = new Map<string, SurgeryNamePrice[]>();
+  for (const p of namePrices) {
+    if (!p.tenKT) continue;
+    const norm = normalizeForMatch(p.tenKT);
+    const existing = byNormalizedName.get(norm);
+    if (existing) {
+      existing.push(p);
+    } else {
+      byNormalizedName.set(norm, [p]);
+    }
+  }
+  return { byNormalizedName };
+}
+
+/** High-speed O(1) price lookup using pre-indexed Map */
+export function getNamePriceFast(
+  tenKT: string,
+  dateStr: string,
+  indexed: IndexedNamePrices
+): { price: number; found: boolean; matchedItem?: SurgeryNamePrice } {
+  if (!tenKT || !dateStr) return { price: 0, found: false };
+
+  const normalizedName = normalizeForMatch(tenKT);
+  const nameMatches = indexed.byNormalizedName.get(normalizedName);
+  if (!nameMatches || nameMatches.length === 0) {
+    return { price: 0, found: false };
+  }
+
+  const localDate = toLocalDateKey(dateStr);
+  if (!localDate) return { price: 0, found: false };
+
+  let bestItem: SurgeryNamePrice | null = null;
+  let bestFrom = '';
+
+  for (const p of nameMatches) {
+    const from = normalizeStoredDate(p.effectiveFrom);
+    const to = normalizeStoredDate(p.effectiveTo);
+    if (from && from > localDate) continue;
+    if (to && to < localDate) continue;
+
+    if (!bestItem || from.localeCompare(bestFrom) > 0) {
+      bestItem = p;
+      bestFrom = from;
+    }
+  }
+
+  if (!bestItem) {
+    return { price: 0, found: false };
+  }
+
+  return {
+    price: bestItem.price ?? 0,
+    found: true,
+    matchedItem: bestItem,
+  };
+}
+
 // --- Realtime Subscription ---
 
 export function subscribeToSurgeryNamePrices(

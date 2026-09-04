@@ -1145,6 +1145,14 @@ const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
 
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
+  const [hasVisitedStats, setHasVisitedStats] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'statistics') {
+      setHasVisitedStats(true);
+    }
+  }, [activeTab]);
+
   type DataTabType = 'storage' | 'upload' | 'price_service';
   // Per-page data source tab (independent for daily vs monthly)
   const [activeDataTabs, setActiveDataTabs] = useState<Record<string, DataTabType>>({
@@ -3760,7 +3768,11 @@ const InnerApp: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'statistics' && <StatisticsTab />}
+        {hasVisitedStats && (
+          <div style={{ display: activeTab === 'statistics' ? 'block' : 'none' }} className="w-full h-full flex-1">
+            <StatisticsTab />
+          </div>
+        )}
 
         {activeTab === 'config' && <ConfigurationTab onConfigUpdate={() => {
           if (dailyUploadState.listFile) handleProcess('daily');
