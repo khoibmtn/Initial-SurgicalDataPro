@@ -1463,7 +1463,18 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               <span>/ trang (Tổng số: <strong>{allCombinedRows.length}</strong> phẫu thuật)</span>
               {sortCol && (
                 <span className="text-primary-700 text-[11px] bg-primary-50 px-2 py-0.5 rounded border border-primary-200 ml-2">
-                  Đang sắp xếp: <strong>{sortCol}</strong> ({sortDir === 'asc' ? 'Tăng dần ↑' : 'Giảm dần ↓'})
+                  Đang sắp xếp: <strong>{{
+                    tenKT: 'Tên phẫu thuật',
+                    specialty: 'Chuyên khoa',
+                    currentCount: metricMode === 'revenue' ? 'Viện phí kỳ này' : 'Số ca kỳ này',
+                    prevCount: metricMode === 'revenue' ? 'Viện phí kỳ trước' : 'Số ca kỳ trước',
+                    prevDiff: metricMode === 'revenue' ? '± Kỳ trước (tiền)' : '± Kỳ trước (ca)',
+                    prevChangePct: 'So tháng trước (%)',
+                    samePeriodCount: metricMode === 'revenue' ? 'Viện phí cùng kỳ' : 'Số ca cùng kỳ',
+                    samePeriodDiff: metricMode === 'revenue' ? '± Cùng kỳ (tiền)' : '± Cùng kỳ (ca)',
+                    samePeriodChangePct: 'So cùng kỳ (%)',
+                    status: 'Nhận định',
+                  }[sortCol] || sortCol}</strong> ({sortDir === 'asc' ? 'Tăng dần ↑' : 'Giảm dần ↓'})
                   <button
                     type="button"
                     onClick={() => { setSortCol(null); setSortDir(null); localStorage.removeItem(STORAGE_SORT_COL_KEY); localStorage.removeItem(STORAGE_SORT_DIR_KEY); }}
