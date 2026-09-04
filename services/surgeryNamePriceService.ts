@@ -7,7 +7,7 @@ import { ref, onValue, push, set, remove, update, get } from 'firebase/database'
 import { db, firestore } from '../lib/firebase';
 import { collectionGroup, query, getDocs } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
-import { SurgeryNamePrice, RefillCandidateItem } from '../types';
+import { SurgeryNamePrice, RefillCandidateItem, MissingCatalogCandidate } from '../types';
 import { reportService } from './reportService';
 import { normalizeMaTuongDuong } from './servicePriceProcessor';
 
@@ -435,6 +435,94 @@ async function extractSurgeryNameDatePairs(): Promise<SurgeryNameDatePair[]> {
   });
 
   return Array.from(pairSet.values());
+}
+
+/** Quét toàn bộ ca phẫu thuật trong CSDL để tìm các kỹ thuật thiếu trong Danh mục giá (KHÔNG tự ý ghi vào CSDL) */
+export async function scanMissingCatalogCandidates(
+  existingPrices: SurgeryNamePrice[],
+  onProgress?: (msg: string) => void
+): Promise<MissingCatalogCandidate[]> {
+  onProgress?.('Đang quét toàn bộ dữ liệu phẫu thuật...');
+  const q = query(collectionGroup(firestore, 'processed_records'));
+  const snapshot = await getDocs(q);
+
+  onProgress?.(`Tìm thấy ${snapshot.size} ca. Đang đối chiếu danh mục giá...`);
+
+  // Map key: normalized(tenKT) -> candidate data
+  const missingMap = new Map<string, {
+    tenKT: string;
+    maTuongDuong: string;
+    minDate: string;
+    count: number;
+    price: number;
+  }>();
+
+  snapshot.forEach((docSnap) => {
+    const data = docSnap.data();
+    const name = data.tenKT?.trim();
+    const dateStr = data.ngayBD || '';
+    if (!name || !dateStr) return;
+    const localDate = toLocalDateKey(dateStr);
+
+    const { found } = getNamePrice(name, localDate, existingPrices);
+    if (!found) {
+      const normKey = normalizeForMatch(name);
+      const existing = missingMap.get(normKey);
+      const mtd = data.maTuongDuong?.trim() || '';
+      const price = typeof data.donGia === 'number' && data.donGia > 0 ? data.donGia : 0;
+
+      if (!existing) {
+        missingMap.set(normKey, {
+          tenKT: name,
+          maTuongDuong: mtd,
+          minDate: localDate,
+          count: 1,
+          price,
+        });
+      } else {
+        existing.count += 1;
+        if (localDate < existing.minDate) {
+          existing.minDate = localDate;
+        }
+        if (!existing.maTuongDuong && mtd) {
+          existing.maTuongDuong = mtd;
+        }
+        if (existing.price === 0 && price > 0) {
+          existing.price = price;
+        }
+      }
+    }
+  });
+
+  const candidates: MissingCatalogCandidate[] = Array.from(missingMap.entries()).map(([key, val], idx) => ({
+    id: `missing_${idx}_${Date.now()}`,
+    tenKT: val.tenKT,
+    maTuongDuong: val.maTuongDuong,
+    effectiveFrom: val.minDate,
+    recordCount: val.count,
+    price: val.price,
+    selected: true,
+  }));
+
+  // Sắp xếp theo số ca giảm dần, sau đó theo tên kỹ thuật
+  candidates.sort((a, b) => b.recordCount - a.recordCount || a.tenKT.localeCompare(b.tenKT, 'vi'));
+
+  return candidates;
+}
+
+/** Áp dụng các ứng viên được user chọn vào Danh mục giá (chỉ thực thi khi user bấm Xác nhận) */
+export async function applyMissingCatalogCandidates(
+  selectedCandidates: MissingCatalogCandidate[]
+): Promise<number> {
+  if (selectedCandidates.length === 0) return 0;
+  const items: Omit<SurgeryNamePrice, 'id' | 'createdAt'>[] = selectedCandidates.map(c => ({
+    tenKT: c.tenKT.trim(),
+    price: Number(c.price) || 0,
+    effectiveFrom: c.effectiveFrom,
+    effectiveTo: null,
+    maTuongDuong: c.maTuongDuong ? c.maTuongDuong.trim() : '',
+  }));
+  return await bulkCreateSurgeryNamePrices(items);
 }
 
 /** Seed DB: only add (tenKT, date) pairs where no matching price is found */

@@ -259,6 +259,17 @@ export interface SurgeryNamePrice {
   maTuongDuong?: string;         // Mã tương đương (MA_TUONG_DUONG)
 }
 
+/** Ứng viên kỹ thuật thiếu trong danh mục giá do quét CSDL phát hiện */
+export interface MissingCatalogCandidate {
+  id: string;
+  tenKT: string;
+  maTuongDuong: string;
+  effectiveFrom: string;         // yyyy-mm-dd (ngày mổ sớm nhất phát hiện)
+  recordCount: number;           // Số ca trong CSDL
+  price: number;                 // Đơn giá đề xuất (0 hoặc lấy từ ca có sẵn giá)
+  selected: boolean;             // Trạng thái tick chọn của user
+}
+
 /** Chi phí PTTT — tham chiếu DM giá + thêm chi phí thuốc/VTTH */
 export interface SurgeryCostItem {
   id: string;

@@ -10,7 +10,7 @@ import {
   Loader2, FileSpreadsheet, Sparkles, RefreshCw,
   Filter, ChevronDown, MoreHorizontal, ToggleLeft, ToggleRight, Scan,
 } from 'lucide-react';
-import { SurgeryNamePrice, SurgeryCostItem, SurgeryProfile, RefillCandidateItem } from '../../types';
+import { SurgeryNamePrice, SurgeryCostItem, SurgeryProfile, RefillCandidateItem, MissingCatalogCandidate } from '../../types';
 import {
   createSurgeryNamePrice,
   updateSurgeryNamePrice,
@@ -18,6 +18,8 @@ import {
   bulkUpsertSurgeryNamePrices,
   bulkDeleteSurgeryNamePrices,
   seedSurgeryNamePrices,
+  scanMissingCatalogCandidates,
+  applyMissingCatalogCandidates,
   exportSurgeryNamePrices,
   exportNamePriceTemplate,
   parseImportedNamePriceExcel,
@@ -28,6 +30,7 @@ import {
 import { toggleCostItem, getCostRefPriceIds } from '../../services/surgeryCostService';
 import { reportService } from '../../services/reportService';
 import { RefillModal } from './RefillModal';
+import { MissingCatalogModal } from './MissingCatalogModal';
 
 interface Props {
   surgeryNamePrices: SurgeryNamePrice[];
@@ -164,6 +167,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   const [refillCandidates, setRefillCandidates] = useState<RefillCandidateItem[]>([]);
   const [isRefilling, setIsRefilling] = useState(false);
   const [refillProgress, setRefillProgress] = useState('');
+
+  // Missing catalog proposal states
+  const [showMissingModal, setShowMissingModal] = useState(false);
+  const [missingCandidates, setMissingCandidates] = useState<MissingCatalogCandidate[]>([]);
+  const [isAddingMissing, setIsAddingMissing] = useState(false);
 
   // Advanced filter states
   const [showFilters, setShowFilters] = useState(false);
@@ -384,19 +392,36 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
     }
   };
 
-  // --- Seed ---
-  const handleSeed = async () => {
-    if (!window.confirm('Quét toàn bộ dữ liệu phẫu thuật trên hệ thống để lấy danh sách phẫu thuật. Tiếp tục?')) return;
+  // --- Quét DM thiếu (không tự ý thêm, hiển thị modal đề xuất để user duyệt) ---
+  const handleScanMissing = async () => {
     setSeeding(true);
-    setSeedProgress('Đang quét...');
+    setSeedProgress('Đang quét CSDL...');
     try {
-      const result = await seedSurgeryNamePrices(surgeryNamePrices, setSeedProgress);
-      showToast(`Thêm ${result.added} tên mới, bỏ qua ${result.skipped} đã tồn tại`);
+      const candidates = await scanMissingCatalogCandidates(surgeryNamePrices, setSeedProgress);
+      if (candidates.length === 0) {
+        showToast('Tất cả các ca phẫu thuật trong CSDL đều đã có Danh mục giá phù hợp!', 'success');
+        return;
+      }
+      setMissingCandidates(candidates);
+      setShowMissingModal(true);
     } catch (err: any) {
       showToast(err.message || 'Lỗi quét dữ liệu', 'error');
     } finally {
       setSeeding(false);
       setSeedProgress('');
+    }
+  };
+
+  const handleConfirmMissing = async (selected: MissingCatalogCandidate[]) => {
+    setIsAddingMissing(true);
+    try {
+      const added = await applyMissingCatalogCandidates(selected);
+      showToast(`Đã thêm thành công ${added} kỹ thuật mới vào Danh mục giá`);
+      setShowMissingModal(false);
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi thêm danh mục', 'error');
+    } finally {
+      setIsAddingMissing(false);
     }
   };
 
@@ -551,10 +576,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Quét DM thiếu (thay thế Tải DS từ dữ liệu) */}
-          <InstantTooltip content="Quét toàn bộ ca PT trên hệ thống, so khớp mã tương đương + tên KT + khoảng hiệu lực. Nếu phát hiện ca chưa có DM giá phù hợp → đề xuất thêm mới.">
+          {/* Quét DM thiếu (phát hiện ca chưa có giá, hiển thị đề xuất để user duyệt) */}
+          <InstantTooltip content="Quét toàn bộ ca PT trên hệ thống để phát hiện các kỹ thuật chưa có trong DM giá. Hiển thị danh sách đề xuất để bạn xem lại và tick chọn trước khi thêm.">
             <button
-              onClick={handleSeed}
+              onClick={handleScanMissing}
               disabled={seeding}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
             >
@@ -1020,6 +1045,15 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
         onConfirm={handleConfirmRefill}
         isConfirming={isRefilling}
         confirmLabel="Áp dụng vào DM giá & Điền data"
+      />
+
+      {/* Missing Catalog Proposal & Confirmation Modal */}
+      <MissingCatalogModal
+        isOpen={showMissingModal}
+        onClose={() => setShowMissingModal(false)}
+        candidates={missingCandidates}
+        onConfirm={handleConfirmMissing}
+        isConfirming={isAddingMissing}
       />
     </div>
   );
