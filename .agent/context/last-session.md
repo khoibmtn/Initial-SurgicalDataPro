@@ -1,8 +1,8 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 04/09/2026 16:30 (Giờ địa phương)  
-> **Nhánh Git hiện tại:** `temp-04-09-2026-16h28`  
-> **Commit mới nhất:** `f3f427d`  
+> **Thời gian tạo:** 04/09/2026 17:10 (Giờ địa phương)  
+> **Nhánh Git hiện tại:** `temp-04-09-2026-17h08`  
+> **Commit mới nhất:** `c4b627b`  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Trạng thái Build & Deploy:** `Thành công 100% (READY)`
 
@@ -10,43 +10,29 @@
 
 ## 📌 1. Các Yêu Cầu & Tính Năng Mới Đã Triển Khai Trong Phiên
 
-### 1.1. Toggle "Số lượng / Viện phí" trong Tab Phân Tích So Sánh:
-- **Vị trí**: Đặt cạnh nút toggle "Hiện số chênh" trên thanh công cụ trên cùng.
-- **Chế độ Số lượng** (mặc định):
-  - Hiển thị theo số ca phẫu thuật, chênh lệch số ca (± ca) và % tăng giảm số ca như trước.
-- **Chế độ Viện phí**:
-  - Dữ liệu viện phí được tính toán trực tiếp từ cột **Thành tiền** (`thanhTien` hoặc `donGia * soLuong`) của từng ca phẫu thuật.
-  - Hỗ trợ format số tiền trực quan (`tỷ`, `tr`, `₫`) và tooltip hover xem chính xác toàn bộ số tiền chi tiết đến từng đồng.
-  - Cập nhật **KPI Card 1**: Tự động chuyển tiêu đề và số liệu thành **Tổng viện phí** (kèm số chênh lệch tiền và % thay đổi doanh thu).
-  - Cập nhật **Badge chuyên khoa**: Thể hiện tổng viện phí phát sinh của từng khoa.
-  - Cả 2 bảng (**Toàn viện** & **Từng chuyên khoa**): Header, các cột số liệu (Kỳ này, Kỳ trước, Cùng kỳ), cột số chênh (± tiền) và các cột % thay đổi doanh thu đều đồng bộ hóa theo viện phí.
-  - Dòng **TỔNG CỘNG footer**: Tính toán và hiển thị tổng viện phí toàn viện/khoa.
-  - **Sắp xếp (Sorting)**: Tự động sắp xếp theo viện phí tương ứng của cột khi đang ở chế độ Viện phí.
-  - **Nhãn toggle số chênh**: Tự động hiển thị `Hiện số chênh (± ca)` hoặc `Hiện số chênh (± tiền)` tùy theo chế độ đang chọn.
-
-### 1.2. Gộp Nút Xuất CSV và Excel thành 1 Nút "Tải xuống" Hợp Nhất:
-- Thay thế 2 nút riêng biệt bằng 1 nút **Tải xuống** duy nhất với icon `Download` và mũi tên dropdown `ChevronDown`.
-- Khi bấm nút, hiển thị dropdown menu popover:
-  - **Xuất Excel (.xlsx)**: Sheet tổng hợp toàn viện & các sheet chuyên khoa theo chế độ Số lượng hoặc Viện phí đang chọn.
-  - **Xuất CSV (NotebookLM)**: Chuẩn UTF-8 BOM tối ưu AI NotebookLM.
-- Hỗ trợ tự động đóng dropdown khi click ra ngoài.
-
-### 1.3. Di Chuyển Ô Gõ Tìm Kiếm:
-- Đã loại bỏ ô tìm kiếm ở thanh công cụ trên cùng.
-- Chuyển xuống đặt ngay trên bảng số liệu, **ngang hàng với các badge chuyên khoa và nằm ở mé phải** (`flex justify-between`), kèm nút xóa nhanh `×` khi có từ khóa.
+### 1.1. Tải Excel Full Danh Sách Cho Tất Cả Các Cảnh Báo (Validation Warnings):
+- **Bản ghi trùng key (`duplicateCount`)**:
+  - Tự động gom nhóm tất cả các bản ghi có cùng 4 trường: `ngày phẫu thuật`, `loại PT/TT`, `mã BN`, `tên kỹ thuật`.
+  - Đánh số nhóm trùng: `Nhóm #1`, `Nhóm #2`... kèm số ca trong nhóm (2, 3...) để các dòng trùng nhau được xếp cạnh nhau giúp đối chiếu cực kỳ thuận tiện.
+  - Thêm nút tải 1-click **"Tải Excel trùng key (X dòng)"** ngay trên thanh tiêu đề và cả nút tải lớn bên trong chi tiết.
+  - File Excel xuất ra có **23 cột dữ liệu chi tiết đầy đủ**:
+    `STT`, `Nhóm trùng key`, `Số ca trong nhóm`, `Mã BN`, `Họ và tên`, `Năm sinh`, `Giới tính`, `Thẻ BHYT`, `Ngày phẫu thuật` (kèm giờ phút nếu có), `Tên phẫu thuật / kỹ thuật`, `Loại PT/TT`, `Số lượng`, `Phẫu thuật chính`, `Phẫu thuật phụ`, `Bác sĩ gây mê`, `KTV gây mê`, `Giúp việc`, `Máy thực hiện`, `Đơn giá (VNĐ)`, `Thành tiền (VNĐ)`, `Mã tương đương BHXH`, `Nguồn dữ liệu`, `ID bản ghi`.
+- **Kỹ thuật chưa có giá (`missingSurgeryNames`)**:
+  - Nâng cấp nút tải Excel từ 3 cột cơ bản thành **danh sách chi tiết 16 cột đầy đủ thông tin ca mổ** (Mã BN, Họ tên, Năm sinh, Giới tính, Thẻ BHYT, Ngày mổ, Tên KT, Loại PT/TT, PTV chính, PTV phụ, BS GM, Máy, Đơn giá, Thành tiền, Mã tương đương BHXH, Nguồn dữ liệu).
+- **Thiếu bảng giá theo tháng (`missingPriceMonths`)**:
+  - Thêm nút **"Tải danh sách ca tháng thiếu giá"** xuất toàn bộ các ca phẫu thuật của các tháng thiếu bảng giá ra Excel để kiểm tra và đối soát.
 
 ---
 
 ## 📂 2. Cấu Trúc File & Thay Đổi Chính
-- `components/statistics/SpecialtyComparisonTab.tsx`:
-  - Thêm state `metricMode ('count' | 'revenue')`, `openDownloadMenu`, `downloadMenuRef`.
-  - Thêm helpers `fmtMoney`, `fmtFullMoney`, `fmtMoneyDiffCell`.
-  - Cập nhật `overallKPIs`, `sortRows`, các cột số liệu, header, footer và Toolbar.
-  - Chuyển ô Search xuống dòng chuyên khoa mé phải.
-- `services/specialtyComparisonService.ts`:
-  - Mở rộng `ComparisonRow` thêm các trường `currentRevenue`, `prevRevenue`, `prevRevenueDiff`, `prevRevenueChangePct`, `samePeriodRevenue`, `samePeriodRevenueDiff`, `samePeriodRevenueChangePct`.
-  - Mở rộng `SpecialtyReportGroup` thêm `totalCurrentRevenue`, `totalPrevRevenue`, `totalSamePeriodRevenue`.
-  - Cập nhật `ItemCounter` và hàm `registerRecord` để cộng dồn tiền từ `r.thanhTien`.
-- `services/excelExportComparisonService.ts`:
-  - Thêm tham số `metricMode: 'count' | 'revenue' = 'count'` cho cả `exportSpecialtyComparisonExcel` và `exportSpecialtyComparisonCSV`.
-  - Xuất bảng biểu và số liệu tương ứng theo Số lượng (ca) hoặc Viện phí (VNĐ).
+- `types.ts`:
+  - Thêm interface `DuplicateSurgeryRecord` (kế thừa `PersistedSurgeryRecord` với `duplicateGroup`, `duplicateGroupCount`, `duplicateKey`).
+  - Thêm interface `MissingSurgeryNameRecord` đầy đủ thông tin ca mổ.
+  - Mở rộng `DataValidationResult` với `duplicateRecords?: DuplicateSurgeryRecord[]` và `missingSurgeryNameRecords: MissingSurgeryNameRecord[]`.
+- `services/statisticsService.ts`:
+  - Cập nhật hàm `validateRecords` để gom nhóm các bản ghi trùng key, tính số lượng nhóm và trả về mảng `duplicateRecords`.
+  - Cập nhật `aggregateMonth` lưu đầy đủ thông tin ca mổ vào `missingSurgeryNameTracker.records`.
+  - Cập nhật `fetchAndAggregateYearly` gắn `duplicateRecords` và `missingSurgeryNameRecords` vào validation result.
+- `components/statistics/StatisticsTab.tsx`:
+  - Bổ sung các hàm xuất Excel chuyên nghiệp: `handleExportDuplicates`, `handleExportMissingPriceSurgeries`, `handleExportMissingPriceMonths`.
+  - Cập nhật các card cảnh báo trong JSX: thêm nút tải nhanh trên thanh tiêu đề `summary` và bên trong nội dung `details`.
