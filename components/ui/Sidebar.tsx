@@ -77,16 +77,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }`}
     >
       {/* Logo area */}
-      <div className="flex items-center gap-3 px-4 h-14 border-b border-gray-100 shrink-0">
+      <div className={`flex items-center gap-3 px-4 ${collapsed ? 'h-14' : 'py-3'} border-b border-gray-100 shrink-0`}>
         <div className="bg-primary-700 p-2 rounded-lg shrink-0">
           <Activity className="h-4 w-4 text-white" />
         </div>
         {!collapsed && (
           <div className="min-w-0">
             <h1 className="text-sm font-bold text-gray-900 truncate font-heading">
-              SurgicalDataPro
+              Quản lý PTTT
             </h1>
-            <p className="text-[10px] text-gray-400 truncate">Quản lý PTTT</p>
+            <p className="text-[10px] text-gray-400 truncate leading-tight">Khoa Phẫu thuật GMHS</p>
+            <p className="text-[10px] text-gray-400 truncate leading-tight">TTYT Thủy Nguyên</p>
+            <p className="text-[9px] text-gray-300 truncate leading-tight mt-0.5">
+              Cập nhật: {__BUILD_TIME__}
+            </p>
           </div>
         )}
       </div>
