@@ -8,8 +8,9 @@ import {
   Plus, Download, Upload, Trash2, Edit3, Save, X, Database,
   CheckCircle2, AlertTriangle, Search, ChevronLeft, ChevronRight,
   Loader2, FileSpreadsheet, Sparkles, RefreshCw,
+  Filter, ChevronDown, MoreHorizontal, ToggleLeft, ToggleRight, Scan,
 } from 'lucide-react';
-import { SurgeryNamePrice, RefillCandidateItem } from '../../types';
+import { SurgeryNamePrice, SurgeryCostItem, SurgeryProfile, RefillCandidateItem } from '../../types';
 import {
   createSurgeryNamePrice,
   updateSurgeryNamePrice,
@@ -24,11 +25,14 @@ import {
   generateRefillCandidates,
   applyRefillCandidatesToCatalog,
 } from '../../services/surgeryNamePriceService';
+import { toggleCostItem, getCostRefPriceIds } from '../../services/surgeryCostService';
 import { reportService } from '../../services/reportService';
 import { RefillModal } from './RefillModal';
 
 interface Props {
   surgeryNamePrices: SurgeryNamePrice[];
+  costItems: SurgeryCostItem[];
+  profiles?: SurgeryProfile[];
 }
 
 interface EditRow {
@@ -51,7 +55,95 @@ const PAGE_SIZE = 20;
 
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
-export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) => {
+/** Bỏ dấu tiếng Việt để fuzzy search */
+function removeVnTones(str: string): string {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase();
+}
+
+/** Parse giá trị số có thể kèm đơn vị (k, tr, m, nghìn, triệu) */
+function parsePriceValue(valStr: string): number | null {
+  const clean = valStr.trim().toLowerCase().replace(/[,.\s]/g, (match, offset, str) => {
+    // Nếu là dấu . hoặc , ngăn cách phần thập phân (e.g. 1.5tr)
+    return '.';
+  });
+  const m = clean.match(/^(\d+(?:\.\d+)?)\s*(k|tr|m|triệu|nghìn)?$/);
+  if (!m) return null;
+  const num = parseFloat(m[1]);
+  const unit = m[2];
+  if (unit === 'k' || unit === 'nghìn') return Math.round(num * 1000);
+  if (unit === 'tr' || unit === 'm' || unit === 'triệu') return Math.round(num * 1000000);
+  return Math.round(num);
+}
+
+/** Parse chuỗi lọc giá: >500000, >500k, <=1tr, 500k-1tr, =500000, 500000-1000000 */
+function parsePriceFilter(raw: string): ((price: number) => boolean) | null {
+  const s = raw.trim();
+  if (!s) return null;
+
+  // Range: A - B (vd: 500k-1tr, 500000-1000000)
+  if (s.includes('-') && !s.startsWith('-')) {
+    const parts = s.split('-');
+    if (parts.length === 2) {
+      const lo = parsePriceValue(parts[0]);
+      const hi = parsePriceValue(parts[1]);
+      if (lo !== null && hi !== null) {
+        return (p) => p >= lo && p <= hi;
+      }
+    }
+  }
+
+  // Operator: >=, <=, >, <, = (vd: >500k, <=1.5tr, =500000)
+  const opMatch = s.match(/^(>=|<=|>|<|=)\s*(.+)$/);
+  if (opMatch) {
+    const op = opMatch[1];
+    const val = parsePriceValue(opMatch[2]);
+    if (val !== null) {
+      switch (op) {
+        case '>=': return (p) => p >= val;
+        case '<=': return (p) => p <= val;
+        case '>': return (p) => p > val;
+        case '<': return (p) => p < val;
+        case '=': return (p) => p === val;
+      }
+    }
+  }
+
+  // Số thuần (vd: 500000 hoặc 500k -> coi như =)
+  const singleVal = parsePriceValue(s);
+  if (singleVal !== null) {
+    return (p) => p === singleVal;
+  }
+
+  return null;
+}
+
+/** Component Tooltip hiển thị tức thời (0ms delay) khi hover */
+export const InstantTooltip: React.FC<{ content: string; children: React.ReactNode; position?: 'top' | 'bottom' }> = ({
+  content,
+  children,
+  position = 'top',
+}) => (
+  <div className="relative group/tip inline-flex">
+    {children}
+    <div
+      className={`pointer-events-none absolute left-1/2 -translate-x-1/2 hidden group-hover/tip:flex flex-col items-center z-50 animate-fade-in w-max max-w-xs ${
+        position === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
+      }`}
+    >
+      {position === 'bottom' && (
+        <div className="w-2 h-2 -mb-1 rotate-45 bg-gray-900 border-l border-t border-gray-700"></div>
+      )}
+      <div className="bg-gray-900/95 text-white text-[11px] leading-tight font-normal px-2.5 py-1.5 rounded-lg shadow-xl border border-gray-700 backdrop-blur-sm text-center">
+        {content}
+      </div>
+      {position === 'top' && (
+        <div className="w-2 h-2 -mt-1 rotate-45 bg-gray-900 border-r border-b border-gray-700"></div>
+      )}
+    </div>
+  </div>
+);
+
+export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, costItems, profiles = [] }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -73,6 +165,20 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
   const [isRefilling, setIsRefilling] = useState(false);
   const [refillProgress, setRefillProgress] = useState('');
 
+  // Advanced filter states
+  const [showFilters, setShowFilters] = useState(false);
+  const [hideCostItems, setHideCostItems] = useState(false);
+  const [filterHasPrice, setFilterHasPrice] = useState(false);
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [filterCurrentlyValid, setFilterCurrentlyValid] = useState(false);
+  const [filterPrice, setFilterPrice] = useState('');
+  const [filterProfile, setFilterProfile] = useState('');
+  const [showExcelMenu, setShowExcelMenu] = useState(false);
+
+  // Cost item ref IDs set (for toggle & filter)
+  const costRefIds = useMemo(() => getCostRefPriceIds(costItems), [costItems]);
+
   // Auto-migrate yyyymmdd → yyyy-mm-dd (one-time per session)
   useEffect(() => {
     if (sessionStorage.getItem('namePriceDateMigrated')) return;
@@ -89,16 +195,66 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
     setTimeout(() => setToast(null), 4000);
   };
 
-  // --- Filter + Sort + Paginate ---
+  // --- Filter + Sort + Paginate (redesigned) ---
   const filtered = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim();
     let result = surgeryNamePrices;
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Fuzzy search: mã TĐ + tên KT
+    const term = removeVnTones(searchTerm.trim());
     if (term) {
-      result = result.filter(p => p.tenKT.toLowerCase().includes(term));
+      result = result.filter(p =>
+        removeVnTones(p.tenKT).includes(term) ||
+        removeVnTones(p.maTuongDuong || '').includes(term)
+      );
     }
+
+    // Filter: chỉ DM chưa có giá
     if (filterZeroPrice) {
       result = result.filter(p => p.price === 0);
     }
+
+    // Filter: chỉ DM có giá > 0
+    if (filterHasPrice) {
+      result = result.filter(p => p.price > 0);
+    }
+
+    // Filter: ẩn DM đã có trong DM chi phí
+    if (hideCostItems) {
+      result = result.filter(p => !costRefIds.has(p.id));
+    }
+
+    // Filter: hiệu lực theo ngày
+    if (filterCurrentlyValid) {
+      result = result.filter(p => {
+        if (p.effectiveFrom && p.effectiveFrom > today) return false;
+        if (p.effectiveTo && p.effectiveTo < today) return false;
+        return true;
+      });
+    }
+    if (filterDateFrom) {
+      result = result.filter(p => !p.effectiveTo || p.effectiveTo >= filterDateFrom);
+    }
+    if (filterDateTo) {
+      result = result.filter(p => !p.effectiveFrom || p.effectiveFrom <= filterDateTo);
+    }
+
+    // Filter: đơn giá (parse operator)
+    const priceFn = parsePriceFilter(filterPrice);
+    if (priceFn) {
+      result = result.filter(p => priceFn(p.price));
+    }
+
+    // Filter: profile
+    if (filterProfile && profiles.length > 0) {
+      const prof = profiles.find(pr => pr.id === filterProfile);
+      if (prof) {
+        const nameSet = new Set(prof.surgeryNames.map(n => n.toLowerCase()));
+        result = result.filter(p => nameSet.has(p.tenKT.toLowerCase()));
+      }
+    }
+
+    // Sort
     result = [...result].sort((a, b) => {
       let cmp = 0;
       if (sortField === 'tenKT') cmp = a.tenKT.localeCompare(b.tenKT, 'vi');
@@ -107,7 +263,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return result;
-  }, [surgeryNamePrices, searchTerm, filterZeroPrice, sortField, sortDir]);
+  }, [surgeryNamePrices, searchTerm, filterZeroPrice, filterHasPrice, hideCostItems, filterCurrentlyValid, filterDateFrom, filterDateTo, filterPrice, filterProfile, profiles, costRefIds, sortField, sortDir]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -389,97 +545,184 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
             {zeroPriceCount > 0 && (
               <span className="text-amber-600 font-semibold ml-2">• {zeroPriceCount} chưa có giá</span>
             )}
+            {costRefIds.size > 0 && (
+              <span className="text-emerald-600 font-semibold ml-2">• {costRefIds.size} trong DM chi phí</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={handleSeed}
-            disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
-          >
-            {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
-            {seeding ? seedProgress || 'Đang quét...' : 'Tải DS từ dữ liệu'}
-          </button>
-          <button
-            onClick={exportNamePriceTemplate}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Excel mẫu
-          </button>
-          <button
-            onClick={() => exportSurgeryNamePrices(surgeryNamePrices)}
-            disabled={surgeryNamePrices.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Xuất Excel
-          </button>
-          <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors">
-            <Upload className="h-3.5 w-3.5" />
-            Import Excel
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleFileUpload}
-            />
-          </label>
-          <button
-            onClick={handleStartExcelRefill}
-            disabled={isRefilling}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 transition-colors shadow-sm"
-            title="Quét các ca đã import từ file Excel để cập nhật DM giá và fill lại các ca chưa có giá"
-          >
-            {isRefilling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-600" />}
-            {isRefilling ? refillProgress || 'Đang quét...' : 'Refill từ file Excel'}
-          </button>
-          <button
-            onClick={handleStartAdd}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Thêm mới
-          </button>
-          {selectedIds.size > 0 && (
+          {/* Quét DM thiếu (thay thế Tải DS từ dữ liệu) */}
+          <InstantTooltip content="Quét toàn bộ ca PT trên hệ thống, so khớp mã tương đương + tên KT + khoảng hiệu lực. Nếu phát hiện ca chưa có DM giá phù hợp → đề xuất thêm mới.">
             <button
-              onClick={handleBulkDelete}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              onClick={handleSeed}
+              disabled={seeding}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
             >
-              <Trash2 className="h-3.5 w-3.5" />
-              Xóa {selectedIds.size} đã chọn
+              {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scan className="h-3.5 w-3.5" />}
+              {seeding ? seedProgress || 'Đang quét...' : 'Quét DM thiếu'}
             </button>
+          </InstantTooltip>
+
+          {/* Excel dropdown (gộp Excel mẫu, Xuất Excel, Import Excel) */}
+          <div className="relative">
+            <InstantTooltip content="Thao tác Excel: tải mẫu, xuất danh mục, import từ file">
+              <button
+                onClick={() => setShowExcelMenu(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" />
+                Excel
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </InstantTooltip>
+            {showExcelMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowExcelMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[180px]">
+                  <button onClick={() => { exportNamePriceTemplate(); setShowExcelMenu(false); }} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center gap-2" title="Tải file Excel mẫu để import danh mục giá">
+                    <Download className="h-3.5 w-3.5 text-gray-400" /> Tải Excel mẫu
+                  </button>
+                  <button onClick={() => { exportSurgeryNamePrices(surgeryNamePrices); setShowExcelMenu(false); }} disabled={surgeryNamePrices.length === 0} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50" title="Xuất toàn bộ danh mục giá ra file Excel">
+                    <Download className="h-3.5 w-3.5 text-gray-400" /> Xuất Excel
+                  </button>
+                  <label className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center gap-2 cursor-pointer" title="Import danh mục giá từ file Excel (.xlsx)">
+                    <Upload className="h-3.5 w-3.5 text-blue-500" /> Import Excel
+                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { handleFileUpload(e); setShowExcelMenu(false); }} />
+                  </label>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Refill từ file Excel */}
+          <InstantTooltip content="Quét các ca đã import từ file Excel DVKT để đối chiếu và cập nhật giá trong DM. Sau đó tự động áp giá cho các ca chưa có giá.">
+            <button
+              onClick={handleStartExcelRefill}
+              disabled={isRefilling}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 transition-colors shadow-sm"
+            >
+              {isRefilling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-600" />}
+              {isRefilling ? refillProgress || 'Đang quét...' : 'Refill từ Excel'}
+            </button>
+          </InstantTooltip>
+
+          {/* Thêm mới */}
+          <InstantTooltip content="Thêm thủ công 1 kỹ thuật mới vào danh mục giá">
+            <button
+              onClick={handleStartAdd}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Thêm mới
+            </button>
+          </InstantTooltip>
+
+          {selectedIds.size > 0 && (
+            <InstantTooltip content="Xóa tất cả các mục đã chọn khỏi danh mục giá">
+              <button
+                onClick={handleBulkDelete}
+                disabled={saving}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Xóa {selectedIds.size}
+              </button>
+            </InstantTooltip>
           )}
         </div>
       </div>
 
-      {/* Search + Filter */}
-      <div className="flex items-center gap-3">
+      {/* Search + Filter toggle */}
+      <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             value={searchTerm}
             onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
-            placeholder="Tìm tên phẫu thuật..."
-            className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            placeholder="Tìm mã tương đương hoặc tên kỹ thuật (hỗ trợ không dấu)..."
+            className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
           />
         </div>
-        <label className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-xs font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-          filterZeroPrice
-            ? 'border-amber-400 bg-amber-50 text-amber-700'
-            : 'border-gray-300 text-gray-500 hover:bg-gray-50'
-        }`}>
-          <input
-            type="checkbox"
-            checked={filterZeroPrice}
-            onChange={e => { setFilterZeroPrice(e.target.checked); setPage(0); }}
-            className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-          />
-          DM chưa có giá {zeroPriceCount > 0 && <span className="bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full text-[10px] font-bold">{zeroPriceCount}</span>}
-        </label>
+        <InstantTooltip content="Bật/tắt bộ lọc nâng cao: hiệu lực, đơn giá, DM chi phí, profile">
+          <button
+            onClick={() => setShowFilters(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border rounded-lg transition-colors whitespace-nowrap ${
+              showFilters || hideCostItems || filterHasPrice || filterCurrentlyValid || filterDateFrom || filterDateTo || filterPrice || filterProfile
+                ? 'border-primary-400 bg-primary-50 text-primary-700'
+                : 'border-gray-300 text-gray-500 hover:bg-gray-50'
+            }`}
+          >
+            <Filter className="h-3.5 w-3.5" />
+            Bộ lọc
+          </button>
+        </InstantTooltip>
       </div>
+
+      {/* Advanced Filter Panel */}
+      {showFilters && (
+        <div className="bg-gray-50/80 border border-gray-200 rounded-xl p-3 space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            {/* Hiệu lực */}
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs">
+                <input type="checkbox" checked={filterCurrentlyValid} onChange={e => { setFilterCurrentlyValid(e.target.checked); setPage(0); }} className="rounded border-gray-300 text-primary-600" />
+                <span className="font-semibold text-gray-600">Còn hiệu lực</span>
+              </label>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-gray-500 font-semibold">Từ:</span>
+              <input type="date" value={filterDateFrom} onChange={e => { setFilterDateFrom(e.target.value); setPage(0); }} className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none" />
+              <span className="text-[10px] text-gray-500 font-semibold">Đến:</span>
+              <input type="date" value={filterDateTo} onChange={e => { setFilterDateTo(e.target.value); setPage(0); }} className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none" />
+            </div>
+
+            {/* Đơn giá */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-gray-500 font-semibold">Giá:</span>
+              <input
+                type="text"
+                value={filterPrice}
+                onChange={e => { setFilterPrice(e.target.value); setPage(0); }}
+                placeholder=">500000, 500k-1tr"
+                className="w-32 px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none font-mono"
+                title="Gõ toán tử: >500000, <=1000000, =500000, hoặc khoảng: 500000-1000000"
+              />
+            </div>
+
+            {/* Checkboxes */}
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer" title="Chỉ hiện danh mục có đơn giá > 0">
+              <input type="checkbox" checked={filterHasPrice} onChange={e => { setFilterHasPrice(e.target.checked); setFilterZeroPrice(false); setPage(0); }} className="rounded border-gray-300 text-emerald-600" />
+              <span className="font-semibold text-gray-600">Có giá</span>
+            </label>
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer" title="Chỉ hiện danh mục chưa có giá (giá = 0)">
+              <input type="checkbox" checked={filterZeroPrice} onChange={e => { setFilterZeroPrice(e.target.checked); setFilterHasPrice(false); setPage(0); }} className="rounded border-gray-300 text-amber-600" />
+              <span className="font-semibold text-gray-600">Chưa có giá</span>
+              {zeroPriceCount > 0 && <span className="bg-amber-200 text-amber-800 px-1 py-0.5 rounded-full text-[9px] font-bold">{zeroPriceCount}</span>}
+            </label>
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer" title="Ẩn những danh mục đã được thêm vào DM Chi phí PTTT. Bỏ check để hiển thị đầy đủ.">
+              <input type="checkbox" checked={hideCostItems} onChange={e => { setHideCostItems(e.target.checked); setPage(0); }} className="rounded border-gray-300 text-blue-600" />
+              <span className="font-semibold text-gray-600">Ẩn DM CP</span>
+            </label>
+
+            {/* Profile */}
+            {profiles.length > 0 && (
+              <select value={filterProfile} onChange={e => { setFilterProfile(e.target.value); setPage(0); }} className="px-2 py-1 text-xs border border-gray-300 rounded-lg focus:ring-1 focus:ring-primary-500 outline-none" title="Lọc theo profile nhóm kỹ thuật">
+                <option value="">-- Profile --</option>
+                {profiles.map(pr => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+              </select>
+            )}
+
+            {/* Reset all filters */}
+            <button
+              onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); setFilterCurrentlyValid(false); setFilterHasPrice(false); setFilterZeroPrice(false); setHideCostItems(false); setFilterPrice(''); setFilterProfile(''); setPage(0); }}
+              className="text-[10px] text-red-500 hover:text-red-700 font-semibold cursor-pointer"
+              title="Xóa tất cả bộ lọc"
+            >
+              Xóa lọc
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Add Form */}
       {showAddForm && (
@@ -556,7 +799,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
             {searchTerm ? 'Không tìm thấy kết quả' : 'Chưa có danh mục giá'}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {searchTerm ? 'Thử từ khóa khác' : 'Nhấn "Tải DS từ dữ liệu" để bắt đầu'}
+            {searchTerm ? 'Thử từ khóa khác hoặc tắt bộ lọc' : 'Nhấn "Quét DM thiếu" hoặc "Import Excel" để bắt đầu'}
           </p>
         </div>
       ) : (
@@ -593,6 +836,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
                     Từ <SortIcon field="effectiveFrom" />
                   </th>
                   <th className="px-3 py-2 text-center text-gray-500 font-semibold w-28">Đến</th>
+                  <th className="px-2 py-2 text-center text-gray-500 font-semibold w-14" title="Bật/tắt trong DM Chi phí PTTT">DM CP</th>
                   <th className="px-3 py-2 text-center text-gray-500 font-semibold w-20">Thao tác</th>
                 </tr>
               </thead>
@@ -602,6 +846,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
                   const isActive = !p.effectiveTo || p.effectiveTo >= new Date().toISOString().split('T')[0];
                   const isZeroPrice = p.price === 0;
                   const rowNum = page * PAGE_SIZE + idx + 1;
+                  const isInCost = costRefIds.has(p.id);
 
                   if (isEditing) {
                     return (
@@ -691,22 +936,43 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
                           <span className="text-emerald-600 text-[10px] font-bold">Đang áp dụng</span>
                         )}
                       </td>
+                      <td className="px-2 py-2 text-center">
+                        <InstantTooltip content={isInCost ? 'Đã có trong DM Chi phí. Bấm để tắt.' : 'Chưa có trong DM Chi phí. Bấm để bật.'}>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await toggleCostItem(p, !isInCost, costItems);
+                                showToast(isInCost ? 'Đã xóa khỏi DM chi phí' : 'Đã thêm vào DM chi phí');
+                              } catch (err: any) {
+                                showToast(err.message || 'Lỗi toggle', 'error');
+                              }
+                            }}
+                            className={`p-0.5 rounded transition-colors ${
+                              isInCost ? 'text-emerald-600 hover:text-emerald-800' : 'text-gray-300 hover:text-gray-500'
+                            }`}
+                          >
+                            {isInCost ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
+                          </button>
+                        </InstantTooltip>
+                      </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-center gap-0.5">
-                          <button
-                            onClick={() => handleStartEdit(p)}
-                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
-                            title="Sửa"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(p)}
-                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
-                            title="Xóa"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <InstantTooltip content="Sửa mục này">
+                            <button
+                              onClick={() => handleStartEdit(p)}
+                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                          </InstantTooltip>
+                          <InstantTooltip content="Xóa mục này">
+                            <button
+                              onClick={() => handleDelete(p)}
+                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </InstantTooltip>
                         </div>
                       </td>
                     </tr>

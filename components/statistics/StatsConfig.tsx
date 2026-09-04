@@ -1,6 +1,6 @@
 /**
  * StatsConfig — Configuration container with sub-tabs
- * Sub-tabs: Danh mục giá | Danh mục chương | Bảng giá nhân công PT/TT
+ * Sub-tabs: Danh mục giá | Danh mục chương | Chi phí PTTT | Bảng giá nhân công PT/TT | ...
  */
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
@@ -12,6 +12,7 @@ import {
 import {
   SurgeryPriceVersion,
   SurgeryNamePrice,
+  SurgeryCostItem,
   ChapterCatalog,
   SurgeryProfile,
   LOAI_PTTT_ORDER,
@@ -31,6 +32,8 @@ import {
 import { SurgeryNamePriceConfig } from './SurgeryNamePriceConfig';
 import { ChapterCatalogConfig } from './ChapterCatalogConfig';
 import { ProfileConfig } from './ProfileConfig';
+import { SurgeryCostConfig } from './SurgeryCostConfig';
+import { subscribeToCostItems } from '../../services/surgeryCostService';
 import {
   getComparisonThresholdConfig,
   saveComparisonThresholdConfig,
@@ -45,9 +48,9 @@ import {
   SpecialtyCode,
   ComparisonConfig
 } from '../../services/specialtyComparisonService';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, Receipt } from 'lucide-react';
 
-type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'labor-price' | 'profile' | 'comparison-threshold';
+type ConfigSubTab = 'price-catalog' | 'chapter-catalog' | 'cost-catalog' | 'labor-price' | 'profile' | 'comparison-threshold';
 
 const SUB_TAB_KEY = 'sdp_config_sub_tab';
 
@@ -100,6 +103,13 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<ImportedPriceData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Cost items state (realtime from Firebase)
+  const [costItems, setCostItems] = useState<SurgeryCostItem[]>([]);
+  useEffect(() => {
+    const unsub = subscribeToCostItems((items) => setCostItems(items));
+    return () => unsub();
+  }, []);
 
   // Threshold & Custom Specialties settings state
   const [thresholdForm, setThresholdForm] = useState<ComparisonConfig>(getComparisonThresholdConfig);
@@ -290,6 +300,7 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   const subTabs: { key: ConfigSubTab; label: string; icon: React.ReactNode }[] = [
     { key: 'price-catalog', label: 'Danh mục giá', icon: <DollarSign className="h-3.5 w-3.5" /> },
     { key: 'chapter-catalog', label: 'Danh mục chương', icon: <BookOpen className="h-3.5 w-3.5" /> },
+    { key: 'cost-catalog', label: 'Chi phí PTTT', icon: <Receipt className="h-3.5 w-3.5" /> },
     { key: 'labor-price', label: 'Bảng giá nhân công', icon: <Briefcase className="h-3.5 w-3.5" /> },
     { key: 'profile', label: 'Profile', icon: <Users className="h-3.5 w-3.5" /> },
     { key: 'comparison-threshold', label: 'Ngưỡng phân tích', icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },
@@ -319,11 +330,15 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
 
       {/* Sub-tab Content */}
       <div style={{ display: configSubTab === 'price-catalog' ? 'block' : 'none' }}>
-        <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} />
+        <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} costItems={costItems} profiles={profiles} />
       </div>
 
       <div style={{ display: configSubTab === 'chapter-catalog' ? 'block' : 'none' }}>
         <ChapterCatalogConfig chapters={chapters} />
+      </div>
+
+      <div style={{ display: configSubTab === 'cost-catalog' ? 'block' : 'none' }}>
+        <SurgeryCostConfig costItems={costItems} />
       </div>
 
       <div style={{ display: configSubTab === 'labor-price' ? 'block' : 'none' }}>

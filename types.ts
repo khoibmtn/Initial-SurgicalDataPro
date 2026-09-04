@@ -259,6 +259,21 @@ export interface SurgeryNamePrice {
   maTuongDuong?: string;         // Mã tương đương (MA_TUONG_DUONG)
 }
 
+/** Chi phí PTTT — tham chiếu DM giá + thêm chi phí thuốc/VTTH */
+export interface SurgeryCostItem {
+  id: string;
+  refPriceId: string;            // → SurgeryNamePrice.id
+  maTuongDuong: string;          // Copy từ DM giá
+  tenKT: string;                 // Copy từ DM giá
+  donGia: number;                // Copy từ DM giá (đơn giá DVKT VNĐ)
+  medicCost: number;             // Chi phí thuốc (VNĐ, > 0)
+  vtthCost: number;              // Chi phí VTTH (VNĐ, > 0)
+  effectiveFrom: string;         // "2026-01-01" ISO date
+  effectiveTo: string | null;    // null = đang hiệu lực
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** Profile nhóm tên kỹ thuật PT/TT (lưu Firestore, global) */
 export interface SurgeryProfile {
   id: string;
