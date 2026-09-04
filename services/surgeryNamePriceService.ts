@@ -685,7 +685,30 @@ export async function migrateDateFormats(): Promise<{ fixed: number; total: numb
 // ───────────────── REFILL HELPERS ─────────────────
 
 /**
- * Tìm item trong DM giá theo Mã tương đương và Ngày phẫu thuật (nằm trong khoảng hiệu lực)
+ * Kiểm tra xem 1 item trong DM giá có phải là kỹ thuật gây tê hay không.
+ * Dựa trên 2 dấu hiệu:
+ * - Tên chứa "[gây tê]"
+ * - Mã tương đương kết thúc bằng "_GT"
+ */
+function isCatalogItemGayTe(item: SurgeryNamePrice): boolean {
+  const name = (item.tenKT || '').toLowerCase();
+  const mtd = (item.maTuongDuong || '').trim().toUpperCase();
+  return name.includes('[gây tê]') || name.includes('(gây tê)') || mtd.endsWith('_GT');
+}
+
+/**
+ * Kiểm tra xem 1 record Excel có phải là ca gây tê hay không.
+ * Dựa trên mã tương đương kết thúc bằng "_GT"
+ */
+function isRecordGayTe(maTuongDuong: string): boolean {
+  return (maTuongDuong || '').trim().toUpperCase().endsWith('_GT');
+}
+
+/**
+ * Tìm item trong DM giá theo Mã tương đương và Ngày phẫu thuật (nằm trong khoảng hiệu lực).
+ * Phân biệt gây tê/gây mê:
+ * - Nếu MTD record có hậu tố _GT → ưu tiên khớp với item gây tê
+ * - Nếu không → ưu tiên khớp với item gây mê (không có [gây tê])
  */
 export function findCatalogItemByMaTuongDuong(
   maTuongDuong: string,
@@ -693,26 +716,70 @@ export function findCatalogItemByMaTuongDuong(
   catalog: SurgeryNamePrice[]
 ): SurgeryNamePrice | undefined {
   if (!maTuongDuong || !dateStr) return undefined;
-  const normMTD = normalizeMaTuongDuong(maTuongDuong);
+  // Normalize: bỏ hậu tố _GT nếu có để so sánh mã gốc
+  const rawMTD = normalizeMaTuongDuong(maTuongDuong);
+  const isGT = isRecordGayTe(maTuongDuong);
+  const baseMTD = rawMTD.replace(/_GT$/i, '');
   const localDate = toLocalDateKey(dateStr);
 
   const matched = catalog.filter(item => {
-    if (normalizeMaTuongDuong(item.maTuongDuong) !== normMTD) return false;
+    const itemBaseMTD = normalizeMaTuongDuong(item.maTuongDuong).replace(/_GT$/i, '');
+    if (itemBaseMTD !== baseMTD) return false;
     if (item.effectiveFrom && item.effectiveFrom > localDate) return false;
     if (item.effectiveTo && item.effectiveTo < localDate) return false;
     return true;
   });
 
   if (matched.length === 0) return undefined;
+
+  // Phân loại: gây tê vs gây mê
+  const gayTeItems = matched.filter(isCatalogItemGayTe);
+  const gayMeItems = matched.filter(it => !isCatalogItemGayTe(it));
+
+  let preferred: SurgeryNamePrice[];
+  if (isGT) {
+    // Record là gây tê → ưu tiên item gây tê
+    preferred = gayTeItems.length > 0 ? gayTeItems : gayMeItems;
+  } else {
+    // Record là gây mê → ưu tiên item gây mê
+    preferred = gayMeItems.length > 0 ? gayMeItems : gayTeItems;
+  }
+
   // Sắp xếp ngày hiệu lực mới nhất trước
-  matched.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
-  return matched[0];
+  preferred.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  return preferred[0];
 }
 
 /**
- * Trích xuất danh sách ứng viên Refill từ danh sách bản ghi phẫu thuật Excel và DM giá:
- * - Đối chiếu theo Mã tương đương + Ngày phẫu thuật
- * - Gom nhóm theo (Mã tương đương, Đơn giá mới)
+ * Tìm TẤT CẢ catalog items (cả gây tê và gây mê) cho 1 baseMTD tại 1 ngày
+ */
+function findAllCatalogItemsForMTD(
+  baseMTD: string,
+  dateStr: string,
+  catalog: SurgeryNamePrice[]
+): SurgeryNamePrice[] {
+  if (!baseMTD || !dateStr) return [];
+  const localDate = toLocalDateKey(dateStr);
+
+  return catalog.filter(item => {
+    const itemBaseMTD = normalizeMaTuongDuong(item.maTuongDuong).replace(/_GT$/i, '');
+    if (itemBaseMTD !== baseMTD) return false;
+    if (item.effectiveFrom && item.effectiveFrom > localDate) return false;
+    if (item.effectiveTo && item.effectiveTo < localDate) return false;
+    return true;
+  });
+}
+
+/**
+ * Trích xuất danh sách ứng viên Refill từ danh sách bản ghi phẫu thuật Excel và DM giá.
+ *
+ * Logic chuẩn hóa:
+ * 1. Từng record Excel → lấy (MTD, ngày PT, đơn giá, đối tượng BHYT/VP)
+ * 2. Tìm mục DM giá khớp MTD + ngày PT trong khoảng hiệu lực (phân biệt gây tê/gây mê)
+ * 3. Chỉ dùng record BHYT để xác định giá chuẩn; bỏ qua record VP (trừ khi tạo mới)
+ * 4. Gom nhóm theo catalogId → mỗi mục DM chỉ xuất hiện tối đa 1 dòng đề xuất
+ * 5. Nếu cùng catalogId có nhiều mức giá BHYT khác nhau → lấy giá nhiều ca nhất + cảnh báo
+ * 6. Nếu giá Excel khớp với mục gây tê trong DM → bỏ qua (không tạo diff)
  */
 export function generateRefillCandidates(
   excelRecords: Array<{
@@ -721,74 +788,180 @@ export function generateRefillCandidates(
     ngayBD?: string;
     start?: Date | null;
     tenKT?: string;
+    bhyt?: string;
   }>,
   catalog: SurgeryNamePrice[]
 ): RefillCandidateItem[] {
-  // Map group key: `${normMTD}_${newPrice}` -> RefillCandidateItem
-  const candidatesMap = new Map<string, RefillCandidateItem>();
+  // Phase 1: Thu thập dữ liệu theo catalogId
+  // Key: catalogId → { prices: Map<price, {bhytCount, vpCount}>, tenKT, ...}
+  interface CatalogAccum {
+    catalogItem: SurgeryNamePrice;
+    priceCounts: Map<number, { bhytCount: number; vpCount: number }>;
+    sampleDate: string;
+    tenKT: string;
+  }
+
+  const catalogAccum = new Map<string, CatalogAccum>();
+  // Track records that don't match any catalog item → candidates for 'create'
+  // Key: `${baseMTD}_${price}` → accumulator for new items
+  interface CreateAccum {
+    maTuongDuong: string;
+    tenKT: string;
+    price: number;
+    sampleDate: string;
+    bhytCount: number;
+    vpCount: number;
+  }
+  const createAccum = new Map<string, CreateAccum>();
 
   for (const rec of excelRecords) {
     if (!rec.maTuongDuong || !rec.donGia || rec.donGia <= 0) continue;
 
-    const normMTD = normalizeMaTuongDuong(rec.maTuongDuong);
+    const rawMTD = normalizeMaTuongDuong(rec.maTuongDuong);
+    const baseMTD = rawMTD.replace(/_GT$/i, '');
     const rawDate = rec.ngayBD || (rec.start ? rec.start.toISOString() : '');
     const localDate = toLocalDateKey(rawDate);
-    const newPrice = Number(rec.donGia);
+    const price = Number(rec.donGia);
     const tenKT = String(rec.tenKT || '').trim();
+    const isBHYT = Boolean(rec.bhyt && String(rec.bhyt).trim().length > 5);
+    const recIsGT = isRecordGayTe(rec.maTuongDuong);
 
-    const groupKey = `${normMTD}_${newPrice}`;
-    const existing = candidatesMap.get(groupKey);
-
-    if (existing) {
-      existing.matchedCount++;
-      // Cập nhật ngày mẫu
-      if (localDate && localDate < existing.sampleDate) {
-        existing.sampleDate = localDate;
-      }
-      continue;
-    }
-
-    // Tìm trong DM giá theo mã tương đương và ngày hiệu lực
-    const matchedCatalogItem = findCatalogItemByMaTuongDuong(normMTD, localDate, catalog);
+    // Tìm mục DM khớp (ưu tiên gây tê/gây mê theo record)
+    const matchedCatalogItem = findCatalogItemByMaTuongDuong(rawMTD, localDate, catalog);
 
     if (matchedCatalogItem) {
-      candidatesMap.set(groupKey, {
-        catalogId: matchedCatalogItem.id,
-        tenKT: matchedCatalogItem.tenKT || tenKT,
-        maTuongDuong: normMTD,
-        effectiveFrom: matchedCatalogItem.effectiveFrom,
-        effectiveTo: matchedCatalogItem.effectiveTo,
-        oldPrice: matchedCatalogItem.price,
-        newPrice: newPrice,
-        action: 'update',
-        matchedCount: 1,
-        sampleDate: localDate,
-        selected: matchedCatalogItem.price !== newPrice, // Mặc định chọn nếu giá thay đổi
-      });
+      // Kiểm tra: nếu record KHÔNG phải gây tê nhưng giá khớp với mục gây tê → bỏ qua
+      if (!recIsGT) {
+        const allItems = findAllCatalogItemsForMTD(baseMTD, localDate, catalog);
+        const gayTeItem = allItems.find(it => isCatalogItemGayTe(it) && it.price === price);
+        if (gayTeItem && !isCatalogItemGayTe(matchedCatalogItem)) {
+          // Giá Excel khớp đúng với mục gây tê → ca này là gây tê, bỏ qua
+          continue;
+        }
+      }
+
+      const catId = matchedCatalogItem.id;
+      let accum = catalogAccum.get(catId);
+      if (!accum) {
+        accum = {
+          catalogItem: matchedCatalogItem,
+          priceCounts: new Map(),
+          sampleDate: localDate,
+          tenKT: matchedCatalogItem.tenKT || tenKT,
+        };
+        catalogAccum.set(catId, accum);
+      }
+
+      // Cập nhật sampleDate (lấy ngày sớm nhất)
+      if (localDate && localDate < accum.sampleDate) {
+        accum.sampleDate = localDate;
+      }
+
+      // Ghi nhận giá theo đối tượng BHYT/VP
+      let priceEntry = accum.priceCounts.get(price);
+      if (!priceEntry) {
+        priceEntry = { bhytCount: 0, vpCount: 0 };
+        accum.priceCounts.set(price, priceEntry);
+      }
+      if (isBHYT) {
+        priceEntry.bhytCount++;
+      } else {
+        priceEntry.vpCount++;
+      }
     } else {
-      // Chưa có trong DM giá -> Đề xuất tạo mới
-      const monthStart = localDate ? `${localDate.slice(0, 7)}-01` : '2026-01-01';
-      candidatesMap.set(groupKey, {
-        tenKT: tenKT || `DVKT ${normMTD}`,
-        maTuongDuong: normMTD,
-        effectiveFrom: monthStart,
-        effectiveTo: null,
-        oldPrice: undefined,
-        newPrice: newPrice,
-        action: 'create',
-        matchedCount: 1,
-        sampleDate: localDate,
-        selected: true, // Mặc định chọn tạo mới
-      });
+      // Chưa có trong DM giá → Đề xuất tạo mới (chỉ dùng record BHYT)
+      if (!isBHYT) continue; // Bỏ qua VP khi tạo mới
+
+      const createKey = `${baseMTD}_${price}`;
+      let accum = createAccum.get(createKey);
+      if (!accum) {
+        accum = {
+          maTuongDuong: baseMTD,
+          tenKT: tenKT || `DVKT ${baseMTD}`,
+          price,
+          sampleDate: localDate,
+          bhytCount: 0,
+          vpCount: 0,
+        };
+        createAccum.set(createKey, accum);
+      }
+      accum.bhytCount++;
+      if (localDate && localDate < accum.sampleDate) {
+        accum.sampleDate = localDate;
+      }
     }
   }
 
-  // Sắp xếp: Mục có thay đổi giá / tạo mới lên đầu, sau đó theo Tên DVKT
-  const result = Array.from(candidatesMap.values());
+  // Phase 2: Từ catalogAccum → tạo RefillCandidateItem (mỗi catalogId tối đa 1 dòng)
+  const result: RefillCandidateItem[] = [];
+
+  for (const [catId, accum] of catalogAccum) {
+    const { catalogItem, priceCounts, sampleDate, tenKT } = accum;
+
+    // Lọc chỉ giá BHYT (loại bỏ giá chỉ có VP)
+    const bhytPrices: Array<{ price: number; bhytCount: number; vpCount: number }> = [];
+    for (const [price, counts] of priceCounts) {
+      if (counts.bhytCount > 0) {
+        bhytPrices.push({ price, bhytCount: counts.bhytCount, vpCount: counts.vpCount });
+      }
+    }
+
+    // Nếu không có giá BHYT nào → không đề xuất (VP không làm chuẩn)
+    if (bhytPrices.length === 0) continue;
+
+    // Sắp xếp theo số ca BHYT giảm dần → giá nhiều ca nhất là giá chính
+    bhytPrices.sort((a, b) => b.bhytCount - a.bhytCount);
+    const primaryPrice = bhytPrices[0].price;
+    const totalBhytCount = bhytPrices.reduce((s, p) => s + p.bhytCount, 0);
+
+    // Nếu có nhiều mức giá BHYT → cảnh báo xung đột
+    const hasConflict = bhytPrices.length > 1;
+    const conflictDetail = hasConflict
+      ? bhytPrices.map(p => `${p.price.toLocaleString('vi-VN')} ₫ (${p.bhytCount} ca BHYT)`).join(' vs ')
+      : undefined;
+
+    result.push({
+      catalogId: catId,
+      tenKT,
+      maTuongDuong: catalogItem.maTuongDuong,
+      effectiveFrom: catalogItem.effectiveFrom,
+      effectiveTo: catalogItem.effectiveTo,
+      oldPrice: catalogItem.price,
+      newPrice: primaryPrice,
+      action: 'update',
+      matchedCount: totalBhytCount,
+      sampleDate,
+      selected: catalogItem.price !== primaryPrice, // Chọn nếu giá thay đổi
+      conflictWarning: conflictDetail,
+    });
+  }
+
+  // Phase 3: Tạo mục mới từ createAccum
+  for (const [, accum] of createAccum) {
+    const monthStart = accum.sampleDate ? `${accum.sampleDate.slice(0, 7)}-01` : '2026-01-01';
+    result.push({
+      tenKT: accum.tenKT,
+      maTuongDuong: accum.maTuongDuong,
+      effectiveFrom: monthStart,
+      effectiveTo: null,
+      oldPrice: undefined,
+      newPrice: accum.price,
+      action: 'create',
+      matchedCount: accum.bhytCount,
+      sampleDate: accum.sampleDate,
+      selected: true,
+    });
+  }
+
+  // Sắp xếp: Mục có thay đổi giá / tạo mới lên đầu, cảnh báo xung đột tiếp, cuối cùng là giữ nguyên
   result.sort((a, b) => {
     const diffA = a.action === 'create' || a.oldPrice !== a.newPrice ? 0 : 1;
     const diffB = b.action === 'create' || b.oldPrice !== b.newPrice ? 0 : 1;
     if (diffA !== diffB) return diffA - diffB;
+    // Cảnh báo xung đột lên trước
+    const warnA = a.conflictWarning ? 0 : 1;
+    const warnB = b.conflictWarning ? 0 : 1;
+    if (warnA !== warnB) return warnA - warnB;
     return a.tenKT.localeCompare(b.tenKT, 'vi');
   });
 

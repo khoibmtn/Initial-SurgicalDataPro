@@ -4,6 +4,7 @@ import {
   Sparkles,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   PlusCircle,
   ArrowRight,
   Search,
@@ -312,7 +313,18 @@ export const RefillModal: React.FC<RefillModalProps> = ({
                         </button>
                       </td>
                       <td className="py-2.5 px-3 font-medium text-gray-800">
-                        {item.tenKT}
+                        <div className="flex items-center gap-1.5">
+                          {item.tenKT}
+                          {item.conflictWarning && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-800 cursor-help whitespace-nowrap"
+                              title={`Cảnh báo: Nhiều mức giá BHYT — ${item.conflictWarning}`}
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Đa giá
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2.5 px-3">
                         <span className="font-mono font-bold text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">

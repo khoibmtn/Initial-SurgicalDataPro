@@ -460,9 +460,10 @@ export interface RefillCandidateItem {
   oldPrice?: number;        // Đơn giá hiện tại trong DM giá (nếu có)
   newPrice: number;         // Đơn giá mới từ dữ liệu Excel
   action: 'update' | 'create'; // Cập nhật giá mới hay tạo mới mục giá
-  matchedCount: number;     // Số ca phẫu thuật mang giá này
+  matchedCount: number;     // Số ca phẫu thuật mang giá này (chỉ BHYT)
   sampleDate: string;       // Ngày thực hiện mẫu (YYYY-MM-DD)
   selected?: boolean;       // Trạng thái tick chọn
+  conflictWarning?: string; // Cảnh báo khi cùng catalogId có nhiều mức giá BHYT
 }
 
 export interface RefillProcessReport {
