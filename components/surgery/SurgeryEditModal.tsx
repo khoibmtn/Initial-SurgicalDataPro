@@ -148,6 +148,8 @@ function computeDurationMinutes(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Subcomponent: DateTimeField — Nhóm Ngày (type="date") + Giờ (text HH:mm 24h)
+// Logic giờ giống hệt box thời gian ở báo cáo tháng/hàng ngày:
+// Auto-format khi gõ, clamp 00:00-23:59, tự chèn dấu ':'
 // ─────────────────────────────────────────────────────────────────────────────
 interface DateTimeFieldProps {
   label: string;
@@ -157,6 +159,37 @@ interface DateTimeFieldProps {
   onTimeChange: (time: string) => void;
   onEscRevert?: () => void;
   required?: boolean;
+  hasError?: boolean;
+  errorMsg?: string;
+}
+
+/** Auto-format chuỗi thời gian khi gõ (giống handleTimeChange ở App.tsx) */
+function formatTimeInput(val: string): string {
+  // 1. Remove non-digits and limit length
+  let clean = val.replace(/[^0-9]/g, '');
+  if (clean.length > 4) clean = clean.substring(0, 4);
+
+  // 2. Extract parts
+  let hh = clean.substring(0, 2);
+  let mm = clean.substring(2, 4);
+
+  // 3. Validate Hours (00-23)
+  if (hh.length === 2 && parseInt(hh, 10) > 23) {
+    hh = '23';
+  }
+
+  // 4. Validate Minutes (00-59)
+  if (mm.length === 2 && parseInt(mm, 10) > 59) {
+    mm = '59';
+  }
+
+  // 5. Format Output
+  let formatted = hh;
+  if (clean.length >= 3) {
+    formatted = `${hh}:${mm}`;
+  }
+
+  return formatted;
 }
 
 const DateTimeField: React.FC<DateTimeFieldProps> = ({
@@ -167,15 +200,9 @@ const DateTimeField: React.FC<DateTimeFieldProps> = ({
   onTimeChange,
   onEscRevert,
   required = false,
+  hasError = false,
+  errorMsg,
 }) => {
-  const [localTime, setLocalTime] = useState(timeValue);
-  const timeInputRef = useRef<HTMLInputElement>(null);
-
-  // Sync khi prop thay đổi từ bên ngoài (ESC revert, initial load)
-  useEffect(() => {
-    setLocalTime(timeValue);
-  }, [timeValue]);
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -184,50 +211,24 @@ const DateTimeField: React.FC<DateTimeFieldProps> = ({
     }
   };
 
-  /** Validate và format chuỗi HH:mm, trả về chuỗi hợp lệ hoặc null */
-  const parseTimeInput = (raw: string): string | null => {
-    const cleaned = raw.replace(/[^\d:]/g, '');
-    // Thử match HH:mm
-    const match = cleaned.match(/^(\d{1,2}):?(\d{0,2})$/);
-    if (!match) return null;
-    let hh = parseInt(match[1], 10);
-    let mm = match[2] ? parseInt(match[2], 10) : 0;
-    if (isNaN(hh) || hh < 0 || hh > 23) return null;
-    if (isNaN(mm) || mm < 0 || mm > 59) return null;
-    return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-  };
-
-  const handleTimeBlur = () => {
-    const parsed = parseTimeInput(localTime);
-    if (parsed) {
-      setLocalTime(parsed);
-      if (parsed !== timeValue) {
-        onTimeChange(parsed);
-      }
-    } else if (localTime.trim() === '') {
-      // Cho phép xoá trống
-      setLocalTime('');
-      onTimeChange('');
-    } else {
-      // Không hợp lệ → revert
-      setLocalTime(timeValue);
-    }
-  };
-
-  const handleTimeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      (e.target as HTMLInputElement).blur();
-    }
-    handleKeyDown(e);
+  const handleTimeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatTimeInput(e.target.value);
+    onTimeChange(formatted);
   };
 
   return (
     <div className="flex flex-col gap-1">
       <label className="text-xs font-semibold text-gray-700 flex items-center justify-between">
         <span>{label} {required && <span className="text-red-500">*</span>}</span>
+        {hasError && errorMsg && (
+          <span className="text-[10px] text-red-500 font-normal">{errorMsg}</span>
+        )}
       </label>
-      <div className="flex items-center gap-1.5 bg-white border border-gray-300 rounded-lg px-2.5 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-primary-500 focus-within:border-primary-500 transition-all">
+      <div className={`flex items-center gap-1.5 bg-white border rounded-lg px-2.5 py-1.5 shadow-sm focus-within:ring-2 transition-all ${
+        hasError
+          ? 'border-red-400 focus-within:ring-red-300 focus-within:border-red-500'
+          : 'border-gray-300 focus-within:ring-primary-500 focus-within:border-primary-500'
+      }`}>
         <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
         <input
           type="date"
@@ -239,16 +240,16 @@ const DateTimeField: React.FC<DateTimeFieldProps> = ({
         <span className="text-gray-300 font-light select-none">|</span>
         <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
         <input
-          ref={timeInputRef}
           type="text"
           inputMode="numeric"
-          value={localTime}
-          onChange={e => setLocalTime(e.target.value)}
-          onBlur={handleTimeBlur}
-          onKeyDown={handleTimeKeyDown}
+          value={timeValue}
+          onChange={handleTimeInputChange}
+          onKeyDown={handleKeyDown}
           placeholder="HH:mm"
           maxLength={5}
-          className="text-xs bg-transparent border-0 outline-none text-gray-800 font-medium w-12 font-mono text-center"
+          className={`text-xs bg-transparent border-0 outline-none font-medium w-12 font-mono text-center ${
+            hasError ? 'text-red-600' : 'text-gray-800'
+          }`}
         />
       </div>
     </div>
@@ -886,9 +887,30 @@ export const SurgeryEditModal: React.FC<Props> = ({
     }));
   };
 
+  // Validation: Thời gian chỉ định ≤ Thời gian bắt đầu < Thời gian kết thúc
+  const timeValidation = useMemo(() => {
+    const errors: { start?: string; end?: string; cd?: string } = {};
+    const sObj = combineDateAndTime(startDate, startTime);
+    const eObj = combineDateAndTime(endDate, endTime);
+    const cObj = combineDateAndTime(cdDate, cdTime);
+
+    if (sObj && eObj && eObj.getTime() <= sObj.getTime()) {
+      errors.end = 'Phải sau TG bắt đầu';
+    }
+    if (cObj && sObj && sObj.getTime() < cObj.getTime()) {
+      errors.cd = 'Phải ≤ TG bắt đầu';
+    }
+    return errors;
+  }, [startDate, startTime, endDate, endTime, cdDate, cdTime]);
+
+  const hasTimeErrors = Object.keys(timeValidation).length > 0;
+
   // Submit Lưu
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Chặn lưu nếu có lỗi thời gian
+    if (hasTimeErrors) return;
 
     // Tạo Date object cho start và end
     const startDateObj = combineDateAndTime(startDate, startTime) || record.start;
@@ -1046,6 +1068,8 @@ export const SurgeryEditModal: React.FC<Props> = ({
                 onTimeChange={setStartTime}
                 onEscRevert={() => revertField('startDate')}
                 required
+                hasError={!!timeValidation.start}
+                errorMsg={timeValidation.start}
               />
 
               {/* Thời gian kết thúc */}
@@ -1057,6 +1081,8 @@ export const SurgeryEditModal: React.FC<Props> = ({
                 onTimeChange={setEndTime}
                 onEscRevert={() => revertField('endDate')}
                 required
+                hasError={!!timeValidation.end}
+                errorMsg={timeValidation.end}
               />
 
               {/* Thời gian phút (Tự động tính & khóa readOnly) */}
@@ -1080,6 +1106,8 @@ export const SurgeryEditModal: React.FC<Props> = ({
                 onDateChange={setCdDate}
                 onTimeChange={setCdTime}
                 onEscRevert={() => revertField('cdDate')}
+                hasError={!!timeValidation.cd}
+                errorMsg={timeValidation.cd}
               />
 
               {/* Loại PT/TT (Danh sách chọn chuẩn) */}
@@ -1302,7 +1330,13 @@ export const SurgeryEditModal: React.FC<Props> = ({
             <button
               type="submit"
               form="surgery-edit-form"
-              className="px-5 py-2 text-xs font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-xl shadow-md shadow-primary-700/20 transition-all flex items-center gap-2 active:scale-95"
+              disabled={hasTimeErrors}
+              className={`px-5 py-2 text-xs font-bold text-white rounded-xl shadow-md transition-all flex items-center gap-2 active:scale-95 ${
+                hasTimeErrors
+                  ? 'bg-gray-400 cursor-not-allowed shadow-none'
+                  : 'bg-primary-700 hover:bg-primary-800 shadow-primary-700/20'
+              }`}
+              title={hasTimeErrors ? 'Vui lòng sửa lỗi thời gian trước khi lưu' : ''}
             >
               <Save className="h-4 w-4" />
               Lưu thay đổi
