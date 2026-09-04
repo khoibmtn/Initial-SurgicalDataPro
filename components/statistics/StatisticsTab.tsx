@@ -11,7 +11,7 @@ import { subscribeToPriceVersions } from '../../services/pricingService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { subscribeToChapterCatalog } from '../../services/chapterCatalogService';
 import { subscribeToProfiles } from '../../services/profileService';
-import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile } from '../../types';
+import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile, PersistedSurgeryRecord } from '../../types';
 import { StatsSummary } from './StatsSummary';
 import { StatsConfig } from './StatsConfig';
 import { SpecialtyComparisonTab } from './SpecialtyComparisonTab';
@@ -213,6 +213,221 @@ export const StatisticsTab: React.FC = () => {
     loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices, !initialLoaded, forceRefresh);
   };
 
+  // --- Export helpers for validation warnings ---
+  const handleExportDuplicates = useCallback(() => {
+    if (!statsData?.validation?.duplicateRecords || statsData.validation.duplicateRecords.length === 0) return;
+
+    const rows = statsData.validation.duplicateRecords.map((r, idx) => {
+      let ngayMoFormatted = '';
+      if (r.ngayBD) {
+        try {
+          const d = new Date(r.ngayBD);
+          if (!isNaN(d.getTime())) {
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            const hours = String(d.getHours()).padStart(2, '0');
+            const mins = String(d.getMinutes()).padStart(2, '0');
+            ngayMoFormatted = (hours !== '00' || mins !== '00')
+              ? `${day}/${month}/${year} ${hours}:${mins}`
+              : `${day}/${month}/${year}`;
+          } else {
+            ngayMoFormatted = r.ngayBD;
+          }
+        } catch {
+          ngayMoFormatted = r.ngayBD;
+        }
+      }
+
+      return {
+        'STT': idx + 1,
+        'Nhóm trùng key': `Nhóm #${r.duplicateGroup}`,
+        'Số ca trong nhóm': r.duplicateGroupCount,
+        'Mã BN': r.patientId || '',
+        'Họ và tên': r.patientName || '',
+        'Năm sinh': r.yob || '',
+        'Giới tính': r.gender || '',
+        'Thẻ BHYT': r.bhyt || '',
+        'Ngày phẫu thuật': ngayMoFormatted,
+        'Tên phẫu thuật / kỹ thuật': r.tenKT || '',
+        'Loại PT/TT': r.loaiPTTT || '',
+        'Số lượng': r.soLuong || 1,
+        'Phẫu thuật chính': r.ptChinh || '',
+        'Phẫu thuật phụ': r.ptPhu || '',
+        'Bác sĩ gây mê': r.bsGM || '',
+        'KTV gây mê': r.ktvGM || '',
+        'Giúp việc': r.gv || '',
+        'Máy thực hiện': r.machine || '',
+        'Đơn giá (VNĐ)': r.donGia != null ? Number(r.donGia) : '',
+        'Thành tiền (VNĐ)': r.thanhTien != null ? Number(r.thanhTien) : '',
+        'Mã tương đương BHXH': r.maTuongDuong || '',
+        'Nguồn dữ liệu': r.type === 'MONTHLY' ? 'Báo cáo tháng' : 'Báo cáo ngày',
+        'ID bản ghi': r.id || '',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 6 },  // STT
+      { wch: 16 }, // Nhóm trùng key
+      { wch: 16 }, // Số ca trong nhóm
+      { wch: 14 }, // Mã BN
+      { wch: 24 }, // Họ tên
+      { wch: 10 }, // Năm sinh
+      { wch: 10 }, // Giới tính
+      { wch: 18 }, // Thẻ BHYT
+      { wch: 20 }, // Ngày phẫu thuật
+      { wch: 45 }, // Tên PT
+      { wch: 12 }, // Loại PT/TT
+      { wch: 10 }, // Số lượng
+      { wch: 22 }, // PTV chính
+      { wch: 20 }, // PTV phụ
+      { wch: 20 }, // BS GM
+      { wch: 20 }, // KTV GM
+      { wch: 18 }, // Giúp việc
+      { wch: 16 }, // Máy thực hiện
+      { wch: 14 }, // Đơn giá
+      { wch: 16 }, // Thành tiền
+      { wch: 20 }, // Mã tương đương
+      { wch: 15 }, // Nguồn dữ liệu
+      { wch: 24 }, // ID bản ghi
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'DS Trùng Key');
+    XLSX.writeFile(wb, `DS_trung_key_${statsData.primaryYear}_${statsData.compareYear}.xlsx`);
+  }, [statsData]);
+
+  const handleExportMissingPriceSurgeries = useCallback(() => {
+    if (!statsData?.validation?.missingSurgeryNameRecords || statsData.validation.missingSurgeryNameRecords.length === 0) return;
+
+    const rows = statsData.validation.missingSurgeryNameRecords.map((r, idx) => {
+      let ngayMoFormatted = '';
+      if (r.ngayPT) {
+        ngayMoFormatted = r.ngayPT.includes('-') ? r.ngayPT.split('-').reverse().join('/') : r.ngayPT;
+      }
+
+      return {
+        'STT': idx + 1,
+        'Mã BN': r.maBN || '',
+        'Họ và tên': r.patientName || '',
+        'Năm sinh': r.yob || '',
+        'Giới tính': r.gender || '',
+        'Thẻ BHYT': r.bhyt || '',
+        'Ngày phẫu thuật': ngayMoFormatted,
+        'Tên phẫu thuật / kỹ thuật': r.tenKT || '',
+        'Loại PT/TT': r.loaiPTTT || '',
+        'Phẫu thuật chính': r.ptChinh || '',
+        'Phẫu thuật phụ': r.ptPhu || '',
+        'Bác sĩ gây mê': r.bsGM || '',
+        'Máy thực hiện': r.machine || '',
+        'Đơn giá (VNĐ)': r.donGia != null ? Number(r.donGia) : 0,
+        'Thành tiền (VNĐ)': r.thanhTien != null ? Number(r.thanhTien) : 0,
+        'Mã tương đương BHXH': r.maTuongDuong || '',
+        'Nguồn dữ liệu': r.type === 'MONTHLY' ? 'Báo cáo tháng' : 'Báo cáo ngày',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 6 },  // STT
+      { wch: 14 }, // Mã BN
+      { wch: 24 }, // Họ tên
+      { wch: 10 }, // Năm sinh
+      { wch: 10 }, // Giới tính
+      { wch: 18 }, // Thẻ BHYT
+      { wch: 16 }, // Ngày phẫu thuật
+      { wch: 45 }, // Tên PT
+      { wch: 12 }, // Loại PT/TT
+      { wch: 22 }, // PTV chính
+      { wch: 20 }, // PTV phụ
+      { wch: 20 }, // BS GM
+      { wch: 16 }, // Máy thực hiện
+      { wch: 14 }, // Đơn giá
+      { wch: 16 }, // Thành tiền
+      { wch: 20 }, // Mã tương đương
+      { wch: 15 }, // Nguồn dữ liệu
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Chưa có giá');
+    XLSX.writeFile(wb, `PT_chua_co_gia_${statsData.primaryYear}_${statsData.compareYear}.xlsx`);
+  }, [statsData]);
+
+  const handleExportMissingPriceMonths = useCallback(() => {
+    if (!statsData?.validation?.missingPriceMonths || statsData.validation.missingPriceMonths.length === 0) return;
+    const cache = yearCacheRef.current?.data;
+    if (!cache) return;
+
+    const recordsToExport: PersistedSurgeryRecord[] = [];
+    statsData.validation.missingPriceMonths.forEach(str => {
+      const parts = str.split('/');
+      const m = parseInt(parts[0], 10);
+      const y = parts[1] ? parseInt(parts[1], 10) : statsData.primaryYear;
+      const indexed = y === statsData.compareYear ? cache.compareIndexed : cache.primaryIndexed;
+      const monthData = indexed?.byMonth.get(m);
+      if (monthData && monthData.records) {
+        recordsToExport.push(...monthData.records);
+      }
+    });
+
+    if (recordsToExport.length === 0) return;
+
+    const rows = recordsToExport.map((r, idx) => {
+      let ngayMoFormatted = '';
+      if (r.ngayBD) {
+        try {
+          const d = new Date(r.ngayBD);
+          if (!isNaN(d.getTime())) {
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            ngayMoFormatted = `${day}/${month}/${year}`;
+          } else {
+            ngayMoFormatted = r.ngayBD;
+          }
+        } catch {
+          ngayMoFormatted = r.ngayBD;
+        }
+      }
+
+      return {
+        'STT': idx + 1,
+        'Mã BN': r.patientId || '',
+        'Họ và tên': r.patientName || '',
+        'Năm sinh': r.yob || '',
+        'Giới tính': r.gender || '',
+        'Thẻ BHYT': r.bhyt || '',
+        'Ngày phẫu thuật': ngayMoFormatted,
+        'Tên phẫu thuật / kỹ thuật': r.tenKT || '',
+        'Loại PT/TT': r.loaiPTTT || '',
+        'Số lượng': r.soLuong || 1,
+        'Phẫu thuật chính': r.ptChinh || '',
+        'Phẫu thuật phụ': r.ptPhu || '',
+        'Bác sĩ gây mê': r.bsGM || '',
+        'KTV gây mê': r.ktvGM || '',
+        'Giúp việc': r.gv || '',
+        'Máy thực hiện': r.machine || '',
+        'Đơn giá (VNĐ)': r.donGia || 0,
+        'Thành tiền (VNĐ)': r.thanhTien || 0,
+        'Mã tương đương BHXH': r.maTuongDuong || '',
+        'Nguồn dữ liệu': r.type === 'MONTHLY' ? 'Báo cáo tháng' : 'Báo cáo ngày',
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 6 },  { wch: 14 }, { wch: 24 }, { wch: 10 }, { wch: 10 },
+      { wch: 18 }, { wch: 16 }, { wch: 45 }, { wch: 12 }, { wch: 10 },
+      { wch: 22 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 18 },
+      { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 20 }, { wch: 15 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Tháng thiếu giá');
+    XLSX.writeFile(wb, `DS_ca_thang_thieu_gia_${statsData.primaryYear}_${statsData.compareYear}.xlsx`);
+  }, [statsData]);
+
   // Year options
   const yearOptions = useMemo(() => {
     const years: number[] = [];
@@ -298,77 +513,145 @@ export const StatisticsTab: React.FC = () => {
         <div className="px-4 space-y-2">
           {/* Missing price — actual warning */}
           {statsData.validation.missingPriceMonths.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-              <p className="text-xs text-amber-800">
-                Thiếu bảng giá dịch vụ cho tháng: <strong>{statsData.validation.missingPriceMonths.join(', ')}</strong>. Chi phí DV = 0 cho các tháng này.
-                <button onClick={() => setSubTab('config')} className="ml-1 underline text-amber-700 hover:text-amber-900 font-semibold">Cấu hình giá →</button>
-              </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-start gap-2 text-xs text-amber-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div>
+                  <p>
+                    Thiếu bảng giá dịch vụ cho tháng: <strong>{statsData.validation.missingPriceMonths.join(', ')}</strong>. Chi phí DV = 0 cho các tháng này.
+                    <button onClick={() => setSubTab('config')} className="ml-1.5 underline text-amber-700 hover:text-amber-900 font-semibold">Cấu hình giá →</button>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportMissingPriceMonths}
+                className="shrink-0 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+                title="Tải danh sách các ca phẫu thuật của các tháng thiếu bảng giá"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Tải danh sách ca tháng thiếu giá
+              </button>
             </div>
           )}
+
           {/* Missing surgery name prices */}
           {statsData.validation.missingSurgeryNames.length > 0 && (
             <details className="group">
-              <summary className="bg-orange-50 border border-orange-200 rounded-xl p-2.5 flex items-center gap-2 cursor-pointer list-none text-xs text-orange-700 hover:bg-orange-100 transition-colors">
-                <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
-                <span>
-                  ⚠ <strong>{statsData.validation.missingSurgeryNames.length}</strong> tên phẫu thuật chưa có giá dịch vụ — <span className="text-orange-500">xem chi tiết</span>
-                </span>
-              </summary>
-              <div className="mt-1 bg-orange-50 border border-orange-100 rounded-lg p-3 text-xs text-orange-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p><strong>Doanh thu dịch vụ = 0</strong> cho các kỹ thuật này. Vui lòng bổ sung giá tại tab Cấu hình.</p>
-                  {statsData.validation.missingSurgeryNameRecords.length > 0 && (
-                    <button
-                      onClick={() => {
-                        const rows = statsData!.validation.missingSurgeryNameRecords.map(r => ({
-                          'Mã BN': r.maBN,
-                          'Tên kỹ thuật': r.tenKT,
-                          'Ngày phẫu thuật': r.ngayPT
-                            ? r.ngayPT.split('-').reverse().join('/')
-                            : '',
-                        }));
-                        const ws = XLSX.utils.json_to_sheet(rows);
-                        ws['!cols'] = [{ wch: 14 }, { wch: 55 }, { wch: 14 }];
-                        const wb = XLSX.utils.book_new();
-                        XLSX.utils.book_append_sheet(wb, ws, 'Chưa có giá');
-                        XLSX.writeFile(wb, `PT_chua_co_gia_${statsData!.primaryYear}_${statsData!.compareYear}.xlsx`);
-                      }}
-                      className="shrink-0 px-3 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-bold hover:bg-orange-700 transition-colors flex items-center gap-1.5"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Tải Excel ({statsData.validation.missingSurgeryNameRecords.length} dòng)
-                    </button>
-                  )}
+              <summary className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex items-center justify-between gap-2 cursor-pointer list-none text-xs text-orange-800 hover:bg-orange-100/80 transition-colors shadow-sm">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-orange-600 shrink-0" />
+                  <span>
+                    ⚠ <strong>{statsData.validation.missingSurgeryNames.length}</strong> tên phẫu thuật chưa có giá dịch vụ
+                    {statsData.validation.missingSurgeryNameRecords.length > 0 && (
+                      <span className="text-orange-700 font-medium ml-1">
+                        (tổng <strong>{statsData.validation.missingSurgeryNameRecords.length}</strong> ca mổ)
+                      </span>
+                    )}
+                    {' — '}<span className="text-orange-600 underline font-medium">xem chi tiết</span>
+                  </span>
                 </div>
-                <div className="max-h-48 overflow-y-auto space-y-0.5">
+                {statsData.validation.missingSurgeryNameRecords.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleExportMissingPriceSurgeries();
+                    }}
+                    className="shrink-0 px-3 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-bold hover:bg-orange-700 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+                    title="Tải file Excel danh sách chi tiết các ca mổ chưa có giá"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Tải Excel ({statsData.validation.missingSurgeryNameRecords.length} dòng)
+                  </button>
+                )}
+              </summary>
+              <div className="mt-1.5 bg-orange-50/70 border border-orange-100 rounded-xl p-3.5 text-xs text-orange-900 space-y-2.5">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p><strong>Doanh thu dịch vụ = 0</strong> cho các kỹ thuật này. Vui lòng kiểm tra và bổ sung giá tại tab Cấu hình.</p>
+                  <div className="flex items-center gap-2">
+                    {statsData.validation.missingSurgeryNameRecords.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleExportMissingPriceSurgeries}
+                        className="px-3.5 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-bold hover:bg-orange-700 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Tải Excel chi tiết ({statsData.validation.missingSurgeryNameRecords.length} dòng)
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSubTab('config')}
+                      className="px-3 py-1.5 bg-white border border-orange-300 text-orange-800 rounded-lg text-xs font-bold hover:bg-orange-100 transition-colors shadow-sm"
+                    >
+                      Cấu hình giá →
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-0.5 bg-white/70 p-2.5 rounded-lg border border-orange-200/60">
                   {statsData.validation.missingSurgeryNames.slice(0, 50).map((name, i) => (
-                    <p key={i} className="text-orange-700">• {name}</p>
+                    <p key={i} className="text-orange-800">• {name}</p>
                   ))}
                   {statsData.validation.missingSurgeryNames.length > 50 && (
-                    <p className="text-orange-500 font-semibold">... và {statsData.validation.missingSurgeryNames.length - 50} tên khác</p>
+                    <p className="text-orange-600 font-semibold mt-1">... và {statsData.validation.missingSurgeryNames.length - 50} tên kỹ thuật khác</p>
                   )}
                 </div>
-                <button
-                  onClick={() => setSubTab('config')}
-                  className="mt-1 px-3 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-bold hover:bg-orange-700 transition-colors"
-                >
-                  Cấu hình giá →
-                </button>
               </div>
             </details>
           )}
-          {/* Duplicate info — soft notice, not warning */}
+
+          {/* Duplicate info — with full Excel export */}
           {statsData.validation.duplicateCount > 0 && (
-            <details className="group">
-              <summary className="bg-blue-50 border border-blue-100 rounded-xl p-2.5 flex items-center gap-2 cursor-pointer list-none text-xs text-blue-700 hover:bg-blue-100 transition-colors">
-                <Info className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                <span>ℹ Dữ liệu có <strong>{statsData.validation.duplicateCount}</strong> bản ghi trùng key — <span className="text-blue-500">xem chi tiết</span></span>
+            <details className="group" open>
+              <summary className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between gap-2 cursor-pointer list-none text-xs text-blue-800 hover:bg-blue-100/80 transition-colors shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Info className="h-4 w-4 text-blue-600 shrink-0" />
+                  <span>
+                    ℹ Dữ liệu có <strong>{statsData.validation.duplicateCount}</strong> bản ghi trùng key
+                    {statsData.validation.duplicateRecords && statsData.validation.duplicateRecords.length > 0 && (
+                      <span className="text-blue-700 font-medium ml-1">
+                        (tổng <strong>{statsData.validation.duplicateRecords.length}</strong> ca trong các nhóm trùng)
+                      </span>
+                    )}
+                    {' — '}<span className="text-blue-600 underline font-medium">xem chi tiết</span>
+                  </span>
+                </div>
+                {statsData.validation.duplicateRecords && statsData.validation.duplicateRecords.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleExportDuplicates();
+                    }}
+                    className="shrink-0 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+                    title="Tải file Excel danh sách toàn bộ các ca mổ trùng key để đối chiếu"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Tải Excel trùng key ({statsData.validation.duplicateRecords.length} dòng)
+                  </button>
+                )}
               </summary>
-              <div className="mt-1 bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-800 space-y-1">
-                <p><strong>Cách kiểm tra:</strong> Hệ thống so sánh 4 trường: ngày phẫu thuật, loại PT/TT, mã BN, tên kỹ thuật.</p>
-                <p>Nếu 2 bản ghi có cùng 4 trường trên → đánh dấu "trùng key". Điều này <strong>không có nghĩa dữ liệu sai</strong> — có thể cùng BN làm cùng kỹ thuật 2 lần/ngày.</p>
-                <p className="text-blue-600">Số liệu thống kê <strong>không bị ảnh hưởng</strong> — tất cả bản ghi đều được tính.</p>
+              <div className="mt-1.5 bg-blue-50/70 border border-blue-100 rounded-xl p-3.5 text-xs text-blue-900 space-y-2.5">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="space-y-1 max-w-2xl leading-relaxed">
+                    <p><strong>Cách kiểm tra:</strong> Hệ thống so sánh 4 trường: <em>ngày phẫu thuật, loại PT/TT, mã BN, tên kỹ thuật</em>.</p>
+                    <p>Nếu 2 bản ghi có cùng 4 trường trên → xếp vào cùng một <strong>nhóm trùng key</strong>. Điều này <strong>không có nghĩa dữ liệu sai</strong> — có thể cùng BN làm cùng kỹ thuật 2 lần/ngày.</p>
+                    <p className="text-blue-700">Số liệu thống kê <strong>không bị ảnh hưởng</strong> — tất cả bản ghi đều được tính vào tổng số ca.</p>
+                  </div>
+                  {statsData.validation.duplicateRecords && statsData.validation.duplicateRecords.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleExportDuplicates}
+                      className="px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
+                    >
+                      <Download className="h-4 w-4" />
+                      Tải Excel danh sách đầy đủ ({statsData.validation.duplicateRecords.length} bản ghi)
+                    </button>
+                  )}
+                </div>
               </div>
             </details>
           )}

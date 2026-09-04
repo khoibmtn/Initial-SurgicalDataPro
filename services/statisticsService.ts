@@ -12,6 +12,8 @@ import {
   ForecastData,
   StatisticsData,
   DataValidationResult,
+  DuplicateSurgeryRecord,
+  MissingSurgeryNameRecord,
   SurgeryPriceVersion,
   SurgeryNamePrice,
   SurgeryNameStats,
@@ -169,24 +171,45 @@ function getLaborCost(
 
 // --- Data Validation ---
 
-function validateRecords(records: PersistedSurgeryRecord[]): DataValidationResult {
-  const seen = new Set<string>();
-  let duplicateCount = 0;
+function validateRecords(records: PersistedSurgeryRecord[]): {
+  duplicateCount: number;
+  duplicateRecords: DuplicateSurgeryRecord[];
+} {
+  const groups = new Map<string, PersistedSurgeryRecord[]>();
 
   for (const r of records) {
-    const key = `${r.ngayBD}-${r.loaiPTTT}-${r.patientId}-${r.tenKT}`;
-    if (seen.has(key)) {
-      duplicateCount++;
+    const dateStr = toLocalDateKey(r.ngayBD) || (r.ngayBD ? r.ngayBD.substring(0, 10) : '');
+    const key = `${dateStr}-${(r.loaiPTTT || '').trim()}-${(r.patientId || '').trim()}-${(r.tenKT || '').trim()}`;
+    const list = groups.get(key);
+    if (list) {
+      list.push(r);
+    } else {
+      groups.set(key, [r]);
     }
-    seen.add(key);
+  }
+
+  let duplicateCount = 0;
+  const duplicateRecords: DuplicateSurgeryRecord[] = [];
+  let groupId = 1;
+
+  for (const [key, group] of groups.entries()) {
+    if (group.length > 1) {
+      duplicateCount += (group.length - 1);
+      for (const rec of group) {
+        duplicateRecords.push({
+          ...rec,
+          duplicateGroup: groupId,
+          duplicateGroupCount: group.length,
+          duplicateKey: key,
+        });
+      }
+      groupId++;
+    }
   }
 
   return {
     duplicateCount,
-    missingPriceMonths: [],
-    missingSurgeryNames: [],
-    missingSurgeryNameRecords: [],
-    totalRecords: records.length,
+    duplicateRecords,
   };
 }
 
@@ -269,7 +292,7 @@ function aggregateMonth(
   missingPriceMonths: string[],
   nameMap: Map<string, string>,
   namePricesInput: SurgeryNamePrice[] | IndexedNamePrices = [],
-  missingSurgeryNameTracker?: { names: Set<string>; records: { maBN: string; tenKT: string; ngayPT: string }[] }
+  missingSurgeryNameTracker?: { names: Set<string>; records: MissingSurgeryNameRecord[] }
 ): MonthlyAggregate {
   const indexedNamePrices = Array.isArray(namePricesInput)
     ? buildNamePricesIndex(namePricesInput)
@@ -308,15 +331,19 @@ function aggregateMonth(
 
     // 1. Viện phí PT/TT: Lấy trực tiếp từ cột thành tiền (hoặc đơn giá * số lượng) của bản ghi
     let cost = 0;
-    if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien))) {
+    let priceFound = false;
+    if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien)) && Number(r.thanhTien) > 0) {
       cost = Number(r.thanhTien);
-    } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia))) {
+      priceFound = true;
+    } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia)) && Number(r.donGia) > 0) {
       cost = Number(r.donGia) * qty;
+      priceFound = true;
     } else {
       // Fallback an toàn nếu bản ghi chưa có giá: tra cứu nhanh danh mục giá (nếu có)
       const nameResult = getNamePriceFast(r.tenKT, r.ngayBD, indexedNamePrices, r.maTuongDuong);
       if (nameResult.found) {
         cost = nameResult.price * qty;
+        priceFound = true;
         if (normalized && nameResult.matchedItem?.maTuongDuong && !maTuongDuongByName[normalized]) {
           maTuongDuongByName[normalized] = nameResult.matchedItem.maTuongDuong;
         }
@@ -325,6 +352,31 @@ function aggregateMonth(
 
     if (normalized && r.maTuongDuong && !maTuongDuongByName[normalized]) {
       maTuongDuongByName[normalized] = r.maTuongDuong;
+    }
+
+    // Nếu ca mổ chưa có giá và có tên kỹ thuật, đưa vào tracker để xuất danh sách check lại
+    if (!priceFound && r.tenKT?.trim() && missingSurgeryNameTracker) {
+      const name = r.tenKT.trim();
+      const dateStr = r.ngayBD ? toLocalDateKey(r.ngayBD) : '';
+      missingSurgeryNameTracker.names.add(name);
+      missingSurgeryNameTracker.records.push({
+        maBN: r.patientId || '',
+        patientName: r.patientName || '',
+        gender: r.gender || '',
+        yob: r.yob || '',
+        bhyt: r.bhyt || '',
+        ngayPT: dateStr,
+        tenKT: name,
+        loaiPTTT: loai,
+        ptChinh: r.ptChinh || '',
+        ptPhu: r.ptPhu || '',
+        bsGM: r.bsGM || '',
+        thanhTien: Number(r.thanhTien) || 0,
+        donGia: Number(r.donGia) || 0,
+        type: r.type || dataSource,
+        machine: r.machine || '',
+        maTuongDuong: r.maTuongDuong || '',
+      });
     }
 
     totalServiceCost += cost;
@@ -860,11 +912,11 @@ export async function fetchAndAggregateYearly(
     console.warn(`⚠ Large dataset: ${allRecords.length} records. Consider filtering.`);
   }
 
-  const validation = validateRecords(allRecords);
+  const { duplicateCount, duplicateRecords } = validateRecords(allRecords);
   const missingPriceMonths: string[] = [];
   const missingSurgeryNameTracker = {
     names: new Set<string>(),
-    records: [] as { maBN: string; tenKT: string; ngayPT: string }[],
+    records: [] as MissingSurgeryNameRecord[],
   };
   const nameMap = new Map<string, string>();
 
@@ -928,10 +980,15 @@ export async function fetchAndAggregateYearly(
     ? calculateTarget(primary, lastYearSameMonth)
     : null;
 
-  validation.missingPriceMonths = missingPriceMonths;
-  validation.missingSurgeryNames = Array.from(missingSurgeryNameTracker.names).sort((a, b) => a.localeCompare(b, 'vi'));
-  validation.missingSurgeryNameRecords = missingSurgeryNameTracker.records
-    .sort((a, b) => a.tenKT.localeCompare(b.tenKT, 'vi') || a.ngayPT.localeCompare(b.ngayPT));
+  const validation: DataValidationResult = {
+    duplicateCount,
+    duplicateRecords,
+    missingPriceMonths,
+    missingSurgeryNames: Array.from(missingSurgeryNameTracker.names).sort((a, b) => a.localeCompare(b, 'vi')),
+    missingSurgeryNameRecords: missingSurgeryNameTracker.records
+      .sort((a, b) => a.tenKT.localeCompare(b.tenKT, 'vi') || a.ngayPT.localeCompare(b.ngayPT)),
+    totalRecords: allRecords.length,
+  };
 
   console.log(`[stats] Yearly aggregation total: ${(performance.now() - t1).toFixed(0)}ms`);
 

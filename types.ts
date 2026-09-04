@@ -378,12 +378,40 @@ export interface StatisticsData {
   validation: DataValidationResult;
 }
 
+/** Bản ghi trùng key phục vụ kiểm tra đối chiếu */
+export interface DuplicateSurgeryRecord extends PersistedSurgeryRecord {
+  duplicateGroup: number;
+  duplicateGroupCount: number;
+  duplicateKey: string;
+}
+
+/** Bản ghi ca mổ chưa có giá phục vụ xuất Excel chi tiết */
+export interface MissingSurgeryNameRecord {
+  maBN: string;
+  patientName?: string;
+  gender?: string;
+  yob?: string;
+  bhyt?: string;
+  ngayPT: string;
+  tenKT: string;
+  loaiPTTT?: string;
+  ptChinh?: string;
+  ptPhu?: string;
+  bsGM?: string;
+  thanhTien?: number;
+  donGia?: number;
+  type?: 'DAILY' | 'MONTHLY';
+  machine?: string;
+  maTuongDuong?: string;
+}
+
 /** Kết quả kiểm tra chất lượng dữ liệu */
 export interface DataValidationResult {
   duplicateCount: number;
+  duplicateRecords?: DuplicateSurgeryRecord[];
   missingPriceMonths: string[];
   missingSurgeryNames: string[];   // danh sách tên KT chưa có giá (unique, chỉ hiển thị)
-  missingSurgeryNameRecords: { maBN: string; tenKT: string; ngayPT: string }[];  // chi tiết từng ca, xuất Excel
+  missingSurgeryNameRecords: MissingSurgeryNameRecord[];  // chi tiết từng ca, xuất Excel
   totalRecords: number;
 }
 
