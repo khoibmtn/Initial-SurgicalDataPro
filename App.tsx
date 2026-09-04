@@ -2284,7 +2284,7 @@ const InnerApp: React.FC = () => {
   };
 
   const handleRowDoubleClick = (row: SurgeryRecord) => {
-    if (activeTab === 'monthly' && currentReport.activeTable === 'list') {
+    if (activeTab === 'monthly' && (currentReport.activeTable || 'list') === 'list') {
       setEditingRecord(row);
     }
   };
@@ -3865,15 +3865,17 @@ const InnerApp: React.FC = () => {
           if (monthlyUploadState.listFile) handleProcess('monthly');
         }} />}
 
-        <SurgeryEditModal
-          isOpen={editingRecord !== null}
-          record={editingRecord}
-          onClose={() => setEditingRecord(null)}
-          onSave={handleSaveEditedRecord}
-          staffList={config.staffList || []}
-          machineRegistry={config.machineRegistry || []}
-          surgeryNamePrices={namePrices || []}
-        />
+        {editingRecord && (
+          <SurgeryEditModal
+            isOpen={true}
+            record={editingRecord}
+            onClose={() => setEditingRecord(null)}
+            onSave={handleSaveEditedRecord}
+            staffList={config.staffList || []}
+            machineRegistry={config.machineRegistry || []}
+            surgeryNamePrices={namePrices || []}
+          />
+        )}
       </main>
     </div>
   );

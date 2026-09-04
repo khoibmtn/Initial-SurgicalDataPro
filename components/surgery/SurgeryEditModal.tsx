@@ -116,13 +116,16 @@ const ComboboxField: React.FC<ComboboxFieldProps> = ({
 
   // Lọc options theo từ khóa
   const filtered = useMemo(() => {
+    if (!options || !Array.isArray(options)) return [];
     if (!searchTerm.trim()) return options;
     const term = removeVietnameseTones(searchTerm);
-    return options.filter(opt =>
-      removeVietnameseTones(opt.label).includes(term) ||
-      (opt.subLabel && removeVietnameseTones(opt.subLabel).includes(term)) ||
-      removeVietnameseTones(opt.value).includes(term)
-    );
+    return options.filter(opt => {
+      if (!opt) return false;
+      const l = opt.label ? removeVietnameseTones(String(opt.label)) : '';
+      const s = opt.subLabel ? removeVietnameseTones(String(opt.subLabel)) : '';
+      const v = opt.value ? removeVietnameseTones(String(opt.value)) : '';
+      return l.includes(term) || s.includes(term) || v.includes(term);
+    });
   }, [options, searchTerm]);
 
   // Đóng khi click ngoài
@@ -288,10 +291,8 @@ export const SurgeryEditModal: React.FC<Props> = ({
     }
   }, [record]);
 
-  if (!isOpen || !record) return null;
-
   // Ngày phẫu thuật chuẩn hóa của ca mổ (dùng để lọc danh mục kỹ thuật theo khoảng hiệu lực)
-  const surgeryDateKey = parseToDateKey(formData.ngayBD || formData.start || record.ngayBD || record.start);
+  const surgeryDateKey = parseToDateKey(formData.ngayBD || formData.start || record?.ngayBD || record?.start);
 
   // Danh mục kỹ thuật có hiệu lực tại ngày phẫu thuật
   const availableTechniques = useMemo(() => {
@@ -302,6 +303,7 @@ export const SurgeryEditModal: React.FC<Props> = ({
     }
 
     return surgeryNamePrices.filter(p => {
+      if (!p) return false;
       const from = parseToDateKey(p.effectiveFrom);
       const to = parseToDateKey(p.effectiveTo);
       if (from && from > surgeryDateKey) return false;
@@ -317,8 +319,8 @@ export const SurgeryEditModal: React.FC<Props> = ({
       const codeText = p.maTuongDuong ? `Mã: ${p.maTuongDuong}` : '';
       const sub = [codeText, priceText].filter(Boolean).join(' • ');
       return {
-        value: p.tenKT,
-        label: p.tenKT,
+        value: p.tenKT || '',
+        label: p.tenKT || '',
         subLabel: sub,
         extra: p,
       };
@@ -327,18 +329,18 @@ export const SurgeryEditModal: React.FC<Props> = ({
 
   // Options combobox cho Nhân sự
   const staffOptions: ComboboxOption[] = useMemo(() => {
-    return staffList.map(s => ({
-      value: s.name,
-      label: s.name,
+    return (staffList || []).map(s => ({
+      value: s.name || '',
+      label: s.name || '',
       subLabel: [s.position, s.department].filter(Boolean).join(' - '),
     }));
   }, [staffList]);
 
   // Options combobox cho Máy móc
   const machineOptions: ComboboxOption[] = useMemo(() => {
-    return machineRegistry.map(m => ({
-      value: m.machineName,
-      label: m.machineName,
+    return (machineRegistry || []).map(m => ({
+      value: m.machineName || '',
+      label: m.machineName || '',
       subLabel: m.machineCode ? `Mã máy: ${m.machineCode}` : undefined,
       extra: m,
     }));
@@ -355,6 +357,8 @@ export const SurgeryEditModal: React.FC<Props> = ({
     { value: 'T2', label: 'T2 - Thủ thuật loại 2' },
     { value: 'T3', label: 'T3 - Thủ thuật loại 3' },
   ];
+
+  if (!isOpen || !record) return null;
 
   // Handler khi chọn kỹ thuật từ combobox -> Tự động điền mã tương đương & giá
   const handleSelectTechnique = (name: string, opt?: ComboboxOption) => {
