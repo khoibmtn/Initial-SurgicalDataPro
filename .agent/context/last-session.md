@@ -61,6 +61,14 @@
   - Form **"Tạo nhóm chuyên khoa mới (Tùy chỉnh)"**: Nhập tên nhóm, tên viết tắt $\rightarrow$ Nhóm mới tạo **CHỈ tiếp nhận các kỹ thuật do người dùng tự chuyển đến**.
   - Bảng quản lý danh mục kỹ thuật đã chuyển nhóm thủ công kèm nút Xóa (Thùng rác).
 
+### 1.9. Tab Thống Kê Giá DVKT & Quy Trình Áp Giá Tương Đương / Đơn Giá / Thành Tiền:
+- **Schema mở rộng:** Bổ sung `maTuongDuong` (Mã BHXH dạng XX.XXXX.XXXX), `donGia`, `thanhTien` vào `SurgeryRecord` và `PersistedSurgeryRecord`.
+- **Tab mới:** Đặt trong Báo cáo tháng bên cạnh tab Minh Lộ: `[Lưu trữ | Minh Lộ | Thống kê giá DVKT]`.
+- **Chuẩn hóa mã BHXH:** 9 số tự động thêm 0 đầu thành 10 số $\rightarrow$ Định dạng `XX.XXXX.XXXX` (ví dụ `16.0232.1016`, `03.0527.0230`).
+- **Thuật toán đối chiếu:** Khớp theo bộ 3 `Mã KCB (patientId) + Tên kỹ thuật (chuẩn hóa Unicode) + Số lượng`.
+- **Bảng DS Phẫu thuật (Lưu trữ):** Thêm 3 cột `Mã tương đương`, `Đơn giá`, `Thành tiền` kèm hỗ trợ ẩn/hiện trong menu Cấu hình hiển thị.
+- **Thống kê phẫu thuật:** Ưu tiên tính chi phí trực tiếp từ `thanhTien`, fallback truy vấn `getNamePrice` khi thiếu.
+
 ---
 
 ## 📂 2. Cấu Trúc File & Module Chính

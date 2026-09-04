@@ -80,6 +80,9 @@ export interface SurgeryRecord {
   key?: string;
   id?: string; // Firestore ID
   firestorePath?: string;
+  maTuongDuong?: string; // Mã BHXH / Mã tương đương (XX.XXXX.XXXX)
+  donGia?: number;       // Đơn giá (VNĐ)
+  thanhTien?: number;    // Thành tiền (VNĐ)
 }
 
 export type StaffRole = "PT_CHINH" | "PT_PHU" | "BS_GM" | "KTV_GM" | "TDC" | "GV";
@@ -207,6 +210,11 @@ export interface PersistedSurgeryRecord {
   type: 'DAILY' | 'MONTHLY'; // Phân loại báo cáo
   id?: string;              // Firestore Document ID (để xóa)
   firestorePath?: string;   // Full Path
+
+  // === 6. NHÓM GIÁ DVKT & TƯƠNG ĐƯƠNG ===
+  maTuongDuong?: string;    // Mã BHXH / Mã tương đương chuẩn hóa (XX.XXXX.XXXX)
+  donGia?: number;          // Đơn giá (VNĐ)
+  thanhTien?: number;       // Thành tiền (VNĐ)
 }
 
 // ================= STATISTICS MODULE TYPES =================
@@ -375,4 +383,38 @@ export interface DataValidationResult {
   missingSurgeryNames: string[];   // danh sách tên KT chưa có giá (unique, chỉ hiển thị)
   missingSurgeryNameRecords: { maBN: string; tenKT: string; ngayPT: string }[];  // chi tiết từng ca, xuất Excel
   totalRecords: number;
+}
+
+// ================= SERVICE PRICE MODULE TYPES =================
+
+export interface ServicePriceItem {
+  stt: number;
+  maBHXH: string;
+  maTuongDuong: string;
+  maDV: string;
+  mahh: string;
+  tenDichVu: string;
+  soLuong: number;
+  dvt: string;
+  donGia: number;
+  thanhTien: number;
+}
+
+export interface PatientServicePriceGroup {
+  patientId: string;
+  patientName: string;
+  services: ServicePriceItem[];
+}
+
+export interface ServicePriceParseResult {
+  valid: boolean;
+  error?: string;
+  dateRangeText?: string;
+  dateFrom?: string; // YYYY-MM-DD
+  dateTo?: string;   // YYYY-MM-DD
+  timeFrom?: string; // HH:mm
+  timeToStr?: string; // HH:mm
+  patientGroups: PatientServicePriceGroup[];
+  serviceCount: number;
+  totalAmount: number;
 }

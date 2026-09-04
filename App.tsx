@@ -10,8 +10,11 @@ import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
 import { ConfigProvider, useConfig, DEFAULT_CONFIG } from './contexts/ConfigContext';
 import { StatisticsTab } from './components/statistics/StatisticsTab';
+import { ServicePriceTab } from './components/ServicePriceTab';
+import { subscribeToSurgeryNamePrices, getNamePrice } from './services/surgeryNamePriceService';
+import { matchAndApplyServicePrices } from './services/servicePriceProcessor';
 // AI analysis removed — geminiService import no longer needed
-import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember } from './types';
+import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember, PatientServicePriceGroup, SurgeryNamePrice } from './types';
 import { FileUpload } from './components/FileUpload';
 import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem } from './components/ui';
 import {
@@ -1108,11 +1111,22 @@ const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
 
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
+  type DataTabType = 'storage' | 'upload' | 'price_service';
   // Per-page data source tab (independent for daily vs monthly)
-  const [activeDataTabs, setActiveDataTabs] = useState<Record<string, 'storage' | 'upload'>>({
+  const [activeDataTabs, setActiveDataTabs] = useState<Record<string, DataTabType>>({
     daily: 'storage',
     monthly: 'storage'
   });
+  const [cachedServiceGroups, setCachedServiceGroups] = useState<PatientServicePriceGroup[]>([]);
+  const [namePrices, setNamePrices] = useState<SurgeryNamePrice[]>([]);
+
+  useEffect(() => {
+    const unsub = subscribeToSurgeryNamePrices((data) => {
+      setNamePrices(data);
+    });
+    return () => unsub();
+  }, []);
+
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebar_collapsed');
     if (saved !== null) return saved === 'true';
@@ -1129,7 +1143,7 @@ const InnerApp: React.FC = () => {
 
   const currentType = (activeTab === 'monthly') ? 'monthly' : 'daily';
   const activeDataTab = activeDataTabs[currentType] || 'storage';
-  const setActiveDataTab = (v: 'storage' | 'upload') => {
+  const setActiveDataTab = (v: DataTabType) => {
     setActiveDataTabs(prev => ({ ...prev, [currentType]: v }));
   };
 
@@ -1144,7 +1158,8 @@ const InnerApp: React.FC = () => {
   };
 
   const currentReport = useMemo(() => {
-    return getState(currentType, activeDataTab);
+    const tab = activeDataTab === 'price_service' ? 'storage' : activeDataTab;
+    return getState(currentType, tab as 'storage' | 'upload');
   }, [currentType, activeDataTab, dailyStorageState, dailyUploadState, monthlyStorageState, monthlyUploadState]);
 
   const updateReportState = (type: 'daily' | 'monthly', patch: Partial<ReportState>, source?: 'storage' | 'upload') => {
@@ -1449,6 +1464,29 @@ const InnerApp: React.FC = () => {
         }
       }
 
+      // Auto-apply pricing for monthly reports
+      if (type === 'monthly' && res.validRecords) {
+        // 1. If user previously imported DVKT file in session, match & apply
+        if (cachedServiceGroups.length > 0) {
+          matchAndApplyServicePrices(res.validRecords, cachedServiceGroups);
+        }
+
+        // 2. For any records still missing price, fallback to current logic (namePrices)
+        res.validRecords.forEach(r => {
+          if (!r.thanhTien && !r.donGia) {
+            const npResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
+            if (npResult.found) {
+              r.donGia = npResult.price;
+              r.thanhTien = Math.round(npResult.price * (r.soLuong || 1));
+              const matchedNP = namePrices.find(p => p.tenKT === r.tenKT && p.maTuongDuong);
+              if (matchedNP?.maTuongDuong) {
+                r.maTuongDuong = matchedNP.maTuongDuong;
+              }
+            }
+          }
+        });
+      }
+
       // Auto-fill assistant AND machine data for monthly reports from daily reports
       if (type === 'monthly' && res.validRecords) {
         try {
@@ -1514,7 +1552,6 @@ const InnerApp: React.FC = () => {
           // Continue with normal flow if auto-fill fails
         }
       }
-
 
       updateReportState(type, {
         stats: res.stats,
@@ -1783,6 +1820,26 @@ const InnerApp: React.FC = () => {
     { key: 'tenKT', label: 'Tên kỹ thuật', defaultWidth: 220 },
     { key: 'loaiPTTT', label: 'Loại', align: 'center', defaultWidth: 42 },
     { key: 'soLuong', label: 'SL', align: 'center', defaultWidth: 34 },
+    {
+      key: 'maTuongDuong',
+      label: 'Mã tương đương',
+      render: (r) => r.maTuongDuong ? <span className="font-mono text-blue-700 font-semibold">{r.maTuongDuong}</span> : <span className="text-gray-300">—</span>,
+      defaultWidth: 120
+    },
+    {
+      key: 'donGia',
+      label: 'Đơn giá',
+      align: 'right',
+      render: (r) => r.donGia ? r.donGia.toLocaleString('vi-VN') : <span className="text-gray-300">—</span>,
+      defaultWidth: 100
+    },
+    {
+      key: 'thanhTien',
+      label: 'Thành tiền',
+      align: 'right',
+      render: (r) => r.thanhTien ? <span className="font-bold text-emerald-700">{r.thanhTien.toLocaleString('vi-VN')}</span> : <span className="text-gray-300">—</span>,
+      defaultWidth: 110
+    },
     { key: 'timeMinutes', label: 'Phút', align: 'center', defaultWidth: 40 },
     { key: 'ptChinh', label: 'PT Chính', defaultWidth: 100 },
     { key: 'ptPhu', label: 'PT Phụ', defaultWidth: 100 },
@@ -2832,13 +2889,15 @@ const InnerApp: React.FC = () => {
         return;
       }
 
-      // Convert Persisted Record -> App Record (Dates)
+      // Convert Persisted Record -> App Record (Dates & Pricing)
       const convertedRecords: SurgeryRecord[] = persistedRecords.map(r => ({
         ...r,
         stt: typeof r.stt === 'number' ? r.stt : parseInt(r.stt as string) || 0,
         start: r.ngayBD ? new Date(r.ngayBD) : null,
         end: r.ngayKT ? new Date(r.ngayKT) : null,
-        // Ensure other fields are mapped if needed, mostly they match
+        maTuongDuong: r.maTuongDuong,
+        donGia: r.donGia,
+        thanhTien: r.thanhTien,
       }));
 
       const res = await reprocessSurgicalRecords(convertedRecords, config);
@@ -3256,15 +3315,23 @@ const InnerApp: React.FC = () => {
             >
               <TabLine
                 value={activeDataTab}
-                onChange={(v) => setActiveDataTab(v as 'storage' | 'upload')}
-                options={[
-                  { value: 'storage', label: 'Lưu trữ' },
-                  { value: 'upload', label: 'Minh Lộ' },
-                ]}
+                onChange={(v) => setActiveDataTab(v as DataTabType)}
+                options={
+                  activeTab === 'monthly'
+                    ? [
+                        { value: 'storage', label: 'Lưu trữ' },
+                        { value: 'upload', label: 'Minh Lộ' },
+                        { value: 'price_service', label: 'Thống kê giá DVKT' },
+                      ]
+                    : [
+                        { value: 'storage', label: 'Lưu trữ' },
+                        { value: 'upload', label: 'Minh Lộ' },
+                      ]
+                }
               />
             </ContextToolbar>
 
-            {/* ── Data Source Containers (both mounted, CSS display toggle) ── */}
+            {/* ── Data Source Containers (all mounted, CSS display toggle) ── */}
             {/* STORAGE container */}
             <div style={{ display: activeDataTab === 'storage' ? 'block' : 'none' }}>
               <div className="px-4 pt-3 pb-2">
@@ -3371,8 +3438,48 @@ const InnerApp: React.FC = () => {
               </div>
             </div>
 
+            {/* PRICE SERVICE (Thống kê giá DVKT) container */}
+            {activeTab === 'monthly' && (
+              <div style={{ display: activeDataTab === 'price_service' ? 'block' : 'none' }}>
+                <ServicePriceTab
+                  currentLoadedRecords={monthlyStorageState.result?.validRecords || monthlyUploadState.result?.validRecords || []}
+                  onPricesApplied={(updatedRecords) => {
+                    if (monthlyStorageState.result) {
+                      const freshResult = reprocessSurgicalRecords(
+                        updatedRecords,
+                        config,
+                        monthlyStorageState.result.dateRangeText || ''
+                      );
+                      setMonthlyStorageState(prev => ({
+                        ...prev,
+                        result: freshResult,
+                        stats: freshResult.stats,
+                        hasAutoFilledData: true
+                      }));
+                    }
+                    if (monthlyUploadState.result) {
+                      const freshResult = reprocessSurgicalRecords(
+                        updatedRecords,
+                        config,
+                        monthlyUploadState.result.dateRangeText || ''
+                      );
+                      setMonthlyUploadState(prev => ({
+                        ...prev,
+                        result: freshResult,
+                        stats: freshResult.stats,
+                        hasAutoFilledData: true
+                      }));
+                    }
+                  }}
+                  addToast={addToast}
+                  cachedServiceGroups={cachedServiceGroups}
+                  onCacheServiceGroups={setCachedServiceGroups}
+                />
+              </div>
+            )}
+
             {/* Empty State — shown before any data is loaded */}
-            {!currentReport.result && !currentReport.isProcessing && (
+            {activeDataTab !== 'price_service' && !currentReport.result && !currentReport.isProcessing && (
               <EmptyState
                 icon={Database}
                 title="Chưa có dữ liệu"
@@ -3384,11 +3491,11 @@ const InnerApp: React.FC = () => {
             )}
 
             {/* Skeleton Loading — shown while data is being fetched */}
-            {currentReport.isProcessing && !currentReport.result && (
+            {activeDataTab !== 'price_service' && currentReport.isProcessing && !currentReport.result && (
               <WorkspaceSkeleton />
             )}
 
-            {currentReport.stats && currentReport.result && (
+            {activeDataTab !== 'price_service' && currentReport.stats && currentReport.result && (
               <>
                 {/* ── Date range + Action Buttons Row ── */}
                 <div className="flex items-center justify-between gap-2 px-4 mt-3">

@@ -51,7 +51,10 @@ function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): Persi
         machine: rec.machine,
         machineCode: rec.machineCode || '',
         machineId: rec.machineId || '',
-        type: type
+        type: type,
+        ...(rec.maTuongDuong ? { maTuongDuong: rec.maTuongDuong } : {}),
+        ...(rec.donGia !== undefined ? { donGia: rec.donGia } : {}),
+        ...(rec.thanhTien !== undefined ? { thanhTien: rec.thanhTien } : {})
     };
 }
 
@@ -727,6 +730,55 @@ export const reportService = {
             return { totalScanned, matched, alreadyFilled, noMachine, unmatched, updated, unmatchedNames };
         } catch (error) {
             console.error('Error during backfill:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Cập nhật hàng loạt mã tương đương, đơn giá, thành tiền vào các bản ghi đã lưu trên Firestore
+     */
+    async batchUpdatePrices(
+        updates: Array<{
+            firestorePath: string;
+            maTuongDuong?: string;
+            donGia?: number;
+            thanhTien?: number;
+        }>
+    ): Promise<number> {
+        try {
+            if (updates.length === 0) return 0;
+            let updatedCount = 0;
+            let batch = writeBatch(db);
+            let inBatch = 0;
+
+            for (const item of updates) {
+                if (!item.firestorePath) continue;
+                const docRef = doc(db, item.firestorePath);
+                const patch: any = {};
+                if (item.maTuongDuong !== undefined) patch.maTuongDuong = item.maTuongDuong;
+                if (item.donGia !== undefined) patch.donGia = item.donGia;
+                if (item.thanhTien !== undefined) patch.thanhTien = item.thanhTien;
+
+                if (Object.keys(patch).length > 0) {
+                    batch.update(docRef, patch);
+                    inBatch++;
+                    updatedCount++;
+
+                    if (inBatch >= BATCH_SIZE) {
+                        await batch.commit();
+                        batch = writeBatch(db);
+                        inBatch = 0;
+                    }
+                }
+            }
+
+            if (inBatch > 0) {
+                await batch.commit();
+            }
+
+            return updatedCount;
+        } catch (error) {
+            console.error('Error batch updating prices:', error);
             throw error;
         }
     }

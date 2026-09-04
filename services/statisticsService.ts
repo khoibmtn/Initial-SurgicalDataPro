@@ -280,25 +280,33 @@ function aggregateMonth(
     totalLaborCost += labCost;
     laborCostByType[loai] = (laborCostByType[loai] || 0) + labCost;
 
-    // Name-based price lookup
-    const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
-    if (!nameResult.found && r.tenKT?.trim() && missingSurgeryNameTracker) {
-      const name = r.tenKT.trim();
-      const dateStr = r.ngayBD ? toLocalDateKey(r.ngayBD) : '';
-      missingSurgeryNameTracker.names.add(name);
-      missingSurgeryNameTracker.records.push({
-        maBN: r.patientId || '',
-        tenKT: name,
-        ngayPT: dateStr,
-      });
+    // Name-based price lookup: Ưu tiên thanhTien/donGia trên record, nếu chưa có mới query getNamePrice
+    let npCost = 0;
+    let hasRecordPrice = false;
+
+    if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien))) {
+      npCost = Number(r.thanhTien);
+      hasRecordPrice = true;
+    } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia))) {
+      npCost = Number(r.donGia) * qty;
+      hasRecordPrice = true;
     }
-    const npCost = nameResult.price * qty;
-    totalNamePriceCost += npCost;
-    namePriceCostByType[loai] = (namePriceCostByType[loai] || 0) + npCost;
-    if (normalized) {
-      namePriceCostByName[normalized] = (namePriceCostByName[normalized] || 0) + npCost;
-      // Track maTuongDuong for chapter-based filtering
-      if (nameResult.found && !maTuongDuongByName[normalized]) {
+
+    if (!hasRecordPrice) {
+      const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
+      if (!nameResult.found && r.tenKT?.trim() && missingSurgeryNameTracker) {
+        const name = r.tenKT.trim();
+        const dateStr = r.ngayBD ? toLocalDateKey(r.ngayBD) : '';
+        missingSurgeryNameTracker.names.add(name);
+        missingSurgeryNameTracker.records.push({
+          maBN: r.patientId || '',
+          tenKT: name,
+          ngayPT: dateStr,
+        });
+      }
+      npCost = nameResult.price * qty;
+
+      if (normalized && nameResult.found && !maTuongDuongByName[normalized]) {
         const localDate = toLocalDateKey(r.ngayBD);
         const matched = namePrices.find(p =>
           normalizeTenKT(p.tenKT) === normalized &&
@@ -310,6 +318,16 @@ function aggregateMonth(
           maTuongDuongByName[normalized] = matched.maTuongDuong;
         }
       }
+    } else {
+      if (normalized && r.maTuongDuong && !maTuongDuongByName[normalized]) {
+        maTuongDuongByName[normalized] = r.maTuongDuong;
+      }
+    }
+
+    totalNamePriceCost += npCost;
+    namePriceCostByType[loai] = (namePriceCostByType[loai] || 0) + npCost;
+    if (normalized) {
+      namePriceCostByName[normalized] = (namePriceCostByName[normalized] || 0) + npCost;
     }
   }
 
@@ -363,8 +381,17 @@ function aggregateDaily(
       const { price } = getServicePrice(loai, r.ngayBD, priceVersions);
       daySvcCost += price * qty;
       dayLabCost += getLaborCost(loai, qty, laborPrices);
-      const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
-      dayNameCost += nameResult.price * qty;
+      // Ưu tiên r.thanhTien / r.donGia, fallback query getNamePrice
+      let dayNpCost = 0;
+      if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien))) {
+        dayNpCost = Number(r.thanhTien);
+      } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia))) {
+        dayNpCost = Number(r.donGia) * qty;
+      } else {
+        const nameResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
+        dayNpCost = nameResult.price * qty;
+      }
+      dayNameCost += dayNpCost;
     }
 
     cumCases += recs.length;
