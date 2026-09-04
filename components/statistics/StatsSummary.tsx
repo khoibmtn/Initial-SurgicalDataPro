@@ -1695,20 +1695,11 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange, chapters, p
     },
     {
       label: 'Viện phí PT/TT',
-      value: totalNamePricePrimary > 0 ? fmtMoney(totalNamePricePrimary) : '—',
-      change: totalNamePricePrimary > 0 ? calcChange(totalNamePricePrimary, totalNamePriceCompare) : null,
+      value: (totalNamePricePrimary > 0 || totalSvcCostPrimary > 0) ? fmtMoney(totalNamePricePrimary || totalSvcCostPrimary) : '—',
+      change: calcChange(totalNamePricePrimary || totalSvcCostPrimary, totalNamePriceCompare || totalSvcCostCompare),
       icon: <DollarSign className="h-5 w-5" />,
       color: 'text-teal-600 bg-teal-50',
-      tooltip: totalNamePricePrimary === 0
-        ? 'Chưa có giá theo tên PT. Vui lòng cấu hình danh mục giá.'
-        : 'Tổng viện phí PT/TT theo danh mục giá tên phẫu thuật',
-    },
-    {
-      label: 'Chi phí dịch vụ',
-      value: fmtMoney(totalSvcCostPrimary),
-      change: calcChange(totalSvcCostPrimary, totalSvcCostCompare),
-      icon: <DollarSign className="h-5 w-5" />,
-      color: 'text-amber-600 bg-amber-50',
+      tooltip: 'Tổng viện phí PT/TT lấy trực tiếp từ cột thành tiền của các ca mổ',
     },
     {
       label: 'Chi phí nhân công',
@@ -1832,26 +1823,18 @@ export const StatsSummary: React.FC<Props> = ({ data, onMonthChange, chapters, p
                 </td>
               </tr>
 
-              {/* Row: Viện phí PT/TT (name-based) */}
+              {/* Row: Viện phí PT/TT (trực tiếp từ cột thành tiền) */}
               <tr className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="px-3 py-2 font-medium text-teal-700 sticky left-0 bg-white">Viện phí PT/TT (tr)</td>
-                {primary.map((m, i) => (
-                  <td key={i} className="text-center px-2 py-2 text-gray-600">
-                    {(m.namePriceCost || 0) > 0 ? fmtMoney(m.namePriceCost || 0) : <span className="text-gray-300">—</span>}
-                  </td>
-                ))}
-                <td className="text-center px-3 py-2 font-bold text-teal-800 bg-teal-50">{fmtMoney(totalNamePricePrimary)}</td>
-              </tr>
-
-              {/* Row: Chi phí DV */}
-              <tr className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-3 py-2 font-medium text-gray-700 sticky left-0 bg-white">Chi phí DV (tr)</td>
-                {primary.map((m, i) => (
-                  <td key={i} className="text-center px-2 py-2 text-gray-600">
-                    {m.serviceCost > 0 ? fmtMoney(m.serviceCost) : <span className="text-gray-300">—</span>}
-                  </td>
-                ))}
-                <td className="text-center px-3 py-2 font-bold text-primary-800 bg-primary-50">{fmtMoney(totalSvcCostPrimary)}</td>
+                {primary.map((m, i) => {
+                  const val = m.serviceCost || m.namePriceCost || 0;
+                  return (
+                    <td key={i} className="text-center px-2 py-2 text-gray-600">
+                      {val > 0 ? fmtMoney(val) : <span className="text-gray-300">—</span>}
+                    </td>
+                  );
+                })}
+                <td className="text-center px-3 py-2 font-bold text-teal-800 bg-teal-50">{fmtMoney(totalSvcCostPrimary || totalNamePricePrimary)}</td>
               </tr>
 
               {/* Row: Chi phí NC */}

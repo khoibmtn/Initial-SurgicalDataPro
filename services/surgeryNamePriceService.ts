@@ -69,7 +69,7 @@ function toLocalDateKey(isoString: string): string {
  * 4. Trim + collapse whitespace
  * 5. Lowercase
  */
-function normalizeForMatch(name: string): string {
+export function normalizeForMatch(name: string): string {
   if (!name) return '';
   return name
     .normalize('NFKC')                          // Full-width → half-width, Unicode compat
@@ -77,7 +77,11 @@ function normalizeForMatch(name: string): string {
     .replace(/\u00A0/g, ' ')                     // Non-breaking space → regular space
     .trim()
     .replace(/\s+/g, ' ')
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\bkhx\b/gi, 'kết hợp xương')
+    .replace(/\bpt\b/gi, 'phẫu thuật')
+    .replace(/\btt\b/gi, 'thủ thuật')
+    .replace(/\bns\b/gi, 'nội soi');
 }
 
 // --- Debug tracking (chỉ log 1 lần mỗi tên) ---
@@ -89,20 +93,28 @@ const _debuggedNames = new Set<string>();
 export function getNamePrice(
   tenKT: string,
   dateStr: string,
-  namePrices: SurgeryNamePrice[]
+  namePrices: SurgeryNamePrice[],
+  maTuongDuong?: string
 ): { price: number; found: boolean; matchedItem?: SurgeryNamePrice } {
-  if (!tenKT || !dateStr) return { price: 0, found: false };
+  if ((!tenKT && !maTuongDuong) || !dateStr) return { price: 0, found: false };
 
   const normalizedName = normalizeForMatch(tenKT);
-  // Extract date part: "2024-05-20T08:30:00" → local "2024-05-20" (timezone-safe)
   const localDate = toLocalDateKey(dateStr);
   if (!localDate) return { price: 0, found: false };
 
-  // Step 1: Find all prices with matching name
-  const nameMatches = namePrices.filter(p => normalizeForMatch(p.tenKT) === normalizedName);
+  // Step 1: Find by name
+  let candidateMatches = normalizedName
+    ? namePrices.filter(p => normalizeForMatch(p.tenKT) === normalizedName)
+    : [];
 
-  // Step 2: Filter by date range
-  const applicable = nameMatches
+  // Fallback Step 2: Find by maTuongDuong if no name matches
+  if (candidateMatches.length === 0 && maTuongDuong) {
+    const cleanCode = maTuongDuong.trim();
+    candidateMatches = namePrices.filter(p => p.maTuongDuong && p.maTuongDuong.trim() === cleanCode);
+  }
+
+  // Step 3: Filter by date range
+  const applicable = candidateMatches
     .filter(p => {
       const from = normalizeStoredDate(p.effectiveFrom);
       const to = normalizeStoredDate(p.effectiveTo);
@@ -113,29 +125,6 @@ export function getNamePrice(
     .sort((a, b) => normalizeStoredDate(b.effectiveFrom).localeCompare(normalizeStoredDate(a.effectiveFrom)));
 
   if (applicable.length === 0) {
-    // Debug: log why no match (only once per unique name)
-    const debugKey = `${normalizedName}|${localDate}`;
-    if (!_debuggedNames.has(normalizedName) && tenKT.includes('[')) {
-      _debuggedNames.add(normalizedName);
-      if (nameMatches.length === 0) {
-        // Name doesn't exist in catalog at all
-        console.warn(`[getNamePrice] TÊN KHÔNG KHỚP: "${tenKT}"`);
-        console.warn(`  normalized: "${normalizedName}"`);
-        // Find closest match
-        const allNormalized = [...new Set(namePrices.map(p => normalizeForMatch(p.tenKT)))];
-        const close = allNormalized.filter(n => 
-          n.includes(normalizedName.substring(0, 20)) || normalizedName.includes(n.substring(0, 20))
-        );
-        if (close.length > 0) console.warn(`  Gần giống: ${close.slice(0, 3).join(', ')}`);
-      } else {
-        // Name matches but date is outside all ranges
-        console.warn(`[getNamePrice] NGÀY NGOÀI HIỆU LỰC: "${tenKT}" tại ${localDate}`);
-        console.warn(`  Có ${nameMatches.length} bản ghi giá, nhưng không có bản nào hiệu lực tại ${localDate}:`);
-        nameMatches.forEach(p => {
-          console.warn(`    ${p.effectiveFrom} → ${p.effectiveTo || 'đang áp dụng'} (${p.price.toLocaleString()}đ)`);
-        });
-      }
-    }
     return { price: 0, found: false };
   }
 
@@ -150,45 +139,66 @@ export function getNamePrice(
 
 export interface IndexedNamePrices {
   byNormalizedName: Map<string, SurgeryNamePrice[]>;
+  byMaTuongDuong: Map<string, SurgeryNamePrice[]>;
 }
 
-/** Pre-indexes name prices by normalized tenKT once to eliminate O(N*M) scans */
+/** Pre-indexes name prices by normalized tenKT and maTuongDuong once to eliminate O(N*M) scans */
 export function buildNamePricesIndex(namePrices: SurgeryNamePrice[]): IndexedNamePrices {
   const byNormalizedName = new Map<string, SurgeryNamePrice[]>();
+  const byMaTuongDuong = new Map<string, SurgeryNamePrice[]>();
+
   for (const p of namePrices) {
-    if (!p.tenKT) continue;
-    const norm = normalizeForMatch(p.tenKT);
-    const existing = byNormalizedName.get(norm);
-    if (existing) {
-      existing.push(p);
-    } else {
-      byNormalizedName.set(norm, [p]);
+    if (p.tenKT) {
+      const norm = normalizeForMatch(p.tenKT);
+      const existing = byNormalizedName.get(norm);
+      if (existing) {
+        existing.push(p);
+      } else {
+        byNormalizedName.set(norm, [p]);
+      }
+    }
+    if (p.maTuongDuong) {
+      const cleanCode = p.maTuongDuong.trim();
+      const existingCode = byMaTuongDuong.get(cleanCode);
+      if (existingCode) {
+        existingCode.push(p);
+      } else {
+        byMaTuongDuong.set(cleanCode, [p]);
+      }
     }
   }
-  return { byNormalizedName };
+  return { byNormalizedName, byMaTuongDuong };
 }
 
 /** High-speed O(1) price lookup using pre-indexed Map */
 export function getNamePriceFast(
   tenKT: string,
   dateStr: string,
-  indexed: IndexedNamePrices
+  indexed: IndexedNamePrices,
+  maTuongDuong?: string
 ): { price: number; found: boolean; matchedItem?: SurgeryNamePrice } {
-  if (!tenKT || !dateStr) return { price: 0, found: false };
-
-  const normalizedName = normalizeForMatch(tenKT);
-  const nameMatches = indexed.byNormalizedName.get(normalizedName);
-  if (!nameMatches || nameMatches.length === 0) {
-    return { price: 0, found: false };
-  }
+  if ((!tenKT && !maTuongDuong) || !dateStr) return { price: 0, found: false };
 
   const localDate = toLocalDateKey(dateStr);
   if (!localDate) return { price: 0, found: false };
 
+  // Step 1: Lookup by normalized name
+  const normalizedName = normalizeForMatch(tenKT);
+  let candidateMatches = normalizedName ? (indexed.byNormalizedName.get(normalizedName) || []) : [];
+
+  // Step 2: Fallback lookup by maTuongDuong if no name matches
+  if (candidateMatches.length === 0 && maTuongDuong) {
+    candidateMatches = indexed.byMaTuongDuong.get(maTuongDuong.trim()) || [];
+  }
+
+  if (candidateMatches.length === 0) {
+    return { price: 0, found: false };
+  }
+
   let bestItem: SurgeryNamePrice | null = null;
   let bestFrom = '';
 
-  for (const p of nameMatches) {
+  for (const p of candidateMatches) {
     const from = normalizeStoredDate(p.effectiveFrom);
     const to = normalizeStoredDate(p.effectiveTo);
     if (from && from > localDate) continue;
@@ -197,6 +207,24 @@ export function getNamePriceFast(
     if (!bestItem || from.localeCompare(bestFrom) > 0) {
       bestItem = p;
       bestFrom = from;
+    }
+  }
+
+  if (!bestItem) {
+    // If date is outside but we have matches by code, try fallback
+    if (maTuongDuong && candidateMatches !== (indexed.byMaTuongDuong.get(maTuongDuong.trim()) || [])) {
+      const codeMatches = indexed.byMaTuongDuong.get(maTuongDuong.trim()) || [];
+      for (const p of codeMatches) {
+        const from = normalizeStoredDate(p.effectiveFrom);
+        const to = normalizeStoredDate(p.effectiveTo);
+        if (from && from > localDate) continue;
+        if (to && to < localDate) continue;
+
+        if (!bestItem || from.localeCompare(bestFrom) > 0) {
+          bestItem = p;
+          bestFrom = from;
+        }
+      }
     }
   }
 

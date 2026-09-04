@@ -16,6 +16,7 @@ import { matchAndApplyServicePrices } from './services/servicePriceProcessor';
 // AI analysis removed — geminiService import no longer needed
 import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember, PatientServicePriceGroup, SurgeryNamePrice } from './types';
 import { FileUpload } from './components/FileUpload';
+import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
 import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem } from './components/ui';
 import {
   Activity,
@@ -59,7 +60,8 @@ import {
   Rows4,
   Command,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Pencil
 } from 'lucide-react';
 import { reportService } from './services/reportService';
 import { format, parse, isValid } from 'date-fns';
@@ -241,6 +243,7 @@ interface TableBodyProps {
   enableSelection?: boolean;
   selectedIds: string[];
   onSelect?: (id: string, selected: boolean) => void;
+  onRowDoubleClick?: (row: any) => void;
   rowStyle?: (item: any) => string;
   customRowRender?: (row: any, index: number, allRows: any[]) => React.ReactNode;
   density: { cellPy: string; fontSize: string; rowHeight: number };
@@ -250,6 +253,7 @@ const TableBody = ({
   data, currentData,
   extraHeaderRow, extraFooterRow, customTfoot, startIndex,
   visibleColumnsList, enableSelection, selectedIds, onSelect,
+  onRowDoubleClick,
   rowStyle, customRowRender, density
 }: TableBodyProps) => {
 
@@ -263,11 +267,17 @@ const TableBody = ({
     return (
       <tr
         key={row.key || row.id || idx}
-        className={`border-b border-gray-200 group hover:bg-primary-100 transition-colors ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-primary-200' : ''}`}
+        className={`border-b border-gray-200 group hover:bg-primary-100 transition-colors ${onRowDoubleClick ? 'cursor-pointer' : ''} ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-primary-200' : ''}`}
         onClick={() => {
           if (enableSelection && onSelect) {
             const rId = row.key || row.id;
             if (rId) onSelect(rId, !selectedIds.includes(rId));
+          }
+        }}
+        onDoubleClick={(e) => {
+          if (onRowDoubleClick) {
+            e.stopPropagation();
+            onRowDoubleClick(row);
           }
         }}
       >
@@ -340,6 +350,8 @@ interface DynamicTableProps<T> {
   // Assistant Input Callback
   onSaveAssistant?: (val: string) => void;
   extraSearchContent?: React.ReactNode;
+  onEditRecord?: () => void;
+  onRowDoubleClick?: (row: T) => void;
 }
 
 const DynamicTable = <T extends Record<string, any>>({
@@ -371,6 +383,8 @@ const DynamicTable = <T extends Record<string, any>>({
   onDelete,
   onSaveAssistant,
   extraSearchContent,
+  onEditRecord,
+  onRowDoubleClick,
   currentPage: externalPage,
   onPageChange: externalOnPageChange
 }: DynamicTableProps<T>) => {
@@ -963,6 +977,19 @@ const DynamicTable = <T extends Record<string, any>>({
               >
                 <Save className="h-4 w-4" />
               </button>
+              {onEditRecord && (
+                <button
+                  onClick={onEditRecord}
+                  disabled={!selectedIds || selectedIds.length === 0}
+                  className={`p-1.5 border rounded-lg shadow-sm transition-colors active:scale-95 ${selectedIds && selectedIds.length > 0
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300'
+                    : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
+                  }`}
+                  title={selectedIds && selectedIds.length > 0 ? "Sửa toàn bộ thông tin bản ghi (dòng đang chọn)" : "Chọn dòng để sửa"}
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+              )}
               <button
                 onClick={onDelete}
                 disabled={!onDelete || !selectedIds || selectedIds.length === 0}
@@ -1146,6 +1173,8 @@ const InnerApp: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
   const [hasVisitedStats, setHasVisitedStats] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<SurgeryRecord | null>(null);
+  const [lastActiveRecordId, setLastActiveRecordId] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeTab === 'statistics') {
@@ -1302,8 +1331,12 @@ const InnerApp: React.FC = () => {
     let newIds;
     if (selected) {
       newIds = [...currentIds, id];
+      setLastActiveRecordId(id);
     } else {
       newIds = currentIds.filter(selectedId => selectedId !== id);
+      if (lastActiveRecordId === id) {
+        setLastActiveRecordId(newIds.length > 0 ? newIds[newIds.length - 1] : null);
+      }
     }
     console.log(`[handleRowSelect] New IDs:`, newIds);
     updateCurrentReport({ selectedRecordIds: newIds });
@@ -2239,6 +2272,57 @@ const InnerApp: React.FC = () => {
     }
   };
 
+  const handleOpenEditModal = () => {
+    const recs = currentReport.result?.validRecords || [];
+    const targetId = (lastActiveRecordId && currentReport.selectedRecordIds.includes(lastActiveRecordId))
+      ? lastActiveRecordId
+      : currentReport.selectedRecordIds[0];
+    const rec = recs.find(r => (r.key || r.id) === targetId);
+    if (rec) {
+      setEditingRecord(rec);
+    }
+  };
+
+  const handleRowDoubleClick = (row: SurgeryRecord) => {
+    if (activeTab === 'monthly' && currentReport.activeTable === 'list') {
+      setEditingRecord(row);
+    }
+  };
+
+  const handleSaveEditedRecord = async (updatedRecord: SurgeryRecord) => {
+    if (!currentReport.result?.validRecords) return;
+    const targetId = updatedRecord.id || updatedRecord.key;
+    const index = currentReport.result.validRecords.findIndex(r => (r.id || r.key) === targetId);
+    if (index === -1) return;
+
+    const newRecords = [...currentReport.result.validRecords];
+    newRecords[index] = updatedRecord;
+
+    // Lưu Firestore nếu bản ghi đã có path
+    const path = (updatedRecord as any).firestorePath;
+    if (path) {
+      try {
+        const docRef = doc(firestore, path);
+        await updateDoc(docRef, { ...updatedRecord });
+      } catch (err) {
+        console.error('[SurgeryEdit] Update firestore failed:', err);
+      }
+    }
+
+    const newResultPartial = recalculateResultFromRecords(newRecords, config);
+    updateCurrentReport({
+      result: {
+        ...currentReport.result,
+        validRecords: newRecords,
+        ...newResultPartial,
+      },
+      hasAutoFilledData: true,
+    });
+
+    addToast(`Đã lưu thay đổi thông tin của bệnh nhân ${updatedRecord.patientName}.`, 'success');
+    setEditingRecord(null);
+  };
+
   const renderTableContent = () => {
     if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
 
@@ -2269,6 +2353,8 @@ const InnerApp: React.FC = () => {
         onSelect={handleRowSelect}
         onSelectAll={handleSelectAll}
         onDelete={handleDeleteSelected}
+        onEditRecord={activeTab === 'monthly' ? handleOpenEditModal : undefined}
+        onRowDoubleClick={activeTab === 'monthly' ? handleRowDoubleClick : undefined}
         currentPage={listPage}
         onPageChange={setListPage}
         onSaveAssistant={handleSaveAssistant}
@@ -3778,6 +3864,16 @@ const InnerApp: React.FC = () => {
           if (dailyUploadState.listFile) handleProcess('daily');
           if (monthlyUploadState.listFile) handleProcess('monthly');
         }} />}
+
+        <SurgeryEditModal
+          isOpen={editingRecord !== null}
+          record={editingRecord}
+          onClose={() => setEditingRecord(null)}
+          onSave={handleSaveEditedRecord}
+          staffList={config.staffList || []}
+          machineRegistry={config.machineRegistry || []}
+          surgeryNamePrices={namePrices || []}
+        />
       </main>
     </div>
   );

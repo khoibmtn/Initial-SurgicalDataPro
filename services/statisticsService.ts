@@ -306,60 +306,39 @@ function aggregateMonth(
       }
     }
 
-    const { price, found } = getServicePrice(loai, r.ngayBD, priceVersions);
-    if (!found) hasMissingPrice = true;
-    const svcCost = price * qty;
-    totalServiceCost += svcCost;
-    serviceCostByType[loai] = (serviceCostByType[loai] || 0) + svcCost;
+    // 1. Viện phí PT/TT: Lấy trực tiếp từ cột thành tiền (hoặc đơn giá * số lượng) của bản ghi
+    let cost = 0;
+    if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien))) {
+      cost = Number(r.thanhTien);
+    } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia))) {
+      cost = Number(r.donGia) * qty;
+    } else {
+      // Fallback an toàn nếu bản ghi chưa có giá: tra cứu nhanh danh mục giá (nếu có)
+      const nameResult = getNamePriceFast(r.tenKT, r.ngayBD, indexedNamePrices, r.maTuongDuong);
+      if (nameResult.found) {
+        cost = nameResult.price * qty;
+        if (normalized && nameResult.matchedItem?.maTuongDuong && !maTuongDuongByName[normalized]) {
+          maTuongDuongByName[normalized] = nameResult.matchedItem.maTuongDuong;
+        }
+      }
+    }
+
+    if (normalized && r.maTuongDuong && !maTuongDuongByName[normalized]) {
+      maTuongDuongByName[normalized] = r.maTuongDuong;
+    }
+
+    totalServiceCost += cost;
+    serviceCostByType[loai] = (serviceCostByType[loai] || 0) + cost;
 
     const labCost = getLaborCost(loai, qty, laborPrices);
     totalLaborCost += labCost;
     laborCostByType[loai] = (laborCostByType[loai] || 0) + labCost;
 
-    // Name-based price lookup: Ưu tiên thanhTien/donGia trên record, nếu chưa có mới query getNamePriceFast
-    let npCost = 0;
-    let hasRecordPrice = false;
-
-    if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien))) {
-      npCost = Number(r.thanhTien);
-      hasRecordPrice = true;
-    } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia))) {
-      npCost = Number(r.donGia) * qty;
-      hasRecordPrice = true;
-    }
-
-    if (!hasRecordPrice) {
-      const nameResult = getNamePriceFast(r.tenKT, r.ngayBD, indexedNamePrices);
-      if (!nameResult.found && r.tenKT?.trim() && missingSurgeryNameTracker) {
-        const name = r.tenKT.trim();
-        const dateStr = r.ngayBD ? toLocalDateKey(r.ngayBD) : '';
-        missingSurgeryNameTracker.names.add(name);
-        missingSurgeryNameTracker.records.push({
-          maBN: r.patientId || '',
-          tenKT: name,
-          ngayPT: dateStr,
-        });
-      }
-      npCost = nameResult.price * qty;
-
-      if (normalized && nameResult.matchedItem?.maTuongDuong && !maTuongDuongByName[normalized]) {
-        maTuongDuongByName[normalized] = nameResult.matchedItem.maTuongDuong;
-      }
-    } else {
-      if (normalized && r.maTuongDuong && !maTuongDuongByName[normalized]) {
-        maTuongDuongByName[normalized] = r.maTuongDuong;
-      }
-    }
-
-    totalNamePriceCost += npCost;
-    namePriceCostByType[loai] = (namePriceCostByType[loai] || 0) + npCost;
+    totalNamePriceCost += cost;
+    namePriceCostByType[loai] = (namePriceCostByType[loai] || 0) + cost;
     if (normalized) {
-      namePriceCostByName[normalized] = (namePriceCostByName[normalized] || 0) + npCost;
+      namePriceCostByName[normalized] = (namePriceCostByName[normalized] || 0) + cost;
     }
-  }
-
-  if (hasMissingPrice) {
-    missingPriceMonths.push(`${month}/${year}`);
   }
 
   return {
@@ -406,23 +385,21 @@ function aggregateDaily(
       const loai = r.loaiPTTT || 'TKPL';
       const qty = r.soLuong || 1;
       byType[loai] = (byType[loai] || 0) + 1;
-      const name = r.tenKT || '';
-      if (name) byName[name] = (byName[name] || 0) + 1;
-      dayEquiv += qty;
-      const { price } = getServicePrice(loai, r.ngayBD, priceVersions);
-      daySvcCost += price * qty;
-      dayLabCost += getLaborCost(loai, qty, laborPrices);
-      // Ưu tiên r.thanhTien / r.donGia, fallback query getNamePriceFast
-      let dayNpCost = 0;
+      // Viện phí PT/TT: Lấy trực tiếp từ cột thành tiền (hoặc đơn giá * số lượng) của bản ghi
+      let dayCost = 0;
       if (r.thanhTien != null && r.thanhTien !== undefined && !isNaN(Number(r.thanhTien))) {
-        dayNpCost = Number(r.thanhTien);
+        dayCost = Number(r.thanhTien);
       } else if (r.donGia != null && r.donGia !== undefined && !isNaN(Number(r.donGia))) {
-        dayNpCost = Number(r.donGia) * qty;
+        dayCost = Number(r.donGia) * qty;
       } else {
-        const nameResult = getNamePriceFast(r.tenKT, r.ngayBD, indexedNamePrices);
-        dayNpCost = nameResult.price * qty;
+        const nameResult = getNamePriceFast(r.tenKT, r.ngayBD, indexedNamePrices, r.maTuongDuong);
+        if (nameResult.found) {
+          dayCost = nameResult.price * qty;
+        }
       }
-      dayNameCost += dayNpCost;
+      dayNameCost += dayCost;
+      daySvcCost += dayCost;
+      dayLabCost += getLaborCost(loai, qty, laborPrices);
     }
 
     cumCases += recs.length;
@@ -1069,7 +1046,7 @@ export async function exportStatisticsToExcel(data: StatisticsData): Promise<voi
       if (prev === 0) return m.actualCases > 0 ? '+100%' : '';
       return `${(((m.actualCases - prev) / prev) * 100).toFixed(1)}%`;
     }), ''],
-    ['Chi phí DV (VNĐ)', ...primary.map(m => m.serviceCost || ''), totalSvcCost],
+    ['Viện phí PT/TT (VNĐ)', ...primary.map(m => m.serviceCost || ''), totalSvcCost],
     ['Chi phí NC (VNĐ)', ...primary.map(m => m.laborCost || ''), totalLabCost],
   ];
 
