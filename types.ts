@@ -83,6 +83,7 @@ export interface SurgeryRecord {
   maTuongDuong?: string; // Mã BHXH / Mã tương đương (XX.XXXX.XXXX)
   donGia?: number;       // Đơn giá (VNĐ)
   thanhTien?: number;    // Thành tiền (VNĐ)
+  priceSource?: 'excel_dvkt' | 'catalog'; // Nguồn gốc giá: 'excel_dvkt' (từ file Excel Thống kê DVKT) hoặc 'catalog' (từ DM giá)
 }
 
 export type StaffRole = "PT_CHINH" | "PT_PHU" | "BS_GM" | "KTV_GM" | "TDC" | "GV";
@@ -215,6 +216,7 @@ export interface PersistedSurgeryRecord {
   maTuongDuong?: string;    // Mã BHXH / Mã tương đương chuẩn hóa (XX.XXXX.XXXX)
   donGia?: number;          // Đơn giá (VNĐ)
   thanhTien?: number;       // Thành tiền (VNĐ)
+  priceSource?: 'excel_dvkt' | 'catalog'; // Nguồn gốc giá
 }
 
 // ================= STATISTICS MODULE TYPES =================
@@ -418,3 +420,27 @@ export interface ServicePriceParseResult {
   serviceCount: number;
   totalAmount: number;
 }
+
+// ───────────────── REFILL MODULE TYPES ─────────────────
+
+export interface RefillCandidateItem {
+  catalogId?: string;       // ID item trong RTDB (nếu cập nhật)
+  tenKT: string;            // Tên kỹ thuật
+  maTuongDuong: string;     // Mã tương đương (XX.XXXX.XXXX)
+  effectiveFrom: string;    // Từ ngày (YYYY-MM-DD)
+  effectiveTo: string | null; // Đến ngày (YYYY-MM-DD hoặc null)
+  oldPrice?: number;        // Đơn giá hiện tại trong DM giá (nếu có)
+  newPrice: number;         // Đơn giá mới từ dữ liệu Excel
+  action: 'update' | 'create'; // Cập nhật giá mới hay tạo mới mục giá
+  matchedCount: number;     // Số ca phẫu thuật mang giá này
+  sampleDate: string;       // Ngày thực hiện mẫu (YYYY-MM-DD)
+  selected?: boolean;       // Trạng thái tick chọn
+}
+
+export interface RefillProcessReport {
+  totalExcelRecords: number;
+  catalogUpdatedCount: number;
+  catalogCreatedCount: number;
+  dataBackfilledCount: number;
+}
+

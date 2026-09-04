@@ -4,10 +4,12 @@
  * Flat structure: 1 record = 1 tenKT + 1 price + effectiveFrom/To
  */
 import { ref, onValue, push, set, remove, update, get } from 'firebase/database';
-import { db } from '../lib/firebase';
+import { db, firestore } from '../lib/firebase';
+import { collectionGroup, query, getDocs } from 'firebase/firestore';
 import * as XLSX from 'xlsx';
-import { SurgeryNamePrice } from '../types';
+import { SurgeryNamePrice, RefillCandidateItem } from '../types';
 import { reportService } from './reportService';
+import { normalizeMaTuongDuong } from './servicePriceProcessor';
 
 const NAME_PRICES_PATH = 'surgery_name_prices';
 
@@ -31,18 +33,26 @@ function normalizeStoredDate(raw: any): string {
   return s; // fallback: return as-is
 }
 
-/** Convert ISO UTC string → local yyyy-mm-dd (Vietnam timezone) */
+/** Convert ISO UTC string or VN date string → local yyyy-mm-dd (Vietnam timezone) */
 function toLocalDateKey(isoString: string): string {
   if (!isoString) return '';
+  const s = String(isoString).trim();
   // If already yyyy-mm-dd, return as-is
-  if (/^\d{4}-\d{2}-\d{2}$/.test(isoString.trim())) return isoString.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   // If yyyymmdd, convert
-  if (/^\d{8}$/.test(isoString.trim())) {
-    const s = isoString.trim();
+  if (/^\d{8}$/.test(s)) {
     return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
   }
-  const d = new Date(isoString);
-  if (isNaN(d.getTime())) return isoString.substring(0, 10); // fallback
+  // Check for dd/mm/yyyy or dd/mm/yyyy hh:mm or dd-mm-yyyy
+  const slashMatch = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (slashMatch) {
+    const d = slashMatch[1].padStart(2, '0');
+    const m = slashMatch[2].padStart(2, '0');
+    const y = slashMatch[3];
+    return `${y}-${m}-${d}`;
+  }
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return s.substring(0, 10); // fallback
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -80,12 +90,13 @@ export function getNamePrice(
   tenKT: string,
   dateStr: string,
   namePrices: SurgeryNamePrice[]
-): { price: number; found: boolean } {
+): { price: number; found: boolean; matchedItem?: SurgeryNamePrice } {
   if (!tenKT || !dateStr) return { price: 0, found: false };
 
   const normalizedName = normalizeForMatch(tenKT);
   // Extract date part: "2024-05-20T08:30:00" → local "2024-05-20" (timezone-safe)
   const localDate = toLocalDateKey(dateStr);
+  if (!localDate) return { price: 0, found: false };
 
   // Step 1: Find all prices with matching name
   const nameMatches = namePrices.filter(p => normalizeForMatch(p.tenKT) === normalizedName);
@@ -93,11 +104,13 @@ export function getNamePrice(
   // Step 2: Filter by date range
   const applicable = nameMatches
     .filter(p => {
-      if (p.effectiveFrom > localDate) return false;
-      if (p.effectiveTo && p.effectiveTo < localDate) return false;
+      const from = normalizeStoredDate(p.effectiveFrom);
+      const to = normalizeStoredDate(p.effectiveTo);
+      if (from && from > localDate) return false;
+      if (to && to < localDate) return false;
       return true;
     })
-    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+    .sort((a, b) => normalizeStoredDate(b.effectiveFrom).localeCompare(normalizeStoredDate(a.effectiveFrom)));
 
   if (applicable.length === 0) {
     // Debug: log why no match (only once per unique name)
@@ -129,6 +142,7 @@ export function getNamePrice(
   return {
     price: applicable[0].price ?? 0,
     found: true,
+    matchedItem: applicable[0],
   };
 }
 
@@ -309,32 +323,23 @@ interface SurgeryNameDatePair {
   surgeryDate: string; // yyyy-mm-dd
 }
 
-/** Scan RTDB records for years 2024-2026, extract all (tenKT, date) pairs */
-async function extractSurgeryNameDatePairs(
-  years: number[] = [2024, 2025, 2026]
-): Promise<SurgeryNameDatePair[]> {
+/** Scan all Firestore processed_records, extract all (tenKT, date) pairs */
+async function extractSurgeryNameDatePairs(): Promise<SurgeryNameDatePair[]> {
   const pairSet = new Map<string, SurgeryNameDatePair>();
+  const q = query(collectionGroup(firestore, 'processed_records'));
+  const snapshot = await getDocs(q);
 
-  for (const year of years) {
-    const dateFrom = `${year}-01-01T00:00:00.000Z`;
-    const dateTo = `${year}-12-31T23:59:59.999Z`;
-
-    const [monthly, daily] = await Promise.all([
-      reportService.getReports(dateFrom, dateTo, 'MONTHLY'),
-      reportService.getReports(dateFrom, dateTo, 'DAILY'),
-    ]);
-
-    for (const rec of [...monthly, ...daily]) {
-      const name = rec.tenKT?.trim();
-      const dateStr = rec.ngayBD || '';
-      if (!name || !dateStr) continue;
-      const localDate = toLocalDateKey(dateStr); // timezone-safe yyyy-mm-dd
-      const key = `${normalizeForMatch(name)}|${localDate}`;
-      if (!pairSet.has(key)) {
-        pairSet.set(key, { tenKT: name, surgeryDate: localDate });
-      }
+  snapshot.forEach((docSnap) => {
+    const data = docSnap.data();
+    const name = data.tenKT?.trim();
+    const dateStr = data.ngayBD || '';
+    if (!name || !dateStr) return;
+    const localDate = toLocalDateKey(dateStr); // timezone-safe yyyy-mm-dd
+    const key = `${normalizeForMatch(name)}|${localDate}`;
+    if (!pairSet.has(key)) {
+      pairSet.set(key, { tenKT: name, surgeryDate: localDate });
     }
-  }
+  });
 
   return Array.from(pairSet.values());
 }
@@ -344,7 +349,7 @@ export async function seedSurgeryNamePrices(
   existingPrices: SurgeryNamePrice[],
   onProgress?: (msg: string) => void
 ): Promise<{ added: number; skipped: number }> {
-  onProgress?.('Đang quét dữ liệu 2024-2026...');
+  onProgress?.('Đang quét toàn bộ dữ liệu phẫu thuật...');
   const pairs = await extractSurgeryNameDatePairs();
 
   onProgress?.(`Tìm thấy ${pairs.length} cặp (tên PT, ngày). Đang kiểm tra giá...`);
@@ -583,3 +588,150 @@ export async function migrateDateFormats(): Promise<{ fixed: number; total: numb
   console.log(`[migrateDateFormats] Fixed ${fixed}/${entries.length} records`);
   return { fixed, total: entries.length };
 }
+
+// ───────────────── REFILL HELPERS ─────────────────
+
+/**
+ * Tìm item trong DM giá theo Mã tương đương và Ngày phẫu thuật (nằm trong khoảng hiệu lực)
+ */
+export function findCatalogItemByMaTuongDuong(
+  maTuongDuong: string,
+  dateStr: string,
+  catalog: SurgeryNamePrice[]
+): SurgeryNamePrice | undefined {
+  if (!maTuongDuong || !dateStr) return undefined;
+  const normMTD = normalizeMaTuongDuong(maTuongDuong);
+  const localDate = toLocalDateKey(dateStr);
+
+  const matched = catalog.filter(item => {
+    if (normalizeMaTuongDuong(item.maTuongDuong) !== normMTD) return false;
+    if (item.effectiveFrom && item.effectiveFrom > localDate) return false;
+    if (item.effectiveTo && item.effectiveTo < localDate) return false;
+    return true;
+  });
+
+  if (matched.length === 0) return undefined;
+  // Sắp xếp ngày hiệu lực mới nhất trước
+  matched.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+  return matched[0];
+}
+
+/**
+ * Trích xuất danh sách ứng viên Refill từ danh sách bản ghi phẫu thuật Excel và DM giá:
+ * - Đối chiếu theo Mã tương đương + Ngày phẫu thuật
+ * - Gom nhóm theo (Mã tương đương, Đơn giá mới)
+ */
+export function generateRefillCandidates(
+  excelRecords: Array<{
+    maTuongDuong?: string;
+    donGia?: number;
+    ngayBD?: string;
+    start?: Date | null;
+    tenKT?: string;
+  }>,
+  catalog: SurgeryNamePrice[]
+): RefillCandidateItem[] {
+  // Map group key: `${normMTD}_${newPrice}` -> RefillCandidateItem
+  const candidatesMap = new Map<string, RefillCandidateItem>();
+
+  for (const rec of excelRecords) {
+    if (!rec.maTuongDuong || !rec.donGia || rec.donGia <= 0) continue;
+
+    const normMTD = normalizeMaTuongDuong(rec.maTuongDuong);
+    const rawDate = rec.ngayBD || (rec.start ? rec.start.toISOString() : '');
+    const localDate = toLocalDateKey(rawDate);
+    const newPrice = Number(rec.donGia);
+    const tenKT = String(rec.tenKT || '').trim();
+
+    const groupKey = `${normMTD}_${newPrice}`;
+    const existing = candidatesMap.get(groupKey);
+
+    if (existing) {
+      existing.matchedCount++;
+      // Cập nhật ngày mẫu
+      if (localDate && localDate < existing.sampleDate) {
+        existing.sampleDate = localDate;
+      }
+      continue;
+    }
+
+    // Tìm trong DM giá theo mã tương đương và ngày hiệu lực
+    const matchedCatalogItem = findCatalogItemByMaTuongDuong(normMTD, localDate, catalog);
+
+    if (matchedCatalogItem) {
+      candidatesMap.set(groupKey, {
+        catalogId: matchedCatalogItem.id,
+        tenKT: matchedCatalogItem.tenKT || tenKT,
+        maTuongDuong: normMTD,
+        effectiveFrom: matchedCatalogItem.effectiveFrom,
+        effectiveTo: matchedCatalogItem.effectiveTo,
+        oldPrice: matchedCatalogItem.price,
+        newPrice: newPrice,
+        action: 'update',
+        matchedCount: 1,
+        sampleDate: localDate,
+        selected: matchedCatalogItem.price !== newPrice, // Mặc định chọn nếu giá thay đổi
+      });
+    } else {
+      // Chưa có trong DM giá -> Đề xuất tạo mới
+      const monthStart = localDate ? `${localDate.slice(0, 7)}-01` : '2026-01-01';
+      candidatesMap.set(groupKey, {
+        tenKT: tenKT || `DVKT ${normMTD}`,
+        maTuongDuong: normMTD,
+        effectiveFrom: monthStart,
+        effectiveTo: null,
+        oldPrice: undefined,
+        newPrice: newPrice,
+        action: 'create',
+        matchedCount: 1,
+        sampleDate: localDate,
+        selected: true, // Mặc định chọn tạo mới
+      });
+    }
+  }
+
+  // Sắp xếp: Mục có thay đổi giá / tạo mới lên đầu, sau đó theo Tên DVKT
+  const result = Array.from(candidatesMap.values());
+  result.sort((a, b) => {
+    const diffA = a.action === 'create' || a.oldPrice !== a.newPrice ? 0 : 1;
+    const diffB = b.action === 'create' || b.oldPrice !== b.newPrice ? 0 : 1;
+    if (diffA !== diffB) return diffA - diffB;
+    return a.tenKT.localeCompare(b.tenKT, 'vi');
+  });
+
+  return result;
+}
+
+/**
+ * Thực hiện áp các ứng viên đã chọn vào Danh mục giá (RTDB)
+ */
+export async function applyRefillCandidatesToCatalog(
+  candidates: RefillCandidateItem[]
+): Promise<{ updated: number; created: number }> {
+  let updated = 0;
+  let created = 0;
+
+  for (const item of candidates) {
+    if (!item.selected) continue;
+
+    if (item.action === 'update' && item.catalogId) {
+      await updateSurgeryNamePrice(item.catalogId, {
+        price: item.newPrice,
+        maTuongDuong: item.maTuongDuong,
+      });
+      updated++;
+    } else if (item.action === 'create') {
+      await createSurgeryNamePrice({
+        tenKT: item.tenKT,
+        price: item.newPrice,
+        effectiveFrom: item.effectiveFrom,
+        effectiveTo: item.effectiveTo,
+        maTuongDuong: item.maTuongDuong,
+      });
+      created++;
+    }
+  }
+
+  return { updated, created };
+}
+

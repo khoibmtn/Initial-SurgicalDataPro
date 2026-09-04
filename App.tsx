@@ -155,31 +155,65 @@ const formatDate = (val: any, fmt: string) => {
 };
 
 
-// --- Components ---
+type ToastType = 'error' | 'success' | 'warning' | 'info';
 
-const ToastContainer = ({ toasts, removeToast }: { toasts: { id: string, message: React.ReactNode, type: 'error' | 'success' }[], removeToast: (id: string) => void }) => {
+interface ToastItem {
+  id: string;
+  message: React.ReactNode;
+  type: ToastType;
+}
+
+const ToastContainer = ({ toasts, removeToast }: { toasts: ToastItem[], removeToast: (id: string) => void }) => {
   return (
     <div className="fixed top-20 right-4 z-50 flex flex-col gap-2 pointer-events-none">
-      {toasts.map(toast => (
-        <div
-          key={toast.id}
-          className={`
-            pointer-events-auto min-w-[300px] p-4 rounded-lg shadow-lg border-l-4 animate-slide-in flex items-start gap-3 bg-white
-            ${toast.type === 'error' ? 'border-red-500' : 'border-green-500'}
-          `}
-        >
-          {toast.type === 'error' ? <AlertCircle className="h-5 w-5 text-red-500 shrink-0" /> : <CheckCircle className="h-5 w-5 text-green-500 shrink-0" />}
-          <div className="flex-1">
-            <p className={`font-medium text-sm ${toast.type === 'error' ? 'text-red-900' : 'text-green-900'}`}>
-              {toast.type === 'error' ? 'Lỗi' : 'Thành công'}
-            </p>
-            <p className="text-sm text-gray-600 mt-0.5">{toast.message}</p>
+      {toasts.map(toast => {
+        let borderColor = 'border-emerald-500';
+        let titleColor = 'text-emerald-900';
+        let titleText = 'Thành công';
+        let Icon = CheckCircle;
+        let iconColor = 'text-emerald-500';
+
+        if (toast.type === 'error') {
+          borderColor = 'border-red-500';
+          titleColor = 'text-red-900';
+          titleText = 'Lỗi';
+          Icon = AlertCircle;
+          iconColor = 'text-red-500';
+        } else if (toast.type === 'warning') {
+          borderColor = 'border-amber-500';
+          titleColor = 'text-amber-900';
+          titleText = 'Lưu ý giá DVKT';
+          Icon = AlertTriangle;
+          iconColor = 'text-amber-500';
+        } else if (toast.type === 'info') {
+          borderColor = 'border-blue-500';
+          titleColor = 'text-blue-900';
+          titleText = 'Thông tin';
+          Icon = AlertCircle;
+          iconColor = 'text-blue-500';
+        }
+
+        return (
+          <div
+            key={toast.id}
+            className={`
+              pointer-events-auto min-w-[320px] max-w-[480px] p-4 rounded-xl shadow-xl border-l-4 animate-slide-in flex items-start gap-3 bg-white
+              ${borderColor}
+            `}
+          >
+            <Icon className={`h-5 w-5 ${iconColor} shrink-0 mt-0.5`} />
+            <div className="flex-1 min-w-0">
+              <p className={`font-semibold text-sm ${titleColor}`}>
+                {titleText}
+              </p>
+              <div className="text-sm text-gray-700 mt-0.5">{toast.message}</div>
+            </div>
+            <button onClick={() => removeToast(toast.id)} className="text-gray-400 hover:text-gray-600 shrink-0 mt-0.5">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button onClick={() => removeToast(toast.id)} className="text-gray-400 hover:text-gray-600">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
@@ -1354,9 +1388,9 @@ const InnerApp: React.FC = () => {
     });
   };
 
-  const [toasts, setToasts] = useState<{ id: string, message: React.ReactNode, type: 'error' | 'success' }[]>([]);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  const addToast = (message: React.ReactNode, type: 'error' | 'success', duration = 6000) => {
+  const addToast = (message: React.ReactNode, type: ToastType = 'success', duration = 6000) => {
     const id = crypto.randomUUID();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => removeToast(id), duration);
@@ -1471,16 +1505,21 @@ const InnerApp: React.FC = () => {
           matchAndApplyServicePrices(res.validRecords, cachedServiceGroups);
         }
 
-        // 2. For any records still missing price, fallback to current logic (namePrices)
+        // 2. For any records still missing price, match with DM giá DVKT (namePrices)
+        // Check tenKT + surgery date falling within effective date range
         res.validRecords.forEach(r => {
-          if (!r.thanhTien && !r.donGia) {
-            const npResult = getNamePrice(r.tenKT, r.ngayBD, namePrices);
-            if (npResult.found) {
+          const hasPrice = (r.donGia && r.donGia > 0) || (r.thanhTien && r.thanhTien > 0);
+          if (!hasPrice) {
+            const rawDate = (r.start instanceof Date && !isNaN(r.start.getTime()))
+              ? r.start.toISOString()
+              : (r.ngayBD || '');
+            const npResult = getNamePrice(r.tenKT, rawDate, namePrices);
+            if (npResult.found && npResult.price > 0) {
               r.donGia = npResult.price;
               r.thanhTien = Math.round(npResult.price * (r.soLuong || 1));
-              const matchedNP = namePrices.find(p => p.tenKT === r.tenKT && p.maTuongDuong);
-              if (matchedNP?.maTuongDuong) {
-                r.maTuongDuong = matchedNP.maTuongDuong;
+              r.priceSource = 'catalog';
+              if (npResult.matchedItem?.maTuongDuong) {
+                r.maTuongDuong = npResult.matchedItem.maTuongDuong;
               }
             }
           }
@@ -1488,6 +1527,9 @@ const InnerApp: React.FC = () => {
       }
 
       // Auto-fill assistant AND machine data for monthly reports from daily reports
+      let updateGvCount = 0;
+      let updateMachineCount = 0;
+
       if (type === 'monthly' && res.validRecords) {
         try {
           // Get both assistant and machine data from Daily
@@ -1495,9 +1537,6 @@ const InnerApp: React.FC = () => {
             reportService.getAssistantDataFromDaily(res.validRecords),
             reportService.getMachineDataFromDaily(res.validRecords)
           ]);
-
-          let updateGvCount = 0;
-          let updateMachineCount = 0;
 
           res.validRecords.forEach(r => {
             const ngayBD = r.start ? r.start.toISOString() : r.ngayBD;
@@ -1521,45 +1560,78 @@ const InnerApp: React.FC = () => {
               }
             }
           });
-
-          if (updateGvCount > 0 || updateMachineCount > 0) {
-            // Recalculate with updated data
-            const freshResult = reprocessSurgicalRecords(
-              res.validRecords,
-              config,
-              res.dateRangeText || ''
-            );
-
-            // Update the result with fresh calculations
-            updateReportState(type, {
-              stats: freshResult.stats,
-              result: freshResult,
-              activeTable: 'list',
-              isProcessing: false,
-              dataSource: 'EXCEL',
-              hasAutoFilledData: true // Enable save button
-            }, 'upload');
-
-            const autoFillMsg = [];
-            if (updateGvCount > 0) autoFillMsg.push(`${updateGvCount} giúp việc`);
-            if (updateMachineCount > 0) autoFillMsg.push(`${updateMachineCount} mã máy`);
-
-            addToast(`Đã tự động điền ${autoFillMsg.join(' và ')} từ BC hàng ngày.`, 'success');
-            return; // Exit early since we already updated state
-          }
         } catch (error) {
           console.error('Error auto-filling from daily data:', error);
           // Continue with normal flow if auto-fill fails
         }
       }
 
+      // Recalculate monthly report to guarantee workbook and stats reflect updated prices and staff/machine
+      let finalResult = res;
+      if (type === 'monthly' && res.validRecords) {
+        finalResult = reprocessSurgicalRecords(
+          res.validRecords,
+          config,
+          res.dateRangeText || ''
+        );
+      }
+
       updateReportState(type, {
-        stats: res.stats,
-        result: res,
+        stats: finalResult.stats,
+        result: finalResult,
         activeTable: 'list',
         isProcessing: false,
-        dataSource: 'EXCEL'
+        dataSource: 'EXCEL',
+        hasAutoFilledData: (updateGvCount > 0 || updateMachineCount > 0)
       }, 'upload');
+
+      if (updateGvCount > 0 || updateMachineCount > 0) {
+        const autoFillMsg = [];
+        if (updateGvCount > 0) autoFillMsg.push(`${updateGvCount} giúp việc`);
+        if (updateMachineCount > 0) autoFillMsg.push(`${updateMachineCount} mã máy`);
+        addToast(`Đã tự động điền ${autoFillMsg.join(' và ')} từ BC hàng ngày.`, 'success');
+      }
+
+      // Thống kê và hiển thị thông báo áp giá cho Báo cáo tháng / Minh Lộ
+      if (type === 'monthly' && res.validRecords) {
+        const totalCount = res.validRecords.length;
+        const pricedCount = res.validRecords.filter(r => (r.donGia && r.donGia > 0) || (r.thanhTien && r.thanhTien > 0)).length;
+
+        let rangeText = res.dateRangeText || report.listDateRange || '';
+        if (!rangeText) {
+          const dates = res.validRecords
+            .map(r => (r.start instanceof Date && !isNaN(r.start.getTime())) ? r.start.getTime() : (r.ngayBD ? new Date(r.ngayBD).getTime() : 0))
+            .filter(t => t > 0)
+            .sort((a, b) => a - b);
+          if (dates.length > 0) {
+            const minDate = new Date(dates[0]);
+            const maxDate = new Date(dates[dates.length - 1]);
+            const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+            rangeText = `Từ ngày ${fmt(minDate)} đến ngày ${fmt(maxDate)}`;
+          }
+        }
+
+        if (pricedCount < totalCount) {
+          addToast(
+            <div className="space-y-1 text-left">
+              <p className="font-semibold text-amber-900 text-sm">
+                Có {pricedCount}/{totalCount} trường hợp có giá áp dụng.
+              </p>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                Hãy bổ sung import thêm báo cáo Thống kê giá DVKT trong khoảng thời gian {rangeText ? `(${rangeText}) ` : ''}để áp đầy đủ giá.
+              </p>
+            </div>,
+            'warning',
+            14000
+          );
+        } else {
+          addToast(
+            `Đã có ${pricedCount}/{totalCount} trường hợp có giá áp dụng.`,
+            'success',
+            6000
+          );
+        }
+      }
 
     } catch (error: any) {
       console.error(error);
@@ -3442,6 +3514,7 @@ const InnerApp: React.FC = () => {
             {activeTab === 'monthly' && (
               <div style={{ display: activeDataTab === 'price_service' ? 'block' : 'none' }}>
                 <ServicePriceTab
+                  surgeryNamePrices={namePrices}
                   currentLoadedRecords={monthlyStorageState.result?.validRecords || monthlyUploadState.result?.validRecords || []}
                   onPricesApplied={(updatedRecords) => {
                     if (monthlyStorageState.result) {
@@ -3497,6 +3570,62 @@ const InnerApp: React.FC = () => {
 
             {activeDataTab !== 'price_service' && currentReport.stats && currentReport.result && (
               <>
+                {/* ── Monthly Price Coverage Banner ── */}
+                {currentType === 'monthly' && (() => {
+                  const records = currentReport.result?.validRecords || [];
+                  const total = records.length;
+                  if (total === 0) return null;
+                  const priced = records.filter(r => (r.donGia && r.donGia > 0) || (r.thanhTien && r.thanhTien > 0)).length;
+                  let rangeText = currentReport.result?.dateRangeText || '';
+                  if (!rangeText) {
+                    const dates = records
+                      .map(r => (r.start instanceof Date && !isNaN(r.start.getTime())) ? r.start.getTime() : (r.ngayBD ? new Date(r.ngayBD).getTime() : 0))
+                      .filter(t => t > 0)
+                      .sort((a, b) => a - b);
+                    if (dates.length > 0) {
+                      const minD = new Date(dates[0]);
+                      const maxD = new Date(dates[dates.length - 1]);
+                      const fmt = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+                      rangeText = `Từ ngày ${fmt(minD)} đến ngày ${fmt(maxD)}`;
+                    }
+                  }
+
+                  if (priced < total) {
+                    return (
+                      <div className="mx-4 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start justify-between gap-3 text-amber-900 shadow-sm animate-fade-in">
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold">
+                              Có {priced}/{total} trường hợp có giá áp dụng.
+                            </p>
+                            <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                              Hãy bổ sung import thêm báo cáo Thống kê giá DVKT trong khoảng thời gian {rangeText ? `(${rangeText}) ` : ''}để áp đầy đủ giá.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setActiveDataTab('price_service')}
+                          className="shrink-0 px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                        >
+                          Nhập giá DVKT
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="mx-4 mt-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-2 text-emerald-900 shadow-xs">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span className="text-xs font-medium">
+                          Đã có {priced}/{total} trường hợp có giá áp dụng (Đầy đủ 100%).
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* ── Date range + Action Buttons Row ── */}
                 <div className="flex items-center justify-between gap-2 px-4 mt-3">
                   {/* Date range text (left) */}

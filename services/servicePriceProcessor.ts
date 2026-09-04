@@ -315,6 +315,7 @@ export function matchAndApplyServicePrices(
     if (matchedItem) {
       updated.maTuongDuong = matchedItem.maTuongDuong;
       updated.donGia = matchedItem.donGia;
+      updated.priceSource = 'excel_dvkt';
       // Nếu khớp không theo exact qty, tính lại thanhTien theo qty thực tế của ca
       updated.thanhTien =
         matchedItem.soLuong === qty ? matchedItem.thanhTien : Math.round(matchedItem.donGia * qty);

@@ -7,9 +7,9 @@ import * as XLSX from 'xlsx';
 import {
   Plus, Download, Upload, Trash2, Edit3, Save, X, Database,
   CheckCircle2, AlertTriangle, Search, ChevronLeft, ChevronRight,
-  Loader2, FileSpreadsheet,
+  Loader2, FileSpreadsheet, Sparkles, RefreshCw,
 } from 'lucide-react';
-import { SurgeryNamePrice } from '../../types';
+import { SurgeryNamePrice, RefillCandidateItem } from '../../types';
 import {
   createSurgeryNamePrice,
   updateSurgeryNamePrice,
@@ -21,7 +21,11 @@ import {
   exportNamePriceTemplate,
   parseImportedNamePriceExcel,
   migrateDateFormats,
+  generateRefillCandidates,
+  applyRefillCandidatesToCatalog,
 } from '../../services/surgeryNamePriceService';
+import { reportService } from '../../services/reportService';
+import { RefillModal } from './RefillModal';
 
 interface Props {
   surgeryNamePrices: SurgeryNamePrice[];
@@ -62,6 +66,12 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filterZeroPrice, setFilterZeroPrice] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Refill states
+  const [showRefillModal, setShowRefillModal] = useState(false);
+  const [refillCandidates, setRefillCandidates] = useState<RefillCandidateItem[]>([]);
+  const [isRefilling, setIsRefilling] = useState(false);
+  const [refillProgress, setRefillProgress] = useState('');
 
   // Auto-migrate yyyymmdd → yyyy-mm-dd (one-time per session)
   useEffect(() => {
@@ -220,7 +230,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
 
   // --- Seed ---
   const handleSeed = async () => {
-    if (!window.confirm('Quét dữ liệu 2024-2026 để lấy danh sách phẫu thuật. Tiếp tục?')) return;
+    if (!window.confirm('Quét toàn bộ dữ liệu phẫu thuật trên hệ thống để lấy danh sách phẫu thuật. Tiếp tục?')) return;
     setSeeding(true);
     setSeedProgress('Đang quét...');
     try {
@@ -231,6 +241,85 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
     } finally {
       setSeeding(false);
       setSeedProgress('');
+    }
+  };
+
+  // --- Refill from Excel Sourced Records ---
+  const handleStartExcelRefill = async () => {
+    setIsRefilling(true);
+    setRefillProgress('Đang quét dữ liệu Firestore...');
+    try {
+      const excelRecords = await reportService.fetchExcelSourcedRecords(setRefillProgress);
+      if (excelRecords.length === 0) {
+        showToast('Chưa có ca phẫu thuật nào được import giá từ file Excel DVKT.', 'error');
+        setIsRefilling(false);
+        setRefillProgress('');
+        return;
+      }
+
+      setRefillProgress(`Tìm thấy ${excelRecords.length} ca. Đang đối chiếu với DM giá...`);
+      const candidates = generateRefillCandidates(excelRecords, surgeryNamePrices);
+
+      if (candidates.length === 0) {
+        showToast('Không có mục nào cần cập nhật.', 'success');
+        setIsRefilling(false);
+        setRefillProgress('');
+        return;
+      }
+
+      setRefillCandidates(candidates);
+      setShowRefillModal(true);
+    } catch (err: any) {
+      showToast(err.message || 'Lỗi quét dữ liệu', 'error');
+    } finally {
+      setIsRefilling(false);
+      setRefillProgress('');
+    }
+  };
+
+  const handleConfirmRefill = async (selected: RefillCandidateItem[]) => {
+    setIsRefilling(true);
+    setRefillProgress('Đang cập nhật Danh mục giá...');
+    try {
+      // 1. Update/create items in Catalog (RTDB)
+      const catRes = await applyRefillCandidatesToCatalog(selected);
+
+      // 2. Build updated catalog snapshot for backfilling data
+      const updatedCatalogMap = new Map<string, SurgeryNamePrice>();
+      surgeryNamePrices.forEach(p => updatedCatalogMap.set(p.id, { ...p }));
+      selected.forEach(c => {
+        if (c.catalogId && updatedCatalogMap.has(c.catalogId)) {
+          const item = updatedCatalogMap.get(c.catalogId)!;
+          item.price = c.newPrice;
+          item.maTuongDuong = c.maTuongDuong;
+        } else if (c.action === 'create') {
+          const tempId = `temp_${c.maTuongDuong}_${Date.now()}`;
+          updatedCatalogMap.set(tempId, {
+            id: tempId,
+            tenKT: c.tenKT,
+            price: c.newPrice,
+            effectiveFrom: c.effectiveFrom,
+            effectiveTo: c.effectiveTo,
+            maTuongDuong: c.maTuongDuong,
+            createdAt: Date.now(),
+          });
+        }
+      });
+      const updatedCatalogList = Array.from(updatedCatalogMap.values());
+
+      setRefillProgress('Đang fill giá ngược vào các ca chưa có giá trong CSDL...');
+      // 3. Backfill data in Firestore: only records where priceSource !== 'excel_dvkt' and has maTuongDuong
+      const backfillRes = await reportService.backfillCatalogPrices(updatedCatalogList, setRefillProgress);
+
+      showToast(
+        `Hoàn tất Refill: ${catRes.updated} mục cập nhật & ${catRes.created} mục thêm vào DM giá. Đã điền giá cho ${backfillRes.updated} ca trong CSDL.`
+      );
+      setShowRefillModal(false);
+    } catch (err: any) {
+      showToast(`Lỗi xử lý Refill: ${err.message}`, 'error');
+    } finally {
+      setIsRefilling(false);
+      setRefillProgress('');
     }
   };
 
@@ -337,6 +426,15 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
               onChange={handleFileUpload}
             />
           </label>
+          <button
+            onClick={handleStartExcelRefill}
+            disabled={isRefilling}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 transition-colors shadow-sm"
+            title="Quét các ca đã import từ file Excel để cập nhật DM giá và fill lại các ca chưa có giá"
+          >
+            {isRefilling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-600" />}
+            {isRefilling ? refillProgress || 'Đang quét...' : 'Refill từ file Excel'}
+          </button>
           <button
             onClick={handleStartAdd}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors"
@@ -645,6 +743,18 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices }) =
           )}
         </>
       )}
+
+      {/* Refill Review & Confirmation Modal */}
+      <RefillModal
+        isOpen={showRefillModal}
+        onClose={() => setShowRefillModal(false)}
+        title="Refill Danh mục giá & Cập nhật Dữ liệu"
+        subtitle="Quét toàn bộ ca phẫu thuật từ file Excel trên toàn hệ thống để cập nhật DM giá, sau đó tự động áp giá cho các ca chưa có giá trong CSDL."
+        candidates={refillCandidates}
+        onConfirm={handleConfirmRefill}
+        isConfirming={isRefilling}
+        confirmLabel="Áp dụng vào DM giá & Điền data"
+      />
     </div>
   );
 };

@@ -14,13 +14,17 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
-  ArrowRight
+  ArrowRight,
+  Sparkles,
+  Info
 } from 'lucide-react';
 import { FileUpload } from './FileUpload';
 import {
   SurgeryRecord,
   PatientServicePriceGroup,
   ServicePriceParseResult,
+  SurgeryNamePrice,
+  RefillCandidateItem
 } from '../types';
 import {
   parseServicePriceExcel,
@@ -28,6 +32,11 @@ import {
   PriceMatchResult,
 } from '../services/servicePriceProcessor';
 import { reportService } from '../services/reportService';
+import {
+  generateRefillCandidates,
+  applyRefillCandidatesToCatalog
+} from '../services/surgeryNamePriceService';
+import { RefillModal } from './statistics/RefillModal';
 
 interface ServicePriceTabProps {
   onPricesApplied: (appliedRecords: SurgeryRecord[], matchResult: PriceMatchResult) => void;
@@ -35,6 +44,7 @@ interface ServicePriceTabProps {
   addToast: (message: React.ReactNode, type?: 'info' | 'success' | 'warning' | 'error') => void;
   cachedServiceGroups?: PatientServicePriceGroup[];
   onCacheServiceGroups: (groups: PatientServicePriceGroup[]) => void;
+  surgeryNamePrices?: SurgeryNamePrice[];
 }
 
 export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
@@ -43,6 +53,7 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
   addToast,
   cachedServiceGroups = [],
   onCacheServiceGroups,
+  surgeryNamePrices = [],
 }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -174,6 +185,7 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
         maTuongDuong: d.record.maTuongDuong,
         donGia: d.record.donGia,
         thanhTien: d.record.thanhTien,
+        priceSource: 'excel_dvkt' as const,
       }));
 
       const updatedCount = await reportService.batchUpdatePrices(updates);
@@ -183,6 +195,55 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
       addToast(`Lỗi khi lưu vào Firestore: ${error.message}`, 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Refill Modal state
+  const [showRefillModal, setShowRefillModal] = useState(false);
+  const [refillCandidates, setRefillCandidates] = useState<RefillCandidateItem[]>([]);
+  const [isRefilling, setIsRefilling] = useState(false);
+
+  // Open Refill Modal with matched records from Excel
+  const handleOpenRefillModal = () => {
+    if (!matchResult || matchResult.matchedCount === 0) {
+      addToast('Chưa có ca phẫu thuật nào được khớp giá để refill.', 'warning');
+      return;
+    }
+
+    const matchedRecords = matchResult.matchDetails
+      .filter((d) => d.matched && d.record.maTuongDuong && d.record.donGia)
+      .map((d) => d.record);
+
+    if (matchedRecords.length === 0) {
+      addToast('Không có ca nào có đủ mã tương đương và đơn giá để refill.', 'warning');
+      return;
+    }
+
+    const candidates = generateRefillCandidates(matchedRecords, surgeryNamePrices);
+    if (candidates.length === 0) {
+      addToast('Không tìm thấy DVKT nào đủ điều kiện để refill vào Danh mục giá.', 'warning');
+      return;
+    }
+
+    setRefillCandidates(candidates);
+    setShowRefillModal(true);
+  };
+
+  // Confirm apply refill to catalog
+  const handleConfirmRefill = async (selected: RefillCandidateItem[]) => {
+    setIsRefilling(true);
+    try {
+      const res = await applyRefillCandidatesToCatalog(selected);
+      addToast(
+        `Đã refill thành công: ${res.updated} mục cập nhật giá, ${res.created} mục thêm mới vào Danh mục giá.`,
+        'success'
+      );
+      setShowRefillModal(false);
+    } catch (error: any) {
+      console.error('Error applying refill to catalog:', error);
+      addToast(`Lỗi khi refill vào Danh mục giá: ${error.message}`, 'error');
+    } finally {
+      setIsRefilling(false);
     }
   };
 
@@ -220,6 +281,29 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
 
   return (
     <div className="flex flex-col gap-4 p-4 animate-fade-in max-w-[1600px] mx-auto w-full">
+      {/* ── Hướng dẫn lấy báo cáo từ phần mềm HIS ── */}
+      <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-blue-50/80 border border-blue-200/80 text-xs text-blue-900 shadow-sm">
+        <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+          <Info className="h-4 w-4" />
+        </div>
+        <div className="flex-1 leading-relaxed">
+          <div className="font-bold text-blue-950 text-xs mb-1 flex items-center gap-2">
+            <span>📋 Hướng dẫn xuất file Excel từ phần mềm HIS:</span>
+          </div>
+          <p className="text-blue-900/90">
+            Chọn <strong className="text-blue-950 bg-blue-100/80 px-1.5 py-0.5 rounded font-bold">Báo cáo</strong> / <strong className="text-blue-950 bg-blue-100/80 px-1.5 py-0.5 rounded font-bold">BC cận lâm sàng</strong> → chọn <strong className="text-blue-950 bg-blue-100/80 px-1.5 py-0.5 rounded font-bold">Thống kê dịch vụ kỹ thuật</strong>.
+            {' '}Thiết lập các tùy chọn:{' '}
+            <span className="font-semibold text-blue-950 underline decoration-blue-300">Ngày lập phiếu</span>,{' '}
+            <span>Loại dịch vụ (</span><strong className="text-blue-950 font-bold">Phẫu thuật, thủ thuật</strong><span>)</span>;{' '}
+            <span>nhóm theo: </span><strong className="text-blue-950 font-bold">Họ tên</strong>;{' '}
+            <span>tích chọn: </span>
+            <span className="inline-flex items-center font-bold text-blue-950 bg-blue-200/80 px-1.5 py-0.5 rounded border border-blue-300/60">
+              ✓ Không xuống dòng khi in
+            </span>.
+          </p>
+        </div>
+      </div>
+
       {/* ── Top Upload & Control Frame ── */}
       <div className={`p-4 rounded-2xl border transition-all duration-200 shadow-sm ${
         selectedFile ? 'bg-amber-50/70 border-amber-300' : 'bg-white border-gray-200'
@@ -298,6 +382,17 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
                   <Save className="h-4 w-4" />
                 )}
                 {isSaving ? 'Đang lưu vào CSDL...' : 'Lưu vào Lưu trữ (Firestore)'}
+              </button>
+            )}
+
+            {/* Nút Refill vào Danh mục giá */}
+            {matchResult && matchResult.matchedCount > 0 && (
+              <button
+                onClick={handleOpenRefillModal}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm"
+              >
+                <Sparkles className="h-4 w-4 text-emerald-200" />
+                Refill vào Danh mục giá
               </button>
             )}
           </div>
@@ -546,6 +641,18 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
           )}
         </div>
       )}
+
+      {/* Refill Review Modal */}
+      <RefillModal
+        isOpen={showRefillModal}
+        onClose={() => setShowRefillModal(false)}
+        title="Refill Danh mục giá từ File Excel"
+        subtitle="Đối chiếu các ca phẫu thuật đã khớp từ file Excel với Danh mục giá hiện tại theo Mã tương đương và Ngày thực hiện."
+        candidates={refillCandidates}
+        onConfirm={handleConfirmRefill}
+        isConfirming={isRefilling}
+        confirmLabel="Áp dụng vào Danh mục giá"
+      />
     </div>
   );
 };

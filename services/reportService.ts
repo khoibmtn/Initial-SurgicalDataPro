@@ -16,8 +16,10 @@ import {
     SurgeryRecord,
     PersistedSurgeryRecord,
     ReportMetadata,
-    MachineEntry
+    MachineEntry,
+    SurgeryNamePrice
 } from "../types";
+import { normalizeMaTuongDuong } from "./servicePriceProcessor";
 
 const BATCH_SIZE = 450; // Firestore batch limit is 500, keep safe margin
 
@@ -54,7 +56,8 @@ function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): Persi
         type: type,
         ...(rec.maTuongDuong ? { maTuongDuong: rec.maTuongDuong } : {}),
         ...(rec.donGia !== undefined ? { donGia: rec.donGia } : {}),
-        ...(rec.thanhTien !== undefined ? { thanhTien: rec.thanhTien } : {})
+        ...(rec.thanhTien !== undefined ? { thanhTien: rec.thanhTien } : {}),
+        ...(rec.priceSource ? { priceSource: rec.priceSource } : {})
     };
 }
 
@@ -743,6 +746,7 @@ export const reportService = {
             maTuongDuong?: string;
             donGia?: number;
             thanhTien?: number;
+            priceSource?: 'excel_dvkt' | 'catalog';
         }>
     ): Promise<number> {
         try {
@@ -758,6 +762,7 @@ export const reportService = {
                 if (item.maTuongDuong !== undefined) patch.maTuongDuong = item.maTuongDuong;
                 if (item.donGia !== undefined) patch.donGia = item.donGia;
                 if (item.thanhTien !== undefined) patch.thanhTien = item.thanhTien;
+                if (item.priceSource !== undefined) patch.priceSource = item.priceSource;
 
                 if (Object.keys(patch).length > 0) {
                     batch.update(docRef, patch);
@@ -779,6 +784,122 @@ export const reportService = {
             return updatedCount;
         } catch (error) {
             console.error('Error batch updating prices:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Quét tất cả bản ghi đã được import giá từ file Excel (priceSource === 'excel_dvkt' hoặc đã có maTuongDuong và donGia)
+     */
+    async fetchExcelSourcedRecords(onProgress?: (msg: string) => void): Promise<PersistedSurgeryRecord[]> {
+        try {
+            onProgress?.('Đang quét dữ liệu từ Firestore...');
+            const q = query(collectionGroup(db, 'processed_records'));
+            const snapshot = await getDocs(q);
+
+            onProgress?.(`Tìm thấy ${snapshot.size} bản ghi. Đang phân tích nguồn giá Excel...`);
+            const excelRecords: PersistedSurgeryRecord[] = [];
+
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data() as PersistedSurgeryRecord;
+                data.firestorePath = docSnap.ref.path;
+                data.id = docSnap.id;
+
+                // Điều kiện là bản ghi có nguồn giá từ Excel DVKT
+                const isExcelSource = data.priceSource === 'excel_dvkt' || 
+                    (!data.priceSource && Boolean(data.maTuongDuong && data.donGia && data.donGia > 0));
+
+                if (isExcelSource && data.maTuongDuong && data.donGia && data.donGia > 0) {
+                    excelRecords.push(data);
+                }
+            });
+
+            return excelRecords;
+        } catch (error) {
+            console.error('Error fetching excel sourced records:', error);
+            return [];
+        }
+    },
+
+    /**
+     * Dùng Danh mục giá để fill lại giá cho các ca phẫu thuật trong CSDL:
+     * - Chỉ áp dụng cho các ca CHƯA CÓ GIÁ hoặc GIÁ TỪ LOGIC KHÁC (priceSource !== 'excel_dvkt')
+     * - Chỉ áp dụng cho ca ĐÃ CÓ MÃ TƯƠNG ĐƯƠNG
+     * - Khớp theo cặp (maTuongDuong, ngayThucHien) nằm trong khoảng hiệu lực của DM giá
+     */
+    async backfillCatalogPrices(
+        catalog: SurgeryNamePrice[],
+        onProgress?: (msg: string) => void
+    ): Promise<{ totalScanned: number; eligible: number; updated: number }> {
+        try {
+            onProgress?.('Đang quét toàn bộ dữ liệu từ Firestore...');
+            const q = query(collectionGroup(db, 'processed_records'));
+            const snapshot = await getDocs(q);
+
+            onProgress?.(`Tìm thấy ${snapshot.size} bản ghi. Đang đối chiếu giá với DM giá...`);
+
+            let totalScanned = 0;
+            let eligible = 0;
+            const updates: Array<{
+                firestorePath: string;
+                donGia: number;
+                thanhTien: number;
+                priceSource: 'catalog';
+            }> = [];
+
+            snapshot.forEach(docSnap => {
+                totalScanned++;
+                const data = docSnap.data() as PersistedSurgeryRecord;
+
+                // Tuyệt đối không ghi đè lên các bản ghi có nguồn giá từ Excel
+                if (data.priceSource === 'excel_dvkt') {
+                    return;
+                }
+
+                // Phải có mã tương đương
+                if (!data.maTuongDuong || !data.maTuongDuong.trim()) {
+                    return;
+                }
+
+                const surgeryDate = data.ngayBD ? data.ngayBD.substring(0, 10) : '';
+                if (!surgeryDate) return;
+
+                // Tìm trong DM giá theo mã tương đương và khoảng hiệu lực
+                const normMTD = normalizeMaTuongDuong(data.maTuongDuong);
+                const matchedPriceItem = catalog.find(item => {
+                    if (normalizeMaTuongDuong(item.maTuongDuong) !== normMTD) return false;
+                    if (item.effectiveFrom && item.effectiveFrom > surgeryDate) return false;
+                    if (item.effectiveTo && item.effectiveTo < surgeryDate) return false;
+                    return true;
+                });
+
+                if (matchedPriceItem && matchedPriceItem.price > 0) {
+                    eligible++;
+                    const qty = Number(data.soLuong ?? 1);
+                    const newDonGia = matchedPriceItem.price;
+                    const newThanhTien = Math.round(newDonGia * qty);
+
+                    // Chỉ cập nhật nếu giá thay đổi hoặc chưa có đơn giá
+                    if (data.donGia !== newDonGia || data.thanhTien !== newThanhTien || data.priceSource !== 'catalog') {
+                        updates.push({
+                            firestorePath: docSnap.ref.path,
+                            donGia: newDonGia,
+                            thanhTien: newThanhTien,
+                            priceSource: 'catalog',
+                        });
+                    }
+                }
+            });
+
+            onProgress?.(`Đang lưu cập nhật giá cho ${updates.length} bản ghi vào Firestore...`);
+            let updated = 0;
+            if (updates.length > 0) {
+                updated = await this.batchUpdatePrices(updates);
+            }
+
+            return { totalScanned, eligible, updated };
+        } catch (error) {
+            console.error('Error backfilling catalog prices:', error);
             throw error;
         }
     }
