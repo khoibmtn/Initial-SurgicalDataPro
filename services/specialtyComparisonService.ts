@@ -47,6 +47,7 @@ export interface ComparisonRow {
   tenKT: string;
   specialty: SpecialtyCode;
   specialtyName: string;
+  // Số lượng (Count)
   currentCount: number;
   prevCount: number;
   prevDiff: number;
@@ -54,6 +55,15 @@ export interface ComparisonRow {
   samePeriodCount: number;
   samePeriodDiff: number | null;
   samePeriodChangePct: number | null;
+  // Viện phí (Revenue)
+  currentRevenue: number;
+  prevRevenue: number;
+  prevRevenueDiff: number;
+  prevRevenueChangePct: number | null;
+  samePeriodRevenue: number;
+  samePeriodRevenueDiff: number | null;
+  samePeriodRevenueChangePct: number | null;
+
   status: ComparisonStatus;
   statusLabel: 'CẢNH BÁO' | 'TÍCH CỰC' | 'ỔN ĐỊNH';
   note: string;
@@ -65,6 +75,9 @@ export interface SpecialtyReportGroup {
   totalCurrent: number;
   totalPrev: number;
   totalSamePeriod: number;
+  totalCurrentRevenue: number;
+  totalPrevRevenue: number;
+  totalSamePeriodRevenue: number;
   alertCount: number;
   positiveCount: number;
   normalCount: number;
@@ -514,6 +527,9 @@ export async function getSpecialtyComparisonData(
     current: number;
     prev: number;
     samePeriod: number;
+    currentRevenue: number;
+    prevRevenue: number;
+    samePeriodRevenue: number;
   }
 
   const itemsMap = new Map<string, ItemCounter>();
@@ -527,6 +543,14 @@ export async function getSpecialtyComparisonData(
     const normName = r.tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
     const key = `${specialty}:::${normName}`;
 
+    const qty = r.soLuong || 1;
+    let rev = 0;
+    if (r.thanhTien != null && !isNaN(Number(r.thanhTien))) {
+      rev = Number(r.thanhTien);
+    } else if (r.donGia != null && !isNaN(Number(r.donGia))) {
+      rev = Number(r.donGia) * qty;
+    }
+
     if (!itemsMap.has(key)) {
       itemsMap.set(key, {
         displayName: r.tenKT.trim(),
@@ -534,13 +558,23 @@ export async function getSpecialtyComparisonData(
         current: 0,
         prev: 0,
         samePeriod: 0,
+        currentRevenue: 0,
+        prevRevenue: 0,
+        samePeriodRevenue: 0,
       });
     }
 
     const item = itemsMap.get(key)!;
-    if (period === 'current') item.current += (r.soLuong || 1);
-    else if (period === 'prev') item.prev += (r.soLuong || 1);
-    else if (period === 'samePeriod') item.samePeriod += (r.soLuong || 1);
+    if (period === 'current') {
+      item.current += qty;
+      item.currentRevenue += rev;
+    } else if (period === 'prev') {
+      item.prev += qty;
+      item.prevRevenue += rev;
+    } else if (period === 'samePeriod') {
+      item.samePeriod += qty;
+      item.samePeriodRevenue += rev;
+    }
   };
 
   currentRecords.forEach(r => registerRecord(r, 'current'));
@@ -554,6 +588,10 @@ export async function getSpecialtyComparisonData(
     const prev = item.prev;
     const same = item.samePeriod;
 
+    const curRev = item.currentRevenue;
+    const prevRev = item.prevRevenue;
+    const sameRev = item.samePeriodRevenue;
+
     let prevChangePct: number | null = null;
     if (prev > 0) {
       prevChangePct = ((cur - prev) / prev) * 100;
@@ -562,6 +600,18 @@ export async function getSpecialtyComparisonData(
     let samePeriodChangePct: number | null = null;
     if (hasSamePeriodData && same > 0) {
       samePeriodChangePct = ((cur - same) / same) * 100;
+    }
+
+    const prevRevenueDiff = curRev - prevRev;
+    let prevRevenueChangePct: number | null = null;
+    if (prevRev > 0) {
+      prevRevenueChangePct = ((curRev - prevRev) / prevRev) * 100;
+    }
+
+    const samePeriodRevenueDiff = hasSamePeriodData ? (curRev - sameRev) : null;
+    let samePeriodRevenueChangePct: number | null = null;
+    if (hasSamePeriodData && sameRev > 0) {
+      samePeriodRevenueChangePct = ((curRev - sameRev) / sameRev) * 100;
     }
 
     let status: ComparisonStatus = 'NORMAL';
@@ -614,6 +664,13 @@ export async function getSpecialtyComparisonData(
       samePeriodCount: hasSamePeriodData ? same : 0,
       samePeriodDiff,
       samePeriodChangePct,
+      currentRevenue: curRev,
+      prevRevenue: prevRev,
+      prevRevenueDiff,
+      prevRevenueChangePct,
+      samePeriodRevenue: hasSamePeriodData ? sameRev : 0,
+      samePeriodRevenueDiff,
+      samePeriodRevenueChangePct,
       status,
       statusLabel,
       note,
@@ -640,6 +697,10 @@ export async function getSpecialtyComparisonData(
       const totalPrev = rows.reduce((sum, r) => sum + r.prevCount, 0);
       const totalSamePeriod = rows.reduce((sum, r) => sum + r.samePeriodCount, 0);
 
+      const totalCurrentRevenue = rows.reduce((sum, r) => sum + r.currentRevenue, 0);
+      const totalPrevRevenue = rows.reduce((sum, r) => sum + r.prevRevenue, 0);
+      const totalSamePeriodRevenue = rows.reduce((sum, r) => sum + r.samePeriodRevenue, 0);
+
       const alertCount = rows.filter(r => r.status === 'ALERT').length;
       const positiveCount = rows.filter(r => r.status === 'POSITIVE').length;
       const normalCount = rows.filter(r => r.status === 'NORMAL').length;
@@ -650,6 +711,9 @@ export async function getSpecialtyComparisonData(
         totalCurrent,
         totalPrev,
         totalSamePeriod,
+        totalCurrentRevenue,
+        totalPrevRevenue,
+        totalSamePeriodRevenue,
         alertCount,
         positiveCount,
         normalCount,
