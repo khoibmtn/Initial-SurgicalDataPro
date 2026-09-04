@@ -197,7 +197,8 @@ const DateTimeField: React.FC<DateTimeFieldProps> = ({
           value={timeValue}
           onChange={e => onTimeChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          className="text-xs bg-transparent border-0 outline-none text-gray-800 font-medium w-20 cursor-pointer"
+          className="text-xs bg-transparent border-0 outline-none text-gray-800 font-medium w-[4.5rem] cursor-pointer"
+          step="60"
         />
       </div>
     </div>
