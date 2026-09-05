@@ -536,3 +536,41 @@ export interface LaborConfigVersion {
   updatedAt: number;
 }
 
+/** Flat independent timeline items for each PTTT allowance rate */
+export interface LaborAllowanceItem {
+  id: string;
+  loai: string;             // PĐB, P1, P2, P3, TĐB, T1, T2, T3, TKPL
+  chinh: number;
+  phu: number;
+  giupViec: number;
+  effectiveFrom: string;    // yyyy-mm-dd
+  effectiveTo: string | null; // null = currently active
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Flat independent timeline items for each PTTT time norm */
+export interface LaborTimeItem {
+  id: string;
+  loai: string;             // PĐB, P1, P2, P3, TĐB, T1, T2, T3, TKPL
+  min: number;              // minutes
+  max: number;              // minutes
+  effectiveFrom: string;    // yyyy-mm-dd
+  effectiveTo: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Flat independent timeline items for each staff operating table limit */
+export interface LaborTableItem {
+  id: string;
+  posKey: string;           // ptChinh, ptPhu, bsGM, ktvGM, tdc, gv
+  label: string;            // BS PT chính, ...
+  limit: number;            // 0: Không kiểm tra, 1: Tối đa 1 bàn, 2: Tối đa 2 bàn
+  effectiveFrom: string;    // yyyy-mm-dd
+  effectiveTo: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+

@@ -856,8 +856,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                   { value: 'machines', label: 'PTTT không dùng máy', icon: Activity },
                   { value: 'registry', label: 'Mã máy', icon: Cpu },
                   { value: 'staff', label: 'Nhân sự', icon: Users },
-                  { value: 'price-catalog', label: 'Danh mục giá', icon: DollarSign },
                   { value: 'chapter-catalog', label: 'Danh mục chương', icon: BookOpen },
+                  { value: 'price-catalog', label: 'Danh mục giá', icon: DollarSign },
                   { value: 'cost-catalog', label: 'Chi phí PTTT', icon: Receipt },
                   { value: 'labor-price', label: 'Bảng giá nhân công', icon: Briefcase },
                 ]}
@@ -2326,15 +2326,15 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                 )}
 
                 {/* Migrated from StatsConfig */}
-                {activeSubTab === 'price-catalog' && (
-                    <div className="animate-fade-in p-1">
-                        <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} costItems={costItems} profiles={profiles} />
-                    </div>
-                )}
-
                 {activeSubTab === 'chapter-catalog' && (
                     <div className="animate-fade-in p-1">
                         <ChapterCatalogConfig chapters={chapters} />
+                    </div>
+                )}
+
+                {activeSubTab === 'price-catalog' && (
+                    <div className="animate-fade-in p-1">
+                        <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} costItems={costItems} profiles={profiles} />
                     </div>
                 )}
 
