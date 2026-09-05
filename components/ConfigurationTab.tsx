@@ -860,7 +860,41 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
               />
             </ContextToolbar>
 
-            {/* Content area */}
+            {/* Stationary Subtabs Bar for DMKT - does not scroll */}
+            {activeSubTab === 'dmkt' && (
+              <div className="border-b border-blue-200 bg-blue-50/75 px-6 shrink-0 z-10">
+                <TabLine
+                  value={dmktSubTab}
+                  onChange={(v) => setDmktSubTab(v as any)}
+                  size="sm"
+                  options={[
+                    { value: 'chapter-catalog', label: 'DM Chương', icon: BookOpen },
+                    { value: 'price-catalog', label: 'DM Giá DVKT', icon: DollarSign },
+                    { value: 'cost-catalog', label: 'DM Chi phí', icon: Receipt },
+                    { value: 'machines', label: 'DM sử dụng mã máy', icon: Cpu },
+                    { value: 'registry', label: 'DM Mã máy', icon: Activity },
+                  ]}
+                />
+              </div>
+            )}
+
+            {/* Stationary Subtabs Bar for Hành chính - does not scroll */}
+            {activeSubTab === 'staff' && (
+              <div className="border-b border-blue-200 bg-blue-50/75 px-6 shrink-0 z-10">
+                <TabLine
+                  value={staffSubTab}
+                  onChange={(v) => setStaffSubTab(v as any)}
+                  size="sm"
+                  options={[
+                    { value: 'admin', label: 'Hành chính', icon: Building2 },
+                    { value: 'departments', label: 'DM Khoa, phòng', icon: Layers },
+                    { value: 'staff-list', label: 'Nhân viên y tế', icon: Users },
+                  ]}
+                />
+              </div>
+            )}
+
+            {/* Content area - only content scrolls */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
 
                 {activeSubTab === 'norms' && (
@@ -871,22 +905,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                 )}
 
                 {activeSubTab === 'dmkt' && (
-                    <div className="animate-fade-in space-y-0">
-                        {/* Nested DMKT sub-tabs */}
-                        <div className="-mx-4 mt-0 mb-4 border-b border-blue-200 bg-blue-50/50 px-4">
-                            <TabLine
-                                value={dmktSubTab}
-                                onChange={(v) => setDmktSubTab(v as any)}
-                                size="sm"
-                                options={[
-                                    { value: 'chapter-catalog', label: 'DM Chương', icon: BookOpen },
-                                    { value: 'price-catalog', label: 'DM Giá DVKT', icon: DollarSign },
-                                    { value: 'cost-catalog', label: 'DM Chi phí', icon: Receipt },
-                                    { value: 'machines', label: 'DM Sử dụng mã máy', icon: Cpu },
-                                    { value: 'registry', label: 'DM Mã máy', icon: Activity },
-                                ]}
-                            />
-                        </div>
+                    <div className="animate-fade-in space-y-4">
 
                         {dmktSubTab === 'chapter-catalog' && (
                             <div className="p-1">
@@ -1124,19 +1143,6 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
                 {activeSubTab === 'staff' && (
                     <div className="animate-fade-in space-y-4">
-                        {/* Nested Hành chính sub-tabs */}
-                        <div className="-mx-4 -mt-2 mb-4 border-b border-blue-200 bg-blue-50/50 px-4">
-                            <TabLine
-                                value={staffSubTab}
-                                onChange={(v) => setStaffSubTab(v as any)}
-                                size="sm"
-                                options={[
-                                    { value: 'admin', label: 'Hành chính', icon: Building2 },
-                                    { value: 'departments', label: 'DM Khoa, phòng', icon: Layers },
-                                    { value: 'staff-list', label: 'Nhân viên y tế', icon: Users },
-                                ]}
-                            />
-                        </div>
 
                         {/* Subtab 1: Hành chính (Tên bệnh viện, Giờ làm việc) */}
                         {staffSubTab === 'admin' && (
@@ -1751,95 +1757,98 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                     </div>
                                 </div>
 
-                                {/* Compact Add / Edit Form */}
-                                <div className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-sm space-y-2.5">
+                                {/* Compact Add / Edit Form (Single Line) */}
+                                <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-sm space-y-2">
                                     <div className="flex items-center justify-between text-xs font-semibold text-gray-700">
                                         <span>{editingStaffId ? 'Chỉnh sửa thông tin nhân sự' : 'Thêm nhân sự mới'}</span>
                                         {editingStaffId && (
-                                            <span className="text-[11px] font-normal text-amber-600">Đang chọn sửa dòng #{staffList.findIndex(s => s.id === editingStaffId) + 1}</span>
+                                            <span className="text-[11px] font-normal text-amber-600">
+                                                Đang chọn sửa dòng #{staffList.findIndex(s => s.id === editingStaffId) + 1}
+                                            </span>
                                         )}
                                     </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
-                                        <div>
+                                    <div className="flex flex-wrap md:flex-nowrap items-end gap-2.5">
+                                        <div className="flex-1 min-w-[160px]">
                                             <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Họ tên nhân viên <span className="text-red-500">*</span></label>
                                             <input
                                                 type="text"
                                                 value={staffForm.name}
                                                 onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
                                                 placeholder="Nguyễn Văn A"
-                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none h-[35px]"
                                             />
                                         </div>
-                                        <div>
+                                        <div className="w-32 min-w-[110px]">
                                             <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Vị trí mổ</label>
                                             <select
                                                 value={staffForm.position}
                                                 onChange={(e) => setStaffForm({ ...staffForm, position: e.target.value as any })}
-                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                                                className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[35px]"
                                             >
-                                                <option value="">-- Chọn vị trí --</option>
+                                                <option value="">-- Vị trí --</option>
                                                 <option value="BS PT">BS PT</option>
                                                 <option value="BS GMHS">BS GMHS</option>
                                                 <option value="Phụ">Phụ (KTV/DDC/GV)</option>
                                             </select>
                                         </div>
-                                        <div>
+                                        <div className="w-32 min-w-[110px]">
                                             <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Mã số thuế TNCN</label>
                                             <input
                                                 type="text"
                                                 value={staffForm.taxId}
                                                 onChange={(e) => setStaffForm({ ...staffForm, taxId: e.target.value })}
                                                 placeholder="Nhập MST..."
-                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:ring-1 focus:ring-blue-500 outline-none"
+                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:ring-1 focus:ring-blue-500 outline-none h-[35px]"
                                             />
                                         </div>
-                                        <div>
+                                        <div className="w-44 min-w-[130px]">
                                             <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Khoa / Phòng</label>
                                             <select
                                                 value={staffForm.department}
                                                 onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })}
-                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                                                className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[35px]"
                                             >
-                                                <option value="">-- Chọn khoa phòng --</option>
+                                                <option value="">-- Khoa phòng --</option>
                                                 {(config.departments || []).map(d => (
                                                     <option key={d} value={d}>{d}</option>
                                                 ))}
                                             </select>
                                         </div>
-                                    </div>
-                                    <div className="flex justify-end items-center gap-2 pt-1 border-t border-gray-100">
-                                        {editingStaffId ? (
-                                            <>
-                                                <button
-                                                    onClick={resetStaffForm}
-                                                    className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                                                >
-                                                    Hủy bỏ
-                                                </button>
-                                                <button
-                                                    onClick={handleNextStaff}
-                                                    className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all flex items-center gap-1"
-                                                    title="Lưu và chuyển đến nhân viên tiếp theo"
-                                                >
-                                                    <ChevronRight className="h-3.5 w-3.5" /> Lưu, Kế tiếp &gt;&gt;
-                                                </button>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            {editingStaffId ? (
+                                                <>
+                                                    <button
+                                                        onClick={handleSaveStaff}
+                                                        disabled={!staffForm.name.trim()}
+                                                        className="px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm h-[35px] whitespace-nowrap"
+                                                    >
+                                                        <Save className="h-3.5 w-3.5" /> Lưu
+                                                    </button>
+                                                    <button
+                                                        onClick={handleNextStaff}
+                                                        className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all flex items-center gap-1 h-[35px] whitespace-nowrap"
+                                                        title="Lưu và chuyển đến nhân viên tiếp theo"
+                                                    >
+                                                        <ChevronRight className="h-3.5 w-3.5" /> Kế tiếp
+                                                    </button>
+                                                    <button
+                                                        onClick={resetStaffForm}
+                                                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors h-[35px] flex items-center justify-center"
+                                                        title="Hủy bỏ"
+                                                    >
+                                                        <XCircle className="h-4 w-4" />
+                                                    </button>
+                                                </>
+                                            ) : (
                                                 <button
                                                     onClick={handleSaveStaff}
                                                     disabled={!staffForm.name.trim()}
-                                                    className="px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm"
+                                                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap h-[35px]"
                                                 >
-                                                    <Save className="h-3.5 w-3.5" /> Lưu thay đổi
+                                                    <Plus className="h-3.5 w-3.5" /> Thêm
                                                 </button>
-                                            </>
-                                        ) : (
-                                            <button
-                                                onClick={handleSaveStaff}
-                                                disabled={!staffForm.name.trim()}
-                                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm"
-                                            >
-                                                <UserPlus className="h-3.5 w-3.5" /> Thêm nhân sự
-                                            </button>
-                                        )}
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
