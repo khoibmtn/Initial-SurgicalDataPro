@@ -74,6 +74,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff'>('norms');
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
+    const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
     const [newMachineName, setNewMachineName] = useState("");
     const [editingMachineIndex, setEditingMachineIndex] = useState<number | null>(null);
     const [editingPriceRow, setEditingPriceRow] = useState<string | null>(null);
@@ -856,7 +857,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                 options={[
                   { value: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
                   { value: 'dmkt', label: 'DMKT', icon: Database },
-                  { value: 'staff', label: 'Nhân sự', icon: Users },
+                  { value: 'staff', label: 'Hành chính', icon: Users },
                 ]}
               />
             </ContextToolbar>
@@ -1124,557 +1125,582 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                 )}
 
                 {activeSubTab === 'staff' && (
-                    <div className="space-y-8 animate-fade-in pb-20">
-                        <div>
-                            {/* Section: Hospital Name */}
-                            <div className="flex items-center gap-4 mb-8">
-                                <div className="flex items-center gap-3 min-w-fit">
-                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg shadow-sm">
-                                        <Building2 className="h-5 w-5" />
-                                    </div>
-                                    <h3 className="font-bold text-lg text-blue-900 whitespace-nowrap">Tên Bệnh viện:</h3>
-                                </div>
+                    <div className="animate-fade-in space-y-4">
+                        {/* Nested Hành chính sub-tabs */}
+                        <div className="-mx-4 -mt-2 mb-4 border-b border-blue-200 bg-blue-50/50 px-4">
+                            <TabLine
+                                value={staffSubTab}
+                                onChange={(v) => setStaffSubTab(v as any)}
+                                size="sm"
+                                options={[
+                                    { value: 'admin', label: 'Hành chính', icon: Building2 },
+                                    { value: 'departments', label: 'DM Khoa, phòng', icon: Layers },
+                                    { value: 'staff-list', label: 'Nhân viên y tế', icon: Users },
+                                ]}
+                            />
+                        </div>
 
-                                <div className="flex-1 flex gap-3 items-center">
-                                    <input
-                                        type="text"
-                                        value={config.hospitalName || ""}
-                                        onChange={(e) => updateConfig({ hospitalName: e.target.value })}
-                                        placeholder="Nhập tên bệnh viện hiển thị trên báo cáo..."
-                                        className="flex-1 px-4 py-2 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm font-medium text-blue-900 bg-white"
-                                    />
-                                    <div className="flex items-center gap-1.5 text-blue-400 select-none">
-                                        <Save className="h-3.5 w-3.5" />
-                                        <span className="text-[10px] font-bold italic tracking-wider uppercase opacity-80">Tự động lưu</span>
-                                    </div>
-                                </div>
-                            </div>
-                            {/* Section: Working Hours - INSERT THIS AFTER LINE 874 */}
-                            <div className="mb-8">
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg shadow-sm">
-                                        <Clock className="h-5 w-5" />
-                                    </div>
-                                    <h3 className="font-bold text-lg text-blue-900">Giờ làm việc:</h3>
-                                </div>
-
-                                <div className="overflow-x-auto border border-blue-200 rounded-lg shadow-sm bg-white">
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-blue-100 text-blue-900 font-bold">
-                                            <tr>
-                                                <th className="px-4 py-3 border-r border-blue-200 w-[150px]"></th>
-                                                <th className="px-4 py-3 border-r border-blue-200 text-center">Mùa hè</th>
-                                                <th className="px-4 py-3 text-center">Mùa đông</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-blue-100">
-                                            {/* Ngày áp dụng */}
-                                            <tr className="bg-white">
-                                                <td className="px-4 py-3 border-r border-blue-100 font-medium text-gray-700">Ngày áp dụng</td>
-                                                <td className="px-4 py-3 border-r border-blue-100">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <span className="text-gray-600 font-medium">Từ</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.summer.dateFrom || ""}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.replace(/-/g, '/');
-                                                                updateConfig({
-                                                                    workingHours: {
-                                                                        ...config.workingHours,
-                                                                        summer: { ...config.workingHours?.summer, dateFrom: val } as any
-                                                                    }
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.summer.dateFrom || "";
-                                                                if (!validateDate(val)) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, dateFrom: "01/05" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            placeholder="DD/MM"
-                                                            className="w-[90px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                        <span className="text-gray-600 font-medium">Đến</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.summer.dateTo || ""}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.replace(/-/g, '/');
-                                                                updateConfig({
-                                                                    workingHours: {
-                                                                        ...config.workingHours,
-                                                                        summer: { ...config.workingHours?.summer, dateTo: val } as any
-                                                                    }
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.summer.dateTo || "";
-                                                                if (!validateDate(val)) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, dateTo: "30/09" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            placeholder="DD/MM"
-                                                            className="w-[90px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <span className="text-gray-600 font-medium">Từ</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.winter.dateFrom || ""}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.replace(/-/g, '/');
-                                                                updateConfig({
-                                                                    workingHours: {
-                                                                        ...config.workingHours,
-                                                                        winter: { ...config.workingHours?.winter, dateFrom: val } as any
-                                                                    }
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.winter.dateFrom || "";
-                                                                if (!validateDate(val)) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, dateFrom: "01/10" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            placeholder="DD/MM"
-                                                            className="w-[90px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                        <span className="text-gray-600 font-medium">Đến</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.winter.dateTo || ""}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.replace(/-/g, '/');
-                                                                updateConfig({
-                                                                    workingHours: {
-                                                                        ...config.workingHours,
-                                                                        winter: { ...config.workingHours?.winter, dateTo: val } as any
-                                                                    }
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.winter.dateTo || "";
-                                                                if (!validateDate(val)) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, dateTo: "30/04" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            placeholder="DD/MM"
-                                                            className="w-[90px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                    </div>
-                                                </td>
-                                            </tr>
-
-                                            {/* Buổi sáng */}
-                                            <tr className="bg-blue-50/30">
-                                                <td className="px-4 py-3 border-r border-blue-100 font-medium text-gray-700">Buổi sáng</td>
-                                                <td className="px-4 py-3 border-r border-blue-100">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <span className="text-gray-600 font-medium">Từ</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.summer.morningFrom || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, morningFrom: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.summer.morningFrom || "";
-                                                                // Reset if incomplete or invalid (00:00)
-                                                                if (val.length !== 5 || val === "00:00") {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, morningFrom: "07:00" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                        <span className="text-gray-600 font-medium">đến</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.summer.morningTo || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    // Validate: morningTo must be > morningFrom
-                                                                    const fromTime = config.workingHours?.summer.morningFrom || "";
-                                                                    if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
-                                                                        // Invalid: show warning or don't update
-                                                                        return;
-                                                                    }
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, morningTo: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const fromTime = config.workingHours?.summer.morningFrom || "";
-                                                                const toTime = config.workingHours?.summer.morningTo || "";
-                                                                // Reset if incomplete (not 5 chars) or invalid (toTime <= fromTime or 00:00)
-                                                                if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, morningTo: "11:30" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <span className="text-gray-600 font-medium">Từ</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.winter.morningFrom || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, morningFrom: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.winter.morningFrom || "";
-                                                                if (val.length !== 5 || val === "00:00") {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, morningFrom: "07:30" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                        <span className="text-gray-600 font-medium">đến</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.winter.morningTo || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    // Validate: morningTo must be > morningFrom
-                                                                    const fromTime = config.workingHours?.winter.morningFrom || "";
-                                                                    if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
-                                                                        return;
-                                                                    }
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, morningTo: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const fromTime = config.workingHours?.winter.morningFrom || "";
-                                                                const toTime = config.workingHours?.winter.morningTo || "";
-                                                                // Reset if incomplete or invalid
-                                                                if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, morningTo: "12:00" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                    </div>
-                                                </td>
-                                            </tr>
-
-                                            {/* Buổi chiều */}
-                                            <tr className="bg-white">
-                                                <td className="px-4 py-3 border-r border-blue-100 font-medium text-gray-700">Buổi chiều</td>
-                                                <td className="px-4 py-3 border-r border-blue-100">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <span className="text-gray-600 font-medium">Từ</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.summer.afternoonFrom || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, afternoonFrom: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.summer.afternoonFrom || "";
-                                                                if (val.length !== 5 || val === "00:00") {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, afternoonFrom: "13:30" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                        <span className="text-gray-600 font-medium">đến</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.summer.afternoonTo || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    // Validate: afternoonTo must be > afternoonFrom
-                                                                    const fromTime = config.workingHours?.summer.afternoonFrom || "";
-                                                                    if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
-                                                                        return;
-                                                                    }
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, afternoonTo: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const fromTime = config.workingHours?.summer.afternoonFrom || "";
-                                                                const toTime = config.workingHours?.summer.afternoonTo || "";
-                                                                // Reset if incomplete or invalid
-                                                                if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            summer: { ...config.workingHours?.summer, afternoonTo: "17:00" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <span className="text-gray-600 font-medium">Từ</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.winter.afternoonFrom || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, afternoonFrom: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const val = config.workingHours?.winter.afternoonFrom || "";
-                                                                if (val.length !== 5 || val === "00:00") {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, afternoonFrom: "13:30" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                        <span className="text-gray-600 font-medium">đến</span>
-                                                        <input
-                                                            type="text"
-                                                            value={config.workingHours?.winter.afternoonTo || ""}
-                                                            onChange={(e) => {
-                                                                handleWorkingHoursTimeChange(e.target.value, (formatted) => {
-                                                                    // Validate: afternoonTo must be > afternoonFrom
-                                                                    const fromTime = config.workingHours?.winter.afternoonFrom || "";
-                                                                    if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
-                                                                        return;
-                                                                    }
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, afternoonTo: formatted } as any
-                                                                        }
-                                                                    });
-                                                                });
-                                                            }}
-                                                            onBlur={() => {
-                                                                const fromTime = config.workingHours?.winter.afternoonFrom || "";
-                                                                const toTime = config.workingHours?.winter.afternoonTo || "";
-                                                                // Reset if incomplete or invalid
-                                                                if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
-                                                                    updateConfig({
-                                                                        workingHours: {
-                                                                            ...config.workingHours,
-                                                                            winter: { ...config.workingHours?.winter, afternoonTo: "17:00" } as any
-                                                                        }
-                                                                    });
-                                                                }
-                                                            }}
-                                                            maxLength={5}
-                                                            placeholder="HH:mm"
-                                                            className="w-[100px] px-3 py-1.5 border border-gray-300 rounded-lg text-center focus:ring-2 focus:ring-blue-500 outline-none"
-                                                        />
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
-                                <div className="flex items-center gap-4 w-full md:w-auto">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2 bg-blue-100 text-blue-600 rounded-lg shadow-sm">
-                                            <Layers className="h-5 w-5" />
+                        {/* Subtab 1: Hành chính (Tên bệnh viện, Giờ làm việc) */}
+                        {staffSubTab === 'admin' && (
+                            <div className="space-y-4 p-1">
+                                {/* Section 1: Hospital Name */}
+                                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm space-y-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                                            <Building2 className="h-4 w-4" />
                                         </div>
-                                        <h3 className="font-bold text-lg text-blue-900 whitespace-nowrap">Danh sách khoa phòng:</h3>
+                                        <div>
+                                            <h4 className="font-semibold text-gray-800 text-sm">Tên Bệnh viện</h4>
+                                            <p className="text-[11px] text-gray-400">Hiển thị trên các báo cáo và biểu mẫu thống kê</p>
+                                        </div>
                                     </div>
-                                    <div className="flex-1 md:w-80 flex gap-2">
+                                    <div className="flex gap-3 items-center">
                                         <input
                                             type="text"
-                                            value={newDeptName}
-                                            onChange={(e) => setNewDeptName(e.target.value)}
-                                            placeholder="Nhập tên khoa, phòng cần bổ sung..."
-                                            className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm h-10"
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter' && newDeptName.trim()) {
-                                                    const depts = config.departments || [];
-                                                    if (!depts.includes(newDeptName.trim())) {
-                                                        updateConfig({ departments: [...depts, newDeptName.trim()] });
-                                                        setNewDeptName("");
-                                                    }
-                                                }
-                                            }}
+                                            value={config.hospitalName || ""}
+                                            onChange={(e) => updateConfig({ hospitalName: e.target.value })}
+                                            placeholder="Nhập tên bệnh viện hiển thị trên báo cáo..."
+                                            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm font-medium text-gray-800 bg-white"
                                         />
-                                        <button
-                                            onClick={() => {
-                                                if (newDeptName.trim()) {
-                                                    const depts = config.departments || [];
-                                                    if (!depts.includes(newDeptName.trim())) {
-                                                        updateConfig({ departments: [...depts, newDeptName.trim()] });
-                                                        setNewDeptName("");
-                                                    }
-                                                }
-                                            }}
-                                            disabled={!newDeptName.trim()}
-                                            title="Thêm khoa phòng"
-                                            className="w-10 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
-                                        >
-                                            <Plus className="h-5 w-5" />
-                                        </button>
+                                        <div className="flex items-center gap-1.5 text-gray-400 select-none">
+                                            <Save className="h-3.5 w-3.5 text-green-500" />
+                                            <span className="text-[10px] font-bold italic text-gray-500">Tự động lưu</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Section 2: Working Hours */}
+                                <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm space-y-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                                            <Clock className="h-4 w-4" />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold text-gray-800 text-sm">Cấu hình giờ làm việc</h4>
+                                            <p className="text-[11px] text-gray-400">Thiết lập khung giờ theo mùa (Mùa hè / Mùa đông) để phân loại ca phẫu thuật trong và ngoài giờ</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-hidden border border-gray-200 rounded-xl bg-white">
+                                        <table className="w-full text-xs">
+                                            <thead className="bg-gray-50 border-b border-gray-200">
+                                                <tr>
+                                                    <th className="px-4 py-2.5 border-r border-gray-200 w-[160px] text-left text-gray-500 font-semibold">Khung thời gian</th>
+                                                    <th className="px-4 py-2.5 border-r border-gray-200 text-center text-gray-600 font-semibold">Mùa hè</th>
+                                                    <th className="px-4 py-2.5 text-center text-gray-600 font-semibold">Mùa đông</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {/* Ngày áp dụng */}
+                                                <tr className="hover:bg-gray-50/50">
+                                                    <td className="px-4 py-2.5 border-r border-gray-100 font-medium text-gray-700">Ngày áp dụng</td>
+                                                    <td className="px-4 py-2.5 border-r border-gray-100">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <span className="text-gray-500">Từ</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.summer.dateFrom || ""}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value.replace(/-/g, '/');
+                                                                    updateConfig({
+                                                                        workingHours: {
+                                                                            ...config.workingHours,
+                                                                            summer: { ...config.workingHours?.summer, dateFrom: val } as any
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.summer.dateFrom || "";
+                                                                    if (!validateDate(val)) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, dateFrom: "01/05" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                placeholder="DD/MM"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                            <span className="text-gray-500">Đến</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.summer.dateTo || ""}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value.replace(/-/g, '/');
+                                                                    updateConfig({
+                                                                        workingHours: {
+                                                                            ...config.workingHours,
+                                                                            summer: { ...config.workingHours?.summer, dateTo: val } as any
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.summer.dateTo || "";
+                                                                    if (!validateDate(val)) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, dateTo: "30/09" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                placeholder="DD/MM"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2.5">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <span className="text-gray-500">Từ</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.winter.dateFrom || ""}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value.replace(/-/g, '/');
+                                                                    updateConfig({
+                                                                        workingHours: {
+                                                                            ...config.workingHours,
+                                                                            winter: { ...config.workingHours?.winter, dateFrom: val } as any
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.winter.dateFrom || "";
+                                                                    if (!validateDate(val)) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, dateFrom: "01/10" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                placeholder="DD/MM"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                            <span className="text-gray-500">Đến</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.winter.dateTo || ""}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value.replace(/-/g, '/');
+                                                                    updateConfig({
+                                                                        workingHours: {
+                                                                            ...config.workingHours,
+                                                                            winter: { ...config.workingHours?.winter, dateTo: val } as any
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.winter.dateTo || "";
+                                                                    if (!validateDate(val)) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, dateTo: "30/04" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                placeholder="DD/MM"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+
+                                                {/* Buổi sáng */}
+                                                <tr className="bg-gray-50/40 hover:bg-gray-50">
+                                                    <td className="px-4 py-2.5 border-r border-gray-100 font-medium text-gray-700">Buổi sáng</td>
+                                                    <td className="px-4 py-2.5 border-r border-gray-100">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <span className="text-gray-500">Từ</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.summer.morningFrom || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, morningFrom: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.summer.morningFrom || "";
+                                                                    if (val.length !== 5 || val === "00:00") {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, morningFrom: "07:00" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                            <span className="text-gray-500">đến</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.summer.morningTo || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        const fromTime = config.workingHours?.summer.morningFrom || "";
+                                                                        if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
+                                                                            return;
+                                                                        }
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, morningTo: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const fromTime = config.workingHours?.summer.morningFrom || "";
+                                                                    const toTime = config.workingHours?.summer.morningTo || "";
+                                                                    if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, morningTo: "11:30" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2.5">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <span className="text-gray-500">Từ</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.winter.morningFrom || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, morningFrom: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.winter.morningFrom || "";
+                                                                    if (val.length !== 5 || val === "00:00") {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, morningFrom: "07:30" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                            <span className="text-gray-500">đến</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.winter.morningTo || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        const fromTime = config.workingHours?.winter.morningFrom || "";
+                                                                        if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
+                                                                            return;
+                                                                        }
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, morningTo: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const fromTime = config.workingHours?.winter.morningFrom || "";
+                                                                    const toTime = config.workingHours?.winter.morningTo || "";
+                                                                    if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, morningTo: "12:00" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+
+                                                {/* Buổi chiều */}
+                                                <tr className="hover:bg-gray-50/50">
+                                                    <td className="px-4 py-2.5 border-r border-gray-100 font-medium text-gray-700">Buổi chiều</td>
+                                                    <td className="px-4 py-2.5 border-r border-gray-100">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <span className="text-gray-500">Từ</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.summer.afternoonFrom || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, afternoonFrom: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.summer.afternoonFrom || "";
+                                                                    if (val.length !== 5 || val === "00:00") {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, afternoonFrom: "13:30" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                            <span className="text-gray-500">đến</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.summer.afternoonTo || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        const fromTime = config.workingHours?.summer.afternoonFrom || "";
+                                                                        if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
+                                                                            return;
+                                                                        }
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, afternoonTo: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const fromTime = config.workingHours?.summer.afternoonFrom || "";
+                                                                    const toTime = config.workingHours?.summer.afternoonTo || "";
+                                                                    if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                summer: { ...config.workingHours?.summer, afternoonTo: "17:00" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2.5">
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <span className="text-gray-500">Từ</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.winter.afternoonFrom || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, afternoonFrom: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const val = config.workingHours?.winter.afternoonFrom || "";
+                                                                    if (val.length !== 5 || val === "00:00") {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, afternoonFrom: "13:00" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                            <span className="text-gray-500">đến</span>
+                                                            <input
+                                                                type="text"
+                                                                value={config.workingHours?.winter.afternoonTo || ""}
+                                                                onChange={(e) => {
+                                                                    handleWorkingHoursTimeChange(e.target.value, (formatted) => {
+                                                                        const fromTime = config.workingHours?.winter.afternoonFrom || "";
+                                                                        if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
+                                                                            return;
+                                                                        }
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, afternoonTo: formatted } as any
+                                                                            }
+                                                                        });
+                                                                    });
+                                                                }}
+                                                                onBlur={() => {
+                                                                    const fromTime = config.workingHours?.winter.afternoonFrom || "";
+                                                                    const toTime = config.workingHours?.winter.afternoonTo || "";
+                                                                    if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
+                                                                        updateConfig({
+                                                                            workingHours: {
+                                                                                ...config.workingHours,
+                                                                                winter: { ...config.workingHours?.winter, afternoonTo: "17:00" } as any
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }}
+                                                                maxLength={5}
+                                                                placeholder="HH:mm"
+                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                            />
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
                                     </div>
                                 </div>
                             </div>
+                        )}
 
-                            <div className="overflow-hidden border border-gray-200 rounded-xl shadow-sm mb-12">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-blue-900 text-white font-bold uppercase text-xs">
-                                        <tr>
-                                            <th className="px-4 py-3 w-[80px] text-center border-r border-blue-800">STT</th>
-                                            <th className="px-4 py-3 border-r border-blue-800">Tên khoa, phòng</th>
-                                            <th className="px-4 py-3 w-[150px] text-center">Thao tác</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200">
-                                        {(config.departments || []).length === 0 ? (
+                        {/* Subtab 2: DM Khoa, phòng */}
+                        {staffSubTab === 'departments' && (
+                            <div className="space-y-4 p-1">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                                            <Layers className="h-4 w-4" />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold text-gray-800 text-sm">Danh mục Khoa, phòng</h4>
+                                            <p className="text-[11px] text-gray-400">Quản lý danh sách các khoa/phòng trong bệnh viện ({(config.departments || []).length} đơn vị)</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Compact inline Add Form */}
+                                <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
+                                    <input
+                                        type="text"
+                                        value={newDeptName}
+                                        onChange={(e) => setNewDeptName(e.target.value)}
+                                        placeholder="Nhập tên khoa, phòng cần bổ sung..."
+                                        className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && newDeptName.trim()) {
+                                                const depts = config.departments || [];
+                                                if (!depts.includes(newDeptName.trim())) {
+                                                    updateConfig({ departments: [...depts, newDeptName.trim()] });
+                                                    setNewDeptName("");
+                                                }
+                                            }
+                                        }}
+                                    />
+                                    <button
+                                        onClick={() => {
+                                            if (newDeptName.trim()) {
+                                                const depts = config.departments || [];
+                                                if (!depts.includes(newDeptName.trim())) {
+                                                    updateConfig({ departments: [...depts, newDeptName.trim()] });
+                                                    setNewDeptName("");
+                                                }
+                                            }
+                                        }}
+                                        disabled={!newDeptName.trim()}
+                                        title="Thêm khoa phòng"
+                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                    >
+                                        <Plus className="h-3.5 w-3.5" /> Thêm
+                                    </button>
+                                </div>
+
+                                {/* Departments Table */}
+                                <div className="overflow-hidden border border-gray-200 rounded-xl bg-white shadow-sm">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-gray-50 border-b border-gray-200">
                                             <tr>
-                                                <td colSpan={3} className="px-4 py-10 text-center text-gray-400 italic">
-                                                    Chưa có khoa phòng nào trong danh sách.
-                                                </td>
+                                                <th className="px-4 py-2.5 w-14 text-center text-gray-500 font-semibold border-r border-gray-100">STT</th>
+                                                <th className="px-4 py-2.5 text-gray-600 font-semibold">Tên khoa, phòng</th>
+                                                <th className="px-4 py-2.5 w-24 text-center text-gray-500 font-semibold">Thứ tự</th>
+                                                <th className="px-4 py-2.5 w-16 text-center text-gray-500 font-semibold">Xóa</th>
                                             </tr>
-                                        ) : (
-                                            (config.departments || []).map((dept, idx) => (
-                                                <tr key={dept} className={`hover:bg-blue-50/50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                                                    <td className="px-4 py-3 text-center font-bold text-gray-500 border-r">{idx + 1}</td>
-                                                    <td className="px-4 py-3 font-medium text-gray-800 border-r">{dept}</td>
-                                                    <td className="px-4 py-2">
-                                                        <div className="flex items-center justify-center gap-1">
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (idx === 0) return;
-                                                                    const depts = [...config.departments];
-                                                                    [depts[idx], depts[idx - 1]] = [depts[idx - 1], depts[idx]];
-                                                                    updateConfig({ departments: depts });
-                                                                }}
-                                                                disabled={idx === 0}
-                                                                title="Di chuyển lên"
-                                                                className="p-1.5 rounded-md hover:bg-blue-100 text-blue-600 disabled:opacity-20"
-                                                            >
-                                                                <ArrowUp className="h-4 w-4" />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (idx === (config.departments || []).length - 1) return;
-                                                                    const depts = [...(config.departments || [])];
-                                                                    [depts[idx], depts[idx + 1]] = [depts[idx + 1], depts[idx]];
-                                                                    updateConfig({ departments: depts });
-                                                                }}
-                                                                disabled={idx === (config.departments || []).length - 1}
-                                                                title="Di chuyển xuống"
-                                                                className="p-1.5 rounded-md hover:bg-blue-100 text-blue-600 disabled:opacity-20"
-                                                            >
-                                                                <ArrowDown className="h-4 w-4" />
-                                                            </button>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {(config.departments || []).length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={4} className="px-4 py-10 text-center text-gray-400 italic text-sm">
+                                                        Chưa có khoa phòng nào trong danh sách.
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                (config.departments || []).map((dept, idx) => (
+                                                    <tr key={dept} className="hover:bg-gray-50/70 transition-colors">
+                                                        <td className="px-4 py-2.5 text-center font-medium text-gray-400 border-r border-gray-100">{idx + 1}</td>
+                                                        <td className="px-4 py-2.5 font-semibold text-gray-800">{dept}</td>
+                                                        <td className="px-4 py-2 text-center">
+                                                            <div className="flex items-center justify-center gap-1">
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (idx === 0) return;
+                                                                        const depts = [...config.departments];
+                                                                        [depts[idx], depts[idx - 1]] = [depts[idx - 1], depts[idx]];
+                                                                        updateConfig({ departments: depts });
+                                                                    }}
+                                                                    disabled={idx === 0}
+                                                                    title="Di chuyển lên"
+                                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                                                                >
+                                                                    <ArrowUp className="h-3.5 w-3.5" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        if (idx === (config.departments || []).length - 1) return;
+                                                                        const depts = [...(config.departments || [])];
+                                                                        [depts[idx], depts[idx + 1]] = [depts[idx + 1], depts[idx]];
+                                                                        updateConfig({ departments: depts });
+                                                                    }}
+                                                                    disabled={idx === (config.departments || []).length - 1}
+                                                                    title="Di chuyển xuống"
+                                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
+                                                                >
+                                                                    <ArrowDown className="h-3.5 w-3.5" />
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-4 py-2 text-center">
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
@@ -1682,244 +1708,270 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     updateConfig({ departments: depts });
                                                                 }}
                                                                 title="Xóa"
-                                                                className="p-1.5 rounded-md hover:bg-red-100 text-red-500"
+                                                                className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                                                             >
-                                                                <Trash2 className="h-4 w-4" />
+                                                                <Trash2 className="h-3.5 w-3.5" />
                                                             </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="text-xs text-gray-500 px-1">
+                                    Đang hiển thị <span className="font-semibold text-gray-700">{(config.departments || []).length}</span> khoa, phòng
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Subtab 3: Nhân viên y tế */}
+                        {staffSubTab === 'staff-list' && (
+                            <div className="space-y-4 p-1">
+                                {/* Header: Title + Excel Buttons */}
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
+                                            <Users className="h-4 w-4" />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold text-gray-800 text-sm">Danh sách nhân viên y tế</h4>
+                                            <p className="text-[11px] text-gray-400">Quản lý nhân sự phẫu thuật, gây mê và phụ tá ({(config.staff || []).length} nhân sự)</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={handleExportExcel}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-all shadow-sm"
+                                        >
+                                            <Download className="h-3.5 w-3.5 text-gray-500" /> Xuất Excel
+                                        </button>
+                                        <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 cursor-pointer transition-all shadow-sm">
+                                            <Upload className="h-3.5 w-3.5" /> Import Excel
+                                            <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
+                                        </label>
+                                    </div>
+                                </div>
+
+                                {/* Compact Add / Edit Form */}
+                                <div className="bg-white rounded-xl border border-gray-200 p-3.5 shadow-sm space-y-2.5">
+                                    <div className="flex items-center justify-between text-xs font-semibold text-gray-700">
+                                        <span>{editingStaffId ? 'Chỉnh sửa thông tin nhân sự' : 'Thêm nhân sự mới'}</span>
+                                        {editingStaffId && (
+                                            <span className="text-[11px] font-normal text-amber-600">Đang chọn sửa dòng #{staffList.findIndex(s => s.id === editingStaffId) + 1}</span>
                                         )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        {/* Section 2: Medical Staff List */}
-                        <div>
-                            <div className="flex items-center justify-between mb-4">
-                                <div className="flex items-center gap-2">
-                                    <div className="p-2 bg-blue-100 text-blue-600 rounded-lg">
-                                        <Users className="h-5 w-5" />
                                     </div>
-                                    <h3 className="font-bold text-lg text-blue-900">Danh sách nhân viên y tế</h3>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={handleExportExcel}
-                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-all shadow-sm"
-                                    >
-                                        <Download className="h-3.5 w-3.5" /> Xuất Excel
-                                    </button>
-                                    <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 cursor-pointer transition-all shadow-sm">
-                                        <Upload className="h-3.5 w-3.5" /> Import Excel
-                                        <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportExcel} />
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-6 mb-6">
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">Họ tên nhân viên</label>
-                                        <input
-                                            type="text"
-                                            value={staffForm.name}
-                                            onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
-                                            placeholder="Nhập họ tên..."
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                        />
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                                        <div>
+                                            <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Họ tên nhân viên <span className="text-red-500">*</span></label>
+                                            <input
+                                                type="text"
+                                                value={staffForm.name}
+                                                onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
+                                                placeholder="Nguyễn Văn A"
+                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Vị trí mổ</label>
+                                            <select
+                                                value={staffForm.position}
+                                                onChange={(e) => setStaffForm({ ...staffForm, position: e.target.value as any })}
+                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                                            >
+                                                <option value="">-- Chọn vị trí --</option>
+                                                <option value="BS PT">BS PT</option>
+                                                <option value="BS GMHS">BS GMHS</option>
+                                                <option value="Phụ">Phụ (KTV/DDC/GV)</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Mã số thuế TNCN</label>
+                                            <input
+                                                type="text"
+                                                value={staffForm.taxId}
+                                                onChange={(e) => setStaffForm({ ...staffForm, taxId: e.target.value })}
+                                                placeholder="Nhập MST..."
+                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:ring-1 focus:ring-blue-500 outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Khoa / Phòng</label>
+                                            <select
+                                                value={staffForm.department}
+                                                onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })}
+                                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white"
+                                            >
+                                                <option value="">-- Chọn khoa phòng --</option>
+                                                {(config.departments || []).map(d => (
+                                                    <option key={d} value={d}>{d}</option>
+                                                ))}
+                                            </select>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">Vị trí mổ</label>
-                                        <select
-                                            value={staffForm.position}
-                                            onChange={(e) => setStaffForm({ ...staffForm, position: e.target.value as any })}
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                        >
-                                            <option value="">-- Chọn vị trí --</option>
-                                            <option value="BS PT">BS PT</option>
-                                            <option value="BS GMHS">BS GMHS</option>
-                                            <option value="Phụ">Phụ (KTV/DDC/GV)</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">Mã số thuế TNCN</label>
-                                        <input
-                                            type="text"
-                                            value={staffForm.taxId}
-                                            onChange={(e) => setStaffForm({ ...staffForm, taxId: e.target.value })}
-                                            placeholder="Nhập MST..."
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">Khoa / Phòng</label>
-                                        <select
-                                            value={staffForm.department}
-                                            onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })}
-                                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                        >
-                                            <option value="">-- Chọn khoa phòng --</option>
-                                            {(config.departments || []).map(d => (
-                                                <option key={d} value={d}>{d}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                                <div className="flex justify-end gap-2">
-                                    {editingStaffId ? (
-                                        <>
+                                    <div className="flex justify-end items-center gap-2 pt-1 border-t border-gray-100">
+                                        {editingStaffId ? (
+                                            <>
+                                                <button
+                                                    onClick={resetStaffForm}
+                                                    className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                                                >
+                                                    Hủy bỏ
+                                                </button>
+                                                <button
+                                                    onClick={handleNextStaff}
+                                                    className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-all flex items-center gap-1"
+                                                    title="Lưu và chuyển đến nhân viên tiếp theo"
+                                                >
+                                                    <ChevronRight className="h-3.5 w-3.5" /> Lưu, Kế tiếp &gt;&gt;
+                                                </button>
+                                                <button
+                                                    onClick={handleSaveStaff}
+                                                    disabled={!staffForm.name.trim()}
+                                                    className="px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm"
+                                                >
+                                                    <Save className="h-3.5 w-3.5" /> Lưu thay đổi
+                                                </button>
+                                            </>
+                                        ) : (
                                             <button
                                                 onClick={handleSaveStaff}
                                                 disabled={!staffForm.name.trim()}
-                                                className="px-5 py-2 bg-orange-500 text-white font-bold rounded-lg hover:bg-orange-600 transition-all shadow-md border border-orange-600"
+                                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm"
                                             >
-                                                <Save className="h-5 w-5 inline mr-1" /> Lưu thay đổi
+                                                <UserPlus className="h-3.5 w-3.5" /> Thêm nhân sự
                                             </button>
-                                            <button
-                                                onClick={handleNextStaff}
-                                                className="px-5 py-2 bg-blue-100 text-blue-700 font-bold rounded-lg hover:bg-blue-200 transition-all border border-blue-300"
-                                                title="Lưu và chuyển đến nhân viên tiếp theo"
-                                            >
-                                                <ChevronRight className="h-5 w-5 inline mr-1" /> Lưu, Kế tiếp &gt;&gt;
-                                            </button>
-                                            <button
-                                                onClick={resetStaffForm}
-                                                className="px-5 py-2 bg-yellow-100 border border-yellow-300 rounded-lg hover:bg-yellow-200 font-bold text-yellow-700 transition-all"
-                                            >
-                                                <XCircle className="h-5 w-5 inline mr-1" /> Hủy bỏ
-                                            </button>
-                                        </>
-                                    ) : (
-                                        <button
-                                            onClick={handleSaveStaff}
-                                            disabled={!staffForm.name.trim()}
-                                            className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md border border-blue-700"
-                                        >
-                                            <UserPlus className="h-5 w-5 inline mr-1" /> Thêm nhân viên
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Search and Pagination Bar */}
-                            <div className="flex flex-col md:flex-row items-center justify-between gap-4 mb-4">
-                                <div className="flex items-center gap-2 w-full md:w-auto">
-                                    <label className="text-sm font-bold text-gray-700 whitespace-nowrap">Tìm kiếm:</label>
-                                    <div className="relative w-full md:w-64">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                        <input
-                                            type="text"
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            placeholder="Tên, vị trí, khoa, MST..."
-                                            className="w-full pl-9 pr-4 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none shadow-sm"
-                                        />
+                                        )}
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-4 w-full md:w-auto justify-end">
-                                    <div className="flex items-center gap-2">
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-tight">Số dòng:</label>
-                                        <select
-                                            value={pageSize}
-                                            onChange={(e) => {
-                                                setPageSize(Number(e.target.value));
-                                                setCurrentPage(1);
-                                            }}
-                                            className="px-3 pr-8 py-1 text-xs border border-gray-300 rounded-md bg-white font-bold text-blue-900 focus:ring-1 focus:ring-blue-500 outline-none min-w-[70px]"
-                                        >
-                                            {[10, 20, 30, 50, 100].map(size => (
-                                                <option key={size} value={size}>{size}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div className="text-xs text-gray-500 font-medium">
-                                        Hiển thị {paginatedStaff.length} / {filteredStaffList.length} bản ghi
-                                    </div>
-                                    <div className="flex items-center gap-1">
-                                        <button
-                                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                                            disabled={currentPage === 1}
-                                            className="p-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </button>
-                                        <div className="text-sm font-bold text-blue-900 px-2">
-                                            Trang {currentPage} / {Math.max(1, totalPages)}
-                                        </div>
-                                        <button
-                                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                                            disabled={currentPage >= totalPages}
-                                            className="p-1 rounded-md border border-gray-200 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
-                                        >
-                                            <ChevronRight className="h-4 w-4" />
-                                        </button>
-                                    </div>
+                                {/* Search bar above table */}
+                                <div className="relative w-full md:w-72">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                                    <input
+                                        type="text"
+                                        value={searchQuery}
+                                        onChange={(e) => {
+                                            setSearchQuery(e.target.value);
+                                            setCurrentPage(1);
+                                        }}
+                                        placeholder="Tìm theo tên, vị trí, khoa, MST..."
+                                        className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
+                                    />
                                 </div>
-                            </div>
 
-                            <div className="overflow-hidden border border-gray-200 rounded-lg shadow-sm bg-white">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-blue-900 text-white font-bold uppercase text-xs">
-                                        <tr>
-                                            <th className="px-4 py-3 w-[70px] text-center border-r border-blue-800">STT</th>
-                                            <th className="px-4 py-3 border-r border-blue-800">Họ tên nhân viên</th>
-                                            <th className="px-4 py-3 w-[150px] border-r border-blue-800 text-center">Vị trí</th>
-                                            <th className="px-4 py-3 w-[150px] border-r border-blue-800">MST TNCN</th>
-                                            <th className="px-4 py-3 border-r border-blue-800">Khoa</th>
-                                            <th className="px-4 py-3 w-[100px] text-center">Thao tác</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-gray-200">
-                                        {paginatedStaff.length === 0 ? (
+                                {/* Staff Table */}
+                                <div className="overflow-hidden border border-gray-200 rounded-xl bg-white shadow-sm">
+                                    <table className="w-full text-xs text-left">
+                                        <thead className="bg-gray-50 border-b border-gray-200">
                                             <tr>
-                                                <td colSpan={6} className="px-4 py-10 text-center text-gray-400 italic">
-                                                    {searchQuery ? "Không tìm thấy nhân viên nào phù hợp." : "Chưa có nhân viên nào trong danh sách. Hãy thêm mới hoặc import từ file Excel."}
-                                                </td>
+                                                <th className="px-3 py-2.5 w-12 text-center text-gray-500 font-semibold border-r border-gray-100">STT</th>
+                                                <th className="px-3 py-2.5 text-gray-600 font-semibold border-r border-gray-100">Họ tên nhân viên</th>
+                                                <th className="px-3 py-2.5 w-28 text-center text-gray-500 font-semibold border-r border-gray-100">Vị trí</th>
+                                                <th className="px-3 py-2.5 w-36 text-gray-500 font-semibold border-r border-gray-100">MST TNCN</th>
+                                                <th className="px-3 py-2.5 text-gray-500 font-semibold border-r border-gray-100">Khoa / Phòng</th>
+                                                <th className="px-3 py-2.5 w-16 text-center text-gray-500 font-semibold">Thao tác</th>
                                             </tr>
-                                        ) : (
-                                            paginatedStaff.map((staff, pIdx) => {
-                                                const globalIdx = (currentPage - 1) * pageSize + pIdx;
-                                                return (
-                                                    <tr
-                                                        key={staff.id}
-                                                        onClick={() => handleEditStaff(staff)}
-                                                        className={`cursor-pointer transition-all ${editingStaffId === staff.id ? 'bg-orange-50' : globalIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50`}
-                                                    >
-                                                        <td className="px-4 py-3 text-center font-bold text-gray-400 border-r">{globalIdx + 1}</td>
-                                                        <td className="px-4 py-3 font-bold text-gray-800 border-r">{staff.name}</td>
-                                                        <td className="px-4 py-3 text-center border-r">
-                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${staff.position === 'BS PT' ? 'bg-primary-100 text-primary-700' : staff.position === 'BS GMHS' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {paginatedStaff.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan={6} className="px-4 py-10 text-center text-gray-400 italic text-sm">
+                                                        {searchQuery ? "Không tìm thấy nhân viên nào phù hợp." : "Chưa có nhân viên nào trong danh sách. Hãy thêm mới hoặc import từ file Excel."}
+                                                    </td>
+                                                </tr>
+                                            ) : (
+                                                paginatedStaff.map((staff, pIdx) => {
+                                                    const globalIdx = (currentPage - 1) * pageSize + pIdx;
+                                                    return (
+                                                        <tr
+                                                            key={staff.id}
+                                                            onClick={() => handleEditStaff(staff)}
+                                                            className={`cursor-pointer transition-colors ${
+                                                                editingStaffId === staff.id
+                                                                    ? 'bg-blue-50/70 font-medium'
+                                                                    : 'hover:bg-gray-50/70'
+                                                            }`}
+                                                        >
+                                                            <td className="px-3 py-2 text-center text-gray-400 border-r border-gray-100">{globalIdx + 1}</td>
+                                                            <td className="px-3 py-2 font-semibold text-gray-800 border-r border-gray-100">{staff.name}</td>
+                                                            <td className="px-3 py-2 text-center border-r border-gray-100">
+                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                                                                    staff.position === 'BS PT'
+                                                                        ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                                                        : staff.position === 'BS GMHS'
+                                                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                        : 'bg-slate-50 text-slate-600 border-slate-200'
                                                                 }`}>
-                                                                {staff.position}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-gray-600 font-mono border-r">{staff.taxId || "---"}</td>
-                                                        <td className="px-4 py-3 text-gray-600 border-r">{staff.department || "---"}</td>
-                                                        <td className="px-4 py-2">
-                                                            <div className="flex items-center justify-center">
+                                                                    {staff.position || 'Chưa chọn'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-3 py-2 text-gray-600 font-mono border-r border-gray-100">{staff.taxId || "—"}</td>
+                                                            <td className="px-3 py-2 text-gray-600 border-r border-gray-100">{staff.department || "—"}</td>
+                                                            <td className="px-3 py-2 text-center">
                                                                 <button
                                                                     onClick={(e) => {
                                                                         e.stopPropagation();
                                                                         handleDeleteStaff(staff.id);
                                                                     }}
-                                                                    className="p-1.5 rounded-md hover:bg-red-100 text-red-500"
+                                                                    title="Xóa"
+                                                                    className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                                                                 >
-                                                                    <Trash2 className="h-4 w-4" />
+                                                                    <Trash2 className="h-3.5 w-3.5" />
                                                                 </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })
-                                        )}
-                                    </tbody>
-                                </table>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* Pagination below table */}
+                                <div className="flex items-center justify-between text-xs text-gray-500">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-gray-400">Số dòng:</span>
+                                            <select
+                                                value={pageSize}
+                                                onChange={(e) => {
+                                                    setPageSize(Number(e.target.value));
+                                                    setCurrentPage(1);
+                                                }}
+                                                className="px-2 py-0.5 border border-gray-200 rounded text-xs font-semibold bg-white focus:ring-1 focus:ring-blue-500 outline-none"
+                                            >
+                                                {[10, 20, 30, 50, 100].map(size => (
+                                                    <option key={size} value={size}>{size}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <span>
+                                            Đang xem {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredStaffList.length)} trong tổng số {filteredStaffList.length} nhân viên
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <button
+                                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                            disabled={currentPage === 1}
+                                            className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+                                        >
+                                            <ChevronLeft className="h-3.5 w-3.5" />
+                                        </button>
+                                        <span className="text-xs font-semibold px-1.5 min-w-[70px] text-center">
+                                            {currentPage} / {Math.max(1, totalPages)}
+                                        </span>
+                                        <button
+                                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                            disabled={currentPage >= totalPages}
+                                            className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"
+                                        >
+                                            <ChevronRight className="h-3.5 w-3.5" />
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 )}
 
