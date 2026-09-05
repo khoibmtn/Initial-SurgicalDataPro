@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight, DollarSign, BookOpen, Briefcase } from 'lucide-react';
+import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight, DollarSign, BookOpen, Briefcase, Database } from 'lucide-react';
 import { Receipt } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig, RolePrice } from '../contexts/ConfigContext';
@@ -72,7 +72,8 @@ interface ConfigurationTabProps {
 
 export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate }) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
-    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'machines' | 'registry' | 'staff' | 'price-catalog' | 'chapter-catalog' | 'cost-catalog' | 'labor-price'>('norms');
+    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'labor-price'>('norms');
+    const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [newMachineName, setNewMachineName] = useState("");
     const [editingMachineIndex, setEditingMachineIndex] = useState<number | null>(null);
     const [editingPriceRow, setEditingPriceRow] = useState<string | null>(null);
@@ -854,12 +855,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                 onChange={(v) => setActiveSubTab(v as any)}
                 options={[
                   { value: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
-                  { value: 'machines', label: 'DMKT dùng mã máy', icon: Cpu },
-                  { value: 'registry', label: 'Mã máy', icon: Activity },
+                  { value: 'dmkt', label: 'DMKT', icon: Database },
                   { value: 'staff', label: 'Nhân sự', icon: Users },
-                  { value: 'chapter-catalog', label: 'Danh mục chương', icon: BookOpen },
-                  { value: 'price-catalog', label: 'Danh mục giá', icon: DollarSign },
-                  { value: 'cost-catalog', label: 'Chi phí PTTT', icon: Receipt },
                   { value: 'labor-price', label: 'Bảng giá nhân công', icon: Briefcase },
                 ]}
               />
@@ -875,11 +872,47 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                     </div>
                 )}
 
-                {activeSubTab === 'machines' && (
-                    <RequiredMachineCatalogConfig />
-                )}
+                {activeSubTab === 'dmkt' && (
+                    <div className="animate-fade-in space-y-0">
+                        {/* Nested DMKT sub-tabs */}
+                        <div className="-mx-4 -mt-4 mb-4 border-b border-gray-200 bg-gray-50/60 px-4">
+                            <TabLine
+                                value={dmktSubTab}
+                                onChange={(v) => setDmktSubTab(v as any)}
+                                size="sm"
+                                options={[
+                                    { value: 'chapter-catalog', label: 'DM Chương', icon: BookOpen },
+                                    { value: 'price-catalog', label: 'DM Giá DVKT', icon: DollarSign },
+                                    { value: 'cost-catalog', label: 'DM Chi phí', icon: Receipt },
+                                    { value: 'machines', label: 'DM Sử dụng mã máy', icon: Cpu },
+                                    { value: 'registry', label: 'DM Mã máy', icon: Activity },
+                                ]}
+                            />
+                        </div>
 
-                {activeSubTab === 'registry' && (
+                        {dmktSubTab === 'chapter-catalog' && (
+                            <div className="p-1">
+                                <ChapterCatalogConfig chapters={chapters} />
+                            </div>
+                        )}
+
+                        {dmktSubTab === 'price-catalog' && (
+                            <div className="p-1">
+                                <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} costItems={costItems} profiles={profiles} />
+                            </div>
+                        )}
+
+                        {dmktSubTab === 'cost-catalog' && (
+                            <div className="p-1">
+                                <SurgeryCostConfig costItems={costItems} />
+                            </div>
+                        )}
+
+                        {dmktSubTab === 'machines' && (
+                            <RequiredMachineCatalogConfig />
+                        )}
+
+                        {dmktSubTab === 'registry' && (
                     <div className="space-y-6 animate-fade-in">
                         <div className="bg-teal-50 border border-teal-200 rounded-lg p-4 flex gap-3 text-teal-800">
                             <Cpu className="h-5 w-5 shrink-0" />
@@ -1286,6 +1319,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                        )}
                     </div>
                 )}
 
@@ -2089,24 +2124,6 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                     </div>
                 )}
 
-                {/* Migrated from StatsConfig */}
-                {activeSubTab === 'chapter-catalog' && (
-                    <div className="animate-fade-in p-1">
-                        <ChapterCatalogConfig chapters={chapters} />
-                    </div>
-                )}
-
-                {activeSubTab === 'price-catalog' && (
-                    <div className="animate-fade-in p-1">
-                        <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} costItems={costItems} profiles={profiles} />
-                    </div>
-                )}
-
-                {activeSubTab === 'cost-catalog' && (
-                    <div className="animate-fade-in p-1">
-                        <SurgeryCostConfig costItems={costItems} />
-                    </div>
-                )}
 
                 {activeSubTab === 'labor-price' && (
                     <div className="animate-fade-in p-1">
