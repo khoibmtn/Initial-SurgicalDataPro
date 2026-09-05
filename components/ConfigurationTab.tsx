@@ -286,6 +286,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [backfillResult, setBackfillResult] = useState<{ totalScanned: number; matched: number; alreadyFilled: number; noMachine: number; unmatched: number; updated: number; unmatchedNames: { name: string; count: number }[] } | null>(null);
 
     // These hooks MUST be before any early return to satisfy Rules of Hooks
+    useEffect(() => { setCurrentPage(1); }, [searchQuery]);
     useEffect(() => { setMachineCurrentPage(1); }, [machineSearchQuery]);
     useEffect(() => { setRegCurrentPage(1); }, [regSearchQuery]);
 
@@ -702,10 +703,6 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const totalPages = Math.ceil(filteredStaffList.length / pageSize);
     const paginatedStaff = filteredStaffList.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-    // Reset to page 1 when search query changes
-    useEffect(() => {
-        setCurrentPage(1);
-    }, [searchQuery]);
 
     const handleNextStaff = () => {
         const staffList = config.staffList || [];
