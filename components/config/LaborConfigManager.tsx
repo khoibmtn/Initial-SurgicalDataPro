@@ -194,18 +194,18 @@ export const LaborConfigManager: React.FC<Props> = ({ laborConfigs }) => {
     setEditingKey(null);
   }, []);
 
-  // Save: update only this loai within the version
+  // Save: update only this loai's price/time within the version
   const saveRowEdit = useCallback(async (row: FlatRow) => {
     setSaving(true);
     try {
       const version = laborConfigs.find(v => v.id === row.versionId);
       if (!version) throw new Error('Không tìm thấy phiên bản');
 
-      await updateLaborConfig(row.versionId, {
-        priceConfig: { ...version.priceConfig, [row.loai]: editPrice },
-        timeRules: { ...version.timeRules, [row.loai]: editTime },
-        effectiveFrom: editFrom || version.effectiveFrom,
-        effectiveTo: editTo || null,
+      // Only update this loai's price & time data, don't change version dates
+      await update(ref(db, `${LABOR_CONFIG_PATH}/${row.versionId}`), {
+        [`priceConfig/${row.loai}`]: editPrice,
+        [`timeRules/${row.loai}`]: editTime,
+        updatedAt: Date.now(),
       });
       setEditingKey(null);
       showToast('Đã lưu!');
@@ -214,7 +214,7 @@ export const LaborConfigManager: React.FC<Props> = ({ laborConfigs }) => {
     } finally {
       setSaving(false);
     }
-  }, [laborConfigs, editPrice, editTime, editFrom, editTo, showToast]);
+  }, [laborConfigs, editPrice, editTime, showToast]);
 
   // ─── Add new row for a specific loại ──────────────────────────────────
   const startAdd = useCallback((loai: string, row?: FlatRow) => {
@@ -234,54 +234,64 @@ export const LaborConfigManager: React.FC<Props> = ({ laborConfigs }) => {
   }, []);
 
   // When adding a new row for a loại:
-  // 1. Close the currently active version's effectiveTo for that loại
-  // 2. Create a new version with only this loại's data (+ copy all others from active)
+  // Strategy: Update the loai's values directly in the active version.
+  // If effectiveFrom differs → create a proper copy of the active version (closed)
+  // and a new version (open) with the updated loai.
   const saveNewRow = useCallback(async (loai: string) => {
     if (!newFrom) { showToast('Nhập ngày hiệu lực', 'error'); return; }
     setSaving(true);
     try {
       const now = Date.now();
-      
-      // Find currently active version
       const activeVersion = laborConfigs.find(v => v.effectiveTo === null);
-      
-      if (activeVersion) {
-        // Close the active version
+
+      if (activeVersion && newFrom === activeVersion.effectiveFrom) {
+        // Same effectiveFrom → just update the loai within the active version
+        await update(ref(db, `${LABOR_CONFIG_PATH}/${activeVersion.id}`), {
+          [`priceConfig/${loai}`]: newPrice,
+          [`timeRules/${loai}`]: newTime,
+          updatedAt: now,
+        });
+      } else if (activeVersion && newFrom > activeVersion.effectiveFrom) {
+        // New effectiveFrom is later → close old version, create new with all data
         const closedEnd = (() => {
           const d = new Date(newFrom);
           d.setDate(d.getDate() - 1);
           return d.toISOString().slice(0, 10);
         })();
-        
+
+        // Close old version
         await update(ref(db, `${LABOR_CONFIG_PATH}/${activeVersion.id}`), {
           effectiveTo: closedEnd,
           updatedAt: now,
         });
 
-        // Create new version with updated loai data
-        const newPriceConfig = { ...activeVersion.priceConfig, [loai]: newPrice };
-        const newTimeRules = { ...activeVersion.timeRules, [loai]: newTime };
-
+        // Create new version: copy ALL loai data, update the changed one
         const newRef = push(ref(db, LABOR_CONFIG_PATH));
         await set(newRef, {
-          name: `Cập nhật ${loai} ${newFrom}`,
+          name: activeVersion.name,
           effectiveFrom: newFrom,
           effectiveTo: null,
-          priceConfig: newPriceConfig,
-          timeRules: newTimeRules,
-          note: `Cập nhật ${loai}`,
+          priceConfig: { ...activeVersion.priceConfig, [loai]: newPrice },
+          timeRules: { ...activeVersion.timeRules, [loai]: newTime },
+          note: `Cập nhật ${LOAI_LABELS[loai] || loai} từ ${newFrom}`,
           createdAt: now,
           updatedAt: now,
         });
       } else {
-        // No active version — create fresh
+        // No active version or effectiveFrom is before active → create standalone
         const newRef = push(ref(db, LABOR_CONFIG_PATH));
+        const basePrices = activeVersion?.priceConfig || {};
+        const baseTimes = activeVersion?.timeRules || {};
         await set(newRef, {
-          name: `Cập nhật ${loai} ${newFrom}`,
+          name: `Cấu hình ${newFrom}`,
           effectiveFrom: newFrom,
-          effectiveTo: null,
-          priceConfig: { [loai]: newPrice },
-          timeRules: { [loai]: newTime },
+          effectiveTo: activeVersion ? (() => {
+            const d = new Date(activeVersion.effectiveFrom);
+            d.setDate(d.getDate() - 1);
+            return d.toISOString().slice(0, 10);
+          })() : null,
+          priceConfig: { ...basePrices, [loai]: newPrice },
+          timeRules: { ...baseTimes, [loai]: newTime },
           note: '',
           createdAt: now,
           updatedAt: now,
@@ -289,7 +299,7 @@ export const LaborConfigManager: React.FC<Props> = ({ laborConfigs }) => {
       }
 
       setAddingForLoai(null);
-      showToast('Đã thêm dòng mới!');
+      showToast('Đã lưu!');
     } catch (err: any) {
       showToast(err.message || 'Lỗi', 'error');
     } finally {
