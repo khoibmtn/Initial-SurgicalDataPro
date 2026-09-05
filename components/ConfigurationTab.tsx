@@ -72,6 +72,7 @@ interface ConfigurationTabProps {
 
 export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate }) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
+    const staffList = config.staffList || [];
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff'>('norms');
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
@@ -1736,7 +1737,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                         </div>
                                         <div>
                                             <h4 className="font-semibold text-gray-800 text-sm">Danh sách nhân viên y tế</h4>
-                                            <p className="text-[11px] text-gray-400">Quản lý nhân sự phẫu thuật, gây mê và phụ tá ({(config.staff || []).length} nhân sự)</p>
+                                            <p className="text-[11px] text-gray-400">Quản lý nhân sự phẫu thuật, gây mê và phụ tá ({staffList.length} nhân sự)</p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
