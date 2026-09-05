@@ -22,7 +22,7 @@ interface Props {
   costItems: SurgeryCostItem[];
 }
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 const formatThousands = (val: number | string): string => {
   if (val === '' || val === null || val === undefined) return '';
@@ -41,6 +41,7 @@ const fmtMoney = (n: number) => (n > 0 ? n.toLocaleString('vi-VN') + ' ₫' : '�
 export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   // Inline edit states
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -73,11 +74,11 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
     );
   }, [costItems, searchTerm]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / pageSize);
   const paged = useMemo(() => {
-    const start = page * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, page]);
+    const start = page * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, page, pageSize]);
 
   // Reset page when search changes
   const handleSearch = useCallback((val: string) => {
@@ -333,7 +334,7 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                 const isEditing = editingId === item.id;
                 return (
                   <tr key={item.id} className="hover:bg-gray-50 transition-colors group">
-                    <td className="px-2 py-2 text-gray-400 border-r border-gray-100">{page * PAGE_SIZE + idx + 1}</td>
+                    <td className="px-2 py-2 text-gray-400 border-r border-gray-100">{page * pageSize + idx + 1}</td>
                     <td className="px-2 py-2 font-mono text-blue-700 font-semibold border-r border-gray-100">{item.maTuongDuong || '—'}</td>
                     <td className="px-3 py-2 text-gray-800 font-medium border-r border-gray-100">{item.tenKT}</td>
 
@@ -479,15 +480,21 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-xs text-gray-500">
-          <span>Trang {page + 1} / {totalPages} ({filtered.length} mục)</span>
-          <div className="flex items-center gap-1">
-            <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1 rounded border border-gray-300 disabled:opacity-30 hover:bg-gray-50"><ChevronLeft className="h-3.5 w-3.5" /></button>
-            <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="p-1 rounded border border-gray-300 disabled:opacity-30 hover:bg-gray-50"><ChevronRight className="h-3.5 w-3.5" /></button>
+      <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex items-center gap-3">
+          <span>Trang {page + 1} / {Math.max(1, totalPages)} ({filtered.length} mục)</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-gray-400">Số dòng:</span>
+            <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }} className="px-2 py-0.5 border border-gray-200 rounded text-xs font-semibold bg-white focus:ring-1 focus:ring-blue-500 outline-none">
+              {[10, 20, 30, 50, 100].map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
         </div>
-      )}
+        <div className="flex items-center gap-1">
+          <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="p-1 rounded border border-gray-300 disabled:opacity-30 hover:bg-gray-50"><ChevronLeft className="h-3.5 w-3.5" /></button>
+          <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1} className="p-1 rounded border border-gray-300 disabled:opacity-30 hover:bg-gray-50"><ChevronRight className="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
     </div>
   );
 };

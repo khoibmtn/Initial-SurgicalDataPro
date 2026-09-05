@@ -54,7 +54,7 @@ const EMPTY_ROW: EditRow = {
   maTuongDuong: '',
 };
 
-const PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 20;
 
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
@@ -149,6 +149,7 @@ export const InstantTooltip: React.FC<{ content: string; children: React.ReactNo
 export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, costItems, profiles = [] }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editRow, setEditRow] = useState<EditRow>(EMPTY_ROW);
@@ -305,8 +306,8 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
     return result;
   }, [surgeryNamePrices, searchTerm, priceMode, filterPrice, validityMode, filterDateFrom, filterDateTo, hideCostItems, filterProfile, profiles, costRefIds, sortField, sortDir]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const pageItems = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
   const handleSort = (field: typeof sortField) => {
     if (sortField === field) {
@@ -1011,7 +1012,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                     Từ <SortIcon field="effectiveFrom" />
                   </th>
                   <th className="px-3 py-2 text-center text-gray-500 font-semibold w-28">Đến</th>
-                  <th className="px-2 py-2 text-center text-gray-500 font-semibold w-14" title="Bật/tắt trong DM Chi phí PTTT">DM CP</th>
+                  <th className="px-2 py-2 text-center text-gray-500 font-semibold w-14" title="Bật/tắt trong DM Chi phí PTTT">DM Chi phí</th>
                   <th className="px-3 py-2 text-center text-gray-500 font-semibold w-20">Thao tác</th>
                 </tr>
               </thead>
@@ -1020,7 +1021,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                   const isEditing = editingId === p.id;
                   const isActive = !p.effectiveTo || p.effectiveTo >= new Date().toISOString().split('T')[0];
                   const isZeroPrice = p.price === 0;
-                  const rowNum = page * PAGE_SIZE + idx + 1;
+                  const rowNum = page * pageSize + idx + 1;
                   const isInCost = costRefIds.has(p.id);
 
                   if (isEditing) {
@@ -1158,30 +1159,36 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between text-xs text-gray-500">
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <div className="flex items-center gap-3">
               <span>
-                Hiển thị {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} / {filtered.length}
+                Hiển thị {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filtered.length)} / {filtered.length}
               </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="px-2 font-semibold">{page + 1} / {totalPages}</span>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-400">Số dòng:</span>
+                <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }} className="px-2 py-0.5 border border-gray-200 rounded text-xs font-semibold bg-white focus:ring-1 focus:ring-blue-500 outline-none">
+                  {[10, 20, 30, 50, 100].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
             </div>
-          )}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="px-2 font-semibold">{page + 1} / {totalPages}</span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </>
       )}
 

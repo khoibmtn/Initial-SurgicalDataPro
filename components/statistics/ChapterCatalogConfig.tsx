@@ -36,11 +36,12 @@ const EMPTY_ROW: EditRow = {
   ten_chuong: '',
 };
 
-const PAGE_SIZE = 30;
+const DEFAULT_PAGE_SIZE = 30;
 
 export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editRow, setEditRow] = useState<EditRow>(EMPTY_ROW);
@@ -76,8 +77,8 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
     return result;
   }, [chapters, searchTerm, sortField, sortDir]);
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(filtered.length / pageSize);
+  const pageItems = filtered.slice(page * pageSize, (page + 1) * pageSize);
 
   const handleSort = (field: typeof sortField) => {
     if (sortField === field) {
@@ -409,7 +410,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
               <tbody>
                 {pageItems.map((c, idx) => {
                   const isEditing = editingId === c.id;
-                  const rowNum = page * PAGE_SIZE + idx + 1;
+                  const rowNum = page * pageSize + idx + 1;
 
                   if (isEditing) {
                     return (
@@ -489,30 +490,36 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
           </div>
 
           {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between text-xs text-gray-500">
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <div className="flex items-center gap-3">
               <span>
-                Hiển thị {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} / {filtered.length}
+                Hiển thị {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filtered.length)} / {filtered.length}
               </span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="px-2 font-semibold">{page + 1} / {totalPages}</span>
-                <button
-                  onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-                  disabled={page >= totalPages - 1}
-                  className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-400">Số dòng:</span>
+                <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }} className="px-2 py-0.5 border border-gray-200 rounded text-xs font-semibold bg-white focus:ring-1 focus:ring-blue-500 outline-none">
+                  {[10, 20, 30, 50, 100].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
               </div>
             </div>
-          )}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="px-2 font-semibold">{page + 1} / {totalPages}</span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-30 transition-colors"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </>
       )}
     </div>
