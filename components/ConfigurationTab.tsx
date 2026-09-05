@@ -871,52 +871,6 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                     <div className="animate-fade-in space-y-6">
                         {/* Timeline-based labor config */}
                         <LaborConfigManager laborConfigs={laborConfigs} />
-
-                        {/* Định mức bàn mổ (stays static — not timeline-based) */}
-                        <div className="p-4 border-t bg-blue-50 rounded-lg border-blue-100">
-                            <h3 className="font-bold text-lg text-primary-900 mb-2">Định mức bàn mổ</h3>
-                            <div className="overflow-x-auto border border-primary-200 rounded-lg shadow-sm bg-white">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-primary-100 text-primary-900 font-bold text-left">
-                                        <tr>
-                                            <th className="px-4 py-3 border-r border-primary-200">Đối tượng</th>
-                                            <th className="px-4 py-3 text-center">Tùy chọn kiểm tra trùng giờ</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-primary-100">
-                                        {[
-                                            { label: "Bác sĩ phẫu thuật (PT chính, PT phụ)", key: "surgeons" as const },
-                                            { label: "Bác sĩ gây mê hồi sức", key: "anesthesiologists" as const },
-                                            { label: "KTV gây mê, Tít dụng cụ", key: "support" as const },
-                                            { label: "Giúp việc", key: "assistants" as const }
-                                        ].map((row, idx) => (
-                                            <tr key={row.key} className={idx % 2 === 0 ? 'bg-white' : 'bg-primary-50/30'}>
-                                                <td className="px-4 py-3 border-r border-primary-100 font-medium text-gray-700">{row.label}</td>
-                                                <td className="px-3 py-2 text-center">
-                                                    <select
-                                                        value={config.staffLimits?.[row.key] ?? 1}
-                                                        onChange={(e) => {
-                                                            const val = Number(e.target.value) as any;
-                                                            updateConfig({
-                                                                staffLimits: {
-                                                                    ...config.staffLimits,
-                                                                    [row.key]: val
-                                                                }
-                                                            });
-                                                        }}
-                                                        className="border-gray-300 rounded-md shadow-sm text-sm px-3 pr-9 py-1.5 min-w-[240px]"
-                                                    >
-                                                        <option value={0}>Không kiểm tra trùng giờ</option>
-                                                        <option value={1}>Tối đa 1 bàn mổ (1 ca)</option>
-                                                        <option value={2}>Tối đa 2 bàn mổ (2 ca)</option>
-                                                    </select>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
                     </div>
                 )}
 
