@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, Cell, LabelList
 } from 'recharts';
 import {
   SpecialtyReportGroup,
@@ -263,6 +263,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
     const isRev = loaiViewMode === 'revenue';
     return loaiBreakdown
       .map(item => {
+        const total = isRev ? item.totalRevenue : item.totalCount;
         return {
           name: item.specialtyName,
           'Phẫu thuật ĐB': isRev ? item.ptDbRevenue : item.ptDbCount,
@@ -271,11 +272,97 @@ export const ComparisonChartsView: React.FC<Props> = ({
           'Phẫu thuật Loại 3': isRev ? item.pt3Revenue : item.pt3Count,
           'Thủ thuật': isRev ? item.ttRevenue : item.ttCount,
           'Chưa phân loại/Khác': isRev ? item.otherRevenue : item.otherCount,
-          total: isRev ? item.totalRevenue : item.totalCount,
+          total,
+          emptyTop: 0,
         };
       })
       .filter(item => item.total > 0);
   }, [loaiBreakdown, loaiViewMode]);
+
+  // Tổng hợp toàn viện theo Loại PT/TT
+  const loaiSummary = useMemo(() => {
+    const isRev = loaiViewMode === 'revenue';
+    let db = 0, p1 = 0, p2 = 0, p3 = 0, tt = 0, other = 0, total = 0;
+    loaiBreakdown.forEach(item => {
+      db += isRev ? item.ptDbRevenue : item.ptDbCount;
+      p1 += isRev ? item.pt1Revenue : item.pt1Count;
+      p2 += isRev ? item.pt2Revenue : item.pt2Count;
+      p3 += isRev ? item.pt3Revenue : item.pt3Count;
+      tt += isRev ? item.ttRevenue : item.ttCount;
+      other += isRev ? item.otherRevenue : item.otherCount;
+      total += isRev ? item.totalRevenue : item.totalCount;
+    });
+    return { db, p1, p2, p3, tt, other, total };
+  }, [loaiBreakdown, loaiViewMode]);
+
+  // Render nhãn trực tiếp trên Waterfall bar (Số liệu hiển thị tức thì không cần hover)
+  const renderWaterfallLabel = (props: any) => {
+    const { x, y, width, index } = props;
+    const item = waterfallData[index];
+    if (!item) return null;
+    const isStartOrEnd = item.type === 'start' || item.type === 'end';
+    let text = '';
+    let fill = '#1e293b';
+    if (isStartOrEnd) {
+      text = metricMode === 'revenue' ? fmtMoney(item.value) : `${fmtNum(item.value)} ca`;
+      fill = '#0f3a60';
+    } else {
+      const sign = item.diff > 0 ? '+' : '';
+      text = metricMode === 'revenue' ? `${sign}${fmtMoney(item.diff)}` : `${sign}${item.diff} ca`;
+      fill = item.isPositive ? '#059669' : '#e11d48';
+    }
+    return (
+      <text
+        x={x + width / 2}
+        y={Math.max(14, y - 6)}
+        fill={fill}
+        textAnchor="middle"
+        fontSize={10}
+        fontWeight={700}
+      >
+        {text}
+      </text>
+    );
+  };
+
+  // Render nhãn bên trong từng lát cắt Stacked Bar (khi lát cắt đủ cao)
+  const renderInsideStackLabel = (props: any) => {
+    const { x, y, width, height, value } = props;
+    if (!value || height < 14 || width < 22) return null;
+    const text = loaiViewMode === 'revenue' ? fmtMoney(value) : String(value);
+    return (
+      <text
+        x={x + width / 2}
+        y={y + height / 2 + 3.5}
+        fill="#ffffff"
+        textAnchor="middle"
+        fontSize={9}
+        fontWeight={700}
+      >
+        {text}
+      </text>
+    );
+  };
+
+  // Render nhãn Tổng trên đỉnh cột Stacked Bar
+  const renderStackTotalLabel = (props: any) => {
+    const { x, y, width, index } = props;
+    const item = loaiChartData[index];
+    if (!item || !item.total) return null;
+    const text = loaiViewMode === 'revenue' ? fmtMoney(item.total) : `${fmtNum(item.total)} ca`;
+    return (
+      <text
+        x={x + width / 2}
+        y={Math.max(14, y - 6)}
+        fill="#0f3a60"
+        textAnchor="middle"
+        fontSize={10.5}
+        fontWeight={800}
+      >
+        {text}
+      </text>
+    );
+  };
 
   // 6. DỮ LIỆU XU HƯỚNG ĐA THÁNG (Timeline Line Chart)
   const timelineChartData = useMemo(() => {
@@ -489,17 +576,20 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
               return (
                 <div key={item.code} className="group">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="font-semibold text-gray-800 flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center justify-between text-xs mb-1 gap-1">
+                    <span className="font-bold text-gray-800 flex items-center gap-1.5">
                       <span>{item.name}</span>
                     </span>
-                    <div className="flex items-center gap-2 font-bold text-xs">
-                      <span className={item.isPositive ? 'text-emerald-600' : 'text-rose-600'}>
-                        {item.isPositive ? `+${item.pct}%` : `${item.pct}%`}
+                    <div className="flex flex-wrap items-center gap-2 font-bold text-xs">
+                      <span className="text-gray-500 font-medium">
+                        Kỳ này: <strong className="text-gray-900">{metricMode === 'revenue' ? fmtMoney(item.curVal) : `${fmtNum(item.curVal)} ca`}</strong>
                       </span>
-                      <span className="text-gray-400 font-normal">
-                        ({item.diff > 0 ? '+' : ''}
-                        {metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`})
+                      <span className="text-gray-300 font-normal">|</span>
+                      <span className="text-gray-500 font-medium">
+                        {compareLabel}: <strong className="text-gray-700">{metricMode === 'revenue' ? fmtMoney(item.compVal) : `${fmtNum(item.compVal)} ca`}</strong>
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[11px] font-extrabold ${item.isPositive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                        {item.isPositive ? `+${item.pct}%` : `${item.pct}%`} ({item.diff > 0 ? '+' : ''}{metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`})
                       </span>
                     </div>
                   </div>
@@ -561,11 +651,11 @@ export const ComparisonChartsView: React.FC<Props> = ({
           </div>
 
           <div className="flex-1 w-full min-h-[300px]">
-            <ResponsiveContainer width="100%" height={320}>
+            <ResponsiveContainer width="100%" height={Math.max(340, groupedBarData.length * 52)}>
               <BarChart
                 data={groupedBarData}
                 layout="vertical"
-                margin={{ top: 10, right: 30, left: 40, bottom: 5 }}
+                margin={{ top: 10, right: 75, left: 15, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                 <XAxis
@@ -591,20 +681,41 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   fill={PALETTE.primary}
                   radius={[0, 4, 4, 0]}
                   barSize={12}
-                />
+                >
+                  <LabelList
+                    dataKey={periodMeta?.currentLabel || 'Kỳ này'}
+                    position="right"
+                    formatter={(v: number) => v > 0 ? (metricMode === 'revenue' ? fmtMoney(v) : fmtNum(v)) : ''}
+                    style={{ fontSize: 9.5, fontWeight: 700, fill: PALETTE.primary }}
+                  />
+                </Bar>
                 <Bar
                   dataKey={periodMeta?.prevLabel || 'Kỳ trước'}
                   fill={PALETTE.prev}
                   radius={[0, 4, 4, 0]}
                   barSize={12}
-                />
+                >
+                  <LabelList
+                    dataKey={periodMeta?.prevLabel || 'Kỳ trước'}
+                    position="right"
+                    formatter={(v: number) => v > 0 ? (metricMode === 'revenue' ? fmtMoney(v) : fmtNum(v)) : ''}
+                    style={{ fontSize: 9, fontWeight: 600, fill: '#475569' }}
+                  />
+                </Bar>
                 {hasSamePeriodData && (
                   <Bar
                     dataKey={periodMeta?.samePeriodLabel || 'Cùng kỳ'}
                     fill={PALETTE.samePeriod}
                     radius={[0, 4, 4, 0]}
                     barSize={12}
-                  />
+                  >
+                    <LabelList
+                      dataKey={periodMeta?.samePeriodLabel || 'Cùng kỳ'}
+                      position="right"
+                      formatter={(v: number) => v > 0 ? (metricMode === 'revenue' ? fmtMoney(v) : fmtNum(v)) : ''}
+                      style={{ fontSize: 9, fontWeight: 500, fill: '#64748b' }}
+                    />
+                  </Bar>
                 )}
               </BarChart>
             </ResponsiveContainer>
@@ -635,7 +746,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
           <div className="flex-1 w-full min-h-[300px]">
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={waterfallData} margin={{ top: 10, right: 20, left: 20, bottom: 25 }}>
+              <BarChart data={waterfallData} margin={{ top: 25, right: 20, left: 20, bottom: 25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis
                   dataKey="name"
@@ -678,6 +789,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                 <Bar dataKey="base" stackId="waterfall" fill="transparent" />
                 {/* Cột giá trị thực tế */}
                 <Bar dataKey="value" stackId="waterfall" radius={[4, 4, 0, 0]}>
+                  <LabelList content={renderWaterfallLabel} />
                   {waterfallData.map((entry, index) => {
                     let color = '#3b82f6';
                     if (entry.type === 'start' || entry.type === 'end') {
@@ -716,7 +828,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
           <div className="flex-1 w-full min-h-[300px]">
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={revPerCaseData.list} margin={{ top: 15, right: 30, left: 30, bottom: 25 }}>
+              <BarChart data={revPerCaseData.list} margin={{ top: 25, right: 30, left: 30, bottom: 25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis
                   dataKey="name"
@@ -768,6 +880,13 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   }}
                 />
                 <Bar dataKey="avgCur" name="BQ Kỳ này" fill="#0d9488" radius={[4, 4, 0, 0]} barSize={28}>
+                  <LabelList
+                    dataKey="avgCur"
+                    position="top"
+                    formatter={(val: number) => val > 0 ? fmtMoney(val) : ''}
+                    style={{ fontSize: 10, fontWeight: 700, fill: '#0f3a60' }}
+                    offset={6}
+                  />
                   {revPerCaseData.list.map((entry, idx) => (
                     <Cell
                       key={`cell-avg-${idx}`}
@@ -826,7 +945,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
           <div className="flex-1 w-full min-h-[300px]">
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={loaiChartData} margin={{ top: 10, right: 30, left: 30, bottom: 25 }}>
+              <BarChart data={loaiChartData} margin={{ top: 25, right: 30, left: 30, bottom: 25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis
                   dataKey="name"
@@ -844,14 +963,55 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   formatter={(val: number) => loaiViewMode === 'revenue' ? fmtMoney(val) : `${fmtNum(val)} ca`}
                 />
                 <Legend wrapperStyle={{ fontSize: 10.5, paddingTop: 10 }} />
-                <Bar dataKey="Phẫu thuật ĐB" stackId="loai" fill="#7c3aed" />
-                <Bar dataKey="Phẫu thuật Loại 1" stackId="loai" fill="#2563eb" />
-                <Bar dataKey="Phẫu thuật Loại 2" stackId="loai" fill="#0891b2" />
-                <Bar dataKey="Phẫu thuật Loại 3" stackId="loai" fill="#059669" />
-                <Bar dataKey="Thủ thuật" stackId="loai" fill="#f59e0b" />
-                <Bar dataKey="Chưa phân loại/Khác" stackId="loai" fill="#94a3b8" />
+                <Bar dataKey="Phẫu thuật ĐB" stackId="loai" fill="#7c3aed">
+                  <LabelList content={renderInsideStackLabel} />
+                </Bar>
+                <Bar dataKey="Phẫu thuật Loại 1" stackId="loai" fill="#2563eb">
+                  <LabelList content={renderInsideStackLabel} />
+                </Bar>
+                <Bar dataKey="Phẫu thuật Loại 2" stackId="loai" fill="#0891b2">
+                  <LabelList content={renderInsideStackLabel} />
+                </Bar>
+                <Bar dataKey="Phẫu thuật Loại 3" stackId="loai" fill="#059669">
+                  <LabelList content={renderInsideStackLabel} />
+                </Bar>
+                <Bar dataKey="Thủ thuật" stackId="loai" fill="#f59e0b">
+                  <LabelList content={renderInsideStackLabel} />
+                </Bar>
+                <Bar dataKey="Chưa phân loại/Khác" stackId="loai" fill="#94a3b8">
+                  <LabelList content={renderInsideStackLabel} />
+                </Bar>
+                {/* Cột trong suốt đệm đỉnh để hiển thị nhãn Tổng số */}
+                <Bar dataKey="emptyTop" stackId="loai" fill="transparent">
+                  <LabelList content={renderStackTotalLabel} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Hàng tóm tắt số liệu tổng toàn viện theo loại PT/TT */}
+          <div className="mt-3 pt-2.5 border-t border-gray-100 flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
+            <span className="font-bold text-gray-700">Tổng toàn viện:</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="flex items-center gap-1 text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+                PĐB: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.db) : `${fmtNum(loaiSummary.db)} ca`}
+              </span>
+              <span className="flex items-center gap-1 text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                P1: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.p1) : `${fmtNum(loaiSummary.p1)} ca`}
+              </span>
+              <span className="flex items-center gap-1 text-cyan-700 font-bold bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200">
+                P2: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.p2) : `${fmtNum(loaiSummary.p2)} ca`}
+              </span>
+              <span className="flex items-center gap-1 text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                P3: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.p3) : `${fmtNum(loaiSummary.p3)} ca`}
+              </span>
+              <span className="flex items-center gap-1 text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                TT: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.tt) : `${fmtNum(loaiSummary.tt)} ca`}
+              </span>
+              <span className="flex items-center gap-1 text-gray-900 font-extrabold bg-gray-100 px-2 py-0.5 rounded border border-gray-300">
+                Tổng: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.total) : `${fmtNum(loaiSummary.total)} ca`}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -879,7 +1039,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
           <div className="flex-1 w-full min-h-[300px]">
             {timelineChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={320}>
-                <LineChart data={timelineChartData} margin={{ top: 10, right: 30, left: 30, bottom: 20 }}>
+                <LineChart data={timelineChartData} margin={{ top: 25, right: 30, left: 30, bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#334155' }} />
                   <YAxis
@@ -900,7 +1060,15 @@ export const ComparisonChartsView: React.FC<Props> = ({
                     strokeWidth={2.5}
                     dot={{ r: 4 }}
                     activeDot={{ r: 6 }}
-                  />
+                  >
+                    <LabelList
+                      dataKey="total"
+                      position="top"
+                      formatter={(val: number) => val > 0 ? (metricMode === 'revenue' ? fmtMoney(val) : `${fmtNum(val)} ca`) : ''}
+                      style={{ fontSize: 10, fontWeight: 700, fill: '#0f172a' }}
+                      offset={8}
+                    />
+                  </Line>
                   {/* Các đường chuyên khoa */}
                   {allSpecialtiesList.slice(0, 5).map((spec, idx) => {
                     const colors = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'];
