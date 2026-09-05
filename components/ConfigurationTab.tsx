@@ -860,37 +860,41 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
               />
             </ContextToolbar>
 
-            {/* Stationary Subtabs Bar for DMKT - does not scroll */}
+            {/* Stationary Subtabs Bar for DMKT - does not scroll, separated from main tabs */}
             {activeSubTab === 'dmkt' && (
-              <div className="border-b border-blue-200 bg-blue-50/75 px-6 shrink-0 z-10">
-                <TabLine
-                  value={dmktSubTab}
-                  onChange={(v) => setDmktSubTab(v as any)}
-                  size="sm"
-                  options={[
-                    { value: 'chapter-catalog', label: 'DM Chương', icon: BookOpen },
-                    { value: 'price-catalog', label: 'DM Giá DVKT', icon: DollarSign },
-                    { value: 'cost-catalog', label: 'DM Chi phí', icon: Receipt },
-                    { value: 'machines', label: 'DM sử dụng mã máy', icon: Cpu },
-                    { value: 'registry', label: 'DM Mã máy', icon: Activity },
-                  ]}
-                />
+              <div className="bg-white pt-4 shrink-0 z-10">
+                <div className="border-y border-blue-200/80 bg-blue-50/75 px-6">
+                  <TabLine
+                    value={dmktSubTab}
+                    onChange={(v) => setDmktSubTab(v as any)}
+                    size="sm"
+                    options={[
+                      { value: 'chapter-catalog', label: 'DM Chương', icon: BookOpen },
+                      { value: 'price-catalog', label: 'DM Giá DVKT', icon: DollarSign },
+                      { value: 'cost-catalog', label: 'DM Chi phí', icon: Receipt },
+                      { value: 'machines', label: 'DM sử dụng mã máy', icon: Cpu },
+                      { value: 'registry', label: 'DM Mã máy', icon: Activity },
+                    ]}
+                  />
+                </div>
               </div>
             )}
 
-            {/* Stationary Subtabs Bar for Hành chính - does not scroll */}
+            {/* Stationary Subtabs Bar for Hành chính - does not scroll, separated from main tabs */}
             {activeSubTab === 'staff' && (
-              <div className="border-b border-blue-200 bg-blue-50/75 px-6 shrink-0 z-10">
-                <TabLine
-                  value={staffSubTab}
-                  onChange={(v) => setStaffSubTab(v as any)}
-                  size="sm"
-                  options={[
-                    { value: 'admin', label: 'Hành chính', icon: Building2 },
-                    { value: 'departments', label: 'DM Khoa, phòng', icon: Layers },
-                    { value: 'staff-list', label: 'Nhân viên y tế', icon: Users },
-                  ]}
-                />
+              <div className="bg-white pt-4 shrink-0 z-10">
+                <div className="border-y border-blue-200/80 bg-blue-50/75 px-6">
+                  <TabLine
+                    value={staffSubTab}
+                    onChange={(v) => setStaffSubTab(v as any)}
+                    size="sm"
+                    options={[
+                      { value: 'admin', label: 'Hành chính', icon: Building2 },
+                      { value: 'departments', label: 'DM Khoa, phòng', icon: Layers },
+                      { value: 'staff-list', label: 'Nhân viên y tế', icon: Users },
+                    ]}
+                  />
+                </div>
               </div>
             )}
 
