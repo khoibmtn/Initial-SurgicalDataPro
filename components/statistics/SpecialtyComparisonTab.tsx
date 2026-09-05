@@ -37,8 +37,11 @@ import {
   ComparisonRow,
   FinancialCategory,
   CostSubtype,
+  SpecialtyLoaiItem,
+  MonthlyTrendItem,
 } from '../../services/specialtyComparisonService';
 import { exportSpecialtyComparisonExcel, exportSpecialtyComparisonCSV } from '../../services/excelExportComparisonService';
+import { ComparisonChartsView } from './ComparisonChartsView';
 
 interface Props {
   staffList: StaffMember[];
@@ -297,11 +300,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   const [openReassignKey, setOpenReassignKey] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Data & loading state
   const [loading, setLoading] = useState<boolean>(false);
   const [groups, setGroups] = useState<SpecialtyReportGroup[]>([]);
   const [allSpecialtiesList, setAllSpecialtiesList] = useState<SpecialtyMeta[]>(getAllSpecialties);
   const [periodMeta, setPeriodMeta] = useState<PeriodMetadata | null>(null);
+  const [loaiBreakdown, setLoaiBreakdown] = useState<SpecialtyLoaiItem[]>([]);
+  const [monthlyTimeline, setMonthlyTimeline] = useState<MonthlyTrendItem[]>([]);
+  const [comparisonSubTab, setComparisonSubTab] = useState<'table' | 'charts'>('table');
   const [thresholdConfig, setThresholdConfig] = useState<ComparisonConfig>(getComparisonThresholdConfig);
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportingCsv, setExportingCsv] = useState<boolean>(false);
@@ -370,6 +375,8 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       const result = await getSpecialtyComparisonData(periodSpec, staffList, cfg, undefined, costItems, config.priceConfig, laborConfigs, config.allowanceItems);
       setGroups(result.groups);
       setPeriodMeta(result.periodMeta);
+      setLoaiBreakdown(result.loaiBreakdown || []);
+      setMonthlyTimeline(result.monthlyTimeline || []);
     } catch (err: any) {
       console.error('Error loading specialty comparison data:', err);
       showToast('Có lỗi xảy ra khi tải dữ liệu phân tích', 'error');
@@ -664,6 +671,9 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     });
     return { total, withMtd, withoutMtd };
   }, [groups]);
+
+  // All flat rows (for charts and hospital-wide analytics)
+  const allFlatRows = useMemo(() => groups.flatMap(g => g.rows), [groups]);
 
   // Combined Rows for "Tất cả chuyên khoa"
   const allCombinedRows = useMemo(() => {
@@ -1222,8 +1232,59 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* ── Specialty Filter Pills & Search Box ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* ── Sub-navigation: Thống kê (Bảng số liệu) vs Biểu đồ (Trực quan hóa) ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-2">
+        <div className="flex items-center gap-1.5 bg-gray-100/90 p-1 rounded-xl border border-gray-200/90">
+          <button
+            type="button"
+            onClick={() => setComparisonSubTab('table')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              comparisonSubTab === 'table'
+                ? 'bg-white text-primary-800 shadow-xs border border-gray-200 font-extrabold'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
+            }`}
+          >
+            <Layers className="h-4 w-4 text-primary-700" />
+            <span>Thống kê (Bảng số liệu)</span>
+            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+              comparisonSubTab === 'table' ? 'bg-primary-50 text-primary-800' : 'bg-gray-200/70 text-gray-600'
+            }`}>
+              {overallKPIs.totalDistinctSurgeries}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setComparisonSubTab('charts')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              comparisonSubTab === 'charts'
+                ? 'bg-white text-emerald-800 shadow-xs border border-gray-200 font-extrabold'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/50'
+            }`}
+          >
+            <BarChart3 className="h-4 w-4 text-emerald-600" />
+            <span>Biểu đồ (Trực quan hóa)</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-emerald-100 text-emerald-800 font-bold">
+              Lieflat
+            </span>
+          </button>
+        </div>
+
+        {comparisonSubTab === 'charts' ? (
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Trực quan hóa đa chiều: Tăng trưởng, Waterfall, Viện phí TB/ca & Cơ cấu PT/TT</span>
+          </div>
+        ) : (
+          <div className="text-xs text-gray-400">
+            Tổng cộng: {overallKPIs.totalDistinctSurgeries} kỹ thuật trên {allSpecialtiesList.length} chuyên khoa
+          </div>
+        )}
+      </div>
+
+      {comparisonSubTab === 'table' ? (
+        <>
+          {/* ── Specialty Filter Pills & Search Box ── */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Left: Specialty Filter Pills */}
         <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[280px]">
           <button
@@ -2691,6 +2752,30 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             </div>
           </div>
         )
+      )}
+        </>
+      ) : loading ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 flex flex-col items-center justify-center gap-2.5">
+          <div className="w-8 h-8 rounded-full border-3 border-primary-100 border-t-primary-600 animate-spin" />
+          <p className="text-xs font-semibold text-gray-700">Đang tổng hợp và tính toán biểu đồ đối sánh...</p>
+        </div>
+      ) : (
+        <ComparisonChartsView
+          groups={groups}
+          allRows={allFlatRows}
+          metricMode={metricMode}
+          setMetricMode={setMetricMode}
+          periodMeta={periodMeta}
+          periodMode={periodMode === 'single' ? 'month' : 'range'}
+          filterStatus={filterStatus}
+          setFilterStatus={setFilterStatus}
+          selectedSpecialty={selectedSpecialty}
+          setSelectedSpecialty={(code) => setSelectedSpecialty(code as SpecialtyCode | 'all')}
+          allSpecialtiesList={allSpecialtiesList}
+          hasSamePeriodData={periodMeta?.hasSamePeriodData ?? true}
+          loaiBreakdown={loaiBreakdown}
+          monthlyTimeline={monthlyTimeline}
+        />
       )}
     </div>
   );

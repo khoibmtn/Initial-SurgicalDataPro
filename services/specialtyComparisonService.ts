@@ -282,9 +282,42 @@ export interface PeriodMetadata {
   hasPrevData: boolean;
 }
 
+export interface SpecialtyLoaiItem {
+  specialtyCode: string;
+  specialtyName: string;
+  // Số lượng ca
+  ptDbCount: number;
+  pt1Count: number;
+  pt2Count: number;
+  pt3Count: number;
+  ttCount: number;
+  otherCount: number;
+  totalCount: number;
+  // Viện phí
+  ptDbRevenue: number;
+  pt1Revenue: number;
+  pt2Revenue: number;
+  pt3Revenue: number;
+  ttRevenue: number;
+  otherRevenue: number;
+  totalRevenue: number;
+}
+
+export interface MonthlyTrendItem {
+  monthKey: string;   // e.g. "T1", "T2"
+  monthLabel: string; // e.g. "Tháng 1/2026"
+  orderKey: string;   // e.g. "2026-01"
+  totalCount: number;
+  totalRevenue: number;
+  bySpecialtyCount: Record<string, number>;
+  bySpecialtyRevenue: Record<string, number>;
+}
+
 export interface ComparisonAnalysisResult {
   groups: SpecialtyReportGroup[];
   periodMeta: PeriodMetadata;
+  loaiBreakdown?: SpecialtyLoaiItem[];
+  monthlyTimeline?: MonthlyTrendItem[];
 }
 
 // ───────────────── PHÂN LOẠI CHUYÊN KHOA CHUẨN XÁC ─────────────────
@@ -1062,8 +1095,96 @@ export async function getSpecialtyComparisonData(
     // Giữ lại 5 nhóm mặc định hoặc nhóm tùy chỉnh nếu có dữ liệu hoặc đã được định nghĩa
     .filter(g => !g.specialty.isCustom || g.rows.length > 0 || true);
 
+  // ── Tính toán Phân rã Loại PT/TT theo chuyên khoa ──
+  const loaiMap = new Map<string, SpecialtyLoaiItem>();
+  allSpecialties.forEach(s => {
+    loaiMap.set(s.code, {
+      specialtyCode: s.code,
+      specialtyName: s.name,
+      ptDbCount: 0, pt1Count: 0, pt2Count: 0, pt3Count: 0, ttCount: 0, otherCount: 0, totalCount: 0,
+      ptDbRevenue: 0, pt1Revenue: 0, pt2Revenue: 0, pt3Revenue: 0, ttRevenue: 0, otherRevenue: 0, totalRevenue: 0,
+    });
+  });
+
+  // ── Tính toán Dòng thời gian theo Tháng ──
+  const monthMap = new Map<string, MonthlyTrendItem>();
+
+  currentRecords.forEach(r => {
+    if (!r.tenKT) return;
+    const specialty = classifySpecialty(r.tenKT, r.ptChinh, staffList, overrides);
+    let lEntry = loaiMap.get(specialty);
+    if (!lEntry) {
+      lEntry = {
+        specialtyCode: specialty,
+        specialtyName: specialty,
+        ptDbCount: 0, pt1Count: 0, pt2Count: 0, pt3Count: 0, ttCount: 0, otherCount: 0, totalCount: 0,
+        ptDbRevenue: 0, pt1Revenue: 0, pt2Revenue: 0, pt3Revenue: 0, ttRevenue: 0, otherRevenue: 0, totalRevenue: 0,
+      };
+      loaiMap.set(specialty, lEntry);
+    }
+
+    const qty = r.soLuong || 1;
+    let rev = 0;
+    if (r.thanhTien != null && !isNaN(Number(r.thanhTien))) {
+      rev = Number(r.thanhTien);
+    } else if (r.donGia != null && !isNaN(Number(r.donGia))) {
+      rev = Number(r.donGia) * qty;
+    }
+
+    lEntry.totalCount += qty;
+    lEntry.totalRevenue += rev;
+    const l = (r.loaiPTTT || '').toUpperCase().trim();
+    if (l === 'PĐB' || l === 'PDB') {
+      lEntry.ptDbCount += qty; lEntry.ptDbRevenue += rev;
+    } else if (l === 'P1') {
+      lEntry.pt1Count += qty; lEntry.pt1Revenue += rev;
+    } else if (l === 'P2') {
+      lEntry.pt2Count += qty; lEntry.pt2Revenue += rev;
+    } else if (l === 'P3') {
+      lEntry.pt3Count += qty; lEntry.pt3Revenue += rev;
+    } else if (l.startsWith('T') && l !== 'TKPL') {
+      lEntry.ttCount += qty; lEntry.ttRevenue += rev;
+    } else {
+      lEntry.otherCount += qty; lEntry.otherRevenue += rev;
+    }
+
+    // Month timeline
+    const rawDate = r.ngayBD || r.ngayCD;
+    if (rawDate) {
+      const dStr = toLocalDateKey(rawDate);
+      if (dStr && dStr.length >= 7) {
+        const ym = dStr.slice(0, 7); // "YYYY-MM"
+        const [yStr, mStr] = ym.split('-');
+        const mNum = parseInt(mStr, 10);
+        const monthKey = `T${mNum}`;
+        const monthLabel = `Tháng ${mNum}/${yStr}`;
+        if (!monthMap.has(ym)) {
+          monthMap.set(ym, {
+            monthKey,
+            monthLabel,
+            orderKey: ym,
+            totalCount: 0,
+            totalRevenue: 0,
+            bySpecialtyCount: {},
+            bySpecialtyRevenue: {},
+          });
+        }
+        const mEntry = monthMap.get(ym)!;
+        mEntry.totalCount += qty;
+        mEntry.totalRevenue += rev;
+        mEntry.bySpecialtyCount[specialty] = (mEntry.bySpecialtyCount[specialty] || 0) + qty;
+        mEntry.bySpecialtyRevenue[specialty] = (mEntry.bySpecialtyRevenue[specialty] || 0) + rev;
+      }
+    }
+  });
+
+  const loaiBreakdown = Array.from(loaiMap.values());
+  const monthlyTimeline = Array.from(monthMap.values()).sort((a, b) => a.orderKey.localeCompare(b.orderKey));
+
   return {
     groups,
     periodMeta: defs.meta,
+    loaiBreakdown,
+    monthlyTimeline,
   };
 }
