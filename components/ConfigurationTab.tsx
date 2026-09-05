@@ -1,14 +1,23 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight, DollarSign, BookOpen, Briefcase } from 'lucide-react';
+import { Receipt } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig, RolePrice } from '../contexts/ConfigContext';
-import { MachineEntry, StaffMember, SurgeryNamePrice, LaborConfigVersion } from '../types';
+import { MachineEntry, StaffMember, SurgeryNamePrice, LaborConfigVersion, SurgeryPriceVersion, ChapterCatalog, SurgeryProfile, SurgeryCostItem } from '../types';
 import { LaborConfigManager } from './config/LaborConfigManager';
 import { subscribeToLaborConfigs, ensureDefaultLaborConfig } from '../services/laborConfigService';
 import { reportService } from '../services/reportService';
 import { subscribeToSurgeryNamePrices } from '../services/surgeryNamePriceService';
 import { getUniqueNamesFromPrices } from '../services/profileService';
 import { ContextToolbar, TabLine } from './ui';
+import { subscribeToPriceVersions } from '../services/pricingService';
+import { subscribeToChapterCatalog } from '../services/chapterCatalogService';
+import { subscribeToProfiles } from '../services/profileService';
+import { subscribeToCostItems } from '../services/surgeryCostService';
+import { SurgeryNamePriceConfig } from './statistics/SurgeryNamePriceConfig';
+import { ChapterCatalogConfig } from './statistics/ChapterCatalogConfig';
+import { SurgeryCostConfig } from './statistics/SurgeryCostConfig';
+import { LaborPriceConfig } from './statistics/LaborPriceConfig';
 
 // Helper component for formatted number input
 const NumberInput: React.FC<{
@@ -62,7 +71,7 @@ interface ConfigurationTabProps {
 
 export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate }) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
-    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'machines' | 'registry' | 'staff'>('norms');
+    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'machines' | 'registry' | 'staff' | 'price-catalog' | 'chapter-catalog' | 'cost-catalog' | 'labor-price'>('norms');
     const [newMachineName, setNewMachineName] = useState("");
     const [editingMachineIndex, setEditingMachineIndex] = useState<number | null>(null);
     const [editingPriceRow, setEditingPriceRow] = useState<string | null>(null);
@@ -89,6 +98,29 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
         setSurgeryNamePrices(data);
       });
       return () => unsub();
+    }, []);
+
+    // --- Subscriptions for migrated tabs ---
+    const [priceVersions, setPriceVersions] = useState<SurgeryPriceVersion[]>([]);
+    const [chapters, setChapters] = useState<ChapterCatalog[]>([]);
+    const [profiles, setProfiles] = useState<SurgeryProfile[]>([]);
+    const [costItems, setCostItems] = useState<SurgeryCostItem[]>([]);
+
+    useEffect(() => {
+      const unsub = subscribeToPriceVersions(setPriceVersions);
+      return unsub;
+    }, []);
+    useEffect(() => {
+      const unsub = subscribeToChapterCatalog(setChapters);
+      return unsub;
+    }, []);
+    useEffect(() => {
+      const unsub = subscribeToProfiles(setProfiles);
+      return unsub;
+    }, []);
+    useEffect(() => {
+      const unsub = subscribeToCostItems(setCostItems);
+      return unsub;
     }, []);
 
     // All unique surgery names from price catalog
@@ -824,6 +856,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                   { value: 'machines', label: 'PTTT không dùng máy', icon: Activity },
                   { value: 'registry', label: 'Mã máy', icon: Cpu },
                   { value: 'staff', label: 'Nhân sự', icon: Users },
+                  { value: 'price-catalog', label: 'Danh mục giá', icon: DollarSign },
+                  { value: 'chapter-catalog', label: 'Danh mục chương', icon: BookOpen },
+                  { value: 'cost-catalog', label: 'Chi phí PTTT', icon: Receipt },
+                  { value: 'labor-price', label: 'Bảng giá nhân công', icon: Briefcase },
                 ]}
               />
             </ContextToolbar>
@@ -2332,6 +2368,31 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                 </table>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {/* Migrated from StatsConfig */}
+                {activeSubTab === 'price-catalog' && (
+                    <div className="animate-fade-in p-1">
+                        <SurgeryNamePriceConfig surgeryNamePrices={surgeryNamePrices} costItems={costItems} profiles={profiles} />
+                    </div>
+                )}
+
+                {activeSubTab === 'chapter-catalog' && (
+                    <div className="animate-fade-in p-1">
+                        <ChapterCatalogConfig chapters={chapters} />
+                    </div>
+                )}
+
+                {activeSubTab === 'cost-catalog' && (
+                    <div className="animate-fade-in p-1">
+                        <SurgeryCostConfig costItems={costItems} />
+                    </div>
+                )}
+
+                {activeSubTab === 'labor-price' && (
+                    <div className="animate-fade-in p-1">
+                        <LaborPriceConfig priceVersions={priceVersions} />
                     </div>
                 )}
             </div>
