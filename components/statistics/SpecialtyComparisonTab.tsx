@@ -45,13 +45,14 @@ interface Props {
   initialMonth?: number;
 }
 
-type SortColumnKey = 'tenKT' | 'specialty' | 'currentCount' | 'prevCount' | 'prevDiff' | 'prevChangePct' | 'samePeriodCount' | 'samePeriodDiff' | 'samePeriodChangePct' | 'status';
+type SortColumnKey = 'maTuongDuong' | 'tenKT' | 'specialty' | 'currentCount' | 'prevCount' | 'prevDiff' | 'prevChangePct' | 'samePeriodCount' | 'samePeriodDiff' | 'samePeriodChangePct' | 'status';
 type SortDirection = 'asc' | 'desc' | null;
 
 const STORAGE_PAGE_SIZE_KEY = 'sdp_comparison_page_size';
 const STORAGE_SORT_COL_KEY = 'sdp_comparison_sort_col';
 const STORAGE_SORT_DIR_KEY = 'sdp_comparison_sort_dir';
 const STORAGE_SHOW_DIFF_KEY = 'sdp_comparison_show_diff';
+const STORAGE_SHOW_MTD_KEY = 'sdp_comparison_show_mtd';
 
 function getRowMetricDisplay(
   r: ComparisonRow,
@@ -231,6 +232,19 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'ALERT' | 'POSITIVE'>('all');
   const [filterCostStatus, setFilterCostStatus] = useState<'all' | 'WITH_COST' | 'WITHOUT_COST'>('all');
+  const [filterMtdStatus, setFilterMtdStatus] = useState<'all' | 'WITH_MTD' | 'WITHOUT_MTD'>('all');
+
+  // Option: Show Mã tương đương column - Default TRUE
+  const [showMaTuongDuong, setShowMaTuongDuong] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_SHOW_MTD_KEY);
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const toggleShowMaTuongDuong = () => {
+    const next = !showMaTuongDuong;
+    setShowMaTuongDuong(next);
+    localStorage.setItem(STORAGE_SHOW_MTD_KEY, String(next));
+  };
 
   // Option: Show Absolute Diff (± ca / ± tiền) - Default TRUE
   const [showDiff, setShowDiff] = useState<boolean>(() => {
@@ -625,6 +639,24 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     });
   }, [sortCol, sortDir, metricMode, financialCategory, costSubtype, periodMeta]);
 
+  // MTD Coverage stats
+  const mtdCoverageStats = useMemo(() => {
+    let total = 0;
+    let withMtd = 0;
+    let withoutMtd = 0;
+    groups.forEach(g => {
+      g.rows.forEach(r => {
+        total++;
+        if (r.maTuongDuong && r.maTuongDuong.trim()) {
+          withMtd++;
+        } else {
+          withoutMtd++;
+        }
+      });
+    });
+    return { total, withMtd, withoutMtd };
+  }, [groups]);
+
   // Combined Rows for "Tất cả chuyên khoa"
   const allCombinedRows = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -635,7 +667,15 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     });
 
     if (term) {
-      rows = rows.filter(r => r.tenKT.toLowerCase().includes(term) || r.note.toLowerCase().includes(term) || r.specialtyName.toLowerCase().includes(term));
+      const isSearchEmpty = term === 'trống' || term === 'chưa có mã' || term === 'chưa có mtd' || term === 'empty' || term === 'null';
+      rows = rows.filter(r => {
+        if (isSearchEmpty) return !r.maTuongDuong || !r.maTuongDuong.trim();
+        const nameMatch = r.tenKT.toLowerCase().includes(term);
+        const codeMatch = r.maTuongDuong ? r.maTuongDuong.toLowerCase().includes(term) : false;
+        const noteMatch = r.note.toLowerCase().includes(term);
+        const specMatch = r.specialtyName.toLowerCase().includes(term);
+        return nameMatch || codeMatch || noteMatch || specMatch;
+      });
     }
 
     if (filterStatus !== 'all') {
@@ -648,8 +688,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       rows = rows.filter(r => !r.hasCostConfig);
     }
 
+    if (filterMtdStatus === 'WITH_MTD') {
+      rows = rows.filter(r => !!r.maTuongDuong && !!r.maTuongDuong.trim());
+    } else if (filterMtdStatus === 'WITHOUT_MTD') {
+      rows = rows.filter(r => !r.maTuongDuong || !r.maTuongDuong.trim());
+    }
+
     return sortRows(rows);
-  }, [groups, searchTerm, filterStatus, filterCostStatus, sortRows]);
+  }, [groups, searchTerm, filterStatus, filterCostStatus, filterMtdStatus, sortRows]);
 
   // Single specialty group rows
   const filteredSingleGroup = useMemo(() => {
@@ -662,7 +708,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     let rows = grp.rows;
 
     if (term) {
-      rows = rows.filter(r => r.tenKT.toLowerCase().includes(term) || r.note.toLowerCase().includes(term));
+      const isSearchEmpty = term === 'trống' || term === 'chưa có mã' || term === 'chưa có mtd' || term === 'empty' || term === 'null';
+      rows = rows.filter(r => {
+        if (isSearchEmpty) return !r.maTuongDuong || !r.maTuongDuong.trim();
+        const nameMatch = r.tenKT.toLowerCase().includes(term);
+        const codeMatch = r.maTuongDuong ? r.maTuongDuong.toLowerCase().includes(term) : false;
+        const noteMatch = r.note.toLowerCase().includes(term);
+        return nameMatch || codeMatch || noteMatch;
+      });
     }
 
     if (filterStatus !== 'all') {
@@ -675,11 +728,17 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       rows = rows.filter(r => !r.hasCostConfig);
     }
 
+    if (filterMtdStatus === 'WITH_MTD') {
+      rows = rows.filter(r => !!r.maTuongDuong && !!r.maTuongDuong.trim());
+    } else if (filterMtdStatus === 'WITHOUT_MTD') {
+      rows = rows.filter(r => !r.maTuongDuong || !r.maTuongDuong.trim());
+    }
+
     return {
       ...grp,
       rows: sortRows(rows),
     };
-  }, [groups, selectedSpecialty, searchTerm, filterStatus, filterCostStatus, sortRows]);
+  }, [groups, selectedSpecialty, searchTerm, filterStatus, filterCostStatus, filterMtdStatus, sortRows]);
 
   // Paginated rows
   const paginatedAllRows = useMemo(() => {
@@ -1218,26 +1277,46 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
           })}
         </div>
 
-        {/* Right: Search Box */}
-        <div className="relative shrink-0">
-          <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Tìm tên phẫu thuật..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8 pr-6 py-1.5 text-xs bg-white border border-gray-200 rounded-lg w-52 sm:w-64 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs transition-all placeholder:text-gray-400"
-          />
-          {searchTerm && (
+        {/* Right: MTD Quick Filter & Search Box */}
+        <div className="flex items-center gap-2 shrink-0">
+          {mtdCoverageStats.withoutMtd > 0 && (
             <button
               type="button"
-              onClick={() => setSearchTerm('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold p-0.5"
-              title="Xóa tìm kiếm"
+              onClick={() => setFilterMtdStatus(prev => prev === 'WITHOUT_MTD' ? 'all' : 'WITHOUT_MTD')}
+              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer shadow-2xs ${
+                filterMtdStatus === 'WITHOUT_MTD'
+                  ? 'bg-rose-600 text-white border-rose-700 ring-2 ring-rose-300 font-bold'
+                  : 'bg-white border-gray-200 text-rose-700 hover:bg-rose-50 hover:border-rose-300'
+              }`}
+              title={filterMtdStatus === 'WITHOUT_MTD' ? 'Đang lọc kỹ thuật chưa có mã TĐ. Bấm để bỏ lọc.' : 'Bấm để lọc kỹ thuật chưa có mã tương đương'}
             >
-              ×
+              <span>Chưa có mã: <strong>{mtdCoverageStats.withoutMtd}</strong></span>
+              {filterMtdStatus === 'WITHOUT_MTD' && (
+                <span className="ml-0.5 text-[10px] bg-white/20 px-1 rounded">✕</span>
+              )}
             </button>
           )}
+
+          <div className="relative shrink-0">
+            <Search className="h-3.5 w-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Tìm tên, mã tương đương..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8 pr-6 py-1.5 text-xs bg-white border border-gray-200 rounded-lg w-52 sm:w-64 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-500 shadow-2xs transition-all placeholder:text-gray-400"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold p-0.5"
+                title="Xóa tìm kiếm"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1284,26 +1363,37 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Subtitle bar with Right-aligned Diff Toggle & Full/Short money toggle */}
-          <div className="bg-[#d9edf7] text-[#003366] px-3 py-1.5 text-[11px] border-b border-[#bce8f1] flex items-center justify-between gap-2">
-            <div className="flex-1 text-center italic">
-              {periodMeta?.subtitle || ''}
-            </div>
-            
+          {/* Subtitle bar with Left-aligned Toggles (Mã TĐ, $ chênh, $ rút gọn) & Subtitle */}
+          <div className="bg-[#d9edf7] text-[#003366] px-3 py-1.5 text-[11px] border-b border-[#bce8f1] flex flex-wrap items-center justify-between gap-2">
             <div className="shrink-0 flex items-center gap-2">
+              {/* Toggle Show Mã tương đương */}
+              <button
+                type="button"
+                onClick={toggleShowMaTuongDuong}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                  showMaTuongDuong
+                    ? 'bg-white text-blue-800 border-blue-300 shadow-xs'
+                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                }`}
+                title={showMaTuongDuong ? 'Đang hiện cột Mã tương đương. Bấm để ẩn.' : 'Đang ẩn cột Mã tương đương. Bấm để hiện.'}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${showMaTuongDuong ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>Mã TĐ</span>
+              </button>
+
               {/* Toggle Show Absolute Diff */}
               <button
                 type="button"
                 onClick={handleToggleShowDiff}
                 className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
                   showDiff
-                    ? 'bg-white text-primary-800 border-primary-300'
+                    ? 'bg-white text-primary-800 border-primary-300 shadow-xs'
                     : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
                 }`}
                 title={`Bật/Tắt hiển thị cột số chênh tuyệt đối (± ${metricMode === 'revenue' ? 'tiền' : 'ca'})`}
               >
-                {showDiff ? <ToggleRight className="h-3.5 w-3.5 text-primary-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
-                <span>Hiện số chênh ({metricMode === 'revenue' ? '± tiền' : '± ca'})</span>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${showDiff ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>$ chênh</span>
               </button>
 
               {/* Full/Short money toggle */}
@@ -1311,13 +1401,21 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setFullMoneyFormat(prev => !prev)}
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/80 hover:bg-white text-[#003366] border border-[#bce8f1] font-semibold text-[11px] shadow-2xs cursor-pointer transition-all"
-                  title={fullMoneyFormat ? 'Đang hiện số tiền đầy đủ. Bấm để rút gọn.' : 'Đang hiện số tiền rút gọn. Bấm để hiện đầy đủ.'}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                    !fullMoneyFormat
+                      ? 'bg-white text-emerald-800 border-emerald-300 shadow-xs'
+                      : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                  }`}
+                  title={!fullMoneyFormat ? 'Đang bật số tiền rút gọn. Bấm để hiện đầy đủ.' : 'Đang hiện số tiền đầy đủ. Bấm để bật rút gọn.'}
                 >
-                  {fullMoneyFormat ? <ToggleRight className="h-3.5 w-3.5 text-emerald-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
-                  <span>{fullMoneyFormat ? 'Số tiền đầy đủ' : 'Số tiền rút gọn'}</span>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${!fullMoneyFormat ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                  <span>$ rút gọn</span>
                 </button>
               )}
+            </div>
+
+            <div className="flex-1 text-right italic">
+              {periodMeta?.subtitle || ''}
             </div>
           </div>
 
@@ -1461,6 +1559,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
             <table className="w-full text-xs text-left border-collapse">
               <thead>
                 <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300 select-none">
+                  {/* Mã tương đương */}
+                  {showMaTuongDuong && (
+                    <th
+                      onClick={() => handleSortClick('maTuongDuong')}
+                      className="px-2.5 py-2 text-center w-36 min-w-[120px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      title="Nhấn để sắp xếp theo mã tương đương"
+                    >
+                      <div className="flex items-center justify-center">
+                        <span>Mã tương đương</span>
+                        {renderSortIcon('maTuongDuong')}
+                      </div>
+                    </th>
+                  )}
+
                   {/* Tên phẫu thuật */}
                   <th
                     onClick={() => handleSortClick('tenKT')}
@@ -1593,7 +1705,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               <tbody className="divide-y divide-gray-200">
                 {paginatedAllRows.length === 0 ? (
                   <tr>
-                    <td colSpan={showDiff ? 11 : 9} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                    <td colSpan={(showDiff ? 11 : 9) + (showMaTuongDuong ? 1 : 0)} className="px-3 py-8 text-center text-gray-400 italic text-xs">
                       Không tìm thấy ca phẫu thuật nào phù hợp
                     </td>
                   </tr>
@@ -1617,6 +1729,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
                         }`}
                       >
+                        {/* Mã tương đương */}
+                        {showMaTuongDuong && (
+                          <td className="px-2.5 py-1.5 font-mono font-semibold text-blue-700 border-r border-gray-200 text-center whitespace-nowrap text-xs">
+                            {r.maTuongDuong || ''}
+                          </td>
+                        )}
+
                         {/* Tên phẫu thuật */}
                         <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1983,26 +2102,37 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Subtitle bar with Right-aligned Diff Toggle & Full/Short money toggle */}
-            <div className="bg-[#d9edf7] text-[#003366] px-3 py-1.5 text-[11px] border-b border-[#bce8f1] flex items-center justify-between gap-2">
-              <div className="flex-1 text-center italic">
-                {periodMeta?.subtitle || ''}
-              </div>
-
+            {/* Subtitle bar with Left-aligned Toggles (Mã TĐ, $ chênh, $ rút gọn) & Subtitle */}
+            <div className="bg-[#d9edf7] text-[#003366] px-3 py-1.5 text-[11px] border-b border-[#bce8f1] flex flex-wrap items-center justify-between gap-2">
               <div className="shrink-0 flex items-center gap-2">
+                {/* Toggle Show Mã tương đương */}
+                <button
+                  type="button"
+                  onClick={toggleShowMaTuongDuong}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                    showMaTuongDuong
+                      ? 'bg-white text-blue-800 border-blue-300 shadow-xs'
+                      : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                  }`}
+                  title={showMaTuongDuong ? 'Đang hiện cột Mã tương đương. Bấm để ẩn.' : 'Đang ẩn cột Mã tương đương. Bấm để hiện.'}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${showMaTuongDuong ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                  <span>Mã TĐ</span>
+                </button>
+
                 {/* Toggle Show Absolute Diff */}
                 <button
                   type="button"
                   onClick={handleToggleShowDiff}
                   className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
                     showDiff
-                      ? 'bg-white text-primary-800 border-primary-300'
+                      ? 'bg-white text-primary-800 border-primary-300 shadow-xs'
                       : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
                   }`}
                   title={`Bật/Tắt hiển thị cột số chênh tuyệt đối (± ${metricMode === 'revenue' ? 'tiền' : 'ca'})`}
                 >
-                  {showDiff ? <ToggleRight className="h-3.5 w-3.5 text-primary-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
-                  <span>Hiện số chênh ({metricMode === 'revenue' ? '± tiền' : '± ca'})</span>
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${showDiff ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                  <span>$ chênh</span>
                 </button>
 
                 {/* Full/Short money toggle */}
@@ -2010,13 +2140,21 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setFullMoneyFormat(prev => !prev)}
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/80 hover:bg-white text-[#003366] border border-[#bce8f1] font-semibold text-[11px] shadow-2xs cursor-pointer transition-all"
-                    title={fullMoneyFormat ? 'Đang hiện số tiền đầy đủ. Bấm để rút gọn.' : 'Đang hiện số tiền rút gọn. Bấm để hiện đầy đủ.'}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                      !fullMoneyFormat
+                        ? 'bg-white text-emerald-800 border-emerald-300 shadow-xs'
+                        : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                    }`}
+                    title={!fullMoneyFormat ? 'Đang bật số tiền rút gọn. Bấm để hiện đầy đủ.' : 'Đang hiện số tiền đầy đủ. Bấm để bật rút gọn.'}
                   >
-                    {fullMoneyFormat ? <ToggleRight className="h-3.5 w-3.5 text-emerald-600" /> : <ToggleLeft className="h-3.5 w-3.5 text-gray-400" />}
-                    <span>{fullMoneyFormat ? 'Số tiền đầy đủ' : 'Số tiền rút gọn'}</span>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${!fullMoneyFormat ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                    <span>$ rút gọn</span>
                   </button>
                 )}
+              </div>
+
+              <div className="flex-1 text-right italic">
+                {periodMeta?.subtitle || ''}
               </div>
             </div>
 
@@ -2160,6 +2298,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               <table className="w-full text-xs text-left border-collapse">
                 <thead>
                   <tr className="bg-[#104E8B] text-white text-center font-bold text-[11px] tracking-wide border-b border-gray-300 select-none">
+                    {/* Mã tương đương */}
+                    {showMaTuongDuong && (
+                      <th
+                        onClick={() => handleSortClick('maTuongDuong')}
+                        className="px-2.5 py-2 text-center w-36 min-w-[120px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                        title="Nhấn để sắp xếp theo mã tương đương"
+                      >
+                        <div className="flex items-center justify-center">
+                          <span>Mã tương đương</span>
+                          {renderSortIcon('maTuongDuong')}
+                        </div>
+                      </th>
+                    )}
+
                     <th
                       onClick={() => handleSortClick('tenKT')}
                       className="px-3 py-2 text-left min-w-[320px] border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
@@ -2272,7 +2424,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <tbody className="divide-y divide-gray-200">
                   {filteredSingleGroup.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={showDiff ? 10 : 8} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                      <td colSpan={(showDiff ? 10 : 8) + (showMaTuongDuong ? 1 : 0)} className="px-3 py-8 text-center text-gray-400 italic text-xs">
                         {filteredSingleGroup.specialty.isCustom
                           ? 'Chưa có kỹ thuật nào được chuyển vào nhóm tùy chỉnh này'
                           : 'Không có ca phẫu thuật nào trong chuyên khoa này'}
@@ -2297,6 +2449,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
                           }`}
                         >
+                          {/* Mã tương đương */}
+                          {showMaTuongDuong && (
+                            <td className="px-2.5 py-1.5 font-mono font-semibold text-blue-700 border-r border-gray-200 text-center whitespace-nowrap text-xs">
+                              {r.maTuongDuong || ''}
+                            </td>
+                          )}
+
                           {/* Tên phẫu thuật + Nút chuyển chuyên khoa */}
                           <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200 relative">
                             <div className="flex items-center justify-between gap-2 flex-wrap">

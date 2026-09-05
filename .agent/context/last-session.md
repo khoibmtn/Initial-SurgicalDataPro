@@ -1,8 +1,8 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 04/09/2026 17:10 (Giờ địa phương)  
-> **Nhánh Git hiện tại:** `temp-04-09-2026-17h08`  
-> **Commit mới nhất:** `c4b627b`  
+> **Thời gian tạo:** 04/09/2026 23:48 (Giờ địa phương)  
+> **Nhánh Git hiện tại:** `temp-04-09-2026-23h38`  
+> **Commit mới nhất trên main:** `d1c54c5`  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Trạng thái Build & Deploy:** `Thành công 100% (READY)`
 
@@ -10,29 +10,92 @@
 
 ## 📌 1. Các Yêu Cầu & Tính Năng Mới Đã Triển Khai Trong Phiên
 
-### 1.1. Tải Excel Full Danh Sách Cho Tất Cả Các Cảnh Báo (Validation Warnings):
-- **Bản ghi trùng key (`duplicateCount`)**:
-  - Tự động gom nhóm tất cả các bản ghi có cùng 4 trường: `ngày phẫu thuật`, `loại PT/TT`, `mã BN`, `tên kỹ thuật`.
-  - Đánh số nhóm trùng: `Nhóm #1`, `Nhóm #2`... kèm số ca trong nhóm (2, 3...) để các dòng trùng nhau được xếp cạnh nhau giúp đối chiếu cực kỳ thuận tiện.
-  - Thêm nút tải 1-click **"Tải Excel trùng key (X dòng)"** ngay trên thanh tiêu đề và cả nút tải lớn bên trong chi tiết.
-  - File Excel xuất ra có **23 cột dữ liệu chi tiết đầy đủ**:
-    `STT`, `Nhóm trùng key`, `Số ca trong nhóm`, `Mã BN`, `Họ và tên`, `Năm sinh`, `Giới tính`, `Thẻ BHYT`, `Ngày phẫu thuật` (kèm giờ phút nếu có), `Tên phẫu thuật / kỹ thuật`, `Loại PT/TT`, `Số lượng`, `Phẫu thuật chính`, `Phẫu thuật phụ`, `Bác sĩ gây mê`, `KTV gây mê`, `Giúp việc`, `Máy thực hiện`, `Đơn giá (VNĐ)`, `Thành tiền (VNĐ)`, `Mã tương đương BHXH`, `Nguồn dữ liệu`, `ID bản ghi`.
-- **Kỹ thuật chưa có giá (`missingSurgeryNames`)**:
-  - Nâng cấp nút tải Excel từ 3 cột cơ bản thành **danh sách chi tiết 16 cột đầy đủ thông tin ca mổ** (Mã BN, Họ tên, Năm sinh, Giới tính, Thẻ BHYT, Ngày mổ, Tên KT, Loại PT/TT, PTV chính, PTV phụ, BS GM, Máy, Đơn giá, Thành tiền, Mã tương đương BHXH, Nguồn dữ liệu).
-- **Thiếu bảng giá theo tháng (`missingPriceMonths`)**:
-  - Thêm nút **"Tải danh sách ca tháng thiếu giá"** xuất toàn bộ các ca phẫu thuật của các tháng thiếu bảng giá ra Excel để kiểm tra và đối soát.
+### 1.1. Phân Tích Chi Phí & Lợi Nhuận Tại Tab "Phân Tích So Sánh" (`SpecialtyComparisonTab.tsx`)
+- **Tối ưu vị trí cụm Toggle trên thanh phụ đề bảng**:
+  - Gỡ bỏ nút *"Hiện số chênh"* khỏi thanh công cụ trên cùng.
+  - Đặt toggle **"Hiện số chênh (± tiền / ± ca)"** nằm ngay cạnh toggle **"Số tiền rút gọn / Đầy đủ"** ở sát mép phải thanh phụ đề (ngay trên đầu bảng).
+- **Slide Toggle Phân Cấp 2 Tầng**:
+  - **Cấp 1 (Chỉ số tài chính)**:
+    - `Viện phí`: Xanh lá đậm (`bg-emerald-600 text-white font-bold`).
+    - `Chi phí`: Nổi bật màu cam đậm (`bg-amber-600 text-white font-bold`).
+    - `Lợi nhuận`: Xanh dương đậm (`bg-blue-600 text-white font-bold`).
+  - **Cấp 2 (Tiểu mục Chi phí)**:
+    - `CP Thuốc`, `CP VTTH`, `CP Nhân công`, `Tổng CP (Thuốc + VTTH + NC)`.
+    - Trạng thái được chọn hiển thị cực kỳ nổi bật với nền cam đậm (`bg-amber-600 text-white font-bold ring-1 ring-amber-700/40 shadow-sm`), phân biệt hoàn toàn so với các nút chưa chọn (nền trong suốt, chữ nâu).
+- **Click Badge Định Mức CP Để Lọc Danh Sách**:
+  - **Badge "XX có định mức CP"**: Click lần 1 kích hoạt lọc `WITH_COST` (chuyển sang màu xanh lục đậm kèm icon `✕`), bảng chỉ hiện các kỹ thuật đã có định mức CP. Click lần 2 hủy lọc.
+  - **Badge "XX chưa có định mức CP"**: Click lần 1 kích hoạt lọc `WITHOUT_COST` (chuyển sang màu cam đậm kèm icon `✕`), bảng chỉ hiện các kỹ thuật chưa có định mức CP (có nhãn cảnh báo `Chưa có CP`). Click lần 2 hủy lọc.
+- **Thuật toán ánh xạ chi phí & tính toán**:
+  - **Ánh xạ chi phí**: Khớp đồng thời `maTuongDuong` (chuẩn hóa hậu tố `_GT`), `donGia`, và ngày phẫu thuật thủ thuật nằm trong khoảng thời gian hiệu lực (ưu tiên `costEffectiveFrom` – `costEffectiveTo`, fallback `dvktEffectiveFrom` – `dvktEffectiveTo`).
+  - **Chi phí nhân công**: Tính theo từng ca mổ dựa trên kíp mổ thực tế (`ptChinh`, `ptPhu`, `bsGM`, `ktvGM`, `tdc`, `gv`) và `priceConfig[loaiPTTT]`, đảm bảo khớp 100% Bảng thanh toán phẫu thuật.
+  - **Lợi nhuận**: `Viện phí - (CP Thuốc + CP VTTH + CP Nhân công)`.
+  - Kỹ thuật chưa có định mức chi phí: hiển thị `—`, nhãn cảnh báo `Chưa có CP`, không tính vào tổng chi phí & tổng lợi nhuận toàn viện/chuyên khoa.
+- **Đồng bộ Xuất Báo Cáo Excel & CSV**:
+  - File Excel (Sheet Tổng hợp + Sheet Chuyên khoa) và CSV UTF-8 (BOM `\uFEFF`) tự động xuất đúng cột số liệu theo chỉ số đang chọn: Viện phí, CP Thuốc, CP VTTH, CP Nhân công, Tổng CP, hoặc Lợi nhuận.
+
+### 1.2. Nâng Cấp Danh Mục Chi Phí PTTT (`SurgeryCostConfig.tsx`, `surgeryCostService.ts`)
+- Tự động định dạng phân cách hàng nghìn bằng dấu chấm `.` cho số tiền CP Thuốc và CP VTTH.
+- Tách độc lập trường thời gian hiệu lực chi phí (`costEffectiveFrom`, `costEffectiveTo`) và thời gian hiệu lực DVKT (`dvktEffectiveFrom`, `dvktEffectiveTo`).
+- Loại bỏ cột tổng CP theo đúng yêu cầu người dùng.
+
+### 1.3. Nâng Cấp Danh Mục Giá & Quét DM Thiếu (`SurgeryNamePriceConfig.tsx`)
+- Quét DM thiếu: Chuyển sang hiển thị modal đề xuất duyệt trước khi thêm, không tự ý chèn dữ liệu khi chưa có sự đồng ý của người dùng.
+- Rút gọn bộ lọc:
+  - Combobox Hiệu lực 4 trạng thái: *Tất cả / Còn hiệu lực / Hết hiệu lực / Khoảng hiệu lực*.
+  - Toggle Giá 4 trạng thái: *Tất cả / Có giá / Chưa có giá / Khoảng giá*.
 
 ---
 
-## 📂 2. Cấu Trúc File & Thay Đổi Chính
-- `types.ts`:
-  - Thêm interface `DuplicateSurgeryRecord` (kế thừa `PersistedSurgeryRecord` với `duplicateGroup`, `duplicateGroupCount`, `duplicateKey`).
-  - Thêm interface `MissingSurgeryNameRecord` đầy đủ thông tin ca mổ.
-  - Mở rộng `DataValidationResult` với `duplicateRecords?: DuplicateSurgeryRecord[]` và `missingSurgeryNameRecords: MissingSurgeryNameRecord[]`.
-- `services/statisticsService.ts`:
-  - Cập nhật hàm `validateRecords` để gom nhóm các bản ghi trùng key, tính số lượng nhóm và trả về mảng `duplicateRecords`.
-  - Cập nhật `aggregateMonth` lưu đầy đủ thông tin ca mổ vào `missingSurgeryNameTracker.records`.
-  - Cập nhật `fetchAndAggregateYearly` gắn `duplicateRecords` và `missingSurgeryNameRecords` vào validation result.
-- `components/statistics/StatisticsTab.tsx`:
-  - Bổ sung các hàm xuất Excel chuyên nghiệp: `handleExportDuplicates`, `handleExportMissingPriceSurgeries`, `handleExportMissingPriceMonths`.
-  - Cập nhật các card cảnh báo trong JSX: thêm nút tải nhanh trên thanh tiêu đề `summary` và bên trong nội dung `details`.
+## 📂 2. Cấu Trúc Dữ Liệu & Types Chính
+
+### 2.1. `types.ts`
+```ts
+export interface SurgeryCostItem {
+  id: string;
+  refPriceId: string;
+  maTuongDuong: string;
+  tenKT: string;
+  donGia: number;
+  medicCost: number;
+  vtthCost: number;
+  dvktEffectiveFrom?: string;
+  dvktEffectiveTo?: string | null;
+  costEffectiveFrom: string;
+  costEffectiveTo: string | null;
+}
+
+export interface RolePrice {
+  'Chính': number;
+  'Phụ': number;
+  'Giúp việc': number;
+}
+```
+
+### 2.2. `services/specialtyComparisonService.ts`
+```ts
+export type FinancialCategory = 'revenue' | 'cost' | 'profit';
+export type CostSubtype = 'all' | 'medic' | 'vtth' | 'labor';
+
+export interface ComparisonRow {
+  // ... fields cơ bản ...
+  hasCostConfig: boolean;
+  currentRevenue: number;
+  currentMedicCost: number;
+  currentVtthCost: number;
+  currentLaborCost: number;
+  currentTotalCost: number;
+  currentProfit: number;
+  // ... tương tự cho prev và samePeriod ...
+}
+```
+
+---
+
+## 🚀 3. Trạng Thái Triển Khai & Kiểm Thử
+- **TypeScript**: `npx tsc --noEmit` đạt chuẩn 100% không có lỗi type.
+- **Production Build**: Vite build hoàn tất thành công trong 5.54s.
+- **Browser Verification**: Đã kiểm thử trực tiếp trên trình duyệt bằng subagent, xác nhận giao diện chuyển đổi mượt mà, định dạng tiền tệ và bộ lọc hoạt động chính xác.
+- **Git & Vercel**:
+  - Nhánh hiện tại: `temp-04-09-2026-23h38`.
+  - Đã merge vào `main` và push lên GitHub `origin/main`.
+  - Vercel Production deployment: `READY` tại https://initial-surgical-data-pro.vercel.app.

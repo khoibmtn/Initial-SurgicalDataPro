@@ -383,6 +383,7 @@ export interface ForecastData {
 export interface SurgeryNameStats {
   name: string;
   normalizedName: string;
+  maTuongDuong?: string;
   totalCases: number;
   totalEquivalent: number;
   percentage: number;

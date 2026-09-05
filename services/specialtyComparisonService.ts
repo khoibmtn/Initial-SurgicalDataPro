@@ -48,6 +48,7 @@ export type ComparisonStatus = 'ALERT' | 'POSITIVE' | 'NORMAL';
 
 export interface ComparisonRow {
   tenKT: string;
+  maTuongDuong?: string;
   specialty: SpecialtyCode;
   specialtyName: string;
   // Số lượng (Count)
@@ -558,7 +559,7 @@ function isCostItemGayTe(item: SurgeryCostItem): boolean {
   return name.includes('[gây tê]') || name.includes('(gây tê)') || mtd.endsWith('_GT');
 }
 
-function isRecordGayTe(mtd?: string, tenKT?: string): boolean {
+export function isRecordGayTe(mtd?: string, tenKT?: string): boolean {
   const m = (mtd || '').trim().toUpperCase();
   const t = (tenKT || '').toLowerCase();
   return m.endsWith('_GT') || t.includes('[gây tê]') || t.includes('(gây tê)');
@@ -679,8 +680,10 @@ export async function getSpecialtyComparisonData(
 
   interface ItemCounter {
     displayName: string;
+    maTuongDuong: string;
     specialty: SpecialtyCode;
     hasCostConfig: boolean;
+    nameCostMap: Map<string, number>;
     current: number;
     prev: number;
     samePeriod: number;
@@ -717,8 +720,28 @@ export async function getSpecialtyComparisonData(
   ) => {
     if (!r.tenKT) return;
     const specialty = classifySpecialty(r.tenKT, r.ptChinh, staffList, overrides);
+    const rawMTD = (r.maTuongDuong || '').trim();
+    const isGT = isRecordGayTe(r.maTuongDuong, r.tenKT);
+    const baseMTD = normalizeMaTuongDuong(rawMTD).replace(/_GT$/i, '');
+    const method = isGT ? 'GT' : 'GM';
+    const donGia = Math.round(Number(r.donGia) || 0);
     const normName = r.tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
-    const key = `${specialty}:::${normName}`;
+
+    // Khóa gom nhóm:
+    // 1 tên kỹ thuật nếu cùng mã tương đương:
+    // - khác phương pháp vô cảm (gây mê, gây tê) thì tách theo phương pháp vô cảm
+    // - cùng phương pháp vô cảm và cùng giá: hiển thị chung (nếu khác tên thì lấy 1 tên nhiều chi phí nhất)
+    // - chưa có mã tương đương: gom theo chuyên khoa + normName + phương pháp vô cảm + giá
+    const key = baseMTD
+      ? `${specialty}:::MTD_${baseMTD}:::${method}:::${donGia}`
+      : `${specialty}:::NOMTD_${normName}:::${method}:::${donGia}`;
+
+    // Mã tương đương hiển thị trên dòng:
+    // Nếu có mã tương đương: ca gây tê có hậu tố _GT (nếu chưa có thì thêm _GT), ca gây mê dùng baseMTD
+    // Nếu chưa có mã tương đương: để trống ""
+    const rowMTD = baseMTD
+      ? (isGT ? (rawMTD.toUpperCase().endsWith('_GT') ? rawMTD : `${baseMTD}_GT`) : baseMTD)
+      : '';
 
     const qty = r.soLuong || 1;
     let rev = 0;
@@ -739,8 +762,10 @@ export async function getSpecialtyComparisonData(
     if (!itemsMap.has(key)) {
       itemsMap.set(key, {
         displayName: r.tenKT.trim(),
+        maTuongDuong: rowMTD,
         specialty,
         hasCostConfig: false,
+        nameCostMap: new Map<string, number>(),
         current: 0,
         prev: 0,
         samePeriod: 0,
@@ -768,6 +793,15 @@ export async function getSpecialtyComparisonData(
     const item = itemsMap.get(key)!;
     if (hasCost) {
       item.hasCostConfig = true;
+    }
+
+    // Tích lũy chi phí/doanh thu theo từng biến thể tên kỹ thuật để chọn tên nhiều chi phí nhất
+    const rawName = r.tenKT.trim();
+    const currentNameCost = item.nameCostMap.get(rawName) || 0;
+    item.nameCostMap.set(rawName, currentNameCost + (totalCost || rev || qty));
+
+    if (!item.maTuongDuong && rowMTD) {
+      item.maTuongDuong = rowMTD;
     }
 
     if (period === 'current') {
@@ -873,8 +907,19 @@ export async function getSpecialtyComparisonData(
     const prevDiff = cur - prev;
     const samePeriodDiff = hasSamePeriodData ? (cur - same) : null;
 
+    // Chọn tên kỹ thuật có tổng chi phí / doanh thu tích lũy lớn nhất
+    let chosenName = item.displayName;
+    let maxCost = -1;
+    for (const [nameKey, costVal] of item.nameCostMap.entries()) {
+      if (costVal > maxCost) {
+        maxCost = costVal;
+        chosenName = nameKey;
+      }
+    }
+
     allRows.push({
-      tenKT: item.displayName,
+      tenKT: chosenName,
+      maTuongDuong: item.maTuongDuong || '',
       specialty: item.specialty,
       specialtyName: specMeta.name,
       currentCount: cur,

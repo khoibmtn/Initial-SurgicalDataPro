@@ -9,6 +9,7 @@ import {
 } from 'recharts';
 import { StatisticsData, DailyAggregate, LOAI_PTTT_ORDER, LOAI_PTTT_LABELS, ChapterCatalog, SurgeryProfile, SurgeryNamePrice, PTTTFilterMode } from '../../types';
 import { exportStatisticsToExcel } from '../../services/statisticsService';
+import { isRecordGayTe } from '../../services/specialtyComparisonService';
 
 interface Props {
   data: StatisticsData;
@@ -1268,6 +1269,22 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
   const [searchText, setSearchText] = useState('');
   const [page, setPage] = useState(0);
 
+  // --- Toggle show/hide Mã tương đương (persisted) ---
+  const [showMaTuongDuong, setShowMaTuongDuong] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sdp_show_ma_tuong_duong_stat');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const toggleMaTuongDuong = () => {
+    setShowMaTuongDuong(prev => {
+      const next = !prev;
+      localStorage.setItem('sdp_show_ma_tuong_duong_stat', String(next));
+      return next;
+    });
+  };
+
+  const [filterMtdStatus, setFilterMtdStatus] = useState<'all' | 'WITHOUT_MTD'>('all');
+
   // --- Filter state (persistent) ---
   const [filterMode, setFilterMode] = useState<PTTTFilterMode>(() => {
     return (localStorage.getItem('sdp_pttt_filter_mode') as PTTTFilterMode) || 'all';
@@ -1300,47 +1317,123 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
   // Build maTuongDuongByName across all months
   const globalMaTuongDuongByName = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const m of primary) {
+    for (const m of [...primary, ...compare]) {
       if (m.maTuongDuongByName) {
         Object.assign(map, m.maTuongDuongByName);
       }
     }
     return map;
-  }, [primary]);
+  }, [primary, compare]);
 
   const sourceData = showCompare ? compare : primary;
   const activeYear = showCompare ? data.compareYear : data.primaryYear;
 
-  // Compute rows: aggregate by surgery name — always show all 12 months
+  // Compute rows: aggregate by surgery name / maTuongDuong with anesthesia and price grouping
   const rows = useMemo(() => {
-    const nameMap = new Map<string, { name: string; monthly: number[]; total: number }>();
     const months = sourceData;
-
+    const allNames = new Set<string>();
     for (const m of months) {
-      const source: Record<string, number> = showRevenue ? (m.namePriceCostByName || {}) : m.byName;
-      for (const [name, value] of Object.entries(source)) {
-        if (!nameMap.has(name)) {
-          nameMap.set(name, { name, monthly: new Array(12).fill(0), total: 0 });
-        }
-        const entry = nameMap.get(name)!;
-        const v = Number(value) || 0;
-        entry.monthly[m.month - 1] += v;
-        entry.total += v;
+      if (m.byName) Object.keys(m.byName).forEach(n => allNames.add(n));
+      if (m.namePriceCostByName) Object.keys(m.namePriceCostByName).forEach(n => allNames.add(n));
+    }
+
+    interface GroupAcc {
+      key: string;
+      maTuongDuong: string;
+      names: Map<string, number>;
+      monthly: number[];
+      total: number;
+    }
+
+    const groupMap = new Map<string, GroupAcc>();
+
+    for (const name of allNames) {
+      const rawMTD = globalMaTuongDuongByName[name] || '';
+      const isGT = isRecordGayTe(rawMTD, name);
+
+      let nameCases = 0;
+      let nameCost = 0;
+      for (const m of months) {
+        nameCases += (m.byName?.[name] || 0);
+        nameCost += (m.namePriceCostByName?.[name] || 0);
+      }
+      const unitPrice = nameCases > 0 ? Math.round(nameCost / nameCases) : 0;
+
+      let groupKey: string;
+      let finalMTD = '';
+
+      if (rawMTD) {
+        const baseMTD = rawMTD.trim().toUpperCase().replace(/_GT$/i, '');
+        const method = isGT ? 'GAY_TE' : 'GAY_ME';
+        finalMTD = isGT ? (rawMTD.toUpperCase().endsWith('_GT') ? rawMTD.toUpperCase() : `${baseMTD}_GT`) : baseMTD;
+        groupKey = `MTD_${baseMTD}:::${method}:::${unitPrice}`;
+      } else {
+        finalMTD = '';
+        groupKey = `NOMTD_${name}`;
+      }
+
+      if (!groupMap.has(groupKey)) {
+        groupMap.set(groupKey, {
+          key: groupKey,
+          maTuongDuong: finalMTD,
+          names: new Map<string, number>(),
+          monthly: new Array(12).fill(0),
+          total: 0,
+        });
+      }
+
+      const acc = groupMap.get(groupKey)!;
+      const weight = nameCost > 0 ? nameCost : nameCases;
+      acc.names.set(name, (acc.names.get(name) || 0) + weight);
+
+      for (const m of months) {
+        const val = showRevenue
+          ? (m.namePriceCostByName?.[name] || 0)
+          : (m.byName?.[name] || 0);
+        acc.monthly[m.month - 1] += val;
+        acc.total += val;
       }
     }
 
-    const arr = Array.from(nameMap.values());
-    arr.sort((a, b) => b.total - a.total);
-    return arr;
-  }, [sourceData, showRevenue]);
+    const result = Array.from(groupMap.values()).map(acc => {
+      let bestName = '';
+      let maxWeight = -1;
+      for (const [n, w] of acc.names.entries()) {
+        if (w > maxWeight) {
+          maxWeight = w;
+          bestName = n;
+        }
+      }
+      return {
+        key: acc.key,
+        name: bestName || 'Không xác định',
+        maTuongDuong: acc.maTuongDuong,
+        monthly: acc.monthly,
+        total: acc.total,
+      };
+    });
 
-  // Apply profile/chapter filter BEFORE search
+    result.sort((a, b) => b.total - a.total);
+    return result;
+  }, [sourceData, showRevenue, globalMaTuongDuongByName]);
+
+  // Unmapped count
+  const unmappedCount = useMemo(() => {
+    return rows.filter(r => !r.maTuongDuong).length;
+  }, [rows]);
+
+  // Apply profile/chapter and MTD status filter BEFORE search
   const modeFiltered = useMemo(() => {
-    if (filterMode === 'all') return rows;
+    let list = rows;
+    if (filterMtdStatus === 'WITHOUT_MTD') {
+      list = list.filter(r => !r.maTuongDuong);
+    }
+
+    if (filterMode === 'all') return list;
 
     if (filterMode === 'chapter' && selectedChapters.length > 0) {
-      return rows.filter(r => {
-        const maTD = globalMaTuongDuongByName[r.name];
+      return list.filter(r => {
+        const maTD = r.maTuongDuong || globalMaTuongDuongByName[r.name];
         if (!maTD) return false;
         const chapterCode = maTD.substring(0, 2);
         return selectedChapters.includes(chapterCode);
@@ -1349,19 +1442,25 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
 
     if (filterMode === 'profile' && selectedProfileId) {
       const profile = profiles.find(p => p.id === selectedProfileId);
-      if (!profile) return rows;
-      const profileSet = new Set(profile.surgeryNames);
-      return rows.filter(r => profileSet.has(r.name.toLowerCase()));
+      if (!profile) return list;
+      const profileSet = new Set(profile.surgeryNames.map(s => s.toLowerCase()));
+      return list.filter(r => profileSet.has(r.name.toLowerCase()));
     }
 
-    return rows;
-  }, [rows, filterMode, selectedChapters, selectedProfileId, profiles, globalMaTuongDuongByName]);
+    return list;
+  }, [rows, filterMtdStatus, filterMode, selectedChapters, selectedProfileId, profiles, globalMaTuongDuongByName]);
 
-  // Search filter
+  // Search filter (searches name, maTuongDuong, or empty code keywords)
   const filtered = useMemo(() => {
     if (!searchText.trim()) return modeFiltered;
     const q = searchText.trim().toLowerCase();
-    return modeFiltered.filter(r => r.name.toLowerCase().includes(q));
+    const isBlankSearch = q === 'trống' || q === 'trong' || q === 'chưa có mã' || q === 'chua co ma';
+    return modeFiltered.filter(r => {
+      if (isBlankSearch && !r.maTuongDuong) return true;
+      if (r.name.toLowerCase().includes(q)) return true;
+      if (r.maTuongDuong && r.maTuongDuong.toLowerCase().includes(q)) return true;
+      return false;
+    });
   }, [modeFiltered, searchText]);
 
   // Pagination
@@ -1499,16 +1598,54 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
           )}
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-          <input
-            type="text"
-            value={searchText}
-            onChange={e => { setSearchText(e.target.value); setPage(0); }}
-            placeholder="Tìm tên PTTT..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
-          />
+        {/* Search & MTD Toggle */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+          {/* Toggle column Ma Tuong Duong (đứng trước box tìm kiếm) */}
+          <button
+            type="button"
+            onClick={toggleMaTuongDuong}
+            title={showMaTuongDuong ? 'Đang hiện cột Mã TĐ. Bấm để ẩn.' : 'Đang ẩn cột Mã TĐ. Bấm để hiện.'}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+              showMaTuongDuong
+                ? 'bg-blue-50 text-blue-700 border-blue-300 shadow-xs hover:bg-blue-100'
+                : 'bg-gray-100 text-gray-500 border-gray-300 hover:bg-gray-200'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full shrink-0 ${showMaTuongDuong ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+            <span>Mã TĐ</span>
+          </button>
+
+          {/* Search Box */}
+          <div className="relative flex-1 min-w-[220px] max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <input
+              type="text"
+              value={searchText}
+              onChange={e => { setSearchText(e.target.value); setPage(0); }}
+              placeholder="Tìm theo tên PTTT, mã tương đương..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs border-[1.5px] border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-500"
+            />
+          </div>
+
+          {/* Unmapped code quick chip */}
+          {unmappedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterMtdStatus(prev => prev === 'WITHOUT_MTD' ? 'all' : 'WITHOUT_MTD');
+                setPage(0);
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+                filterMtdStatus === 'WITHOUT_MTD'
+                  ? 'bg-amber-100 text-amber-800 border-amber-300 ring-1 ring-amber-400 font-semibold'
+                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+              }`}
+              title="Lọc các kỹ thuật chưa có mã tương đương"
+            >
+              <span>⚠️ Chưa có mã: {unmappedCount}</span>
+              {filterMtdStatus === 'WITHOUT_MTD' && <span className="text-[10px] ml-0.5 font-bold">✕</span>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1520,7 +1657,14 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
         <table className="w-full text-xs">
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200">
-              <th className="text-left px-3 py-2 font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[200px] z-10">
+              {showMaTuongDuong && (
+                <th className="text-left px-3 py-2 font-semibold text-blue-800 sticky left-0 bg-blue-50/80 min-w-[130px] z-10 border-r border-gray-200">
+                  Mã tương đương
+                </th>
+              )}
+              <th className={`text-left px-3 py-2 font-semibold text-gray-600 bg-gray-50 min-w-[200px] z-10 ${
+                showMaTuongDuong ? 'sticky left-[130px] shadow-[1px_0_0_0_#e5e7eb]' : 'sticky left-0'
+              }`}>
                 Tên PTTT
                 <span className="text-[9px] text-gray-400 font-normal ml-1">({filtered.length})</span>
               </th>
@@ -1532,8 +1676,21 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
           </thead>
           <tbody>
             {pageRows.map((row, ri) => (
-              <tr key={row.name} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-3 py-1.5 font-medium text-gray-700 sticky left-0 bg-white z-10 min-w-[200px] max-w-[280px] break-words whitespace-normal">
+              <tr key={row.key} className="border-b border-gray-100 hover:bg-gray-50">
+                {showMaTuongDuong && (
+                  <td className="px-3 py-1.5 font-mono text-[11px] font-semibold text-blue-700 sticky left-0 bg-white z-10 min-w-[130px] border-r border-gray-100">
+                    {row.maTuongDuong ? (
+                      <span className="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                        {row.maTuongDuong}
+                      </span>
+                    ) : (
+                      ''
+                    )}
+                  </td>
+                )}
+                <td className={`px-3 py-1.5 font-medium text-gray-700 bg-white z-10 min-w-[200px] max-w-[280px] break-words whitespace-normal ${
+                  showMaTuongDuong ? 'sticky left-[130px] shadow-[1px_0_0_0_#e5e7eb]' : 'sticky left-0'
+                }`}>
                   <span className="text-[9px] text-gray-400 mr-1">{safePageIdx * ROWS_PER_PAGE + ri + 1}.</span>
                   {row.name}
                 </td>
@@ -1549,15 +1706,20 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
             ))}
             {pageRows.length === 0 && (
               <tr>
-                <td colSpan={14} className="text-center py-8 text-gray-400 text-sm">
-                  {searchText.trim() ? 'Không tìm thấy kết quả' : 'Chưa có dữ liệu'}
+                <td colSpan={showMaTuongDuong ? 15 : 14} className="text-center py-8 text-gray-400 text-sm">
+                  {searchText.trim() || filterMtdStatus !== 'all' ? 'Không tìm thấy kết quả' : 'Chưa có dữ liệu'}
                 </td>
               </tr>
             )}
             {/* Grand total row */}
             {filtered.length > 0 && (
               <tr className="bg-gray-50 font-bold border-t border-gray-300">
-                <td className="px-3 py-2 text-gray-800 sticky left-0 bg-gray-50 z-10">Tổng cộng</td>
+                {showMaTuongDuong && (
+                  <td className="px-3 py-2 text-gray-400 font-mono text-[11px] sticky left-0 bg-gray-50 z-10 border-r border-gray-200">—</td>
+                )}
+                <td className={`px-3 py-2 text-gray-800 font-bold bg-gray-50 z-10 ${
+                  showMaTuongDuong ? 'sticky left-[130px] shadow-[1px_0_0_0_#e5e7eb]' : 'sticky left-0'
+                }`}>Tổng cộng</td>
                 {Array.from({ length: 12 }, (_, ci) => {
                   const colTotal = filtered.reduce((s, r) => s + r.monthly[ci], 0);
                   return (

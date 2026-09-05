@@ -753,6 +753,13 @@ function buildTopSurgeries(
   const totalByName: Record<string, number> = {};
   const equivByName: Record<string, number> = {};
   const monthlyByName: Record<string, number[]> = {};
+  const maTuongDuongByName: Record<string, string> = {};
+
+  for (const m of [...primary, ...compare]) {
+    if (m.maTuongDuongByName) {
+      Object.assign(maTuongDuongByName, m.maTuongDuongByName);
+    }
+  }
 
   for (const m of primary) {
     for (const [normalized, count] of Object.entries(m.byName)) {
@@ -788,6 +795,7 @@ function buildTopSurgeries(
     return {
       name: nameMap.get(normalized) || normalized,
       normalizedName: normalized,
+      maTuongDuong: maTuongDuongByName[normalized] || '',
       totalCases: total,
       totalEquivalent: equivByName[normalized] || 0,
       percentage: totalAllCases > 0 ? (total / totalAllCases) * 100 : 0,
@@ -1127,15 +1135,15 @@ export async function exportStatisticsToExcel(data: StatisticsData): Promise<voi
 
   // --- Sheet 3: TOP phẫu thuật ---
   if (topSurgeries.length > 0) {
-    const topHeaders = ['#', 'Tên kỹ thuật', 'Số ca', 'Quy đổi', '%', 'vs cùng kỳ', ...Array.from({ length: 12 }, (_, i) => `T${i + 1}`)];
+    const topHeaders = ['#', 'Mã tương đương', 'Tên kỹ thuật', 'Số ca', 'Quy đổi', '%', 'vs cùng kỳ', ...Array.from({ length: 12 }, (_, i) => `T${i + 1}`)];
     const sheetData3: any[][] = [topHeaders];
     topSurgeries.forEach((s, i) => {
       const change = s.changeVsCompare !== null ? `${s.changeVsCompare > 0 ? '+' : ''}${s.changeVsCompare.toFixed(1)}%` : 'MỚI';
-      sheetData3.push([i + 1, s.name, s.totalCases, s.totalEquivalent, `${s.percentage.toFixed(1)}%`, change, ...s.monthlyBreakdown] as any[]);
+      sheetData3.push([i + 1, s.maTuongDuong || '', s.name, s.totalCases, s.totalEquivalent, `${s.percentage.toFixed(1)}%`, change, ...s.monthlyBreakdown] as any[]);
     });
 
     const ws3 = XLSX.utils.aoa_to_sheet(sheetData3);
-    ws3['!cols'] = [{ wch: 4 }, { wch: 35 }, { wch: 8 }, { wch: 8 }, { wch: 6 }, { wch: 10 }, ...Array(12).fill({ wch: 6 })];
+    ws3['!cols'] = [{ wch: 4 }, { wch: 15 }, { wch: 35 }, { wch: 8 }, { wch: 8 }, { wch: 6 }, { wch: 10 }, ...Array(12).fill({ wch: 6 })];
     XLSX.utils.book_append_sheet(wb, ws3, `TOP PT ${data.primaryYear}`);
   }
 

@@ -207,6 +207,7 @@ export async function exportSpecialtyComparisonExcel(
 
   // Định nghĩa cột cho sheet Tổng hợp
   const allCols: Partial<ExcelJS.Column>[] = [
+    { key: 'maTuongDuong', width: 16 },
     { key: 'tenKT', width: 44 },
     { key: 'specialty', width: 22 },
     { key: 'current', width: isRev ? 16 : 13 },
@@ -249,6 +250,7 @@ export async function exportSpecialtyComparisonExcel(
 
   // Row 3: Table Headers
   const headerValuesAll = [
+    'Mã tương đương',
     'Tên phẫu thuật',
     'Chuyên khoa',
     `${periodMeta.currentLabel}${isRev ? ` (${finLabel})` : ''}`,
@@ -302,6 +304,7 @@ export async function exportSpecialtyComparisonExcel(
 
     const row = wsAll.getRow(curRowIdxAll);
     const rowValues = [
+      r.maTuongDuong || '',
       r.tenKT,
       r.specialtyName,
       curVal,
@@ -327,7 +330,7 @@ export async function exportSpecialtyComparisonExcel(
       const cell = row.getCell(c);
       cell.font = { name: FONT_NAME, size: 10.5 };
       cell.border = thinBorder;
-      cell.alignment = { horizontal: c === 1 ? 'left' : (c === 2 ? 'left' : 'center'), vertical: 'middle' };
+      cell.alignment = { horizontal: c === 1 ? 'center' : (c === 2 || c === 3 ? 'left' : 'center'), vertical: 'middle' };
 
       // Highlight Alert / Positive
       if (c === totalColCountAll - 1) {
@@ -364,6 +367,7 @@ export async function exportSpecialtyComparisonExcel(
     : null;
 
   const summaryValuesAll = [
+    '',
     'TỔNG CỘNG TOÀN VIỆN',
     `${allUnifiedRows.length} kỹ thuật`,
     grandTotalCur,
@@ -384,7 +388,7 @@ export async function exportSpecialtyComparisonExcel(
     const cell = summaryRowAll.getCell(c);
     cell.font = { name: FONT_NAME, size: 11, bold: true, color: { argb: 'FF002244' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F7' } };
-    cell.alignment = { horizontal: c <= 2 ? 'left' : (c === totalColCountAll ? 'left' : 'center'), vertical: 'middle' };
+    cell.alignment = { horizontal: c <= 3 ? 'left' : (c === totalColCountAll ? 'left' : 'center'), vertical: 'middle' };
     cell.border = {
       top: { style: 'medium', color: { argb: 'FF003366' } },
       bottom: { style: 'double', color: { argb: 'FF003366' } },
@@ -401,6 +405,7 @@ export async function exportSpecialtyComparisonExcel(
     const ws = wb.addWorksheet(sheetName, { views: [{ showGridLines: true }] });
 
     const specCols: Partial<ExcelJS.Column>[] = [
+      { key: 'maTuongDuong', width: 16 },
       { key: 'tenKT', width: 48 },
       { key: 'current', width: isRev ? 16 : 13 },
       { key: 'prev', width: isRev ? 16 : 13 },
@@ -441,6 +446,7 @@ export async function exportSpecialtyComparisonExcel(
 
     // Row 3: Headers
     const headerValues = [
+      'Mã tương đương',
       'Tên phẫu thuật',
       `${periodMeta.currentLabel}${isRev ? ` (${finLabel})` : ''}`,
       `${periodMeta.prevLabel}${isRev ? ` (${finLabel})` : ''}`,
@@ -484,6 +490,7 @@ export async function exportSpecialtyComparisonExcel(
 
       const row = ws.getRow(curRowIdx);
       const rowValues = [
+        r.maTuongDuong || '',
         r.tenKT,
         curVal,
         prevVal,
@@ -508,7 +515,7 @@ export async function exportSpecialtyComparisonExcel(
         const cell = row.getCell(c);
         cell.font = { name: FONT_NAME, size: 10.5 };
         cell.border = thinBorder;
-        cell.alignment = { horizontal: c === 1 ? 'left' : 'center', vertical: 'middle' };
+        cell.alignment = { horizontal: c === 1 ? 'center' : (c === 2 ? 'left' : 'center'), vertical: 'middle' };
 
         // Highlight Alert / Positive
         if (c === totalCols - 1) {
@@ -539,6 +546,7 @@ export async function exportSpecialtyComparisonExcel(
       : null;
 
     const summaryValues = [
+      '',
       'TỔNG CỘNG',
       curTot,
       prevTot,
@@ -558,7 +566,7 @@ export async function exportSpecialtyComparisonExcel(
       const cell = summaryRow.getCell(c);
       cell.font = { name: FONT_NAME, size: 11, bold: true, color: { argb: 'FF002244' } };
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F7' } };
-      cell.alignment = { horizontal: c === 1 ? 'left' : (c === totalCols ? 'left' : 'center'), vertical: 'middle' };
+      cell.alignment = { horizontal: c <= 2 ? 'left' : (c === totalCols ? 'left' : 'center'), vertical: 'middle' };
       cell.border = {
         top: { style: 'medium', color: { argb: 'FF003366' } },
         bottom: { style: 'double', color: { argb: 'FF003366' } },
@@ -613,6 +621,7 @@ export function exportSpecialtyComparisonCSV(
   };
 
   const headers: string[] = [
+    'Mã tương đương',
     'Tên phẫu thuật',
     'Chuyên khoa',
     `${isRev ? finLabel : 'Số ca'} ${periodMeta.currentLabel}${isRev ? ' (VNĐ)' : ''}`,
@@ -649,6 +658,7 @@ export function exportSpecialtyComparisonCSV(
     }
 
     const line: any[] = [
+      r.maTuongDuong || '',
       r.tenKT,
       r.specialtyName,
       curVal,
