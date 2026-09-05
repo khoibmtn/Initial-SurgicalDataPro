@@ -449,20 +449,6 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
             </button>
           ))}
 
-          {/* Page size select */}
-          <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">
-            <span>Hiển thị:</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="border border-slate-300 rounded px-2 py-1 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            >
-              <option value={20}>20 dòng</option>
-              <option value={50}>50 dòng</option>
-              <option value={100}>100 dòng</option>
-              <option value={200}>200 dòng</option>
-            </select>
-          </div>
         </div>
       </div>
 
@@ -603,17 +589,25 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
         {/* Pagination Bar */}
         {filteredItems.length > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200 bg-slate-50/50 text-xs text-slate-600">
-            <div>
-              Đang xem{' '}
-              <span className="font-semibold text-slate-800">
-                {(currentPage - 1) * pageSize + 1} -{' '}
-                {Math.min(currentPage * pageSize, filteredItems.length)}
-              </span>{' '}
-              trong tổng số{' '}
-              <span className="font-semibold text-slate-800">
-                {filteredItems.length.toLocaleString('vi-VN')}
-              </span>{' '}
-              DVKT
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400">Số dòng:</span>
+                <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="px-2 py-0.5 border border-slate-200 rounded text-xs font-semibold bg-white focus:ring-1 focus:ring-sky-500 outline-none">
+                  {[20, 50, 100, 200].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <span>
+                Đang xem{' '}
+                <span className="font-semibold text-slate-800">
+                  {(currentPage - 1) * pageSize + 1} –{' '}
+                  {Math.min(currentPage * pageSize, filteredItems.length)}
+                </span>{' '}
+                trong tổng số{' '}
+                <span className="font-semibold text-slate-800">
+                  {filteredItems.length.toLocaleString('vi-VN')}
+                </span>{' '}
+                DVKT
+              </span>
             </div>
 
             <div className="flex items-center gap-1.5">

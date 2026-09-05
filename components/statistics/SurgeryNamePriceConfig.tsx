@@ -1161,15 +1161,15 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           {/* Pagination */}
           <div className="flex items-center justify-between text-xs text-gray-500">
             <div className="flex items-center gap-3">
-              <span>
-                Hiển thị {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filtered.length)} / {filtered.length}
-              </span>
               <div className="flex items-center gap-1.5">
                 <span className="text-gray-400">Số dòng:</span>
                 <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }} className="px-2 py-0.5 border border-gray-200 rounded text-xs font-semibold bg-white focus:ring-1 focus:ring-blue-500 outline-none">
                   {[10, 20, 30, 50, 100].map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
+              <span>
+                Đang xem {page * pageSize + 1}–{Math.min((page + 1) * pageSize, filtered.length)} trong tổng số {filtered.length}
+              </span>
             </div>
             <div className="flex items-center gap-1">
               <button

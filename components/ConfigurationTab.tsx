@@ -283,6 +283,21 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [backfillProgress, setBackfillProgress] = useState<string>('');
     const [backfillResult, setBackfillResult] = useState<{ totalScanned: number; matched: number; alreadyFilled: number; noMachine: number; unmatched: number; updated: number; unmatchedNames: { name: string; count: number }[] } | null>(null);
 
+    // These hooks MUST be before any early return to satisfy Rules of Hooks
+    useEffect(() => { setMachineCurrentPage(1); }, [machineSearchQuery]);
+    useEffect(() => { setRegCurrentPage(1); }, [regSearchQuery]);
+
+    const filteredRegistryMemo = useMemo(() => {
+        const reg = config.machineRegistry || [];
+        if (!regSearchQuery.trim()) return reg;
+        const q = regSearchQuery.toLowerCase().trim();
+        return reg.filter(m =>
+            m.machineId.toLowerCase().includes(q) ||
+            m.machineCode.toLowerCase().includes(q) ||
+            m.machineName.toLowerCase().includes(q)
+        );
+    }, [config.machineRegistry, regSearchQuery]);
+
     if (!isLoaded) return <div>Loading config...</div>;
 
     const handlePriceChange = (loai: string, role: keyof RolePrice, val: number) => {
@@ -431,30 +446,15 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
         machineCurrentPage * machinePageSize
     );
 
-    useEffect(() => {
-        setMachineCurrentPage(1);
-    }, [machineSearchQuery]);
-
     // ────────── Machine Registry (Mã máy) Handlers ──────────
     const registry = config.machineRegistry || [];
-
-    const filteredRegistry = useMemo(() => {
-        if (!regSearchQuery.trim()) return registry;
-        const q = regSearchQuery.toLowerCase().trim();
-        return registry.filter(m =>
-            m.machineId.toLowerCase().includes(q) ||
-            m.machineCode.toLowerCase().includes(q) ||
-            m.machineName.toLowerCase().includes(q)
-        );
-    }, [registry, regSearchQuery]);
+    const filteredRegistry = filteredRegistryMemo;
 
     const totalRegPages = Math.ceil(filteredRegistry.length / regPageSize);
     const paginatedRegistry = filteredRegistry.slice(
         (regCurrentPage - 1) * regPageSize,
         regCurrentPage * regPageSize
     );
-
-    useEffect(() => { setRegCurrentPage(1); }, [regSearchQuery]);
 
     const handleAddRegistry = () => {
         if (!regForm.machineCode.trim()) return;
@@ -874,7 +874,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                 {activeSubTab === 'dmkt' && (
                     <div className="animate-fade-in space-y-0">
                         {/* Nested DMKT sub-tabs */}
-                        <div className="-mx-4 mt-0 mb-4 border-b border-gray-200 bg-gray-50/60 px-4">
+                        <div className="-mx-4 mt-0 mb-4 border-b border-blue-200 bg-blue-50/50 px-4">
                             <TabLine
                                 value={dmktSubTab}
                                 onChange={(v) => setDmktSubTab(v as any)}
@@ -912,7 +912,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                         )}
 
                         {dmktSubTab === 'registry' && (
-                            <div className="space-y-4">
+                            <div className="space-y-3">
                                 {/* Import Confirmation Dialog */}
                                 {importDialog && (
                                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -943,16 +943,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                         </div>
                                                         <div className="overflow-auto max-h-[250px] border border-gray-200 rounded-lg">
                                                             <table className="w-full text-xs">
-                                                                <thead className="bg-red-100 text-red-800 font-bold uppercase sticky top-0">
-                                                                    <tr>
-                                                                        <th className="px-3 py-2 text-center w-[70px] border-r">Dòng</th>
-                                                                        <th className="px-3 py-2 w-[100px] border-r">ID máy</th>
-                                                                        <th className="px-3 py-2 w-[120px] border-r">Mã máy</th>
-                                                                        <th className="px-3 py-2 border-r">Tên máy</th>
-                                                                        <th className="px-3 py-2 w-[90px] border-r">Trạng thái</th>
-                                                                        <th className="px-3 py-2 w-[90px]">Trùng dòng</th>
-                                                                    </tr>
-                                                                </thead>
+                                                                <thead className="bg-red-100 text-red-800 font-bold uppercase sticky top-0"><tr><th className="px-3 py-2 text-center w-[70px] border-r">Dòng</th><th className="px-3 py-2 w-[100px] border-r">ID máy</th><th className="px-3 py-2 w-[120px] border-r">Mã máy</th><th className="px-3 py-2 border-r">Tên máy</th><th className="px-3 py-2 w-[90px] border-r">Trạng thái</th><th className="px-3 py-2 w-[90px]">Trùng dòng</th></tr></thead>
                                                                 <tbody className="divide-y divide-gray-100">
                                                                     {importDialog.duplicatesInFile.map((dup, idx) => (
                                                                         <tr key={idx} className="bg-red-50/50 hover:bg-red-50">
@@ -960,11 +951,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                             <td className="px-3 py-2 font-mono text-gray-600 border-r">{dup.entry.machineId || '—'}</td>
                                                                             <td className="px-3 py-2 font-bold text-red-700 border-r">{dup.entry.machineCode}</td>
                                                                             <td className="px-3 py-2 text-gray-700 border-r">{dup.entry.machineName || '—'}</td>
-                                                                            <td className="px-3 py-2 text-center border-r">
-                                                                                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${dup.entry.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                                                                                    {dup.entry.active ? 'Sử dụng' : 'Tắt'}
-                                                                                </span>
-                                                                            </td>
+                                                                            <td className="px-3 py-2 text-center border-r"><span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${dup.entry.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{dup.entry.active ? 'Sử dụng' : 'Tắt'}</span></td>
                                                                             <td className="px-3 py-2 text-center font-bold text-gray-500">↑ dòng {dup.firstRowNum}</td>
                                                                         </tr>
                                                                     ))}
@@ -975,17 +962,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 ) : (
                                                     <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex gap-2 text-green-800">
                                                         <Check className="h-5 w-5 shrink-0 text-green-600" />
-                                                        <div className="text-sm">
-                                                            <p className="font-bold">✓ Không có mã máy nào trùng lặp</p>
-                                                            <p className="text-green-600">Tất cả {importDialog.cleanEntries.length} mã máy đều duy nhất.</p>
-                                                        </div>
+                                                        <div className="text-sm"><p className="font-bold">✓ Không có mã máy nào trùng lặp</p><p className="text-green-600">Tất cả {importDialog.cleanEntries.length} mã máy đều duy nhất.</p></div>
                                                     </div>
                                                 )}
-                                                <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700">
-                                                    <p><strong>Tóm tắt:</strong> {importDialog.cleanEntries.length} mã máy sẽ được import
-                                                        {importDialog.duplicatesInFile.length > 0 && <span className="text-red-600"> ({importDialog.duplicatesInFile.length} dòng trùng sẽ bị loại)</span>}
-                                                    </p>
-                                                </div>
+                                                <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700"><p><strong>Tóm tắt:</strong> {importDialog.cleanEntries.length} mã máy sẽ được import{importDialog.duplicatesInFile.length > 0 && <span className="text-red-600"> ({importDialog.duplicatesInFile.length} dòng trùng sẽ bị loại)</span>}</p></div>
                                             </div>
                                             <div className="px-6 py-4 bg-gray-50 border-t flex items-center justify-end gap-3">
                                                 <button onClick={() => handleConfirmImport('cancel')} className="px-5 py-2 text-sm font-bold text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-all">Hủy</button>
@@ -995,14 +975,21 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                     </div>
                                 )}
 
-                                {/* Header + Actions */}
+                                {/* Header + Actions: Title left, Export + Backfill + Import right */}
                                 <div className="flex items-center justify-between">
-                                    <div>
-                                        <h4 className="font-semibold text-gray-800 text-sm">Danh sách máy ({registry.length} máy, {registry.filter(m => m.active).length} đang sử dụng)</h4>
-                                    </div>
+                                    <h4 className="font-semibold text-gray-800 text-sm">Danh sách máy ({registry.length} máy, {registry.filter(m => m.active).length} đang sử dụng)</h4>
                                     <div className="flex gap-2">
                                         <button onClick={handleExportRegistry} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
                                             <Download className="h-3.5 w-3.5" /> Xuất Excel
+                                        </button>
+                                        <button
+                                            onClick={handleBackfill}
+                                            disabled={backfillRunning || registry.length === 0}
+                                            title="Backfill: Bổ sung mã máy & ID máy cho các bản ghi cũ dựa vào tên máy đã nhập trong dữ liệu phẫu thuật"
+                                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${backfillRunning || registry.length === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                                        >
+                                            <RefreshCw className={`h-3.5 w-3.5 ${backfillRunning ? 'animate-spin' : ''}`} />
+                                            {backfillRunning ? 'Đang backfill...' : 'Backfill'}
                                         </button>
                                         <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 cursor-pointer transition-all shadow-sm">
                                             <Upload className="h-3.5 w-3.5" /> Import Excel
@@ -1011,107 +998,66 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                     </div>
                                 </div>
 
-                                {/* Backfill Section */}
-                                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-9 w-9 rounded-lg bg-indigo-50 flex items-center justify-center">
-                                                <RefreshCw className={`h-4 w-4 text-indigo-600 ${backfillRunning ? 'animate-spin' : ''}`} />
-                                            </div>
-                                            <div>
-                                                <h4 className="font-semibold text-gray-800 text-sm">Backfill dữ liệu lưu trữ</h4>
-                                                <p className="text-xs text-gray-500">Bổ sung mã máy & ID máy cho bản ghi cũ</p>
-                                            </div>
+                                {/* Backfill progress/result (inline, no frame) */}
+                                {backfillProgress && (
+                                    <div className="px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700 font-medium">{backfillProgress}</div>
+                                )}
+                                {backfillResult && (
+                                    <div className="space-y-2">
+                                        <div className="grid grid-cols-6 gap-2 text-center">
+                                            <div className="bg-gray-50 rounded-lg p-1.5"><p className="text-sm font-bold text-gray-800">{backfillResult.totalScanned}</p><p className="text-[10px] text-gray-500 font-bold">Tổng quét</p></div>
+                                            <div className="bg-green-50 rounded-lg p-1.5"><p className="text-sm font-bold text-green-600">{backfillResult.matched}</p><p className="text-[10px] text-green-600 font-bold">Khớp</p></div>
+                                            <div className="bg-blue-50 rounded-lg p-1.5"><p className="text-sm font-bold text-blue-600">{backfillResult.alreadyFilled}</p><p className="text-[10px] text-blue-600 font-bold">Đã có sẵn</p></div>
+                                            <div className="bg-slate-50 rounded-lg p-1.5"><p className="text-sm font-bold text-slate-500">{backfillResult.noMachine}</p><p className="text-[10px] text-slate-500 font-bold">Không tên máy</p></div>
+                                            <div className="bg-amber-50 rounded-lg p-1.5"><p className="text-sm font-bold text-amber-600">{backfillResult.unmatched}</p><p className="text-[10px] text-amber-600 font-bold">Không khớp</p></div>
+                                            <div className="bg-teal-50 rounded-lg p-1.5"><p className="text-sm font-bold text-teal-600">{backfillResult.updated}</p><p className="text-[10px] text-teal-600 font-bold">Đã cập nhật</p></div>
                                         </div>
-                                        <button
-                                            onClick={handleBackfill}
-                                            disabled={backfillRunning || registry.length === 0}
-                                            className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg transition-all ${backfillRunning || registry.length === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
-                                        >
-                                            <RefreshCw className={`h-3.5 w-3.5 ${backfillRunning ? 'animate-spin' : ''}`} />
-                                            {backfillRunning ? 'Đang xử lý...' : 'Chạy Backfill'}
-                                        </button>
-                                    </div>
-                                    {backfillProgress && (
-                                        <div className="mt-3 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-lg text-xs text-indigo-700 font-medium">{backfillProgress}</div>
-                                    )}
-                                    {backfillResult && (
-                                        <>
-                                            <div className="mt-3 grid grid-cols-6 gap-2 text-center">
-                                                <div className="bg-gray-50 rounded-lg p-2"><p className="text-lg font-bold text-gray-800">{backfillResult.totalScanned}</p><p className="text-[10px] text-gray-500 font-bold">Tổng quét</p></div>
-                                                <div className="bg-green-50 rounded-lg p-2"><p className="text-lg font-bold text-green-600">{backfillResult.matched}</p><p className="text-[10px] text-green-600 font-bold">Khớp</p></div>
-                                                <div className="bg-blue-50 rounded-lg p-2"><p className="text-lg font-bold text-blue-600">{backfillResult.alreadyFilled}</p><p className="text-[10px] text-blue-600 font-bold">Đã có sẵn</p></div>
-                                                <div className="bg-slate-50 rounded-lg p-2"><p className="text-lg font-bold text-slate-500">{backfillResult.noMachine}</p><p className="text-[10px] text-slate-500 font-bold">Không tên máy</p></div>
-                                                <div className="bg-amber-50 rounded-lg p-2"><p className="text-lg font-bold text-amber-600">{backfillResult.unmatched}</p><p className="text-[10px] text-amber-600 font-bold">Không khớp</p></div>
-                                                <div className="bg-teal-50 rounded-lg p-2"><p className="text-lg font-bold text-teal-600">{backfillResult.updated}</p><p className="text-[10px] text-teal-600 font-bold">Đã cập nhật</p></div>
-                                            </div>
-                                            {backfillResult.unmatchedNames.length > 0 && (
-                                                <div className="mt-3">
-                                                    <p className="text-xs font-bold text-amber-700 mb-2">Danh sách {backfillResult.unmatchedNames.length} tên máy không khớp:</p>
-                                                    <div className="overflow-auto max-h-[200px] border border-amber-200 rounded-lg">
-                                                        <table className="w-full text-xs">
-                                                            <thead className="bg-amber-50 text-amber-800 font-semibold uppercase sticky top-0"><tr><th className="px-3 py-2 text-center w-[50px] border-r">STT</th><th className="px-3 py-2 text-left border-r">Tên máy</th><th className="px-3 py-2 text-center w-[80px]">Số bản ghi</th></tr></thead>
-                                                            <tbody className="divide-y divide-gray-100">
-                                                                {backfillResult.unmatchedNames.map((item, idx) => (
-                                                                    <tr key={idx} className="hover:bg-amber-50/50"><td className="px-3 py-1.5 text-center text-gray-400 border-r">{idx + 1}</td><td className="px-3 py-1.5 font-medium text-gray-700 border-r">{item.name}</td><td className="px-3 py-1.5 text-center font-bold text-amber-600">{item.count}</td></tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
+                                        {backfillResult.unmatchedNames.length > 0 && (
+                                            <details className="text-xs">
+                                                <summary className="font-bold text-amber-700 cursor-pointer">{backfillResult.unmatchedNames.length} tên máy không khớp</summary>
+                                                <div className="mt-1 overflow-auto max-h-[150px] border border-amber-200 rounded-lg">
+                                                    <table className="w-full text-xs">
+                                                        <thead className="bg-amber-50 text-amber-800 font-semibold uppercase sticky top-0"><tr><th className="px-2 py-1 text-center w-10 border-r">STT</th><th className="px-2 py-1 text-left border-r">Tên máy</th><th className="px-2 py-1 text-center w-16">Số BG</th></tr></thead>
+                                                        <tbody className="divide-y divide-gray-100">
+                                                            {backfillResult.unmatchedNames.map((item, idx) => (
+                                                                <tr key={idx} className="hover:bg-amber-50/50"><td className="px-2 py-1 text-center text-gray-400 border-r">{idx + 1}</td><td className="px-2 py-1 text-gray-700 border-r">{item.name}</td><td className="px-2 py-1 text-center font-bold text-amber-600">{item.count}</td></tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
-                                            )}
+                                            </details>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Compact Add/Edit Form */}
+                                <div className="flex items-end gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2">
+                                    <div className="flex-1 min-w-0">
+                                        <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">ID máy</label>
+                                        <input type="text" value={regForm.machineId} onChange={(e) => setRegForm({ ...regForm, machineId: e.target.value })} placeholder="M001" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Mã máy <span className="text-red-500">*</span></label>
+                                        <input type="text" value={regForm.machineCode} onChange={(e) => setRegForm({ ...regForm, machineCode: e.target.value })} placeholder="NS-001" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none" />
+                                    </div>
+                                    <div className="flex-[2] min-w-0">
+                                        <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Tên máy</label>
+                                        <input type="text" value={regForm.machineName} onChange={(e) => setRegForm({ ...regForm, machineName: e.target.value })} placeholder="Nội soi Karl Storz" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none" />
+                                    </div>
+                                    {editingRegId ? (
+                                        <>
+                                            <button onClick={handleSaveRegistry} className="px-3 py-1 bg-orange-500 text-white font-semibold rounded text-xs hover:bg-orange-600 transition-all flex items-center gap-1 whitespace-nowrap"><Save className="h-3.5 w-3.5" /> Lưu</button>
+                                            <button onClick={() => { setEditingRegId(null); setRegForm({ machineId: "", machineCode: "", machineName: "", active: true }); }} className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors" title="Hủy"><XCircle className="h-4 w-4" /></button>
                                         </>
+                                    ) : (
+                                        <button onClick={handleAddRegistry} disabled={!regForm.machineCode.trim()} className="px-3 py-1 bg-blue-600 text-white font-semibold rounded text-xs hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-1 whitespace-nowrap"><Plus className="h-3.5 w-3.5" /> Thêm</button>
                                     )}
                                 </div>
 
-                                {/* Add/Edit Form */}
-                                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-semibold text-gray-500 mb-1">ID máy</label>
-                                            <input type="text" value={regForm.machineId} onChange={(e) => setRegForm({ ...regForm, machineId: e.target.value })} placeholder="VD: M001" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-semibold text-gray-500 mb-1">Mã máy <span className="text-red-500">*</span></label>
-                                            <input type="text" value={regForm.machineCode} onChange={(e) => setRegForm({ ...regForm, machineCode: e.target.value })} placeholder="VD: NS-001 (duy nhất)" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-semibold text-gray-500 mb-1">Tên máy</label>
-                                            <input type="text" value={regForm.machineName} onChange={(e) => setRegForm({ ...regForm, machineName: e.target.value })} placeholder="VD: Nội soi Karl Storz" className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
-                                        </div>
-                                        <div className="flex items-end gap-2">
-                                            {editingRegId ? (
-                                                <>
-                                                    <button onClick={handleSaveRegistry} className="px-4 py-2 bg-orange-500 text-white font-semibold rounded-lg hover:bg-orange-600 transition-all text-sm flex items-center gap-1.5"><Save className="h-4 w-4" /> Lưu</button>
-                                                    <button onClick={() => { setEditingRegId(null); setRegForm({ machineId: "", machineCode: "", machineName: "", active: true }); }} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Hủy"><XCircle className="h-5 w-5" /></button>
-                                                </>
-                                            ) : (
-                                                <button onClick={handleAddRegistry} disabled={!regForm.machineCode.trim()} className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all text-sm flex items-center gap-1.5"><Plus className="h-4 w-4" /> Thêm</button>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Search & Pagination */}
-                                <div className="flex flex-col md:flex-row items-center justify-between gap-3">
-                                    <div className="relative w-full md:w-64">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                                        <input type="text" value={regSearchQuery} onChange={(e) => setRegSearchQuery(e.target.value)} placeholder="Tìm ID, mã hoặc tên máy..." className="w-full pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-xs text-gray-500">Số dòng:</span>
-                                            <select value={regPageSize} onChange={(e) => { setRegPageSize(Number(e.target.value)); setRegCurrentPage(1); }} className="px-2 py-1 text-xs border border-gray-200 rounded-md bg-white font-semibold focus:ring-1 focus:ring-blue-500 outline-none">
-                                                {[10, 20, 30, 50, 100].map(s => <option key={s} value={s}>{s}</option>)}
-                                            </select>
-                                        </div>
-                                        <span className="text-xs text-gray-500">{paginatedRegistry.length} / {filteredRegistry.length} bản ghi</span>
-                                        <div className="flex items-center gap-1">
-                                            <button onClick={() => setRegCurrentPage(p => Math.max(1, p - 1))} disabled={regCurrentPage === 1} className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"><ChevronLeft className="h-3.5 w-3.5" /></button>
-                                            <span className="text-xs font-semibold px-1.5 min-w-[70px] text-center">{regCurrentPage} / {Math.max(1, totalRegPages)}</span>
-                                            <button onClick={() => setRegCurrentPage(p => Math.min(totalRegPages, p + 1))} disabled={regCurrentPage >= totalRegPages} className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"><ChevronRight className="h-3.5 w-3.5" /></button>
-                                        </div>
-                                    </div>
+                                {/* Search bar above table */}
+                                <div className="relative w-full md:w-64">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                    <input type="text" value={regSearchQuery} onChange={(e) => setRegSearchQuery(e.target.value)} placeholder="Tìm ID, mã hoặc tên máy..." className="w-full pl-9 pr-4 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
                                 </div>
 
                                 {/* Data Table */}
@@ -1123,8 +1069,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 <th className="px-3 py-2.5 text-left text-gray-500 font-semibold w-24">ID máy</th>
                                                 <th className="px-3 py-2.5 text-left text-gray-500 font-semibold w-36">Mã máy</th>
                                                 <th className="px-3 py-2.5 text-left text-gray-500 font-semibold">Tên máy</th>
-                                                <th className="px-3 py-2.5 text-center text-gray-500 font-semibold w-24">Trạng thái</th>
-                                                <th className="px-3 py-2.5 text-center text-gray-500 font-semibold w-16">Xóa</th>
+                                                <th className="px-3 py-2.5 text-center text-gray-500 font-semibold w-20">Sử dụng</th>
+                                                <th className="px-3 py-2.5 text-center text-gray-500 font-semibold w-12">Xóa</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
@@ -1140,8 +1086,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                             <td className="px-3 py-2 font-semibold text-blue-700">{entry.machineCode}</td>
                                                             <td className="px-3 py-2 text-gray-800">{entry.machineName || '—'}</td>
                                                             <td className="px-3 py-2 text-center">
-                                                                <button onClick={(e) => { e.stopPropagation(); handleToggleActiveRegistry(entry.id); }} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold transition-colors ${entry.active ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                                                                    {entry.active ? <><ToggleRight className="h-3 w-3" /> Sử dụng</> : <><ToggleLeft className="h-3 w-3" /> Tắt</>}
+                                                                <button onClick={(e) => { e.stopPropagation(); handleToggleActiveRegistry(entry.id); }} title={entry.active ? 'Đang sử dụng — bấm để tắt' : 'Đã tắt — bấm để bật'}>
+                                                                    {entry.active ? <ToggleRight className="h-5 w-5 text-green-500" /> : <ToggleLeft className="h-5 w-5 text-gray-300" />}
                                                                 </button>
                                                             </td>
                                                             <td className="px-3 py-2 text-center">
@@ -1153,6 +1099,24 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                             )}
                                         </tbody>
                                     </table>
+                                </div>
+
+                                {/* Pagination below table */}
+                                <div className="flex items-center justify-between text-xs text-gray-500">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-gray-400">Số dòng:</span>
+                                            <select value={regPageSize} onChange={(e) => { setRegPageSize(Number(e.target.value)); setRegCurrentPage(1); }} className="px-2 py-0.5 border border-gray-200 rounded text-xs font-semibold bg-white focus:ring-1 focus:ring-blue-500 outline-none">
+                                                {[10, 20, 30, 50, 100].map(s => <option key={s} value={s}>{s}</option>)}
+                                            </select>
+                                        </div>
+                                        <span>Đang xem {(regCurrentPage - 1) * regPageSize + 1}–{Math.min(regCurrentPage * regPageSize, filteredRegistry.length)} trong tổng số {filteredRegistry.length}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        <button onClick={() => setRegCurrentPage(p => Math.max(1, p - 1))} disabled={regCurrentPage === 1} className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"><ChevronLeft className="h-3.5 w-3.5" /></button>
+                                        <span className="text-xs font-semibold px-1.5 min-w-[70px] text-center">{regCurrentPage} / {Math.max(1, totalRegPages)}</span>
+                                        <button onClick={() => setRegCurrentPage(p => Math.min(totalRegPages, p + 1))} disabled={regCurrentPage >= totalRegPages} className="p-1 rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-30 transition-colors"><ChevronRight className="h-3.5 w-3.5" /></button>
+                                    </div>
                                 </div>
                             </div>
                         )}
