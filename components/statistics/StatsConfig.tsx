@@ -92,7 +92,8 @@ const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices, chapters, profiles }) => {
   const [configSubTab, setConfigSubTab] = useState<ConfigSubTab>(() => {
     const saved = localStorage.getItem(SUB_TAB_KEY);
-    return (saved as ConfigSubTab) || 'price-catalog';
+    if (saved === 'profile' || saved === 'comparison-threshold') return saved;
+    return 'profile';
   });
 
   const [editingId, setEditingId] = useState<string | null>(null);

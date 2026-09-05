@@ -75,11 +75,15 @@ interface FlatRow {
 }
 
 function buildFlatRows(configs: LaborConfigVersion[]): FlatRow[] {
+  if (!Array.isArray(configs)) return [];
   const rows: FlatRow[] = [];
   for (const ver of configs) {
+    if (!ver) continue;
+    const priceConfig = ver.priceConfig || {};
+    const timeRules = ver.timeRules || {};
     for (const loai of ALL_TYPES) {
-      const price = ver.priceConfig[loai];
-      const time = ver.timeRules[loai];
+      const price = priceConfig[loai];
+      const time = timeRules[loai];
       if (price || time) {
         rows.push({
           rowKey: `${loai}_${ver.id}`,
@@ -87,12 +91,19 @@ function buildFlatRows(configs: LaborConfigVersion[]): FlatRow[] {
           group: GROUP_LABELS[loai] || '',
           loaiLabel: LOAI_LABELS[loai] || loai,
           versionId: ver.id,
-          versionName: ver.name,
-          effectiveFrom: ver.effectiveFrom,
-          effectiveTo: ver.effectiveTo,
+          versionName: ver.name || '',
+          effectiveFrom: ver.effectiveFrom || '',
+          effectiveTo: ver.effectiveTo || null,
           isActive: ver.effectiveTo === null,
-          price: price || { "Chính": 0, "Phụ": 0, "Giúp việc": 0 },
-          time: time || { min: 0, max: 0 },
+          price: {
+            "Chính": price?.["Chính"] ?? 0,
+            "Phụ": price?.["Phụ"] ?? 0,
+            "Giúp việc": price?.["Giúp việc"] ?? 0,
+          },
+          time: {
+            min: time?.min ?? 0,
+            max: time?.max ?? 0,
+          },
         });
       }
     }
@@ -107,7 +118,8 @@ function groupByLoai(rows: FlatRow[]): Map<string, { active: FlatRow[]; expired:
     map.set(loai, { active: [], expired: [] });
   }
   for (const row of rows) {
-    const group = map.get(row.loai)!;
+    const group = map.get(row.loai);
+    if (!group) continue;
     if (row.isActive) {
       group.active.push(row);
     } else {
@@ -116,7 +128,7 @@ function groupByLoai(rows: FlatRow[]): Map<string, { active: FlatRow[]; expired:
   }
   // Sort expired by effectiveFrom desc
   for (const [, group] of map) {
-    group.expired.sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+    group.expired.sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || ''));
   }
   return map;
 }
@@ -127,8 +139,9 @@ const NumInput: React.FC<{
   onChange: (v: number) => void;
   className?: string;
 }> = ({ value, onChange, className = "" }) => {
-  const [local, setLocal] = React.useState(value.toString());
-  React.useEffect(() => { setLocal(value.toString()); }, [value]);
+  const safeVal = value ?? 0;
+  const [local, setLocal] = React.useState(safeVal.toString());
+  React.useEffect(() => { setLocal((value ?? 0).toString()); }, [value]);
   return (
     <input
       type="text"
@@ -137,7 +150,7 @@ const NumInput: React.FC<{
         const v = e.target.value.replace(/,/g, '');
         if (/^\d*$/.test(v)) { onChange(Number(v)); setLocal(v); }
       }}
-      onBlur={() => setLocal(value.toString())}
+      onBlur={() => setLocal((value ?? 0).toString())}
       className={className}
     />
   );
@@ -653,12 +666,12 @@ export const LaborConfigManager: React.FC<Props> = ({ laborConfigs }) => {
   // ─── Tab: Định mức bàn mổ ─────────────────────────────────────────────
   const renderTableNormsTab = () => {
     const getPositionLimit = (posKey: string, groupKey: string): number => {
-      const limits = config.staffLimits as any;
+      const limits = (config?.staffLimits || {}) as any;
       if (limits[posKey] !== undefined) return limits[posKey];
       return limits[groupKey] ?? 1;
     };
     const updatePositionLimit = (posKey: string, val: number) => {
-      updateConfig({ staffLimits: { ...config.staffLimits, [posKey]: val } as any });
+      updateConfig({ staffLimits: { ...(config?.staffLimits || {}), [posKey]: val } as any });
     };
 
     return (

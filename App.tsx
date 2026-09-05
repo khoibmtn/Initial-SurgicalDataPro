@@ -17,7 +17,7 @@ import { matchAndApplyServicePrices } from './services/servicePriceProcessor';
 import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember, PatientServicePriceGroup, SurgeryNamePrice } from './types';
 import { FileUpload } from './components/FileUpload';
 import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
-import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem } from './components/ui';
+import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem, ErrorBoundary } from './components/ui';
 import {
   Activity,
   AlertTriangle,
@@ -3906,14 +3906,21 @@ const InnerApp: React.FC = () => {
 
         {hasVisitedStats && (
           <div style={{ display: activeTab === 'statistics' ? 'block' : 'none' }} className="w-full h-full flex-1">
-            <StatisticsTab />
+            <ErrorBoundary fallbackTitle="Không thể tải tab Thống kê">
+              <StatisticsTab />
+            </ErrorBoundary>
           </div>
         )}
 
-        {activeTab === 'config' && <ConfigurationTab onConfigUpdate={() => {
-          if (dailyUploadState.listFile) handleProcess('daily');
-          if (monthlyUploadState.listFile) handleProcess('monthly');
-        }} />}
+        {activeTab === 'config' && (
+          <ErrorBoundary fallbackTitle="Không thể tải trang Cấu hình">
+            <ConfigurationTab onConfigUpdate={() => {
+              if (dailyUploadState.listFile) handleProcess('daily');
+              if (monthlyUploadState.listFile) handleProcess('monthly');
+            }} />
+          </ErrorBoundary>
+        )}
+
 
         {editingRecord && (
           <SurgeryEditModal

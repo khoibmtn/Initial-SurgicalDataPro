@@ -11,3 +11,4 @@ export { AdminPageShell } from './AdminPageShell';
 export { EmptyState } from './EmptyState';
 export { WorkspaceSkeleton } from './WorkspaceSkeleton';
 export { CommandPalette, type CommandItem } from './CommandPalette';
+export { ErrorBoundary } from './ErrorBoundary';
