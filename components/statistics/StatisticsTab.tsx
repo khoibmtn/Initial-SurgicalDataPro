@@ -118,7 +118,7 @@ export const StatisticsTab: React.FC = () => {
         clearRawYearCache();
       }
       const yearlyCache = await fetchAndAggregateYearly(
-        pYear, cYear, pv, config.priceConfig, np, clearRawCache
+        pYear, cYear, pv, config.priceConfig, np, clearRawCache, config.allowanceItems
       );
 
       // Store in cache
@@ -126,7 +126,7 @@ export const StatisticsTab: React.FC = () => {
       yearCacheRef.current = { key, data: yearlyCache };
 
       // Compute daily for selected month (fast, from pre-indexed data)
-      const daily = computeDailyForMonth(month, yearlyCache, pv, config.priceConfig, np);
+      const daily = computeDailyForMonth(month, yearlyCache, pv, config.priceConfig, np, config.allowanceItems);
 
       startTransition(() => {
         setStatsData({
@@ -156,7 +156,7 @@ export const StatisticsTab: React.FC = () => {
     if (!cache) return; // no cache yet, skip
 
     console.time('[stats] recomputeDaily');
-    const daily = computeDailyForMonth(month, cache.data, pv, config.priceConfig, np);
+    const daily = computeDailyForMonth(month, cache.data, pv, config.priceConfig, np, config.allowanceItems);
     console.timeEnd('[stats] recomputeDaily');
 
     startTransition(() => {
@@ -166,7 +166,7 @@ export const StatisticsTab: React.FC = () => {
         ...daily,
       } : prev);
     });
-  }, [config.priceConfig]);
+  }, [config.priceConfig, config.allowanceItems]);
 
   // Reload when year changes → full fetch; month change → daily-only from cache
   const prevParams = useRef({ primaryYear, compareYear, selectedMonth });

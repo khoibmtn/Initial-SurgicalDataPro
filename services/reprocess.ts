@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffRole, AppStatus, MachineEntry } from "../types";
 import { AppConfig } from "../contexts/ConfigContext";
+import { getTableLimitForRole, getTimeRuleForRecord, getAllowanceForRecord } from "./laborConfigService";
 
 // ───────────────── Helper Functions ─────────────────
 
@@ -59,19 +60,7 @@ export function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig
 
     const conflicts: StaffConflict[] = [];
 
-    for (const [key, list] of staffMap.entries()) {
-        const groupId = parseInt(key.split('|G')[1]);
-        let limitOption: 0 | 1 | 2 = 1;
-
-        if (config.staffLimits) {
-            if (groupId === 1) limitOption = config.staffLimits.surgeons;
-            else if (groupId === 2) limitOption = config.staffLimits.anesthesiologists;
-            else if (groupId === 3) limitOption = config.staffLimits.support;
-            else if (groupId === 4) limitOption = config.staffLimits.assistants;
-        }
-
-        if (limitOption === 0) continue;
-
+    for (const [, list] of staffMap.entries()) {
         list.sort((a, b) => (a.rec.start!.getTime() - b.rec.start!.getTime()));
         for (let i = 0; i < list.length; i++) {
             for (let j = i + 1; j < list.length; j++) {
@@ -81,13 +70,22 @@ export function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig
                 if (isSameSession(a, b)) continue; // Same patient, same time = same surgical session
 
                 if (a.start && a.end && b.start && b.end && isOverlap(a.start, a.end, b.start, b.end)) {
+                    // Resolve limits based on role and surgery date
+                    const limitA = getTableLimitForRole(list[i].role, a.ngayBD || a.start, config.tableItems, config.staffLimits);
+                    const limitB = getTableLimitForRole(list[j].role, b.ngayBD || b.start, config.tableItems, config.staffLimits);
+
+                    // If either role has limit 0 (No check / Không kiểm tra), skip
+                    if (limitA === 0 || limitB === 0) continue;
+
+                    const effectiveLimit = Math.min(limitA, limitB);
+
                     let isConflict = false;
                     let vType: 'max1' | 'max2' = 'max1';
 
-                    if (limitOption === 1) {
+                    if (effectiveLimit === 1) {
                         isConflict = true;
                         vType = 'max1';
-                    } else if (limitOption === 2) {
+                    } else if (effectiveLimit >= 2) {
                         const startInter = new Date(Math.max(a.start.getTime(), b.start.getTime()));
                         const endInter = new Date(Math.min(a.end.getTime(), b.end.getTime()));
                         for (let k = 0; k < list.length; k++) {
@@ -95,9 +93,12 @@ export function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig
                             const c = list[k].rec;
                             if (c.key === a.key || c.key === b.key) continue;
                             if (c.start && c.end && isOverlap(c.start, c.end, startInter, endInter)) {
-                                isConflict = true;
-                                vType = 'max2';
-                                break;
+                                const limitC = getTableLimitForRole(list[k].role, c.ngayBD || c.start, config.tableItems, config.staffLimits);
+                                if (limitC > 0) {
+                                    isConflict = true;
+                                    vType = 'max2';
+                                    break;
+                                }
                             }
                         }
                     }
@@ -297,10 +298,11 @@ export function reprocessSurgicalRecords(
             "Mã máy", "Thời gian tối thiểu",
         ],
         ...records.map((r) => {
-            const minTime = timeRules[r.loaiPTTT]?.min ?? 0;
+            const timeRule = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules);
+            const minTime = timeRule?.min ?? 0;
             const actual = r.timeMinutes;
             let reason = "";
-            if (actual < minTime) reason = `Thời gian PT < tối thiểu (${minTime} phút)`;
+            if (minTime > 0 && actual < minTime) reason = `Thời gian PT < tối thiểu (${minTime} phút)`;
             return [
                 r.stt, r.patientId, r.patientName, r.gender, r.yob, r.bhyt,
                 r.ngayCD, r.ngayBD, r.ngayKT, r.tenKT,
@@ -561,12 +563,16 @@ export function reprocessSurgicalRecords(
     const PRICE_CFG = config.priceConfig;
     ws[`D${dongGiaRow}`] = { t: "s", v: "Đơn giá", s: { font: { italic: true }, alignment: { horizontal: "right" } } };
 
+    const repDate = records[0]?.ngayBD || records[0]?.start || '';
     for (let i = 0; i < COLS_RUTGON.length; i++) {
         const colIndex = 4 + i;
         const colLetter = XLSX.utils.encode_col(colIndex);
         const [loai, role] = (COLS_RUTGON[i] || "").split("-");
         let price = 0;
-        if (loai && role && PRICE_CFG[loai]) price = PRICE_CFG[loai][role] || 0;
+        if (loai && role) {
+            const allow = getAllowanceForRecord(loai, repDate, config.allowanceItems, config.priceConfig);
+            price = (allow as any)[role] || 0;
+        }
         ws[`${colLetter}${dongGiaRow}`] = { t: "n", v: price, z: "#,##0" };
     }
 
@@ -637,20 +643,17 @@ export function reprocessSurgicalRecords(
     const totalDurationMinutes = records.reduce((sum, r) => sum + r.timeMinutes, 0);
 
     let totalPayment = 0;
-    for (const it of ttData) {
-        for (const colKey of Object.keys(it.values)) {
-            const qty = it.values[colKey] || 0;
-            if (qty > 0) {
-                const [loai, role] = colKey.split("-");
-                let configRole: any = "Giúp việc";
-                if (role === "Chính") configRole = "Chính";
-                else if (role === "Phụ") configRole = "Phụ";
-                else if (role === "Giúp việc") configRole = "Giúp việc";
-                const typeConfig = PRICE_CFG[loai];
-                const price = (typeConfig && typeConfig[configRole]) ? typeConfig[configRole] : 20000;
-                totalPayment += qty * price;
-            }
-        }
+    for (const r of records) {
+        const loai = r.loaiPTTT;
+        if (!loai) continue;
+        const allow = getAllowanceForRecord(loai, r.ngayBD || r.start, config.allowanceItems, config.priceConfig);
+        const qty = r.soLuong || 1;
+        if (r.ptChinh && r.ptChinh.trim()) totalPayment += (allow["Chính"] || 0) * qty;
+        if (r.ptPhu && r.ptPhu.trim()) totalPayment += (allow["Phụ"] || 0) * qty;
+        if (r.bsGM && r.bsGM.trim()) totalPayment += (allow["Chính"] || 0) * qty;
+        if (r.ktvGM && r.ktvGM.trim()) totalPayment += (allow["Phụ"] || 0) * qty;
+        if (r.tdc && r.tdc.trim()) totalPayment += (allow["Phụ"] || 0) * qty;
+        if (r.gv && r.gv.trim()) totalPayment += (allow["Giúp việc"] || 0) * qty;
     }
 
     const paymentData: any = {
@@ -676,8 +679,8 @@ export function reprocessSurgicalRecords(
             missingMachines: missingMachine.length,
             lowPaymentCount: records.filter(r => r.soLuong < 1).length, // count records with < 100% payment (soLuong < 1)
             violateMinTimeCount: records.filter(r => {
-                const min = timeRules[r.loaiPTTT]?.min ?? 0;
-                return r.timeMinutes < min;
+                const min = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min ?? 0;
+                return min > 0 && r.timeMinutes < min;
             }).length,
             missingAssistantCount: records.filter(r => !r.gv).length // assuming empty string check
         },
@@ -885,25 +888,19 @@ export function recalculateResultFromRecords(records: SurgeryRecord[], config: A
         }))
     };
 
-    // Calculate total amount from paymentData
+    // Calculate total amount from records using date-aware allowance
     let totalPayment = 0;
-    const PRICE_CFG = config.priceConfig || {};
-    if (paymentData && paymentData.rows) {
-        paymentData.rows.forEach((row: any) => {
-            Object.keys(row.values).forEach(colKey => {
-                const qty = row.values[colKey] || 0;
-                if (qty > 0) {
-                    const [loai, role] = colKey.split("-");
-                    let configRole: any = "Giúp việc";
-                    if (role === "Chính") configRole = "Chính";
-                    else if (role === "Phụ") configRole = "Phụ";
-                    else if (role === "Giúp việc") configRole = "Giúp việc";
-                    const typeConfig = PRICE_CFG[loai];
-                    const price = (typeConfig && typeConfig[configRole]) ? typeConfig[configRole] : 20000;
-                    totalPayment += qty * price;
-                }
-            });
-        });
+    for (const r of records) {
+        const loai = r.loaiPTTT;
+        if (!loai) continue;
+        const allow = getAllowanceForRecord(loai, r.ngayBD || r.start, config.allowanceItems, config.priceConfig);
+        const qty = r.soLuong || 1;
+        if (r.ptChinh && r.ptChinh.trim()) totalPayment += (allow["Chính"] || 0) * qty;
+        if (r.ptPhu && r.ptPhu.trim()) totalPayment += (allow["Phụ"] || 0) * qty;
+        if (r.bsGM && r.bsGM.trim()) totalPayment += (allow["Chính"] || 0) * qty;
+        if (r.ktvGM && r.ktvGM.trim()) totalPayment += (allow["Phụ"] || 0) * qty;
+        if (r.tdc && r.tdc.trim()) totalPayment += (allow["Phụ"] || 0) * qty;
+        if (r.gv && r.gv.trim()) totalPayment += (allow["Giúp việc"] || 0) * qty;
     }
 
     return {
@@ -920,8 +917,8 @@ export function recalculateResultFromRecords(records: SurgeryRecord[], config: A
             missingMachines: missingMachine.length,
             lowPaymentCount: records.filter(r => r.soLuong < 1).length,
             violateMinTimeCount: records.filter(r => {
-                const min = config.timeRules[r.loaiPTTT]?.min ?? 0;
-                return r.timeMinutes < min;
+                const min = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min ?? 0;
+                return min > 0 && r.timeMinutes < min;
             }).length,
             missingAssistantCount: records.filter(r => !r.gv).length
         },

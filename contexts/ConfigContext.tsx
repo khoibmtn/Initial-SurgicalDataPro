@@ -1,7 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ref, onValue, set } from "firebase/database";
 import { db } from "../lib/firebase";
-import { UISettings, StaffMember, MachineEntry } from "../types";
+import { UISettings, StaffMember, MachineEntry, LaborAllowanceItem, LaborTimeItem, LaborTableItem, LaborConfigVersion } from "../types";
+import {
+    subscribeToAllowanceItems,
+    subscribeToTimeItems,
+    subscribeToTableItems,
+    subscribeToLaborConfigs,
+    getAllowanceForRecord,
+    getTimeRuleForRecord,
+    getTableLimitForRole
+} from "../services/laborConfigService";
 
 export interface TimeRule {
     min: number;
@@ -53,13 +62,21 @@ export interface AppConfig {
     hospitalName: string;
     workingHours?: WorkingHours;
     machineRegistry: MachineEntry[];
+    // Timeline-based items
+    allowanceItems?: LaborAllowanceItem[];
+    timeItemsList?: LaborTimeItem[];
+    tableItems?: LaborTableItem[];
+    laborConfigs?: LaborConfigVersion[];
 }
 
-interface ConfigContextType {
+export interface ConfigContextType {
     config: AppConfig;
     updateConfig: (newConfig: Partial<AppConfig>) => void;
     resetConfig: () => void;
     isLoaded: boolean;
+    getAllowance: (loai: string, date?: any) => RolePrice;
+    getTimeRule: (loai: string, date?: any) => TimeRule;
+    getTableLimit: (posKey: string, date?: any) => number;
 }
 
 // --- Defaults ---
@@ -163,6 +180,9 @@ const ConfigContext = createContext<ConfigContextType>({
     updateConfig: () => { },
     resetConfig: () => { },
     isLoaded: false,
+    getAllowance: (loai: string) => DEFAULT_PRICE_CONFIG[loai] || { "Chính": 0, "Phụ": 0, "Giúp việc": 0 },
+    getTimeRule: (loai: string) => DEFAULT_TIME_RULES[loai] || { min: 0, max: 0 },
+    getTableLimit: () => 1,
 });
 
 export const useConfig = () => useContext(ConfigContext);
@@ -270,6 +290,29 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return () => unsubscribe();
     }, []);
 
+    // Subscribe to timeline-based labor configs
+    useEffect(() => {
+        const unsubAllowance = subscribeToAllowanceItems((items) => {
+            setConfig(prev => ({ ...prev, allowanceItems: items }));
+        });
+        const unsubTime = subscribeToTimeItems((items) => {
+            setConfig(prev => ({ ...prev, timeItemsList: items }));
+        });
+        const unsubTable = subscribeToTableItems((items) => {
+            setConfig(prev => ({ ...prev, tableItems: items }));
+        });
+        const unsubLabor = subscribeToLaborConfigs((versions) => {
+            setConfig(prev => ({ ...prev, laborConfigs: versions }));
+        });
+
+        return () => {
+            unsubAllowance();
+            unsubTime();
+            unsubTable();
+            unsubLabor();
+        };
+    }, []);
+
     const updateConfig = (newPart: Partial<AppConfig>) => {
         // Merge newPart with the current config to create the full object to save.
         const fullNewConfig = { ...config, ...newPart };
@@ -351,8 +394,20 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
     };
 
+    const getAllowance = (loai: string, date?: any): RolePrice => {
+        return getAllowanceForRecord(loai, date, config.allowanceItems, config.priceConfig);
+    };
+
+    const getTimeRule = (loai: string, date?: any): TimeRule => {
+        return getTimeRuleForRecord(loai, date, config.timeItemsList, config.timeRules);
+    };
+
+    const getTableLimit = (posKeyOrRole: string, date?: any): number => {
+        return getTableLimitForRole(posKeyOrRole, date, config.tableItems, config.staffLimits);
+    };
+
     return (
-        <ConfigContext.Provider value={{ config, updateConfig, resetConfig, isLoaded }}>
+        <ConfigContext.Provider value={{ config, updateConfig, resetConfig, isLoaded, getAllowance, getTimeRule, getTableLimit }}>
             {children}
         </ConfigContext.Provider>
     );

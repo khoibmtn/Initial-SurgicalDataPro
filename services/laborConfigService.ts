@@ -66,16 +66,60 @@ export const DEFAULT_TIME_RULES: Record<string, TimeRule> = {
 
 export function normalizeDate(raw: any): string {
   if (raw == null || raw === '') return '';
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    const y = raw.getFullYear();
+    const m = String(raw.getMonth() + 1).padStart(2, '0');
+    const d = String(raw.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
   const s = String(raw).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  // 1. YYYY-MM-DD or YYYY-MM-DD HH:mm:ss...
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  // 2. YYYY/MM/DD
+  const slashYmd = /^(\d{4})\/(\d{1,2})\/(\d{1,2})/.exec(s);
+  if (slashYmd) return `${slashYmd[1]}-${slashYmd[2].padStart(2, '0')}-${slashYmd[3].padStart(2, '0')}`;
+
+  // 3. DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/.exec(s);
+  if (dmyMatch) return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}-${dmyMatch[1].padStart(2, '0')}`;
+
+  // 4. Compact YYYYMMDD
+  const compactMatch = /^(\d{4})(\d{2})(\d{2})$/.exec(s);
+  if (compactMatch) return `${compactMatch[1]}-${compactMatch[2]}-${compactMatch[3]}`;
+
+  // Fallback for parseable date string
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   return s;
 }
 
 export function dayBefore(dateStr: string): string {
-  const d = new Date(dateStr);
+  const norm = normalizeDate(dateStr);
+  const d = new Date(norm);
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
+}
+
+/** Map staff role string to STAFF_POSITIONS key ('ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv') */
+export function getStaffPositionKey(role: string): string {
+  const r = (role || '').toUpperCase().trim();
+  if (r === 'PT_CHINH' || r === 'PT CHÍNH' || r === 'PT CHINH' || r === 'BS PT' || r === 'CHÍNH' || r === 'CHINH') return 'ptChinh';
+  if (r === 'PT_PHU' || r === 'PT PHỤ' || r === 'PT PHU' || r === 'PHỤ' || r === 'PHU') return 'ptPhu';
+  if (r === 'BS_GM' || r === 'BS GM' || r === 'BS GMHS' || r === 'BSGAYME') return 'bsGM';
+  if (r === 'KTV_GM' || r === 'KTV GM' || r === 'KTVGAYME') return 'ktvGM';
+  if (r === 'TDC' || r === 'TÍT DỤNG CỤ' || r === 'TIT DUNG CU') return 'tdc';
+  if (r === 'GV' || r === 'GIÚP VIỆC' || r === 'GIUP VIEC') return 'gv';
+  const pos = STAFF_POSITIONS.find(p => p.key.toLowerCase() === (role || '').trim().toLowerCase());
+  if (pos) return pos.key;
+  return 'ptChinh';
 }
 
 // ─── Realtime Subscriptions ──────────────────────────────────────────────────
@@ -368,13 +412,19 @@ export async function deleteTableItem(
 
 export function getAllowanceForDate(
   loai: string,
-  date: string,
+  date: any,
   allItems: LaborAllowanceItem[]
 ): RolePrice {
   const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    const active = allItems.find(i => i.loai === loai && i.effectiveTo === null);
+    if (active) {
+      return { "Chính": active.chinh, "Phụ": active.phu, "Giúp việc": active.giupViec };
+    }
+  }
   const candidates = allItems
-    .filter(i => i.loai === loai && (i.effectiveFrom <= normalizedDate))
-    .filter(i => i.effectiveTo === null || i.effectiveTo >= normalizedDate)
+    .filter(i => i.loai === loai && (!normalizedDate || i.effectiveFrom <= normalizedDate))
+    .filter(i => !normalizedDate || i.effectiveTo === null || i.effectiveTo >= normalizedDate)
     .sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || ''));
 
   if (candidates.length > 0) {
@@ -384,42 +434,120 @@ export function getAllowanceForDate(
       "Giúp việc": candidates[0].giupViec,
     };
   }
+
+  // Fallback: earliest configured item for this loai
+  const anyForLoai = allItems.filter(i => i.loai === loai).sort((a, b) => (a.effectiveFrom || '').localeCompare(b.effectiveFrom || ''));
+  if (anyForLoai.length > 0) {
+    return {
+      "Chính": anyForLoai[0].chinh,
+      "Phụ": anyForLoai[0].phu,
+      "Giúp việc": anyForLoai[0].giupViec,
+    };
+  }
+
   return DEFAULT_PRICE_CONFIG[loai] || { "Chính": 0, "Phụ": 0, "Giúp việc": 0 };
 }
 
 export function getTimeForDate(
   loai: string,
-  date: string,
+  date: any,
   allItems: LaborTimeItem[]
 ): TimeRule {
   const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    const active = allItems.find(i => i.loai === loai && i.effectiveTo === null);
+    if (active) return { min: active.min, max: active.max };
+  }
   const candidates = allItems
-    .filter(i => i.loai === loai && (i.effectiveFrom <= normalizedDate))
-    .filter(i => i.effectiveTo === null || i.effectiveTo >= normalizedDate)
+    .filter(i => i.loai === loai && (!normalizedDate || i.effectiveFrom <= normalizedDate))
+    .filter(i => !normalizedDate || i.effectiveTo === null || i.effectiveTo >= normalizedDate)
     .sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || ''));
 
   if (candidates.length > 0) {
     return { min: candidates[0].min, max: candidates[0].max };
   }
+
+  const anyForLoai = allItems.filter(i => i.loai === loai).sort((a, b) => (a.effectiveFrom || '').localeCompare(b.effectiveFrom || ''));
+  if (anyForLoai.length > 0) {
+    return { min: anyForLoai[0].min, max: anyForLoai[0].max };
+  }
+
   return DEFAULT_TIME_RULES[loai] || { min: 0, max: 0 };
 }
 
 export function getTableLimitForDate(
   posKey: string,
-  date: string,
+  date: any,
   allItems: LaborTableItem[]
 ): number {
   const normalizedDate = normalizeDate(date);
+  if (!normalizedDate) {
+    const active = allItems.find(i => i.posKey === posKey && i.effectiveTo === null);
+    if (active) return active.limit;
+  }
   const candidates = allItems
-    .filter(i => i.posKey === posKey && (i.effectiveFrom <= normalizedDate))
-    .filter(i => i.effectiveTo === null || i.effectiveTo >= normalizedDate)
+    .filter(i => i.posKey === posKey && (!normalizedDate || i.effectiveFrom <= normalizedDate))
+    .filter(i => !normalizedDate || i.effectiveTo === null || i.effectiveTo >= normalizedDate)
     .sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || ''));
 
   if (candidates.length > 0) {
     return candidates[0].limit;
   }
+
+  const anyForPos = allItems.filter(i => i.posKey === posKey).sort((a, b) => (a.effectiveFrom || '').localeCompare(b.effectiveFrom || ''));
+  if (anyForPos.length > 0) {
+    return anyForPos[0].limit;
+  }
+
   const pos = STAFF_POSITIONS.find(p => p.key === posKey);
   return pos?.defaultLimit ?? 1;
+}
+
+/** Get table limit for a staff role on a specific date */
+export function getTableLimitForRole(
+  role: string,
+  date: any,
+  allItems?: LaborTableItem[],
+  fallbackStaffLimits?: any
+): number {
+  const posKey = getStaffPositionKey(role);
+  if (allItems && allItems.length > 0) {
+    return getTableLimitForDate(posKey, date, allItems);
+  }
+  if (fallbackStaffLimits) {
+    if (posKey === 'ptChinh' || posKey === 'ptPhu') return fallbackStaffLimits.surgeons ?? 1;
+    if (posKey === 'bsGM') return fallbackStaffLimits.anesthesiologists ?? 2;
+    if (posKey === 'ktvGM' || posKey === 'tdc') return fallbackStaffLimits.support ?? 1;
+    if (posKey === 'gv') return fallbackStaffLimits.assistants ?? 0;
+  }
+  const pos = STAFF_POSITIONS.find(p => p.key === posKey);
+  return pos?.defaultLimit ?? 1;
+}
+
+/** Get time rule for a surgery record on a specific date */
+export function getTimeRuleForRecord(
+  loai: string,
+  date: any,
+  allTimeItems?: LaborTimeItem[],
+  fallbackRules?: Record<string, TimeRule>
+): TimeRule {
+  if (allTimeItems && allTimeItems.length > 0 && date) {
+    return getTimeForDate(loai, date, allTimeItems);
+  }
+  return fallbackRules?.[loai] || DEFAULT_TIME_RULES[loai] || { min: 0, max: 0 };
+}
+
+/** Get allowance for a surgery record on a specific date */
+export function getAllowanceForRecord(
+  loai: string,
+  date: any,
+  allAllowanceItems?: LaborAllowanceItem[],
+  fallbackPrices?: Record<string, RolePrice>
+): RolePrice {
+  if (allAllowanceItems && allAllowanceItems.length > 0 && date) {
+    return getAllowanceForDate(loai, date, allAllowanceItems);
+  }
+  return fallbackPrices?.[loai] || DEFAULT_PRICE_CONFIG[loai] || { "Chính": 0, "Phụ": 0, "Giúp việc": 0 };
 }
 
 // ─── Legacy/Compatibility Bridge ────────────────────────────────────────────

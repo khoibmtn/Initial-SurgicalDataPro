@@ -11,7 +11,9 @@ const requiredEnvs = [
     'VITE_FIREBASE_DATABASE_URL'
 ];
 
-const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
+const env: any = (typeof import.meta !== 'undefined' && import.meta.env && Object.keys(import.meta.env).length > 0)
+    ? import.meta.env
+    : (typeof process !== 'undefined' && process.env ? process.env : {});
 
 // Check if any required env var is missing
 const isMissingEnv = requiredEnvs.some(key => !env[key]);

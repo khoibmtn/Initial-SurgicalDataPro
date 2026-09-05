@@ -367,7 +367,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
         ? { mode: 'single', targetMonth: selectedMonth, targetYear: selectedYear }
         : { mode: 'range', targetMonth: toMonth, targetYear: toYear, fromMonth, fromYear, toMonth, toYear };
 
-      const result = await getSpecialtyComparisonData(periodSpec, staffList, cfg, undefined, costItems, config.priceConfig, laborConfigs);
+      const result = await getSpecialtyComparisonData(periodSpec, staffList, cfg, undefined, costItems, config.priceConfig, laborConfigs, config.allowanceItems);
       setGroups(result.groups);
       setPeriodMeta(result.periodMeta);
     } catch (err: any) {
@@ -376,7 +376,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [periodMode, selectedMonth, selectedYear, fromMonth, fromYear, toMonth, toYear, staffList, costItems, config.priceConfig]);
+  }, [periodMode, selectedMonth, selectedYear, fromMonth, fromYear, toMonth, toYear, staffList, costItems, config.priceConfig, config.allowanceItems]);
 
   useEffect(() => {
     loadData();

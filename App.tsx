@@ -66,9 +66,10 @@ import {
 import { reportService } from './services/reportService';
 import { format, parse, isValid } from 'date-fns';
 import { auth } from './lib/firebase';
+import { getTimeRuleForRecord, getAllowanceForRecord } from './services/laborConfigService';
 
 // --- Helper: Sequential Search Logic ---
-const matchSearchQuery = (row: any, query: string, searchableCols: Record<string, boolean> | undefined, columns: ColumnDef<any>[], timeRules?: any) => {
+const matchSearchQuery = (row: any, query: string, searchableCols: Record<string, boolean> | undefined, columns: ColumnDef<any>[], timeRules?: any, timeItemsList?: any) => {
   if (!query) return true;
   const words = query.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
@@ -86,8 +87,8 @@ const matchSearchQuery = (row: any, query: string, searchableCols: Record<string
 
     let value = '';
 
-    if (col.key === 'reason' && timeRules) {
-      const minRule = timeRules[row.loaiPTTT]?.min;
+    if (col.key === 'reason') {
+      const minRule = getTimeRuleForRecord(row.loaiPTTT, row.ngayBD || row.start, timeItemsList, timeRules)?.min;
       value = (minRule && row.timeMinutes < minRule) ? `< ${minRule}p` : '';
     } else if (col.render) {
       const rendered = col.render(row);
@@ -1801,7 +1802,10 @@ const InnerApp: React.FC = () => {
     timeRules: config.timeRules,
     staffLimits: config.staffLimits,
     ignoredMachineCodes: config.ignoredMachineCodes,
-    ignoredMachineNames: config.ignoredMachineNames
+    ignoredMachineNames: config.ignoredMachineNames,
+    allowanceItems: config.allowanceItems,
+    timeItemsList: config.timeItemsList,
+    tableItems: config.tableItems
   }), [config]);
 
   useEffect(() => {
@@ -1822,10 +1826,10 @@ const InnerApp: React.FC = () => {
   const dynamicViolateMinTimeCount = useMemo(() => {
     if (!currentReport.result?.validRecords) return 0;
     return currentReport.result.validRecords.filter(r => {
-      const minTime = config.timeRules[r.loaiPTTT]?.min;
+      const minTime = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min;
       return minTime && r.timeMinutes < minTime;
     }).length;
-  }, [currentReport.result?.validRecords, config.timeRules]);
+  }, [currentReport.result?.validRecords, config.timeRules, config.timeItemsList]);
 
   // Split PT/TT counts for Tab UI
   const { ptCount, ttCount } = useMemo(() => {
@@ -1946,7 +1950,7 @@ const InnerApp: React.FC = () => {
     {
       key: 'reason', label: 'Lỗi thời gian',
       render: (r) => {
-        const min = config.timeRules[r.loaiPTTT]?.min;
+        const min = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min;
         if (min && r.timeMinutes < min) return <span className="font-bold">{`< ${min}p`}</span>;
         return null;
       },
@@ -2073,7 +2077,7 @@ const InnerApp: React.FC = () => {
   const [showEmptyFilterMenu, setShowEmptyFilterMenu] = useState(false);
 
   const filteredList = useMemo(() => {
-    let list = (currentReport.result?.validRecords || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules));
+    let list = (currentReport.result?.validRecords || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules, config.timeItemsList));
     if (emptyFilterCol) {
       list = list.filter(r => {
         const val = (r as any)[emptyFilterCol];
@@ -2333,7 +2337,10 @@ const InnerApp: React.FC = () => {
     if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
 
     if (currentReport.activeTable === 'list') {
-      const rowStyle = (r: SurgeryRecord) => (config.timeRules[r.loaiPTTT]?.min && r.timeMinutes < config.timeRules[r.loaiPTTT].min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
+      const rowStyle = (r: SurgeryRecord) => {
+        const min = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min;
+        return (min && r.timeMinutes < min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
+      };
       const ptCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length;
       const ttCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length;
       const countLabel = `${ptCount} ca PT, ${ttCount} ca TT`;

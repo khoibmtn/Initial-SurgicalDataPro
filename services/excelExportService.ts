@@ -1,7 +1,8 @@
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
-import { SurgeryRecord, ProcessingResult } from '../types';
+import { SurgeryRecord, ProcessingResult, LaborAllowanceItem } from '../types';
 import { AppConfig } from '../contexts/ConfigContext';
+import { getAllowanceForRecord } from './laborConfigService';
 
 // ──────────────────────────────────────────────────────────
 // Shared helpers
@@ -367,6 +368,7 @@ export async function exportPaymentExcel(
   hospitalName: string,
   existingWb?: ExcelJS.Workbook,
   signatureDate?: Date,
+  allowanceItems?: LaborAllowanceItem[],
 ) {
   const wb = existingWb || new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Bảng Thanh toán', {
@@ -471,13 +473,20 @@ export async function exportPaymentExcel(
   priceRow.getCell(4).font = { name: FONT_TIMES, size: 10, italic: true, bold: true };
   priceRow.getCell(4).alignment = { horizontal: 'right', vertical: 'middle' };
 
+  const repDate = records[0]?.ngayBD || records[0]?.start || '';
   cols.forEach((col, idx) => {
     const [loai, role] = col.split('-');
     let configRole = 'Giúp việc';
     if (role === 'Chính') configRole = 'Chính';
     else if (role === 'Phụ') configRole = 'Phụ';
     else if (role === 'Giúp việc') configRole = 'Giúp việc';
-    const price = priceConfig[loai]?.[configRole] || 0;
+    let price = 0;
+    if (allowanceItems && allowanceItems.length > 0) {
+      const allow = getAllowanceForRecord(loai, repDate, allowanceItems, priceConfig as any);
+      price = (allow as any)[configRole] || 0;
+    } else {
+      price = priceConfig[loai]?.[configRole] || 0;
+    }
     const cell = priceRow.getCell(fixedColCount + idx + 1);
     cell.value = price > 0 ? price : '';
     cell.font = { name: FONT_TIMES, size: 10, italic: true };
@@ -677,6 +686,7 @@ export async function exportFormattedFullExcel(
     await exportPaymentExcel(
       enrichedRows, groups, cols, footerTotals, columnTotals,
       config.priceConfig as unknown as Record<string, Record<string, number>>, records, dateRange, hospitalName, wb, signatureDate,
+      config.allowanceItems,
     );
   }
 
