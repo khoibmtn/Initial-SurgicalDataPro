@@ -518,3 +518,21 @@ export interface RolePrice {
   'Giúp việc': number;
 }
 
+export interface TimeRule {
+  min: number;
+  max: number;
+}
+
+/** Timeline-based labor config version — each version holds priceConfig + timeRules for a date range */
+export interface LaborConfigVersion {
+  id: string;
+  name: string;                                    // e.g. "Quy định 2025"
+  effectiveFrom: string;                           // yyyy-mm-dd
+  effectiveTo: string | null;                      // null = currently active
+  priceConfig: Record<string, RolePrice>;          // PĐB, P1, P2... → { Chính, Phụ, Giúp việc }
+  timeRules: Record<string, TimeRule>;             // PĐB, P1... → { min, max }
+  note: string;
+  createdAt: number;
+  updatedAt: number;
+}
+

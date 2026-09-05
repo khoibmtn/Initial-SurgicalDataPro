@@ -2,7 +2,9 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig, RolePrice } from '../contexts/ConfigContext';
-import { MachineEntry, StaffMember, SurgeryNamePrice } from '../types';
+import { MachineEntry, StaffMember, SurgeryNamePrice, LaborConfigVersion } from '../types';
+import { LaborConfigManager } from './config/LaborConfigManager';
+import { subscribeToLaborConfigs, ensureDefaultLaborConfig } from '../services/laborConfigService';
 import { reportService } from '../services/reportService';
 import { subscribeToSurgeryNamePrices } from '../services/surgeryNamePriceService';
 import { getUniqueNamesFromPrices } from '../services/profileService';
@@ -64,6 +66,15 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [newMachineName, setNewMachineName] = useState("");
     const [editingMachineIndex, setEditingMachineIndex] = useState<number | null>(null);
     const [editingPriceRow, setEditingPriceRow] = useState<string | null>(null);
+
+    // --- Timeline-based labor config ---
+    const [laborConfigs, setLaborConfigs] = useState<LaborConfigVersion[]>([]);
+    useEffect(() => {
+      // Auto-migrate static config to timeline version on first load
+      ensureDefaultLaborConfig(config.priceConfig, config.timeRules).catch(console.error);
+      const unsub = subscribeToLaborConfigs(setLaborConfigs);
+      return () => unsub();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // --- Surgery name autocomplete ---
     const [surgeryNamePrices, setSurgeryNamePrices] = useState<SurgeryNamePrice[]>([]);
@@ -821,140 +832,12 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
             <div className="p-4 flex-1 overflow-y-auto bg-white">
 
                 {activeSubTab === 'norms' && (
-                    <div className="animate-fade-in">
-                        <div className="overflow-x-auto rounded-xl border border-gray-100 shadow-sm">
-                            <table className="w-full text-sm text-gray-700">
-                                <thead>
-                                    <tr className="bg-primary-800 text-white text-xs font-bold uppercase">
-                                        <th rowSpan={2} className="px-5 py-3 text-left min-w-[180px] align-middle">Loại PTTT</th>
-                                        <th colSpan={3} className="px-4 py-2 text-center border-l border-primary-700/40">Phụ cấp PTTT (đồng)</th>
-                                        <th colSpan={2} className="px-4 py-2 text-center border-l border-primary-700/40">Thời gian (phút)</th>
-                                        <th rowSpan={2} className="px-3 py-3 w-[50px] border-l border-primary-700/40"></th>
-                                    </tr>
-                                    <tr className="bg-primary-700/80 text-white text-xs font-semibold">
-                                        <th className="px-4 py-2 text-center w-[110px] border-l border-primary-600/30">Chính</th>
-                                        <th className="px-4 py-2 text-center w-[110px] border-l border-primary-600/30">Phụ</th>
-                                        <th className="px-4 py-2 text-center w-[110px] border-l border-primary-600/30">Giúp việc</th>
-                                        <th className="px-4 py-2 text-center w-[90px] border-l border-primary-600/30">Tối thiểu</th>
-                                        <th className="px-4 py-2 text-center w-[90px] border-l border-primary-600/30">Tối đa</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    <tr className="bg-primary-50/60">
-                                        <td colSpan={7} className="px-5 py-2.5 text-primary-800 uppercase text-xs font-bold tracking-wider">
-                                            <span className="flex items-center gap-2">
-                                                <span className="w-2 h-2 bg-primary-500 rounded-full"></span>
-                                                Phẫu thuật
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    {SURGERY_TYPES.map((type) => {
-                                        const isEditing = editingPriceRow === type;
-                                        return (
-                                            <tr key={type} className={`transition-all duration-150 ${isEditing ? 'bg-primary-50/80 ring-1 ring-primary-200 ring-inset' : 'hover:bg-gray-50/80'}`}>
-                                                <td className="px-5 py-3 font-medium text-gray-700 pl-8">
-                                                    {type === 'PĐB' ? 'Loại Đặc biệt' : type.replace("P", "Loại ")}
-                                                </td>
-                                                {isEditing ? (
-                                                    <>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getPrice(type, 'Chính')} onChange={(val) => handlePriceChange(type, 'Chính', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-primary-300 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getPrice(type, 'Phụ')} onChange={(val) => handlePriceChange(type, 'Phụ', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-primary-300 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getPrice(type, 'Giúp việc')} onChange={(val) => handlePriceChange(type, 'Giúp việc', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-primary-300 focus:border-primary-500 focus:ring-1 focus:ring-primary-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getTime(type, 'min')} onChange={(val) => handleTimeChange(type, 'min', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getTime(type, 'max')} onChange={(val) => handleTimeChange(type, 'max', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5 text-center">
-                                                            <button onClick={() => setEditingPriceRow(null)} className="p-1.5 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors shadow-sm" title="Xong">
-                                                                <Check className="h-3.5 w-3.5" />
-                                                            </button>
-                                                        </td>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Chính').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Phụ').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Giúp việc').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'min').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'max').toLocaleString()}</td>
-                                                        <td className="px-2 py-3 text-center">
-                                                            <button onClick={() => setEditingPriceRow(type)} className="p-1.5 rounded-lg text-gray-400 hover:text-primary-600 hover:bg-primary-50 transition-colors" title="Sửa">
-                                                                <Pencil className="h-3.5 w-3.5" />
-                                                            </button>
-                                                        </td>
-                                                    </>
-                                                )}
-                                            </tr>
-                                        );
-                                    })}
-                                    <tr className="bg-teal-50/60">
-                                        <td colSpan={7} className="px-5 py-2.5 text-teal-800 uppercase text-xs font-bold tracking-wider">
-                                            <span className="flex items-center gap-2">
-                                                <span className="w-2 h-2 bg-teal-500 rounded-full"></span>
-                                                Thủ thuật
-                                            </span>
-                                        </td>
-                                    </tr>
-                                    {PROCEDURE_TYPES.map((type) => {
-                                        const isEditing = editingPriceRow === type;
-                                        return (
-                                            <tr key={type} className={`transition-all duration-150 ${isEditing ? 'bg-teal-50/80 ring-1 ring-teal-200 ring-inset' : 'hover:bg-gray-50/80'}`}>
-                                                <td className="px-5 py-3 font-medium text-gray-700 pl-8">
-                                                    {type === 'TĐB' ? 'Loại Đặc biệt' : type === 'TKPL' ? 'Không phân loại' : type.replace("T", "Loại ")}
-                                                </td>
-                                                {isEditing ? (
-                                                    <>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getPrice(type, 'Chính')} onChange={(val) => handlePriceChange(type, 'Chính', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-teal-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getPrice(type, 'Phụ')} onChange={(val) => handlePriceChange(type, 'Phụ', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-teal-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getPrice(type, 'Giúp việc')} onChange={(val) => handlePriceChange(type, 'Giúp việc', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-teal-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getTime(type, 'min')} onChange={(val) => handleTimeChange(type, 'min', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5">
-                                                            <NumberInput value={getTime(type, 'max')} onChange={(val) => handleTimeChange(type, 'max', val)} className="w-full px-3 py-1.5 text-right text-gray-900 border border-orange-300 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 rounded-lg bg-white outline-none transition-all" />
-                                                        </td>
-                                                        <td className="px-2 py-1.5 text-center">
-                                                            <button onClick={() => setEditingPriceRow(null)} className="p-1.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors shadow-sm" title="Xong">
-                                                                <Check className="h-3.5 w-3.5" />
-                                                            </button>
-                                                        </td>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Chính').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Phụ').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-800 tabular-nums">{getPrice(type, 'Giúp việc').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'min').toLocaleString()}</td>
-                                                        <td className="px-4 py-3 text-right font-mono text-gray-500 tabular-nums">{getTime(type, 'max').toLocaleString()}</td>
-                                                        <td className="px-2 py-3 text-center">
-                                                            <button onClick={() => setEditingPriceRow(type)} className="p-1.5 rounded-lg text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors" title="Sửa">
-                                                                <Pencil className="h-3.5 w-3.5" />
-                                                            </button>
-                                                        </td>
-                                                    </>
-                                                )}
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
+                    <div className="animate-fade-in space-y-6">
+                        {/* Timeline-based labor config */}
+                        <LaborConfigManager laborConfigs={laborConfigs} />
 
-                        <div className="p-4 border-t bg-blue-50 mt-6 rounded-lg border-blue-100">
+                        {/* Định mức bàn mổ (stays static — not timeline-based) */}
+                        <div className="p-4 border-t bg-blue-50 rounded-lg border-blue-100">
                             <h3 className="font-bold text-lg text-primary-900 mb-2">Định mức bàn mổ</h3>
                             <div className="overflow-x-auto border border-primary-200 rounded-lg shadow-sm bg-white">
                                 <table className="w-full text-sm">

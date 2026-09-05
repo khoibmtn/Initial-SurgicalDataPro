@@ -17,7 +17,8 @@
  */
 
 import { reportService } from './reportService';
-import { PersistedSurgeryRecord, StaffMember, SurgeryCostItem, RolePrice } from '../types';
+import { PersistedSurgeryRecord, StaffMember, SurgeryCostItem, RolePrice, LaborConfigVersion } from '../types';
+import { getConfigForDate } from './laborConfigService';
 
 export type StandardSpecialtyCode = 'ngoai_th' | 'ctch' | 'mat' | 'tmh' | 'phu_san';
 export type SpecialtyCode = StandardSpecialtyCode | string;
@@ -636,10 +637,21 @@ export function findMatchingCostItem(
 
 export function calculateLaborCost(
   r: PersistedSurgeryRecord,
-  priceConfig?: Record<string, RolePrice>
+  priceConfig?: Record<string, RolePrice>,
+  laborConfigs?: LaborConfigVersion[],
 ): number {
-  if (!priceConfig || !r.loaiPTTT) return 0;
-  const cfg = priceConfig[r.loaiPTTT];
+  if (!r.loaiPTTT) return 0;
+
+  // Timeline-based: lookup config for surgery date
+  let resolvedPriceConfig = priceConfig;
+  if (laborConfigs && laborConfigs.length > 0 && r.ngayBD) {
+    const dateStr = typeof r.ngayBD === 'string' ? r.ngayBD.slice(0, 10) : new Date(r.ngayBD).toISOString().slice(0, 10);
+    const resolved = getConfigForDate(dateStr, laborConfigs, priceConfig);
+    resolvedPriceConfig = resolved.priceConfig;
+  }
+
+  if (!resolvedPriceConfig) return 0;
+  const cfg = resolvedPriceConfig[r.loaiPTTT];
   if (!cfg) return 0;
 
   const qty = r.soLuong || 1;
@@ -660,7 +672,8 @@ export async function getSpecialtyComparisonData(
   thresholdConfig?: ComparisonConfig,
   customOverrides?: Record<string, SpecialtyCode>,
   costItems?: SurgeryCostItem[],
-  priceConfig?: Record<string, RolePrice>
+  priceConfig?: Record<string, RolePrice>,
+  laborConfigs?: LaborConfigVersion[],
 ): Promise<ComparisonAnalysisResult> {
   const config = thresholdConfig || getComparisonThresholdConfig();
   const overrides = customOverrides || getSpecialtyOverrides();
@@ -755,7 +768,7 @@ export async function getSpecialtyComparisonData(
     const hasCost = !!matchedCost;
     const medic = matchedCost ? matchedCost.medicCost * qty : 0;
     const vtth = matchedCost ? matchedCost.vtthCost * qty : 0;
-    const labor = calculateLaborCost(r, priceConfig);
+    const labor = calculateLaborCost(r, priceConfig, laborConfigs);
     const totalCost = hasCost ? (medic + vtth + labor) : 0;
     const profit = hasCost ? (rev - totalCost) : 0;
 

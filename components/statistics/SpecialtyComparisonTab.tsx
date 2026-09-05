@@ -18,9 +18,10 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronsLeft, ChevronsRight,
   ArrowLeftRight, FileText, Check, ToggleLeft, ToggleRight, DollarSign
 } from 'lucide-react';
-import { StaffMember, SurgeryCostItem } from '../../types';
+import { StaffMember, SurgeryCostItem, LaborConfigVersion } from '../../types';
 import { useConfig } from '../../contexts/ConfigContext';
 import { subscribeToCostItems } from '../../services/surgeryCostService';
+import { subscribeToLaborConfigs } from '../../services/laborConfigService';
 import {
   getSpecialtyComparisonData,
   SpecialtyReportGroup,
@@ -266,6 +267,13 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     return () => unsub();
   }, []);
 
+  // Subscribe to timeline-based labor configs
+  const [laborConfigs, setLaborConfigs] = useState<LaborConfigVersion[]>([]);
+  useEffect(() => {
+    const unsub = subscribeToLaborConfigs(setLaborConfigs);
+    return () => unsub();
+  }, []);
+
   // Download menu dropdown state
   const [openDownloadMenu, setOpenDownloadMenu] = useState<boolean>(false);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
@@ -359,7 +367,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
         ? { mode: 'single', targetMonth: selectedMonth, targetYear: selectedYear }
         : { mode: 'range', targetMonth: toMonth, targetYear: toYear, fromMonth, fromYear, toMonth, toYear };
 
-      const result = await getSpecialtyComparisonData(periodSpec, staffList, cfg, undefined, costItems, config.priceConfig);
+      const result = await getSpecialtyComparisonData(periodSpec, staffList, cfg, undefined, costItems, config.priceConfig, laborConfigs);
       setGroups(result.groups);
       setPeriodMeta(result.periodMeta);
     } catch (err: any) {
