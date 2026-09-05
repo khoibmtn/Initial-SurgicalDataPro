@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffRole, AppStatus, MachineEntry } from "../types";
 import { AppConfig } from "../contexts/ConfigContext";
 import { getTableLimitForRole, getTimeRuleForRecord, getAllowanceForRecord } from "./laborConfigService";
+import { isMachineCodeRequired, buildRequiredMachineIndex } from "./requiredMachineService";
 
 // ───────────────── Helper Functions ─────────────────
 
@@ -271,12 +272,22 @@ export function reprocessSurgicalRecords(
     // 1. Detect Conflicts
     const staffConflicts = detectStaffConflicts(records, config);
     const machineConflicts = detectMachineConflicts(records);
+    const reqMachineIndex = config.requiredMachineCatalog && config.requiredMachineCatalog.length > 0
+        ? buildRequiredMachineIndex(config.requiredMachineCatalog)
+        : null;
+
     const missingMachine = records.filter((r) => {
         // Use machineCode as primary check (new logic)
         if (r.machineCode) return false;
         // Fallback: also skip if legacy machine (name) exists
-        if (r.machine) return false;
-        // Check if surgery name matches any pattern in ignoredMachineNames (substring match)
+        if (r.machine && r.machine.trim() !== "") return false;
+
+        // If requiredMachineCatalog is loaded, check against catalog (whitelist approach)
+        if (reqMachineIndex) {
+            return isMachineCodeRequired(r, reqMachineIndex);
+        }
+
+        // Backward compatibility fallback if catalog not loaded
         if (config.ignoredMachineNames && config.ignoredMachineNames.some(ignoredName => {
             const normalizedSurgeryName = r.tenKT.replace(/[\[\]()]/g, '').trim().toLowerCase();
             const normalizedIgnoredName = ignoredName.replace(/[\[\]()]/g, '').trim().toLowerCase();
@@ -851,11 +862,21 @@ export function recalculateResultFromRecords(records: SurgeryRecord[], config: A
     });
 
 
+    const reqMachineIndexRecalc = config.requiredMachineCatalog && config.requiredMachineCatalog.length > 0
+        ? buildRequiredMachineIndex(config.requiredMachineCatalog)
+        : null;
+
     const missingMachine = records.filter((r) => {
         // Use machineCode as primary check
         if (r.machineCode) return false;
         if (r.machine && r.machine.trim() !== "") return false;
-        // Check if surgery name matches any pattern in ignoredMachineNames (substring match)
+
+        // If requiredMachineCatalog is loaded, check against catalog (whitelist approach)
+        if (reqMachineIndexRecalc) {
+            return isMachineCodeRequired(r, reqMachineIndexRecalc);
+        }
+
+        // Backward compatibility fallback if catalog not loaded
         if (config.ignoredMachineNames && config.ignoredMachineNames.some(ignoredName => {
             const normalizedSurgeryName = r.tenKT.replace(/[\[\]()]/g, '').trim().toLowerCase();
             const normalizedIgnoredName = ignoredName.replace(/[\[\]()]/g, '').trim().toLowerCase();

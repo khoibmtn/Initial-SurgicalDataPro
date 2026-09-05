@@ -572,5 +572,14 @@ export interface LaborTableItem {
   createdAt: number;
   updatedAt: number;
 }
-
-
+/** Flat timeline items for technical services requiring machine code */
+export interface RequiredMachineItem {
+  id: string;
+  maTuongDuong: string;            // Mã tương đương (VD: 01.0303.0001)
+  tenDVKT: string;                 // Tên dịch vụ kỹ thuật
+  effectiveFrom: string;           // yyyy-mm-dd
+  effectiveTo: string | null;      // null = currently active
+  isRequired: boolean;             // true: Bắt buộc dùng mã máy, false: Không bắt buộc
+  createdAt?: number;
+  updatedAt?: number;
+}

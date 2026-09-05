@@ -1805,7 +1805,8 @@ const InnerApp: React.FC = () => {
     ignoredMachineNames: config.ignoredMachineNames,
     allowanceItems: config.allowanceItems,
     timeItemsList: config.timeItemsList,
-    tableItems: config.tableItems
+    tableItems: config.tableItems,
+    requiredMachineCatalog: config.requiredMachineCatalog
   }), [config]);
 
   useEffect(() => {

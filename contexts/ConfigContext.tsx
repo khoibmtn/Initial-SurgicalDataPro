@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { ref, onValue, set } from "firebase/database";
 import { db } from "../lib/firebase";
-import { UISettings, StaffMember, MachineEntry, LaborAllowanceItem, LaborTimeItem, LaborTableItem, LaborConfigVersion } from "../types";
+import { UISettings, StaffMember, MachineEntry, LaborAllowanceItem, LaborTimeItem, LaborTableItem, LaborConfigVersion, RequiredMachineItem } from "../types";
 import {
     subscribeToAllowanceItems,
     subscribeToTimeItems,
@@ -11,6 +11,7 @@ import {
     getTimeRuleForRecord,
     getTableLimitForRole
 } from "../services/laborConfigService";
+import { subscribeToRequiredMachineItems } from "../services/requiredMachineService";
 
 export interface TimeRule {
     min: number;
@@ -67,6 +68,7 @@ export interface AppConfig {
     timeItemsList?: LaborTimeItem[];
     tableItems?: LaborTableItem[];
     laborConfigs?: LaborConfigVersion[];
+    requiredMachineCatalog?: RequiredMachineItem[];
 }
 
 export interface ConfigContextType {
@@ -304,12 +306,16 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         const unsubLabor = subscribeToLaborConfigs((versions) => {
             setConfig(prev => ({ ...prev, laborConfigs: versions }));
         });
+        const unsubRequiredMachine = subscribeToRequiredMachineItems((items) => {
+            setConfig(prev => ({ ...prev, requiredMachineCatalog: items }));
+        });
 
         return () => {
             unsubAllowance();
             unsubTime();
             unsubTable();
             unsubLabor();
+            unsubRequiredMachine();
         };
     }, []);
 
