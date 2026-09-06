@@ -290,21 +290,21 @@ export const ComparisonChartsView: React.FC<Props> = ({
   const [waterfallScope, setWaterfallScope] = useState<'hospital' | string>('hospital');
   const [waterfallMode, setWaterfallMode] = useState<'top' | 'all'>('top');
   const [waterfallHiddenItems, setWaterfallHiddenItems] = useState<string[]>([]);
-  // Bật/tắt hiển thị các box 0 ca (mặc định hiện: true, lưu vào localStorage)
-  const [showZeroWaterfall, setShowZeroWaterfall] = useState<boolean>(() => {
+  // Trạng thái bật/tắt ẩn những box giá trị 0 (mặc định BẬT: ẩn box giá trị 0, lưu vào localStorage)
+  const [hideZeroWaterfall, setHideZeroWaterfall] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem('waterfall_show_zero_diff');
-      return saved !== null ? saved === 'true' : true;
+      const saved = localStorage.getItem('waterfall_hide_zero_diff');
+      return saved !== null ? saved === 'true' : true; // Mặc định BẬT: ẩn box giá trị 0
     } catch {
       return true;
     }
   });
 
-  const toggleShowZeroWaterfall = () => {
-    setShowZeroWaterfall(prev => {
+  const toggleHideZeroWaterfall = () => {
+    setHideZeroWaterfall(prev => {
       const next = !prev;
       try {
-        localStorage.setItem('waterfall_show_zero_diff', String(next));
+        localStorage.setItem('waterfall_hide_zero_diff', String(next));
       } catch {}
       return next;
     });
@@ -626,7 +626,8 @@ export const ComparisonChartsView: React.FC<Props> = ({
           : (isRev ? g.totalSamePeriodRevenue : g.totalSamePeriod);
         const diff = cur - comp;
         if (!waterfallHiddenItems.includes(g.specialty.code)) {
-          if (!showZeroWaterfall && diff === 0) {
+          // Khi BẬT 'Ẩn box 0 ca' (mặc định bật), ẩn các mục không có biến động (diff === 0)
+          if (hideZeroWaterfall && diff === 0) {
             return;
           }
           rawSteps.push({
@@ -661,8 +662,8 @@ export const ComparisonChartsView: React.FC<Props> = ({
             : (isRev ? r.samePeriodRevenue : r.samePeriodCount);
           const diff = cur - comp;
 
-          // Nếu tắt 'Box 0 ca', bỏ qua các kỹ thuật không có biến động (diff === 0)
-          if (!showZeroWaterfall && diff === 0) {
+          // Khi BẬT 'Ẩn box 0 ca' (mặc định bật), ẩn các mục không có biến động (diff === 0)
+          if (hideZeroWaterfall && diff === 0) {
             return;
           }
 
@@ -691,7 +692,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
       const otherDiff = others.reduce((sum, item) => sum + item.diff, 0);
 
       finalSteps = [...top12];
-      if (others.length > 0 && (showZeroWaterfall || otherDiff !== 0)) {
+      if (others.length > 0 && (!hideZeroWaterfall || otherDiff !== 0)) {
         finalSteps.push({
           id: '__others__',
           uniqueKey: 'step_waterfall_others',
@@ -763,7 +764,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
     });
 
     return items;
-  }, [groups, waterfallScope, waterfallMode, waterfallHiddenItems, showZeroWaterfall, metricMode, compareTarget, compareLabel, periodMeta]);
+  }, [groups, waterfallScope, waterfallMode, waterfallHiddenItems, hideZeroWaterfall, metricMode, compareTarget, compareLabel, periodMeta]);
 
   // Tính toán chiều rộng khả dụng cho mỗi cột Waterfall để tự động co giãn box, không cần cuộn ngang
   const modalSlotWidth = useMemo(() => {
@@ -1538,19 +1539,19 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   </button>
                 </div>
               )}
-              {/* Toggle Hiện/Ẩn Box 0 ca */}
+              {/* Toggle Ẩn/Hiện Box 0 ca (mặc định bật: ẩn box giá trị 0) */}
               <button
                 type="button"
-                onClick={toggleShowZeroWaterfall}
+                onClick={toggleHideZeroWaterfall}
                 className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
-                  showZeroWaterfall
+                  hideZeroWaterfall
                     ? 'bg-white text-blue-800 border-blue-300 shadow-xs'
                     : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
                 }`}
-                title={showZeroWaterfall ? 'Đang hiện các box 0 ca. Bấm để ẩn.' : 'Đang ẩn các box 0 ca. Bấm để hiện.'}
+                title={hideZeroWaterfall ? 'Đang bật ẩn các box giá trị 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả box giá trị 0. Bấm để ẩn.'}
               >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${showZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                <span>Box 0 ca</span>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>Ẩn box 0 ca</span>
               </button>
               <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" />
               <button
@@ -2243,19 +2244,19 @@ export const ComparisonChartsView: React.FC<Props> = ({
                           </button>
                         </div>
                       )}
-                      {/* Toggle Hiện/Ẩn Box 0 ca trong modal */}
+                      {/* Toggle Ẩn/Hiện Box 0 ca trong modal (mặc định bật: ẩn box giá trị 0) */}
                       <button
                         type="button"
-                        onClick={toggleShowZeroWaterfall}
+                        onClick={toggleHideZeroWaterfall}
                         className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold text-xs shadow-2xs cursor-pointer transition-all ${
-                          showZeroWaterfall
+                          hideZeroWaterfall
                             ? (modalTheme === 'dark' ? 'bg-[#303336] text-blue-300 border-blue-500/50 shadow-xs' : 'bg-white text-blue-800 border-blue-300 shadow-xs')
                             : (modalTheme === 'dark' ? 'bg-[#232528] text-gray-400 border-gray-700 hover:text-gray-200' : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700')
                         }`}
-                        title={showZeroWaterfall ? 'Đang hiện các box 0 ca. Bấm để ẩn.' : 'Đang ẩn các box 0 ca. Bấm để hiện.'}
+                        title={hideZeroWaterfall ? 'Đang bật ẩn các box giá trị 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả box giá trị 0. Bấm để ẩn.'}
                       >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${showZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-300/40' : 'bg-rose-500 ring-2 ring-rose-300/40'}`} />
-                        <span>Box 0 ca</span>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-300/40' : 'bg-rose-500 ring-2 ring-rose-300/40'}`} />
+                        <span>Ẩn box 0 ca</span>
                       </button>
                       <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" isDark={modalTheme === 'dark'} />
                     </div>
