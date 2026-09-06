@@ -1,101 +1,112 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 04/09/2026 23:48 (Giờ địa phương)  
-> **Nhánh Git hiện tại:** `temp-04-09-2026-23h38`  
-> **Commit mới nhất trên main:** `d1c54c5`  
+> **Thời gian tạo:** 06/09/2026 23:48 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-06-09-2026-22h42`  
+> **Commit mới nhất trên main:** `274605e` (`fix: khoi phuc danh muc 14 ky thuat chuyen nhom, bo sung seed baseline chong mat du lieu va sao luu JSON`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Trạng thái Build & Deploy:** `Thành công 100% (READY)`
+> **Trạng thái Build & Deploy:** `Thành công 100% (Vite v6.4.1 - 0 lỗi)`
 
 ---
 
-## 📌 1. Các Yêu Cầu & Tính Năng Mới Đã Triển Khai Trong Phiên
+## 📌 1. Các Yêu Cầu & Tính Năng Đã Hoàn Thành Trong Phiên
 
-### 1.1. Phân Tích Chi Phí & Lợi Nhuận Tại Tab "Phân Tích So Sánh" (`SpecialtyComparisonTab.tsx`)
-- **Tối ưu vị trí cụm Toggle trên thanh phụ đề bảng**:
-  - Gỡ bỏ nút *"Hiện số chênh"* khỏi thanh công cụ trên cùng.
-  - Đặt toggle **"Hiện số chênh (± tiền / ± ca)"** nằm ngay cạnh toggle **"Số tiền rút gọn / Đầy đủ"** ở sát mép phải thanh phụ đề (ngay trên đầu bảng).
-- **Slide Toggle Phân Cấp 2 Tầng**:
-  - **Cấp 1 (Chỉ số tài chính)**:
-    - `Viện phí`: Xanh lá đậm (`bg-emerald-600 text-white font-bold`).
-    - `Chi phí`: Nổi bật màu cam đậm (`bg-amber-600 text-white font-bold`).
-    - `Lợi nhuận`: Xanh dương đậm (`bg-blue-600 text-white font-bold`).
-  - **Cấp 2 (Tiểu mục Chi phí)**:
-    - `CP Thuốc`, `CP VTTH`, `CP Nhân công`, `Tổng CP (Thuốc + VTTH + NC)`.
-    - Trạng thái được chọn hiển thị cực kỳ nổi bật với nền cam đậm (`bg-amber-600 text-white font-bold ring-1 ring-amber-700/40 shadow-sm`), phân biệt hoàn toàn so với các nút chưa chọn (nền trong suốt, chữ nâu).
-- **Click Badge Định Mức CP Để Lọc Danh Sách**:
-  - **Badge "XX có định mức CP"**: Click lần 1 kích hoạt lọc `WITH_COST` (chuyển sang màu xanh lục đậm kèm icon `✕`), bảng chỉ hiện các kỹ thuật đã có định mức CP. Click lần 2 hủy lọc.
-  - **Badge "XX chưa có định mức CP"**: Click lần 1 kích hoạt lọc `WITHOUT_COST` (chuyển sang màu cam đậm kèm icon `✕`), bảng chỉ hiện các kỹ thuật chưa có định mức CP (có nhãn cảnh báo `Chưa có CP`). Click lần 2 hủy lọc.
-- **Thuật toán ánh xạ chi phí & tính toán**:
-  - **Ánh xạ chi phí**: Khớp đồng thời `maTuongDuong` (chuẩn hóa hậu tố `_GT`), `donGia`, và ngày phẫu thuật thủ thuật nằm trong khoảng thời gian hiệu lực (ưu tiên `costEffectiveFrom` – `costEffectiveTo`, fallback `dvktEffectiveFrom` – `dvktEffectiveTo`).
-  - **Chi phí nhân công**: Tính theo từng ca mổ dựa trên kíp mổ thực tế (`ptChinh`, `ptPhu`, `bsGM`, `ktvGM`, `tdc`, `gv`) và `priceConfig[loaiPTTT]`, đảm bảo khớp 100% Bảng thanh toán phẫu thuật.
-  - **Lợi nhuận**: `Viện phí - (CP Thuốc + CP VTTH + CP Nhân công)`.
-  - Kỹ thuật chưa có định mức chi phí: hiển thị `—`, nhãn cảnh báo `Chưa có CP`, không tính vào tổng chi phí & tổng lợi nhuận toàn viện/chuyên khoa.
-- **Đồng bộ Xuất Báo Cáo Excel & CSV**:
-  - File Excel (Sheet Tổng hợp + Sheet Chuyên khoa) và CSV UTF-8 (BOM `\uFEFF`) tự động xuất đúng cột số liệu theo chỉ số đang chọn: Viện phí, CP Thuốc, CP VTTH, CP Nhân công, Tổng CP, hoặc Lợi nhuận.
+### 1.1. Sửa Lỗi Giao Diện & Mở Tab Biểu Đồ So Sánh (`ComparisonChartsView.tsx`)
+- **Khắc phục lỗi runtime khi mở tab biểu đồ**:
+  - Bổ sung import `useRef` thiếu từ `'react'`.
+  - Tối ưu hóa việc gán tham chiếu và hủy đăng ký listener biểu đồ an toàn.
+- **Sửa lỗi layout tiêu đề modal khi bật chế độ sáng**:
+  - Tách header modal thành bố cục 2 tầng (2-tier responsive header) chống hiện tượng tiêu đề dài đè lên các nút điều khiển hoặc bị ngắt chữ xấu.
+- **Ghim nút phóng to (Maximize / Expand) của card biểu đồ**:
+  - Ghim nút expand bên trong khung card ở chế độ bình thường, ngăn tình trạng nút bị rơi hoặc tràn ra ngoài mép card.
 
-### 1.2. Nâng Cấp Danh Mục Chi Phí PTTT (`SurgeryCostConfig.tsx`, `surgeryCostService.ts`)
-- Tự động định dạng phân cách hàng nghìn bằng dấu chấm `.` cho số tiền CP Thuốc và CP VTTH.
-- Tách độc lập trường thời gian hiệu lực chi phí (`costEffectiveFrom`, `costEffectiveTo`) và thời gian hiệu lực DVKT (`dvktEffectiveFrom`, `dvktEffectiveTo`).
-- Loại bỏ cột tổng CP theo đúng yêu cầu người dùng.
+### 1.2. Hoàn Thiện Biểu Đồ Thác Nước (Waterfall Chart)
+- **Hiển thị đầy đủ tất cả các phẫu thuật thủ thuật (PTTT)**:
+  - Khắc phục lỗi khi chọn "Hiển thị đầy đủ" mà vẫn bị thiếu box (ví dụ có 15 PTTT nhưng chỉ hiển thị 12 box).
+  - Tự động tính toán chiều rộng từng cột (box width) linh hoạt theo tổng số kỹ thuật, tránh co hẹp hoặc mất cột.
+- **Bổ sung nút bật/tắt "Ẩn box 0 ca"**:
+  - Nút bấm thiết kế đồng bộ với nút *"Ẩn / hiện cột mã tương đương"* (border, badge số lượng, hover state).
+  - **Mặc định BẬT**: Tự động lọc bỏ các box có mức chênh lệch bằng 0 (`diff === 0`) giúp biểu đồ tập trung trực quan vào các kỹ thuật có biến động số lượng hoặc doanh thu.
+  - Khi TẮT: Hiển thị đầy đủ toàn bộ kỹ thuật kể cả các ca có độ biến động bằng 0.
 
-### 1.3. Nâng Cấp Danh Mục Giá & Quét DM Thiếu (`SurgeryNamePriceConfig.tsx`)
-- Quét DM thiếu: Chuyển sang hiển thị modal đề xuất duyệt trước khi thêm, không tự ý chèn dữ liệu khi chưa có sự đồng ý của người dùng.
-- Rút gọn bộ lọc:
-  - Combobox Hiệu lực 4 trạng thái: *Tất cả / Còn hiệu lực / Hết hiệu lực / Khoảng hiệu lực*.
-  - Toggle Giá 4 trạng thái: *Tất cả / Có giá / Chưa có giá / Khoảng giá*.
+### 1.3. Nâng Cấp Quản Lý Nhóm Chuyên Khoa Mới (Custom Specialties)
+- **Hỗ trợ chỉnh sửa (Inline Edit) nhóm chuyên khoa tùy chỉnh**:
+  - Bổ sung nút cây bút (`Edit3`) tại cột *Thao tác* trong bảng nhóm chuyên khoa tự tạo (`StatsConfig.tsx`).
+  - Cho phép sửa trực tiếp cả **Tên nhóm chuyên khoa** và **Tên viết tắt (hiển thị nút/tab)** ngay trên dòng.
+  - Hỗ trợ phím tắt: nhấn `Enter` để lưu thay đổi, nhấn `Escape` (hoặc nút `X`) để hủy bỏ; nút tích xanh (`Check`) để xác nhận lưu.
+  - Thêm hàm `updateCustomSpecialty(code, name, shortName)` trong `specialtyComparisonService.ts`.
+
+### 1.4. Khôi Phục & Bảo Vệ Toàn Diện Danh Mục Chuyển Nhóm Thủ Công
+- **Nguyên nhân sự cố mất dữ liệu về 1 mục**:
+  1. *Cách ly LocalStorage theo Port/Origin*: Trình duyệt cách ly dữ liệu giữa `localhost:3000` (cổng cũ) và `localhost:3001` (cổng mới khi Vite fallback do port 3000 bị chiếm dụng bởi app khác).
+  2. *Dropdown chọn nhóm bị stale state*: `allSpecialtiesList` trong `SpecialtyComparisonTab.tsx` chỉ khởi tạo 1 lần lúc mount, khiến nhóm mới tạo chưa kịp xuất hiện trong menu chuyển nhóm.
+- **Khôi phục đầy đủ 100% dữ liệu (14 mục kỹ thuật)**:
+  - 13 mục ban đầu của người dùng từ ảnh chụp + ca thứ 14 (`phẫu thuật khx gãy xương đòn` ➔ `Chấn thương chỉnh hình`).
+- **Cơ chế Baseline Seed chống mất dữ liệu vĩnh viễn**:
+  - Khởi tạo hằng số `DEFAULT_BASE_OVERRIDES` chứa sẵn 14 kỹ thuật chuẩn trong `specialtyComparisonService.ts`.
+  - Tự động nạp 14 mục này nếu `localStorage` chưa từng được khởi tạo, đảm bảo mở ở cổng mới hay tab ẩn danh dữ liệu vẫn luôn sẵn sàng.
+- **Bổ sung bộ công cụ Sao lưu & Phục hồi trên giao diện (`StatsConfig.tsx`)**:
+  - 🔄 **Khôi phục 14 mục chuẩn**: 1-click đưa danh mục về lại 14 kỹ thuật chuẩn ban đầu.
+  - 📥 **Sao lưu JSON**: Xuất file `.json` chứa toàn bộ nhóm tự tạo và danh mục kỹ thuật đã chuyển.
+  - 📤 **Nhập JSON**: Khôi phục cấu hình từ file tải lên cực nhanh.
+- **Đồng bộ thời gian thực (Realtime Event)**:
+  - Phát sự kiện `sdp-specialties-changed` khi có bất kỳ thao tác thêm/sửa/xóa nhóm hoặc gán chuyên khoa.
+  - Menu chuyển nhóm popover luôn gọi trực tiếp `getAllSpecialties()` để nhận diện ngay lập tức các nhóm tùy chỉnh vừa tạo mà không cần reload trang.
 
 ---
 
-## 📂 2. Cấu Trúc Dữ Liệu & Types Chính
+## 📂 2. Cấu Trúc Dữ Liệu & Danh Mục Baseline Chuẩn
 
-### 2.1. `types.ts`
+### 2.1. Danh Mục 14 Kỹ Thuật Đã Gán Chuyên Khoa Chuẩn (`DEFAULT_BASE_OVERRIDES`)
 ```ts
-export interface SurgeryCostItem {
-  id: string;
-  refPriceId: string;
-  maTuongDuong: string;
-  tenKT: string;
-  donGia: number;
-  medicCost: number;
-  vtthCost: number;
-  dvktEffectiveFrom?: string;
-  dvktEffectiveTo?: string | null;
-  costEffectiveFrom: string;
-  costEffectiveTo: string | null;
-}
-
-export interface RolePrice {
-  'Chính': number;
-  'Phụ': number;
-  'Giúp việc': number;
-}
+export const DEFAULT_BASE_OVERRIDES: Record<string, SpecialtyCode> = {
+  "cắt bè củng giác mạc (trabeculectomy)": "mat",
+  "khâu da mi đơn giản": "mat",
+  "phẫu thuật lấy thể thủy tinh ngoài bao có hoặc không đặt iol": "mat",
+  "phẫu thuật mộng có ghép (kết mạc rời tự thân, màng ối...) có hoặc không áp thuốc chống chuyển hóa": "mat",
+  "phẫu thuật nội soi cắt ruột thừa": "ngoai_th",
+  "cắt u mi cả bề dày không vá": "mat",
+  "mở bao sau bằng phẫu thuật": "mat",
+  "cắt u kết mạc không vá": "mat",
+  "khâu kết mạc": "mat",
+  "khâu giác mạc": "mat",
+  "phẫu thuật quặm": "mat",
+  "phẫu thuật lấy thai lần đầu [gây tê]": "phu_san",
+  "phẫu thuật điều trị thoát vị thành bụng khác": "ngoai_th",
+  "phẫu thuật khx gãy xương đòn": "ctch",
+};
 ```
 
-### 2.2. `services/specialtyComparisonService.ts`
-```ts
-export type FinancialCategory = 'revenue' | 'cost' | 'profit';
-export type CostSubtype = 'all' | 'medic' | 'vtth' | 'labor';
-
-export interface ComparisonRow {
-  // ... fields cơ bản ...
-  hasCostConfig: boolean;
-  currentRevenue: number;
-  currentMedicCost: number;
-  currentVtthCost: number;
-  currentLaborCost: number;
-  currentTotalCost: number;
-  currentProfit: number;
-  // ... tương tự cho prev và samePeriod ...
-}
+### 2.2. Nhóm Chuyên Khoa Tùy Chỉnh Hiện Tại (`sdp_custom_specialties_list`)
+```json
+[
+  {
+    "code": "custom_1788705128687",
+    "name": "Phau thuat Tao hinh - Tham my",
+    "shortName": "Tham my",
+    "color": "emerald",
+    "isCustom": true
+  }
+]
 ```
 
 ---
 
 ## 🚀 3. Trạng Thái Triển Khai & Kiểm Thử
-- **TypeScript**: `npx tsc --noEmit` đạt chuẩn 100% không có lỗi type.
-- **Production Build**: Vite build hoàn tất thành công trong 5.54s.
-- **Browser Verification**: Đã kiểm thử trực tiếp trên trình duyệt bằng subagent, xác nhận giao diện chuyển đổi mượt mà, định dạng tiền tệ và bộ lọc hoạt động chính xác.
-- **Git & Vercel**:
-  - Nhánh hiện tại: `temp-04-09-2026-23h38`.
-  - Đã merge vào `main` và push lên GitHub `origin/main`.
-  - Vercel Production deployment: `READY` tại https://initial-surgical-data-pro.vercel.app.
+
+- **Build Production**:
+  - Lệnh `npm run build` thành công 100% không có lỗi TypeScript hay cú pháp.
+- **Kiểm thử trực tiếp trên trình duyệt (`http://localhost:3001/`)**:
+  - Đã nạp thành công 14 mục vào `localStorage`.
+  - Đã chụp ảnh màn hình xác nhận trực quan: Bảng "Danh mục kỹ thuật đã chuyển nhóm thủ công" hiển thị đúng badge `14`, đủ 3 nút `Khôi phục 14 mục chuẩn`, `Sao lưu JSON`, `Nhập JSON`, và hiển thị nhóm tự tạo có nút `Sửa` / `Xóa`.
+- **Git Flow & Remote Sync**:
+  - Đã thực hiện quy trình `/sync`: commit toàn bộ thay đổi, merge vào `main`, push lên GitHub `origin/main`.
+  - Tạo nhánh làm việc mới: `temp-06-09-2026-22h42`.
+
+---
+
+## 💡 4. Ghi Chú & Định Hướng Cho Phiên Tiếp Theo
+
+1. **Mã màu & Quy tắc thiết kế (Design Guidelines)**:
+   - Nghiêm cấm sử dụng dải màu tím/violet (Purple Ban). Luôn tuân thủ màu `primary` (`#003366`), `blue`, `emerald`, `amber`, `rose`.
+2. **Đồng bộ dữ liệu đa thiết bị (Khuyến nghị tương lai)**:
+   - Hiện tại cấu hình nhóm tùy chỉnh và chuyển nhóm đã có file sao lưu JSON và Baseline Seed an toàn trong mã nguồn. Nếu muốn đồng bộ xuyên thiết bị giữa các máy tính khác nhau trong viện, có thể cân nhắc đưa danh mục override vào Firestore collection (như `surgery_profiles` hoặc `surgery_cost_items`).
