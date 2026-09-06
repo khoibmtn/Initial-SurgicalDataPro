@@ -1382,8 +1382,9 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
         {/* Biểu đồ 2: Grouped Comparison Bar (Quy mô 3 Kỳ) */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs flex flex-col">
-          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-            <div>
+          {/* Hàng 1: Tiêu đề + Nút Phóng to Maximize được ghim góc trên bên phải */}
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-primary-600 shrink-0" />
                 <h3 className="font-bold text-gray-900 text-sm sm:text-base">
@@ -1398,18 +1399,20 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   : `Chi tiết các DVKT thuộc chuyên khoa qua 3 kỳ (${groupedBarData.length} kỹ thuật)`}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <ScopeSelect scope={groupedScope} onChangeScope={setGroupedScope} allSpecialties={allSpecialtiesList} />
-              <ItemFilterDropdown items={groupedFilterList} hiddenIds={groupedHiddenItems} onChangeHidden={setGroupedHiddenItems} label="Lọc thành phần" />
-              <button
-                type="button"
-                onClick={() => setExpandedChart('grouped')}
-                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
-                title="Mở rộng toàn màn hình (Expand the viewer)"
-              >
-                <Maximize2 className="h-4 w-4" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setExpandedChart('grouped')}
+              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer shrink-0 ml-1"
+              title="Mở rộng toàn màn hình (Expand the viewer)"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Hàng 2: Toolbar bộ lọc riêng của card */}
+          <div className="flex flex-wrap items-center gap-2 mb-3.5 pb-1">
+            <ScopeSelect scope={groupedScope} onChangeScope={setGroupedScope} allSpecialties={allSpecialtiesList} />
+            <ItemFilterDropdown items={groupedFilterList} hiddenIds={groupedHiddenItems} onChangeHidden={setGroupedHiddenItems} label="Lọc thành phần" />
           </div>
 
           <div className="flex-1 w-full max-h-[540px] overflow-y-auto pr-1">
@@ -1499,8 +1502,9 @@ export const ComparisonChartsView: React.FC<Props> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biểu đồ 3: Waterfall Chart (Cầu nối Đóng góp Biến động) */}
         <div className={`bg-white rounded-2xl border border-gray-200 p-5 shadow-xs flex flex-col transition-all duration-300 ${waterfallScope !== 'hospital' ? 'col-span-1 lg:col-span-2' : ''}`}>
-          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-            <div>
+          {/* Hàng 1: Tiêu đề + Nút Phóng to Maximize được ghim góc trên bên phải */}
+          <div className="flex items-start justify-between gap-3 mb-2">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0" />
                 <h3 className="font-bold text-gray-900 text-sm sm:text-base">
@@ -1515,54 +1519,56 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   : `Bóc tách mức tăng/giảm của từng DVKT trong chuyên khoa (${waterfallData.length - 2} bước đóng góp)`}
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <ScopeSelect scope={waterfallScope} onChangeScope={setWaterfallScope} allSpecialties={allSpecialtiesList} />
-              {waterfallScope !== 'hospital' && (
-                <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-[11px] font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => setWaterfallMode('top')}
-                    className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
-                      waterfallMode === 'top' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500'
-                    }`}
-                  >
-                    Top 12
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setWaterfallMode('all')}
-                    className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
-                      waterfallMode === 'all' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500'
-                    }`}
-                  >
-                    Tất cả
-                  </button>
-                </div>
-              )}
-              {/* Toggle Ẩn/Hiện Box 0 ca (mặc định bật: ẩn box giá trị 0) */}
-              <button
-                type="button"
-                onClick={toggleHideZeroWaterfall}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
-                  hideZeroWaterfall
-                    ? 'bg-white text-blue-800 border-blue-300 shadow-xs'
-                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
-                }`}
-                title={hideZeroWaterfall ? 'Đang bật ẩn các box giá trị 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả box giá trị 0. Bấm để ẩn.'}
-              >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                <span>Ẩn box 0 ca</span>
-              </button>
-              <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" />
-              <button
-                type="button"
-                onClick={() => setExpandedChart('waterfall')}
-                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
-                title="Mở rộng toàn màn hình (Expand the viewer)"
-              >
-                <Maximize2 className="h-4 w-4" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setExpandedChart('waterfall')}
+              className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer shrink-0 ml-1"
+              title="Mở rộng toàn màn hình (Expand the viewer)"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Hàng 2: Toolbar bộ lọc riêng của card - có toàn bộ chiều ngang để wrap tự nhiên, không đẩy nút Maximize ra ngoài */}
+          <div className="flex flex-wrap items-center gap-2 mb-3.5 pb-1">
+            <ScopeSelect scope={waterfallScope} onChangeScope={setWaterfallScope} allSpecialties={allSpecialtiesList} />
+            {waterfallScope !== 'hospital' && (
+              <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setWaterfallMode('top')}
+                  className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                    waterfallMode === 'top' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500'
+                  }`}
+                >
+                  Top 12
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWaterfallMode('all')}
+                  className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                    waterfallMode === 'all' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500'
+                  }`}
+                >
+                  Tất cả
+                </button>
+              </div>
+            )}
+            {/* Toggle Ẩn/Hiện Box 0 ca (mặc định bật: ẩn box giá trị 0) */}
+            <button
+              type="button"
+              onClick={toggleHideZeroWaterfall}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                hideZeroWaterfall
+                  ? 'bg-white text-blue-800 border-blue-300 shadow-xs'
+                  : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+              }`}
+              title={hideZeroWaterfall ? 'Đang bật ẩn các box giá trị 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả box giá trị 0. Bấm để ẩn.'}
+            >
+              <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+              <span>Ẩn box 0 ca</span>
+            </button>
+            <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" />
           </div>
 
           <div ref={waterfallCardRef} className="flex-1 w-full overflow-x-auto sm:overflow-x-hidden pb-2">
@@ -2172,104 +2178,42 @@ export const ComparisonChartsView: React.FC<Props> = ({
               }`}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Header phong cách NotebookLM với toggle Sáng/Tối */}
+              {/* Tier 1: Header chính phong cách NotebookLM với tiêu đề và các nút điều hướng toàn cục */}
               <div
-                className={`flex flex-wrap items-center justify-between gap-4 px-6 py-3.5 border-b shrink-0 transition-colors ${
+                className={`flex items-center justify-between gap-4 px-6 py-3.5 border-b shrink-0 transition-colors ${
                   modalTheme === 'dark' ? 'border-gray-700/60 bg-[#252729]/80 text-white' : 'border-gray-200 bg-gray-50 text-gray-900'
                 }`}
               >
+                {/* Khối tiêu đề & phụ đề bên trái - luôn giữ không gian thoáng đãng */}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2.5">
                     <span className={`w-2.5 h-2.5 rounded-full ${meta.color} shrink-0`} />
-                    <h2 className={`text-base sm:text-xl font-bold truncate tracking-tight ${modalTheme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
+                    <h2 className={`text-base sm:text-lg font-bold truncate tracking-tight ${modalTheme === 'dark' ? 'text-white' : 'text-gray-900'}`}>
                       {meta.title}
                     </h2>
                     <span
-                      className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${
-                        modalTheme === 'dark' ? 'bg-gray-800 text-gray-300 border-gray-600' : 'bg-gray-100 text-gray-700 border-gray-300'
+                      className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 whitespace-nowrap ${
+                        modalTheme === 'dark' ? 'bg-gray-800 text-gray-300 border-gray-600' : 'bg-white text-gray-700 border-gray-300 shadow-2xs'
                       }`}
                     >
                       {meta.badge}
                     </span>
                   </div>
-                  <div className={`flex flex-wrap items-center gap-2 mt-1.5 text-xs ${modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                  <div className={`flex items-center gap-2 mt-1 text-xs ${modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
                     <span
-                      className={`px-2.5 py-0.5 rounded-full border font-medium ${
+                      className={`px-2.5 py-0.5 rounded-full border font-medium whitespace-nowrap shrink-0 ${
                         modalTheme === 'dark' ? 'bg-[#303336] text-gray-300 border-gray-600/70' : 'bg-gray-200/80 text-gray-700 border-gray-300'
                       }`}
                     >
                       Toàn viện: {groups.length} chuyên khoa
                     </span>
-                    <span>•</span>
+                    <span className="shrink-0">•</span>
                     <span className="truncate">{meta.subtitle}</span>
                   </div>
                 </div>
 
-                {/* Các nút tương tác: Toggle metric, so sánh, Đổi theme Sáng/Tối, Thu nhỏ, Đóng */}
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  {/* Scope & Filter Controls specific to each chart in modal */}
-                  {expandedChart === 'grouped' && (
-                    <div className="flex items-center gap-2">
-                      <ScopeSelect scope={groupedScope} onChangeScope={setGroupedScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
-                      <ItemFilterDropdown items={groupedFilterList} hiddenIds={groupedHiddenItems} onChangeHidden={setGroupedHiddenItems} label="Lọc mục" isDark={modalTheme === 'dark'} />
-                    </div>
-                  )}
-
-                  {expandedChart === 'waterfall' && (
-                    <div className="flex items-center gap-2">
-                      <ScopeSelect scope={waterfallScope} onChangeScope={setWaterfallScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
-                      {waterfallScope !== 'hospital' && (
-                        <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-200 border-gray-300/80'}`}>
-                          <button
-                            type="button"
-                            onClick={() => setWaterfallMode('top')}
-                            className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                              waterfallMode === 'top'
-                                ? (modalTheme === 'dark' ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-2xs')
-                                : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                            }`}
-                          >
-                            Top 12
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setWaterfallMode('all')}
-                            className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                              waterfallMode === 'all'
-                                ? (modalTheme === 'dark' ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-2xs')
-                                : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                            }`}
-                          >
-                            Tất cả
-                          </button>
-                        </div>
-                      )}
-                      {/* Toggle Ẩn/Hiện Box 0 ca trong modal (mặc định bật: ẩn box giá trị 0) */}
-                      <button
-                        type="button"
-                        onClick={toggleHideZeroWaterfall}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold text-xs shadow-2xs cursor-pointer transition-all ${
-                          hideZeroWaterfall
-                            ? (modalTheme === 'dark' ? 'bg-[#303336] text-blue-300 border-blue-500/50 shadow-xs' : 'bg-white text-blue-800 border-blue-300 shadow-xs')
-                            : (modalTheme === 'dark' ? 'bg-[#232528] text-gray-400 border-gray-700 hover:text-gray-200' : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700')
-                        }`}
-                        title={hideZeroWaterfall ? 'Đang bật ẩn các box giá trị 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả box giá trị 0. Bấm để ẩn.'}
-                      >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-300/40' : 'bg-rose-500 ring-2 ring-rose-300/40'}`} />
-                        <span>Ẩn box 0 ca</span>
-                      </button>
-                      <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" isDark={modalTheme === 'dark'} />
-                    </div>
-                  )}
-
-                  {expandedChart === 'timeline' && (
-                    <ScopeSelect scope={timelineScope} onChangeScope={setTimelineScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
-                  )}
-
-                  {expandedChart === 'topImpact' && (
-                    <ScopeSelect scope={topImpactScope} onChangeScope={setTopImpactScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
-                  )}
-
+                {/* Khối hành động toàn cục (Global Controls) bên phải: Metric, So sánh, Theme, Thu nhỏ, Đóng */}
+                <div className="flex items-center gap-2 shrink-0">
                   {/* Metric Toggle inside Modal */}
                   <div className={`flex items-center p-0.5 rounded-lg text-xs font-medium border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-200 border-gray-300/80'}`}>
                     <button
@@ -2324,120 +2268,25 @@ export const ComparisonChartsView: React.FC<Props> = ({
                     </div>
                   )}
 
-                  {/* Top Impact sub-toggle inside modal */}
-                  {expandedChart === 'topImpact' && (
-                    <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-200 border-gray-300/80'}`}>
-                      <button
-                        type="button"
-                        onClick={() => setTopImpactTab('both')}
-                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                          topImpactTab === 'both'
-                            ? (modalTheme === 'dark' ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-2xs')
-                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                        }`}
-                      >
-                        Cả hai
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTopImpactTab('gainers')}
-                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                          topImpactTab === 'gainers'
-                            ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
-                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                        }`}
-                      >
-                        Top Tăng
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTopImpactTab('losers')}
-                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                          topImpactTab === 'losers'
-                            ? (modalTheme === 'dark' ? 'bg-rose-800 text-rose-100' : 'bg-rose-100 text-rose-800 shadow-2xs')
-                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                        }`}
-                      >
-                        Top Giảm
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Stacked Bar Loai Toggle inside modal */}
-                  {expandedChart === 'loai' && (
-                    <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-200 border-gray-300/80'}`}>
-                      <button
-                        type="button"
-                        onClick={() => setLoaiViewMode('count')}
-                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                          loaiViewMode === 'count'
-                            ? (modalTheme === 'dark' ? 'bg-cyan-800 text-cyan-100' : 'bg-cyan-100 text-cyan-800 shadow-2xs')
-                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                        }`}
-                      >
-                        Số ca
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setLoaiViewMode('revenue')}
-                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                          loaiViewMode === 'revenue'
-                            ? (modalTheme === 'dark' ? 'bg-cyan-800 text-cyan-100' : 'bg-cyan-100 text-cyan-800 shadow-2xs')
-                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                        }`}
-                      >
-                        Viện phí
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Diverging Metric Toggle inside modal */}
-                  {expandedChart === 'diverging' && (
-                    <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-200 border-gray-300/80'}`}>
-                      <button
-                        type="button"
-                        onClick={() => setDivergingMetric('percent')}
-                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                          divergingMetric === 'percent'
-                            ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
-                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                        }`}
-                      >
-                        Tỷ lệ %
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDivergingMetric('diff')}
-                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
-                          divergingMetric === 'diff'
-                            ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
-                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                        }`}
-                      >
-                        Số chênh lệch ({metricMode === 'revenue' ? 'VNĐ' : 'Số ca'})
-                      </button>
-                    </div>
-                  )}
-
                   {/* Toggle Giao diện Sáng / Tối trong Popup (Theme Switch) */}
                   <button
                     type="button"
                     onClick={() => setModalTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-                    className={`p-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold ${
+                    className={`p-1.5 sm:px-2.5 sm:py-1 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 text-xs font-semibold ${
                       modalTheme === 'dark'
                         ? 'bg-[#303336] text-amber-400 hover:text-amber-300 hover:bg-[#3c4043] border border-gray-600/50'
-                        : 'bg-white text-gray-700 hover:text-gray-900 hover:bg-gray-100 border border-gray-200 shadow-2xs'
+                        : 'bg-white text-gray-700 hover:text-gray-900 hover:bg-gray-100 border border-gray-300 shadow-2xs'
                     }`}
                     title={modalTheme === 'dark' ? 'Chuyển sang giao diện Sáng' : 'Chuyển sang giao diện Tối'}
                   >
                     {modalTheme === 'dark' ? (
                       <>
-                        <Sun className="h-4 w-4 text-amber-400" />
+                        <Sun className="h-4 w-4 text-amber-400 shrink-0" />
                         <span className="hidden sm:inline">Sáng</span>
                       </>
                     ) : (
                       <>
-                        <Moon className="h-4 w-4 text-gray-600" />
+                        <Moon className="h-4 w-4 text-gray-600 shrink-0" />
                         <span className="hidden sm:inline">Tối</span>
                       </>
                     )}
@@ -2447,10 +2296,10 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setExpandedChart(null)}
-                    className={`p-2 rounded-xl transition-colors cursor-pointer ml-1 ${
+                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ml-1 ${
                       modalTheme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-gray-700/70' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
                     }`}
-                    title="Thu nhỏ (Collapse viewer)"
+                    title="Thu nhỏ (ESC)"
                   >
                     <Minimize2 className="h-5 w-5" />
                   </button>
@@ -2459,8 +2308,8 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={() => setExpandedChart(null)}
-                    className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                      modalTheme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-gray-700/70' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200'
+                    className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                      modalTheme === 'dark' ? 'text-gray-400 hover:text-white hover:bg-rose-950/60 hover:text-rose-400' : 'text-gray-500 hover:text-rose-600 hover:bg-rose-50'
                     }`}
                     title="Đóng (ESC)"
                   >
@@ -2468,6 +2317,194 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   </button>
                 </div>
               </div>
+
+              {/* Tier 2: Thanh công cụ chuyên sâu riêng cho từng biểu đồ trong Modal */}
+              {(expandedChart === 'waterfall' || expandedChart === 'grouped' || expandedChart === 'timeline' || expandedChart === 'topImpact' || expandedChart === 'loai' || expandedChart === 'diverging') && (
+                <div
+                  className={`px-6 py-2.5 border-b flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs transition-colors ${
+                    modalTheme === 'dark' ? 'border-gray-700/50 bg-[#222426]' : 'border-gray-200 bg-white'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Waterfall specific controls */}
+                    {expandedChart === 'waterfall' && (
+                      <>
+                        <ScopeSelect scope={waterfallScope} onChangeScope={setWaterfallScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
+                        {waterfallScope !== 'hospital' && (
+                          <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-100 border-gray-300'}`}>
+                            <button
+                              type="button"
+                              onClick={() => setWaterfallMode('top')}
+                              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                                waterfallMode === 'top'
+                                  ? (modalTheme === 'dark' ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-2xs font-bold')
+                                  : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                              }`}
+                            >
+                              Top 12
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWaterfallMode('all')}
+                              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                                waterfallMode === 'all'
+                                  ? (modalTheme === 'dark' ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-2xs font-bold')
+                                  : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                              }`}
+                            >
+                              Tất cả
+                            </button>
+                          </div>
+                        )}
+                        {/* Toggle Ẩn/Hiện Box 0 ca trong modal (mặc định bật: ẩn box giá trị 0) */}
+                        <button
+                          type="button"
+                          onClick={toggleHideZeroWaterfall}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold text-xs shadow-2xs cursor-pointer transition-all ${
+                            hideZeroWaterfall
+                              ? (modalTheme === 'dark' ? 'bg-[#303336] text-blue-300 border-blue-500/50 shadow-xs' : 'bg-white text-blue-800 border-blue-300 shadow-xs')
+                              : (modalTheme === 'dark' ? 'bg-[#232528] text-gray-400 border-gray-700 hover:text-gray-200' : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700')
+                          }`}
+                          title={hideZeroWaterfall ? 'Đang bật ẩn các box giá trị 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả box giá trị 0. Bấm để ẩn.'}
+                        >
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-300/40' : 'bg-rose-500 ring-2 ring-rose-300/40'}`} />
+                          <span>Ẩn box 0 ca</span>
+                        </button>
+                        <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" isDark={modalTheme === 'dark'} />
+                      </>
+                    )}
+
+                    {/* Grouped specific controls */}
+                    {expandedChart === 'grouped' && (
+                      <>
+                        <ScopeSelect scope={groupedScope} onChangeScope={setGroupedScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
+                        <ItemFilterDropdown items={groupedFilterList} hiddenIds={groupedHiddenItems} onChangeHidden={setGroupedHiddenItems} label="Lọc mục" isDark={modalTheme === 'dark'} />
+                      </>
+                    )}
+
+                    {/* Timeline specific controls */}
+                    {expandedChart === 'timeline' && (
+                      <ScopeSelect scope={timelineScope} onChangeScope={setTimelineScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
+                    )}
+
+                    {/* Top Impact specific controls */}
+                    {expandedChart === 'topImpact' && (
+                      <>
+                        <ScopeSelect scope={topImpactScope} onChangeScope={setTopImpactScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
+                        <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-100 border-gray-300'}`}>
+                          <button
+                            type="button"
+                            onClick={() => setTopImpactTab('both')}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              topImpactTab === 'both'
+                                ? (modalTheme === 'dark' ? 'bg-gray-700 text-white' : 'bg-white text-gray-900 shadow-2xs')
+                                : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                            }`}
+                          >
+                            Cả hai
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTopImpactTab('gainers')}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              topImpactTab === 'gainers'
+                                ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                                : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                            }`}
+                          >
+                            Top Tăng
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTopImpactTab('losers')}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              topImpactTab === 'losers'
+                                ? (modalTheme === 'dark' ? 'bg-rose-800 text-rose-100' : 'bg-rose-100 text-rose-800 shadow-2xs')
+                                : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                            }`}
+                          >
+                            Top Giảm
+                          </button>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Loai specific controls */}
+                    {expandedChart === 'loai' && (
+                      <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-100 border-gray-300'}`}>
+                        <button
+                          type="button"
+                          onClick={() => setLoaiViewMode('count')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            loaiViewMode === 'count'
+                              ? (modalTheme === 'dark' ? 'bg-cyan-800 text-cyan-100' : 'bg-cyan-100 text-cyan-800 shadow-2xs')
+                              : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                          }`}
+                        >
+                          Số ca
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLoaiViewMode('revenue')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            loaiViewMode === 'revenue'
+                              ? (modalTheme === 'dark' ? 'bg-cyan-800 text-cyan-100' : 'bg-cyan-100 text-cyan-800 shadow-2xs')
+                              : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                          }`}
+                        >
+                          Viện phí
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Diverging specific controls */}
+                    {expandedChart === 'diverging' && (
+                      <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-100 border-gray-300'}`}>
+                        <button
+                          type="button"
+                          onClick={() => setDivergingMetric('percent')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            divergingMetric === 'percent'
+                              ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                              : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                          }`}
+                        >
+                          Tỷ lệ %
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDivergingMetric('diff')}
+                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                            divergingMetric === 'diff'
+                              ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                              : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                          }`}
+                        >
+                          Số chênh lệch ({metricMode === 'revenue' ? 'VNĐ' : 'Số ca'})
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Thông tin ngữ cảnh góc phải toolbar */}
+                  <div className={`text-xs font-medium hidden sm:block ${modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {expandedChart === 'waterfall' && (
+                      <span>
+                        {waterfallScope === 'hospital'
+                          ? `Quy mô toàn viện (${groups.length} chuyên khoa)`
+                          : `Đang xem: ${allSpecialtiesList.find(s => s.code === waterfallScope)?.name || waterfallScope} (${waterfallData.length - 2} kỹ thuật)`}
+                      </span>
+                    )}
+                    {expandedChart === 'grouped' && (
+                      <span>
+                        {groupedScope === 'hospital'
+                          ? `Toàn viện (${groupedBarData.length} chuyên khoa)`
+                          : `${allSpecialtiesList.find(s => s.code === groupedScope)?.name || groupedScope} (${groupedBarData.length} kỹ thuật)`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Body: Chart Canvas to rộng, mượt mà */}
               <div className={`flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col transition-colors ${modalTheme === 'dark' ? 'bg-[#18191a]' : 'bg-gray-50/70'}`}>
