@@ -64,7 +64,7 @@ const PALETTE = {
   prev: '#94a3b8',    // Kỳ trước
   samePeriod: '#cbd5e1', // Cùng kỳ
   amber: '#f59e0b',
-  purple: '#8b5cf6',
+  indigo: '#4f46e5',
   cyan: '#06b6d4',
   teal: '#0d9488',
 };
@@ -290,6 +290,25 @@ export const ComparisonChartsView: React.FC<Props> = ({
   const [waterfallScope, setWaterfallScope] = useState<'hospital' | string>('hospital');
   const [waterfallMode, setWaterfallMode] = useState<'top' | 'all'>('top');
   const [waterfallHiddenItems, setWaterfallHiddenItems] = useState<string[]>([]);
+  // Bật/tắt hiển thị các box 0 ca (mặc định hiện: true, lưu vào localStorage)
+  const [showZeroWaterfall, setShowZeroWaterfall] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('waterfall_show_zero_diff');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleShowZeroWaterfall = () => {
+    setShowZeroWaterfall(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('waterfall_show_zero_diff', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Phạm vi của Biểu đồ Xu hướng thời gian (Timeline): 'hospital' | mã chuyên khoa
   const [timelineScope, setTimelineScope] = useState<'hospital' | string>('hospital');
@@ -394,7 +413,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
             ? `Bóc tách mức tăng/giảm từ ${compareLabel} đến ${periodMeta?.currentLabel || 'Kỳ này'} do từng chuyên khoa`
             : `Bóc tách mức tăng/giảm của các DVKT thuộc chuyên khoa ${spec?.name || ''}`,
           badge: waterfallScope === 'hospital' ? 'Waterfall (Toàn viện)' : 'Waterfall (DVKT)',
-          color: 'bg-purple-600',
+          color: 'bg-indigo-600',
         };
       }
       case 'revPerCase':
@@ -559,6 +578,11 @@ export const ComparisonChartsView: React.FC<Props> = ({
     return Math.min(240, Math.max(120, maxLen * 6.5));
   }, [groupedBarData]);
 
+  // Reset danh sách ẩn khi đổi chuyên khoa hoặc phạm vi
+  useEffect(() => {
+    setWaterfallHiddenItems([]);
+  }, [waterfallScope]);
+
   // 3. DỮ LIỆU WATERFALL (Cầu nối biến động đóng góp của từng khoa / từng kỹ thuật)
   const waterfallFilterList = useMemo(() => {
     if (waterfallScope === 'hospital') {
@@ -569,8 +593,8 @@ export const ComparisonChartsView: React.FC<Props> = ({
     }
     const selectedGroup = groups.find(g => g.specialty.code === waterfallScope);
     if (!selectedGroup) return [];
-    return selectedGroup.rows.map(r => ({
-      id: r.tenKT,
+    return selectedGroup.rows.map((r, idx) => ({
+      id: `${r.tenKT}:::${r.maTuongDuong || ''}:::${idx}`,
       name: r.tenKT,
       maTuongDuong: r.maTuongDuong,
     }));
@@ -581,7 +605,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
     let startTotal = 0;
     let endTotal = 0;
-    let rawSteps: Array<{ id: string; name: string; fullName: string; diff: number }> = [];
+    let rawSteps: Array<{ id: string; uniqueKey: string; name: string; fullName: string; diff: number; cur: number }> = [];
 
     if (waterfallScope === 'hospital') {
       startTotal = groups.reduce((acc, g) => {
@@ -595,15 +619,19 @@ export const ComparisonChartsView: React.FC<Props> = ({
         return acc + (isRev ? g.totalCurrentRevenue : g.totalCurrent);
       }, 0);
 
-      groups.forEach(g => {
+      groups.forEach((g, idx) => {
         const cur = isRev ? g.totalCurrentRevenue : g.totalCurrent;
         const comp = compareTarget === 'prev'
           ? (isRev ? g.totalPrevRevenue : g.totalPrev)
           : (isRev ? g.totalSamePeriodRevenue : g.totalSamePeriod);
         const diff = cur - comp;
-        if ((cur > 0 || comp > 0) && !waterfallHiddenItems.includes(g.specialty.code)) {
+        if (!waterfallHiddenItems.includes(g.specialty.code)) {
+          if (!showZeroWaterfall && diff === 0) {
+            return;
+          }
           rawSteps.push({
             id: g.specialty.code,
+            uniqueKey: `step_spec_${g.specialty.code}_${idx}`,
             name: g.specialty.shortName || g.specialty.name,
             fullName: g.specialty.name,
             diff,
@@ -620,23 +648,32 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
         endTotal = isRev ? selectedGroup.totalCurrentRevenue : selectedGroup.totalCurrent;
 
-        selectedGroup.rows.forEach(r => {
+        selectedGroup.rows.forEach((r, idx) => {
+          const filterId = `${r.tenKT}:::${r.maTuongDuong || ''}:::${idx}`;
+          // Kiểm tra xem mục có bị ẩn qua filter không (hỗ trợ cả filterId mới và tên cũ)
+          if (waterfallHiddenItems.includes(filterId) || waterfallHiddenItems.includes(r.tenKT)) {
+            return;
+          }
+
           const cur = isRev ? r.currentRevenue : r.currentCount;
           const comp = compareTarget === 'prev'
             ? (isRev ? r.prevRevenue : r.prevCount)
             : (isRev ? r.samePeriodRevenue : r.samePeriodCount);
           const diff = cur - comp;
-          if ((cur > 0 || comp > 0) && !waterfallHiddenItems.includes(r.tenKT)) {
-            // Tên kỹ thuật rút gọn hợp lý trên trục X để không bị che, fullName hiển thị đầy đủ trong tooltip
-            const shortName = r.tenKT.length > 25 ? r.tenKT.slice(0, 24) + '…' : r.tenKT;
-            rawSteps.push({
-              id: r.tenKT,
-              name: shortName,
-              fullName: r.tenKT,
-              diff,
-              cur,
-            });
+
+          // Nếu tắt 'Box 0 ca', bỏ qua các kỹ thuật không có biến động (diff === 0)
+          if (!showZeroWaterfall && diff === 0) {
+            return;
           }
+
+          rawSteps.push({
+            id: filterId,
+            uniqueKey: `step_pttt_${idx}_${r.tenKT.replace(/\s+/g, '_')}`,
+            name: r.tenKT,
+            fullName: r.tenKT,
+            diff,
+            cur,
+          });
         });
       }
     }
@@ -654,9 +691,10 @@ export const ComparisonChartsView: React.FC<Props> = ({
       const otherDiff = others.reduce((sum, item) => sum + item.diff, 0);
 
       finalSteps = [...top12];
-      if (others.length > 0) {
+      if (others.length > 0 && (showZeroWaterfall || otherDiff !== 0)) {
         finalSteps.push({
           id: '__others__',
+          uniqueKey: 'step_waterfall_others',
           name: `Khác (${others.length} KT)`,
           fullName: `Nhóm các kỹ thuật khác (${others.length} kỹ thuật)`,
           diff: otherDiff,
@@ -671,6 +709,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
     let runningTotal = startTotal;
     const items: Array<{
+      uniqueKey: string;
       name: string;
       fullName: string;
       base: number;
@@ -681,6 +720,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
       displayVal: number;
     }> = [
       {
+        uniqueKey: '__waterfall_start__',
         name: `Đầu kỳ (${compareLabel})`,
         fullName: `Quy mô Đầu kỳ (${compareLabel})`,
         base: 0,
@@ -692,12 +732,13 @@ export const ComparisonChartsView: React.FC<Props> = ({
       },
     ];
 
-    finalSteps.forEach(step => {
+    finalSteps.forEach((step, idx) => {
       const isPos = step.diff > 0;
       const stepBase = isPos ? runningTotal : runningTotal + step.diff;
       runningTotal += step.diff;
 
       items.push({
+        uniqueKey: step.uniqueKey || `step_${step.id}_${idx}`,
         name: step.name,
         fullName: step.fullName || step.name,
         base: Math.max(0, stepBase),
@@ -710,6 +751,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
     });
 
     items.push({
+      uniqueKey: '__waterfall_end__',
       name: `Cuối kỳ (${periodMeta?.currentLabel || 'Kỳ này'})`,
       fullName: `Quy mô Cuối kỳ (${periodMeta?.currentLabel || 'Kỳ này'})`,
       base: 0,
@@ -721,7 +763,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
     });
 
     return items;
-  }, [groups, waterfallScope, waterfallMode, waterfallHiddenItems, metricMode, compareTarget, compareLabel, periodMeta]);
+  }, [groups, waterfallScope, waterfallMode, waterfallHiddenItems, showZeroWaterfall, metricMode, compareTarget, compareLabel, periodMeta]);
 
   // Tính toán chiều rộng khả dụng cho mỗi cột Waterfall để tự động co giãn box, không cần cuộn ngang
   const modalSlotWidth = useMemo(() => {
@@ -1459,7 +1501,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-600 shrink-0" />
+                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0" />
                 <h3 className="font-bold text-gray-900 text-sm sm:text-base">
                   {waterfallScope === 'hospital'
                     ? 'Cầu nối Đóng góp Biến động (Waterfall)'
@@ -1496,6 +1538,20 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   </button>
                 </div>
               )}
+              {/* Toggle Hiện/Ẩn Box 0 ca */}
+              <button
+                type="button"
+                onClick={toggleShowZeroWaterfall}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                  showZeroWaterfall
+                    ? 'bg-white text-blue-800 border-blue-300 shadow-xs'
+                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                }`}
+                title={showZeroWaterfall ? 'Đang hiện các box 0 ca. Bấm để ẩn.' : 'Đang ẩn các box 0 ca. Bấm để hiện.'}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${showZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>Box 0 ca</span>
+              </button>
               <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" />
               <button
                 type="button"
@@ -1514,7 +1570,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                 <BarChart data={waterfallData} margin={{ top: 25, right: 15, left: 15, bottom: 105 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis
-                    dataKey="name"
+                    dataKey="uniqueKey"
                     height={105}
                     interval={0}
                     tickLine={false}
@@ -1782,7 +1838,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
           <div className="mt-3 pt-2.5 border-t border-gray-100 flex flex-wrap items-center justify-between gap-1.5 text-[11px]">
             <span className="font-bold text-gray-700">Tổng toàn viện:</span>
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="flex items-center gap-1 text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
+              <span className="flex items-center gap-1 text-indigo-700 font-bold bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
                 PĐB: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.db) : `${fmtNum(loaiSummary.db)} ca`}
               </span>
               <span className="flex items-center gap-1 text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
@@ -2187,6 +2243,20 @@ export const ComparisonChartsView: React.FC<Props> = ({
                           </button>
                         </div>
                       )}
+                      {/* Toggle Hiện/Ẩn Box 0 ca trong modal */}
+                      <button
+                        type="button"
+                        onClick={toggleShowZeroWaterfall}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold text-xs shadow-2xs cursor-pointer transition-all ${
+                          showZeroWaterfall
+                            ? (modalTheme === 'dark' ? 'bg-[#303336] text-blue-300 border-blue-500/50 shadow-xs' : 'bg-white text-blue-800 border-blue-300 shadow-xs')
+                            : (modalTheme === 'dark' ? 'bg-[#232528] text-gray-400 border-gray-700 hover:text-gray-200' : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700')
+                        }`}
+                        title={showZeroWaterfall ? 'Đang hiện các box 0 ca. Bấm để ẩn.' : 'Đang ẩn các box 0 ca. Bấm để hiện.'}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${showZeroWaterfall ? 'bg-emerald-500 ring-2 ring-emerald-300/40' : 'bg-rose-500 ring-2 ring-rose-300/40'}`} />
+                        <span>Box 0 ca</span>
+                      </button>
                       <ItemFilterDropdown items={waterfallFilterList} hiddenIds={waterfallHiddenItems} onChangeHidden={setWaterfallHiddenItems} label="Lọc mục" isDark={modalTheme === 'dark'} />
                     </div>
                   )}
@@ -2565,7 +2635,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                         <BarChart data={waterfallData} margin={{ top: 35, right: 20, left: 20, bottom: 105 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={modalTheme === 'dark' ? '#334155' : '#e2e8f0'} />
                           <XAxis
-                            dataKey="name"
+                            dataKey="uniqueKey"
                             height={105}
                             interval={0}
                             tickLine={false}
@@ -2754,7 +2824,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                     <div className={`mt-4 p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs transition-colors ${modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80' : 'bg-white border-gray-200 shadow-xs'}`}>
                       <span className={`font-bold ${modalTheme === 'dark' ? 'text-gray-300' : 'text-gray-700'}`}>Tổng toàn viện theo cơ cấu:</span>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-lg border ${modalTheme === 'dark' ? 'text-purple-300 bg-purple-950/80 border-purple-700' : 'text-purple-700 bg-purple-50 border-purple-200'}`}>
+                        <span className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-lg border ${modalTheme === 'dark' ? 'text-indigo-300 bg-indigo-950/80 border-indigo-700' : 'text-indigo-700 bg-indigo-50 border-indigo-200'}`}>
                           PĐB: {loaiViewMode === 'revenue' ? fmtMoney(loaiSummary.db) : `${fmtNum(loaiSummary.db)} ca`}
                         </span>
                         <span className={`flex items-center gap-1 font-bold px-2.5 py-1 rounded-lg border ${modalTheme === 'dark' ? 'text-blue-300 bg-blue-950/80 border-blue-700' : 'text-blue-700 bg-blue-50 border-blue-200'}`}>
