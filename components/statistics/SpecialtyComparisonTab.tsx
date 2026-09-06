@@ -389,6 +389,16 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     loadData();
   }, [loadData]);
 
+  // Sync specialties in realtime when custom groups or overrides change
+  useEffect(() => {
+    const handleSpecialtiesChanged = () => {
+      setAllSpecialtiesList(getAllSpecialties());
+      loadData();
+    };
+    window.addEventListener('sdp-specialties-changed', handleSpecialtiesChanged);
+    return () => window.removeEventListener('sdp-specialties-changed', handleSpecialtiesChanged);
+  }, [loadData]);
+
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -1843,7 +1853,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                 Chuyển sang nhóm:
                               </div>
                               <div className="max-h-56 overflow-y-auto py-1">
-                                {allSpecialtiesList.map(s => (
+                                {getAllSpecialties().map(s => (
                                    <button
                                     key={s.code}
                                     type="button"
@@ -2556,7 +2566,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                   Chuyển sang nhóm:
                                 </div>
                                 <div className="max-h-56 overflow-y-auto py-1">
-                                  {allSpecialtiesList.map(s => (
+                                  {getAllSpecialties().map(s => (
                                     <button
                                       key={s.code}
                                       type="button"

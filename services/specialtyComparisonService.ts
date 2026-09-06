@@ -190,6 +190,12 @@ export function getAllSpecialties(): SpecialtyMeta[] {
   return [...DEFAULT_SPECIALTIES, ...custom];
 }
 
+export function notifySpecialtiesChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('sdp-specialties-changed'));
+  }
+}
+
 export function saveCustomSpecialty(name: string, shortName?: string): SpecialtyMeta {
   const custom = getCustomSpecialties();
   const slug = `custom_${Date.now()}`;
@@ -202,7 +208,23 @@ export function saveCustomSpecialty(name: string, shortName?: string): Specialty
   };
   custom.push(newSpec);
   localStorage.setItem(STORAGE_CUSTOM_GROUPS_KEY, JSON.stringify(custom));
+  notifySpecialtiesChanged();
   return newSpec;
+}
+
+export function updateCustomSpecialty(code: string, name: string, shortName?: string): SpecialtyMeta | null {
+  const custom = getCustomSpecialties();
+  const index = custom.findIndex(s => s.code === code);
+  if (index === -1) return null;
+
+  custom[index] = {
+    ...custom[index],
+    name: name.trim(),
+    shortName: shortName?.trim() || name.trim(),
+  };
+  localStorage.setItem(STORAGE_CUSTOM_GROUPS_KEY, JSON.stringify(custom));
+  notifySpecialtiesChanged();
+  return custom[index];
 }
 
 export function deleteCustomSpecialty(code: string): void {
@@ -222,18 +244,56 @@ export function deleteCustomSpecialty(code: string): void {
   if (modified) {
     localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(overrides));
   }
+  notifySpecialtiesChanged();
 }
 
 // ───────────────── CUSTOM OVERRIDES QUẢN LÝ GÁN THỦ CÔNG ─────────────────
 
+/**
+ * 14 kỹ thuật chuẩn người dùng đã phân loại thủ công
+ * Được dùng làm nguồn khởi tạo baseline an toàn chống mất mát dữ liệu
+ */
+export const DEFAULT_BASE_OVERRIDES: Record<string, SpecialtyCode> = {
+  "cắt bè củng giác mạc (trabeculectomy)": "mat",
+  "khâu da mi đơn giản": "mat",
+  "phẫu thuật lấy thể thủy tinh ngoài bao có hoặc không đặt iol": "mat",
+  "phẫu thuật mộng có ghép (kết mạc rời tự thân, màng ối...) có hoặc không áp thuốc chống chuyển hóa": "mat",
+  "phẫu thuật nội soi cắt ruột thừa": "ngoai_th",
+  "cắt u mi cả bề dày không vá": "mat",
+  "mở bao sau bằng phẫu thuật": "mat",
+  "cắt u kết mạc không vá": "mat",
+  "khâu kết mạc": "mat",
+  "khâu giác mạc": "mat",
+  "phẫu thuật quặm": "mat",
+  "phẫu thuật lấy thai lần đầu [gây tê]": "phu_san",
+  "phẫu thuật điều trị thoát vị thành bụng khác": "ngoai_th",
+  "phẫu thuật khx gãy xương đòn": "ctch",
+};
+
 export function getSpecialtyOverrides(): Record<string, SpecialtyCode> {
   try {
     const raw = localStorage.getItem(STORAGE_OVERRIDES_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw !== null) {
+      return JSON.parse(raw);
+    }
+    // Nếu chưa từng thiết lập trong localStorage, tự động khởi tạo với 14 kỹ thuật chuẩn
+    localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(DEFAULT_BASE_OVERRIDES));
+    return { ...DEFAULT_BASE_OVERRIDES };
   } catch (e) {
     console.error('Error loading specialty overrides:', e);
   }
-  return {};
+  return { ...DEFAULT_BASE_OVERRIDES };
+}
+
+export function restoreDefaultOverrides(): Record<string, SpecialtyCode> {
+  try {
+    localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(DEFAULT_BASE_OVERRIDES));
+    notifySpecialtiesChanged();
+    return { ...DEFAULT_BASE_OVERRIDES };
+  } catch (e) {
+    console.error('Error restoring default overrides:', e);
+    return { ...DEFAULT_BASE_OVERRIDES };
+  }
 }
 
 export function saveSpecialtyOverride(tenKT: string, specialty: SpecialtyCode): void {
@@ -242,6 +302,7 @@ export function saveSpecialtyOverride(tenKT: string, specialty: SpecialtyCode): 
     const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
     current[normKey] = specialty;
     localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(current));
+    notifySpecialtiesChanged();
   } catch (e) {
     console.error('Error saving specialty override:', e);
   }
@@ -253,8 +314,24 @@ export function removeSpecialtyOverride(tenKT: string): void {
     const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
     delete current[normKey];
     localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(current));
+    notifySpecialtiesChanged();
   } catch (e) {
     console.error('Error removing specialty override:', e);
+  }
+}
+
+export function importSpecialtyData(data: { customGroups?: SpecialtyMeta[]; overrides?: Record<string, SpecialtyCode> }): { success: boolean; error?: string } {
+  try {
+    if (data.customGroups && Array.isArray(data.customGroups)) {
+      localStorage.setItem(STORAGE_CUSTOM_GROUPS_KEY, JSON.stringify(data.customGroups));
+    }
+    if (data.overrides && typeof data.overrides === 'object') {
+      localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(data.overrides));
+    }
+    notifySpecialtiesChanged();
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Lỗi xử lý dữ liệu nhập' };
   }
 }
 

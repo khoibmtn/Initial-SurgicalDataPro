@@ -5,8 +5,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
-  Plus, Download, Upload, Trash2, Edit3, Save, X, FileSpreadsheet,
-  CheckCircle2, AlertTriangle, ChevronDown, ChevronRight,
+  Plus, Download, Upload, Trash2, Edit3, Save, X, Check, FileSpreadsheet,
+  CheckCircle2, AlertTriangle, ChevronDown, ChevronRight, RotateCcw,
   DollarSign, BookOpen, Briefcase, Users, SlidersHorizontal, TrendingDown, TrendingUp
 } from 'lucide-react';
 import {
@@ -42,7 +42,11 @@ import {
   getAllSpecialties,
   getCustomSpecialties,
   saveCustomSpecialty,
+  updateCustomSpecialty,
   deleteCustomSpecialty,
+  restoreDefaultOverrides,
+  importSpecialtyData,
+  DEFAULT_BASE_OVERRIDES,
   SpecialtyMeta,
   DEFAULT_SPECIALTIES,
   SpecialtyCode,
@@ -120,14 +124,79 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupShortName, setNewGroupShortName] = useState('');
 
+  // Editing state for custom specialty groups
+  const [editingGroupCode, setEditingGroupCode] = useState<string | null>(null);
+  const [editGroupName, setEditGroupName] = useState('');
+  const [editGroupShortName, setEditGroupShortName] = useState('');
+  const backupFileInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     localStorage.setItem(SUB_TAB_KEY, configSubTab);
     if (configSubTab === 'comparison-threshold') {
       setThresholdForm(getComparisonThresholdConfig());
       setOverridesList(getSpecialtyOverrides());
       setCustomGroups(getCustomSpecialties());
+      setEditingGroupCode(null);
     }
   }, [configSubTab]);
+
+  // Sync in real time when custom specialties or overrides change from other tabs/modals
+  useEffect(() => {
+    const handleSpecialtiesChanged = () => {
+      setOverridesList(getSpecialtyOverrides());
+      setCustomGroups(getCustomSpecialties());
+    };
+    window.addEventListener('sdp-specialties-changed', handleSpecialtiesChanged);
+    return () => window.removeEventListener('sdp-specialties-changed', handleSpecialtiesChanged);
+  }, []);
+
+  const handleRestoreDefaults = () => {
+    if (window.confirm('Bạn có muốn khôi phục danh mục 14 kỹ thuật chuẩn đã phân loại?')) {
+      const restored = restoreDefaultOverrides();
+      setOverridesList(restored);
+      showToast('Đã khôi phục thành công danh mục 14 kỹ thuật chuyển nhóm chuẩn!');
+    }
+  };
+
+  const handleExportBackup = () => {
+    const data = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      customGroups: getCustomSpecialties(),
+      overrides: getSpecialtyOverrides(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `SDP_CauHinh_ChuyenNhom_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('Đã tải xuống file sao lưu cấu hình chuyển nhóm!');
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const parsed = JSON.parse(evt.target?.result as string);
+        const res = importSpecialtyData(parsed);
+        if (res.success) {
+          setOverridesList(getSpecialtyOverrides());
+          setCustomGroups(getCustomSpecialties());
+          showToast('Đã khôi phục cấu hình từ file thành công!');
+        } else {
+          showToast(res.error || 'Lỗi đọc file cấu hình', 'error');
+        }
+      } catch (err: any) {
+        showToast('File JSON không hợp lệ: ' + err.message, 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   const handleAddCustomGroup = (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,11 +211,41 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
     showToast(`Đã tạo nhóm chuyên khoa mới "${created.name}"`);
   };
 
+  const handleStartEditCustomGroup = (grp: SpecialtyMeta) => {
+    setEditingGroupCode(grp.code as string);
+    setEditGroupName(grp.name);
+    setEditGroupShortName(grp.shortName || grp.name);
+  };
+
+  const handleCancelEditCustomGroup = () => {
+    setEditingGroupCode(null);
+    setEditGroupName('');
+    setEditGroupShortName('');
+  };
+
+  const handleSaveEditCustomGroup = (code: string) => {
+    if (!editGroupName.trim()) {
+      showToast('Tên chuyên khoa không được để trống', 'error');
+      return;
+    }
+    const updated = updateCustomSpecialty(code, editGroupName, editGroupShortName);
+    if (updated) {
+      setCustomGroups(getCustomSpecialties());
+      setEditingGroupCode(null);
+      showToast(`Đã cập nhật nhóm chuyên khoa "${updated.name}"`);
+    } else {
+      showToast('Không tìm thấy nhóm cần cập nhật', 'error');
+    }
+  };
+
   const handleDeleteCustomGroup = (code: string, name: string) => {
     if (window.confirm(`Bạn có chắc muốn xóa nhóm "${name}"? Các kỹ thuật trong nhóm này sẽ trở về phân loại tự động.`)) {
       deleteCustomSpecialty(code);
       setCustomGroups(getCustomSpecialties());
       setOverridesList(getSpecialtyOverrides());
+      if (editingGroupCode === code) {
+        setEditingGroupCode(null);
+      }
       showToast(`Đã xóa nhóm "${name}"`);
     }
   };
@@ -477,33 +576,104 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
                   <thead className="bg-gray-100 font-bold text-gray-700">
                     <tr>
                       <th className="px-3 py-2">Tên nhóm chuyên khoa</th>
-                      <th className="px-3 py-2 w-36">Tên viết tắt</th>
+                      <th className="px-3 py-2 w-40">Tên viết tắt</th>
                       <th className="px-3 py-2 w-28">Phân loại</th>
-                      <th className="px-3 py-2 w-20 text-center">Xóa</th>
+                      <th className="px-3 py-2 w-28 text-center">Thao tác</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {customGroups.map((grp) => (
-                      <tr key={grp.code} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 font-bold text-gray-800">{grp.name}</td>
-                        <td className="px-3 py-2 text-gray-600 font-semibold">{grp.shortName}</td>
-                        <td className="px-3 py-2">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                            User tùy chỉnh
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteCustomGroup(grp.code as string, grp.name)}
-                            className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                            title="Xóa nhóm này"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {customGroups.map((grp) => {
+                      const isEditing = editingGroupCode === grp.code;
+                      return (
+                        <tr key={grp.code} className={isEditing ? 'bg-amber-50/50' : 'hover:bg-gray-50'}>
+                          <td className="px-3 py-2">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editGroupName}
+                                onChange={(e) => setEditGroupName(e.target.value)}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveEditCustomGroup(grp.code as string);
+                                  else if (e.key === 'Escape') handleCancelEditCustomGroup();
+                                }}
+                                className="w-full px-2.5 py-1 text-xs bg-white border border-primary-400 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 font-bold"
+                                placeholder="Tên nhóm chuyên khoa..."
+                              />
+                            ) : (
+                              <span className="font-bold text-gray-800">{grp.name}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editGroupShortName}
+                                onChange={(e) => setEditGroupShortName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveEditCustomGroup(grp.code as string);
+                                  else if (e.key === 'Escape') handleCancelEditCustomGroup();
+                                }}
+                                className="w-full px-2.5 py-1 text-xs bg-white border border-primary-400 rounded-md focus:outline-none focus:ring-1 focus:ring-primary-500 font-semibold"
+                                placeholder="Tên viết tắt..."
+                              />
+                            ) : (
+                              <span className="text-gray-600 font-semibold">{grp.shortName}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              isEditing
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                            }`}>
+                              {isEditing ? 'Đang sửa' : 'User tùy chỉnh'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {isEditing ? (
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveEditCustomGroup(grp.code as string)}
+                                  className="text-emerald-600 hover:text-emerald-800 p-1 hover:bg-emerald-50 rounded transition-colors cursor-pointer"
+                                  title="Lưu thay đổi (Enter)"
+                                >
+                                  <Check className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditCustomGroup}
+                                  className="text-gray-400 hover:text-gray-600 p-1 hover:bg-gray-200 rounded transition-colors cursor-pointer"
+                                  title="Hủy bỏ (ESC)"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditCustomGroup(grp)}
+                                  className="text-blue-600 hover:text-blue-800 p-1 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                  title="Chỉnh sửa nhóm này"
+                                >
+                                  <Edit3 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCustomGroup(grp.code as string, grp.name)}
+                                  className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                  title="Xóa nhóm này"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -512,13 +682,50 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
 
           {/* Custom Specialty Overrides Section */}
           <div className="mt-6 pt-6 border-t border-gray-100">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
               <h4 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
                 <span>Danh mục kỹ thuật đã chuyển nhóm thủ công</span>
                 <span className="px-2 py-0.2 rounded-full text-[11px] bg-primary-100 text-primary-800 font-extrabold">
                   {Object.keys(overridesList).length}
                 </span>
               </h4>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={backupFileInputRef}
+                  onChange={handleImportBackup}
+                  accept=".json"
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={handleRestoreDefaults}
+                  className="px-2.5 py-1 text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-md font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Khôi phục danh mục 14 kỹ thuật chuyển nhóm chuẩn"
+                >
+                  <RotateCcw className="h-3 w-3 text-amber-600" />
+                  <span>Khôi phục 14 mục chuẩn</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportBackup}
+                  className="px-2.5 py-1 text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-md font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Tải về file JSON sao lưu các nhóm và kỹ thuật đã chuyển"
+                >
+                  <Download className="h-3 w-3 text-gray-500" />
+                  <span>Sao lưu JSON</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => backupFileInputRef.current?.click()}
+                  className="px-2.5 py-1 text-xs bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 rounded-md font-semibold transition-colors flex items-center gap-1 cursor-pointer"
+                  title="Nhập file JSON sao lưu cấu hình chuyển nhóm"
+                >
+                  <Upload className="h-3 w-3 text-gray-500" />
+                  <span>Nhập JSON</span>
+                </button>
+              </div>
             </div>
             <p className="text-xs text-gray-500 mb-4">
               Các kỹ thuật bạn đã dùng nút "Chuyển nhóm" trong bảng phân tích sẽ được ghi nhớ tại đây và tự động xếp vào chuyên khoa mới.
