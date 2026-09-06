@@ -3,7 +3,7 @@
  * Đúc kết từ triết lý Lieflat Charts (Glance + Lupi Editorial + Interactive)
  * Tích hợp toàn diện góc độ Số lượng ca, Viện phí thành tiền, và Cơ cấu kỹ thuật y tế.
  */
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   TrendingUp, TrendingDown, AlertTriangle, Activity, DollarSign,
   Layers, Calendar, ArrowRight, Info, Check, Filter, Sparkles,
