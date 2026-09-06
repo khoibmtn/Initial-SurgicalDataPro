@@ -279,6 +279,8 @@ export const ComparisonChartsView: React.FC<Props> = ({
   const [loaiViewMode, setLoaiViewMode] = useState<'count' | 'revenue'>('count');
   // Chế độ xem Top impact: 'gainers' | 'losers' | 'both'
   const [topImpactTab, setTopImpactTab] = useState<'both' | 'gainers' | 'losers'>('both');
+  // Chế độ biểu thị Biểu đồ Tăng trưởng (Diverging Bar): 'percent' (%) | 'diff' (Con số thực tế)
+  const [divergingMetric, setDivergingMetric] = useState<'percent' | 'diff'>('percent');
 
   // Phạm vi và bộ lọc của Biểu đồ Quy mô (Grouped Bar): 'hospital' | mã chuyên khoa
   const [groupedScope, setGroupedScope] = useState<'hospital' | string>('hospital');
@@ -323,7 +325,9 @@ export const ComparisonChartsView: React.FC<Props> = ({
       case 'diverging':
         return {
           title: 'Biến động Tăng trưởng Chuyên khoa',
-          subtitle: `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (kết hợp % và số chênh lệch Δ)`,
+          subtitle: divergingMetric === 'percent'
+            ? `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Tỷ lệ %)`
+            : `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Số chênh lệch thực tế Δ)`,
           badge: 'Diverging Bar',
           color: 'bg-emerald-500',
         };
@@ -430,8 +434,13 @@ export const ComparisonChartsView: React.FC<Props> = ({
         };
       })
       .filter(item => item.curVal > 0 || item.compVal > 0)
-      .sort((a, b) => b.pct - a.pct);
-  }, [groups, metricMode, compareTarget]);
+      .sort((a, b) => {
+        if (divergingMetric === 'diff') {
+          return b.diff - a.diff;
+        }
+        return b.pct - a.pct;
+      });
+  }, [groups, metricMode, compareTarget, divergingMetric]);
 
   // 2. DỮ LIỆU GROUPED BAR (Toàn viện hoặc Từng Chuyên khoa)
   const groupedFilterList = useMemo(() => {
@@ -552,12 +561,13 @@ export const ComparisonChartsView: React.FC<Props> = ({
           ? (isRev ? g.totalPrevRevenue : g.totalPrev)
           : (isRev ? g.totalSamePeriodRevenue : g.totalSamePeriod);
         const diff = cur - comp;
-        if (diff !== 0 && !waterfallHiddenItems.includes(g.specialty.code)) {
+        if ((cur > 0 || comp > 0) && !waterfallHiddenItems.includes(g.specialty.code)) {
           rawSteps.push({
             id: g.specialty.code,
             name: g.specialty.shortName || g.specialty.name,
             fullName: g.specialty.name,
             diff,
+            cur,
           });
         }
       });
@@ -576,7 +586,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
             ? (isRev ? r.prevRevenue : r.prevCount)
             : (isRev ? r.samePeriodRevenue : r.samePeriodCount);
           const diff = cur - comp;
-          if (diff !== 0 && !waterfallHiddenItems.includes(r.tenKT)) {
+          if ((cur > 0 || comp > 0) && !waterfallHiddenItems.includes(r.tenKT)) {
             // Tên kỹ thuật rút gọn hợp lý trên trục X để không bị che, fullName hiển thị đầy đủ trong tooltip
             const shortName = r.tenKT.length > 25 ? r.tenKT.slice(0, 24) + '…' : r.tenKT;
             rawSteps.push({
@@ -584,27 +594,33 @@ export const ComparisonChartsView: React.FC<Props> = ({
               name: shortName,
               fullName: r.tenKT,
               diff,
+              cur,
             });
           }
         });
       }
     }
 
-    // Nếu chọn mode 'top' và có hơn 12 kỹ thuật: giữ top 12 theo magnitude, còn lại gom vào "Khác"
+    // Nếu chọn mode 'top' và có hơn 12 kỹ thuật: giữ top 12 theo magnitude biến động (kết hợp quy mô), còn lại gom vào "Khác"
     let finalSteps = rawSteps;
     if (waterfallMode === 'top' && rawSteps.length > 12) {
-      const sortedByAbs = [...rawSteps].sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+      const sortedByAbs = [...rawSteps].sort((a, b) => {
+        const absDiff = Math.abs(b.diff) - Math.abs(a.diff);
+        if (absDiff !== 0) return absDiff;
+        return (b.cur || 0) - (a.cur || 0);
+      });
       const top12 = sortedByAbs.slice(0, 12);
       const others = sortedByAbs.slice(12);
       const otherDiff = others.reduce((sum, item) => sum + item.diff, 0);
 
       finalSteps = [...top12];
-      if (otherDiff !== 0) {
+      if (others.length > 0) {
         finalSteps.push({
           id: '__others__',
           name: `Khác (${others.length} KT)`,
           fullName: `Nhóm các kỹ thuật khác (${others.length} kỹ thuật)`,
           diff: otherDiff,
+          cur: others.reduce((sum, item) => sum + (item.cur || 0), 0),
         });
       }
     }
@@ -750,6 +766,9 @@ export const ComparisonChartsView: React.FC<Props> = ({
     if (isStartOrEnd) {
       text = metricMode === 'revenue' ? fmtMoney(item.value) : `${fmtNum(item.value)} ca`;
       fill = '#0f3a60';
+    } else if (item.diff === 0) {
+      text = metricMode === 'revenue' ? '0 đ' : '0 ca';
+      fill = '#64748b';
     } else {
       const sign = item.diff > 0 ? '+' : '';
       text = metricMode === 'revenue' ? `${sign}${fmtMoney(item.diff)}` : `${sign}${item.diff} ca`;
@@ -780,6 +799,9 @@ export const ComparisonChartsView: React.FC<Props> = ({
     if (isStartOrEnd) {
       text = metricMode === 'revenue' ? fmtMoney(item.value) : `${fmtNum(item.value)} ca`;
       fill = modalTheme === 'dark' ? '#93c5fd' : '#1e40af';
+    } else if (item.diff === 0) {
+      text = metricMode === 'revenue' ? '0 đ' : '0 ca';
+      fill = modalTheme === 'dark' ? '#94a3b8' : '#64748b';
     } else {
       const sign = item.diff > 0 ? '+' : '';
       text = metricMode === 'revenue' ? `${sign}${fmtMoney(item.diff)}` : `${sign}${item.diff} ca`;
@@ -798,6 +820,80 @@ export const ComparisonChartsView: React.FC<Props> = ({
       >
         {text}
       </text>
+    );
+  };
+
+  // Render box tên đầy đủ PTTT ngay dưới mỗi box số liệu Waterfall
+  const renderWaterfallTick = (props: any, isDark: boolean = false) => {
+    const { x, y, index } = props;
+    const item = waterfallData[index];
+    if (!item) return null;
+
+    const boxWidth = 104;
+    const boxHeight = 84;
+
+    const isStartOrEnd = item.type === 'start' || item.type === 'end';
+    const isZero = item.diff === 0;
+
+    let bgClass = '';
+    let borderClass = '';
+    let textClass = '';
+    let badgeClass = '';
+
+    if (isStartOrEnd) {
+      bgClass = isDark ? 'bg-blue-950/70' : 'bg-blue-50/95';
+      borderClass = isDark ? 'border-blue-600/70' : 'border-blue-200';
+      textClass = isDark ? 'text-blue-100' : 'text-blue-950';
+      badgeClass = isDark ? 'bg-blue-900/90 text-blue-200 border-blue-700/60' : 'bg-blue-100 text-blue-800 border-blue-200';
+    } else if (isZero) {
+      bgClass = isDark ? 'bg-[#232528]' : 'bg-gray-50';
+      borderClass = isDark ? 'border-gray-700' : 'border-gray-200';
+      textClass = isDark ? 'text-gray-300' : 'text-gray-700';
+      badgeClass = isDark ? 'bg-gray-800 text-gray-400 border-gray-700' : 'bg-gray-200 text-gray-700 border-gray-300';
+    } else if (item.isPositive) {
+      bgClass = isDark ? 'bg-emerald-950/70' : 'bg-emerald-50/95';
+      borderClass = isDark ? 'border-emerald-600/70' : 'border-emerald-200';
+      textClass = isDark ? 'text-emerald-100' : 'text-emerald-950';
+      badgeClass = isDark ? 'bg-emerald-900/90 text-emerald-200 border-emerald-700/60' : 'bg-emerald-100 text-emerald-800 border-emerald-200';
+    } else {
+      bgClass = isDark ? 'bg-rose-950/70' : 'bg-rose-50/95';
+      borderClass = isDark ? 'border-rose-600/70' : 'border-rose-200';
+      textClass = isDark ? 'text-rose-100' : 'text-rose-950';
+      badgeClass = isDark ? 'bg-rose-900/90 text-rose-200 border-rose-700/60' : 'bg-rose-100 text-rose-800 border-rose-200';
+    }
+
+    const badgeText = isStartOrEnd
+      ? (metricMode === 'revenue' ? fmtMoney(item.value) : `${fmtNum(item.value)} ca`)
+      : isZero
+      ? (metricMode === 'revenue' ? '0 đ' : '0 ca')
+      : `${item.diff > 0 ? '+' : ''}${metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`}`;
+
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <foreignObject
+          x={-boxWidth / 2}
+          y={10}
+          width={boxWidth}
+          height={boxHeight}
+          style={{ overflow: 'visible' }}
+        >
+          <div
+            className={`h-full p-2 rounded-xl border flex flex-col justify-between shadow-2xs transition-all text-center select-none ${bgClass} ${borderClass}`}
+            title={item.fullName}
+          >
+            <div
+              className={`text-[11px] leading-snug font-semibold line-clamp-3 overflow-hidden text-ellipsis ${textClass}`}
+            >
+              {item.fullName || item.name}
+            </div>
+            <div className="pt-1 flex justify-center">
+              <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${badgeClass}`}>
+                {badgeText}
+              </span>
+            </div>
+          </div>
+        </foreignObject>
+      </g>
     );
   };
 
@@ -1039,7 +1135,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biểu đồ 1: Diverging Bar Chart (Tăng/Giảm theo Chuyên khoa) */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs flex flex-col">
-          <div className="flex items-start justify-between mb-4">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
@@ -1048,11 +1144,39 @@ export const ComparisonChartsView: React.FC<Props> = ({
                 </h3>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
-                So sánh {periodMeta?.currentLabel || 'Kỳ này'} với {compareLabel} (kết hợp % và số chênh $\Delta$)
+                {divergingMetric === 'percent'
+                  ? `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Tỷ lệ %)`
+                  : `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Số chênh lệch thực tế Δ)`}
               </p>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              {/* Segmented Toggle: % vs Con số thực tế */}
+              <div className="inline-flex p-0.5 bg-gray-100 rounded-lg border border-gray-200 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setDivergingMetric('percent')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    divergingMetric === 'percent'
+                      ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Tỷ lệ %
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDivergingMetric('diff')}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    divergingMetric === 'diff'
+                      ? 'bg-white text-emerald-700 shadow-2xs font-bold'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  Số chênh lệch ({metricMode === 'revenue' ? 'VNĐ' : 'Số ca'})
+                </button>
+              </div>
+
+              <span className="hidden sm:inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                 Diverging Bar
               </span>
               <button
@@ -1069,8 +1193,19 @@ export const ComparisonChartsView: React.FC<Props> = ({
           {/* Body: Danh sách thanh đối xứng */}
           <div className="flex-1 space-y-3.5 my-auto py-2">
             {divergingData.map((item) => {
-              const maxAbsPct = Math.max(...divergingData.map(d => Math.abs(d.pct)), 10);
-              const barWidthPct = Math.min(Math.round((Math.abs(item.pct) / maxAbsPct) * 100), 100);
+              const maxAbsVal = divergingMetric === 'diff'
+                ? Math.max(...divergingData.map(d => Math.abs(d.diff)), 1)
+                : Math.max(...divergingData.map(d => Math.abs(d.pct)), 10);
+              const curValDiff = divergingMetric === 'diff' ? Math.abs(item.diff) : Math.abs(item.pct);
+              const barWidthPct = Math.min(Math.round((curValDiff / maxAbsVal) * 100), 100);
+
+              const formattedDiff = `${item.diff > 0 ? '+' : ''}${metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`}`;
+              const formattedPct = `${item.isPositive ? '+' : ''}${item.pct}%`;
+              const displayBadge = divergingMetric === 'diff'
+                ? `${formattedDiff} (${formattedPct})`
+                : `${formattedPct} (${formattedDiff})`;
+
+              const barInnerLabel = divergingMetric === 'diff' ? formattedDiff : formattedPct;
 
               return (
                 <div key={item.code} className="group">
@@ -1086,8 +1221,14 @@ export const ComparisonChartsView: React.FC<Props> = ({
                       <span className="text-gray-500 font-medium">
                         {compareLabel}: <strong className="text-gray-700">{metricMode === 'revenue' ? fmtMoney(item.compVal) : `${fmtNum(item.compVal)} ca`}</strong>
                       </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[11px] font-extrabold ${item.isPositive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
-                        {item.isPositive ? `+${item.pct}%` : `${item.pct}%`} ({item.diff > 0 ? '+' : ''}{metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`})
+                      <span className={`px-1.5 py-0.5 rounded text-[11px] font-extrabold ${
+                        item.diff === 0
+                          ? 'bg-gray-100 text-gray-700 border border-gray-200'
+                          : item.isPositive
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>
+                        {displayBadge}
                       </span>
                     </div>
                   </div>
@@ -1096,24 +1237,24 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   <div className="grid grid-cols-2 gap-1.5 h-7 bg-gray-100 rounded-lg overflow-hidden p-0.5">
                     {/* Cột Trái: Âm / Sụt giảm */}
                     <div className="flex justify-end items-center h-full">
-                      {!item.isPositive && (
+                      {item.diff < 0 && (
                         <div
                           className="h-full bg-rose-500 rounded-md transition-all duration-500 group-hover:bg-rose-600 flex items-center justify-start px-2 text-[11px] font-extrabold text-white shadow-xs"
-                          style={{ width: `${Math.max(barWidthPct, 12)}%` }}
+                          style={{ width: `${Math.max(barWidthPct, 14)}%` }}
                         >
-                          <span className="truncate">{item.pct}%</span>
+                          <span className="truncate">{barInnerLabel}</span>
                         </div>
                       )}
                     </div>
 
                     {/* Cột Phải: Dương / Tăng trưởng */}
                     <div className="flex justify-start items-center h-full">
-                      {item.isPositive && (
+                      {item.diff > 0 && (
                         <div
                           className="h-full bg-emerald-500 rounded-md transition-all duration-500 group-hover:bg-emerald-600 flex items-center justify-end px-2 text-[11px] font-extrabold text-white shadow-xs"
-                          style={{ width: `${Math.max(barWidthPct, 12)}%` }}
+                          style={{ width: `${Math.max(barWidthPct, 14)}%` }}
                         >
-                          <span className="truncate">+{item.pct}%</span>
+                          <span className="truncate">{barInnerLabel}</span>
                         </div>
                       )}
                     </div>
@@ -1125,10 +1266,10 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
           <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
             <span className="flex items-center gap-1 text-rose-600 font-semibold">
-              <TrendingDown className="h-3.5 w-3.5" /> Phía trái: Sụt giảm (Cảnh báo)
+              <TrendingDown className="h-3.5 w-3.5" /> Phía trái: Sụt giảm ({divergingMetric === 'percent' ? '% âm' : 'Δ giảm'})
             </span>
             <span className="flex items-center gap-1 text-emerald-600 font-semibold">
-              <TrendingUp className="h-3.5 w-3.5" /> Phía phải: Tăng trưởng (Tích cực)
+              <TrendingUp className="h-3.5 w-3.5" /> Phía phải: Tăng trưởng ({divergingMetric === 'percent' ? '% dương' : 'Δ tăng'})
             </span>
           </div>
         </div>
@@ -1305,19 +1446,17 @@ export const ComparisonChartsView: React.FC<Props> = ({
           </div>
 
           <div className="flex-1 w-full overflow-x-auto pb-2">
-            <div style={{ minWidth: Math.max(680, waterfallData.length * 76) }} className="h-[330px]">
+            <div style={{ minWidth: Math.max(760, waterfallData.length * 115) }} className="h-[440px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={waterfallData} margin={{ top: 25, right: 20, left: 20, bottom: 55 }}>
+                <BarChart data={waterfallData} margin={{ top: 25, right: 20, left: 20, bottom: 105 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis
                     dataKey="name"
-                    height={55}
-                    tick={{ fontSize: 10, fill: '#334155' }}
+                    height={105}
                     interval={0}
-                    angle={-28}
-                    textAnchor="end"
-                    dx={-3}
-                    dy={3}
+                    tickLine={false}
+                    axisLine={{ stroke: '#cbd5e1' }}
+                    tick={(props: any) => renderWaterfallTick(props, false)}
                   />
                   <YAxis
                     tickFormatter={val => metricMode === 'revenue' ? fmtMoney(val) : fmtNum(val)}
@@ -1333,7 +1472,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                           {item.type === 'step' ? (
                             <div>
                               <span className="text-gray-500">Mức đóng góp: </span>
-                              <strong className={item.isPositive ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                              <strong className={item.diff === 0 ? 'text-gray-600 font-bold' : item.isPositive ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
                                 {item.diff > 0 ? '+' : ''}{metricMode === 'revenue' ? fmtFullMoney(item.diff) : `${item.diff} ca`}
                               </strong>
                             </div>
@@ -1352,12 +1491,14 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   {/* Cột trong suốt đệm đáy */}
                   <Bar dataKey="base" stackId="waterfall" fill="transparent" />
                   {/* Cột giá trị thực tế */}
-                  <Bar dataKey="value" stackId="waterfall" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="value" stackId="waterfall" radius={[4, 4, 0, 0]} minPointSize={3}>
                     <LabelList content={renderWaterfallLabel} />
                     {waterfallData.map((entry, index) => {
                       let color = '#3b82f6';
                       if (entry.type === 'start' || entry.type === 'end') {
                         color = '#1e3a8a';
+                      } else if (entry.diff === 0) {
+                        color = '#94a3b8';
                       } else if (entry.isPositive) {
                         color = PALETTE.emerald;
                       } else {
@@ -2116,6 +2257,34 @@ export const ComparisonChartsView: React.FC<Props> = ({
                     </div>
                   )}
 
+                  {/* Diverging Metric Toggle inside modal */}
+                  {expandedChart === 'diverging' && (
+                    <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-200 border-gray-300/80'}`}>
+                      <button
+                        type="button"
+                        onClick={() => setDivergingMetric('percent')}
+                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                          divergingMetric === 'percent'
+                            ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                        }`}
+                      >
+                        Tỷ lệ %
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDivergingMetric('diff')}
+                        className={`px-2 py-1 rounded-md transition-all cursor-pointer ${
+                          divergingMetric === 'diff'
+                            ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                            : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                        }`}
+                      >
+                        Số chênh lệch ({metricMode === 'revenue' ? 'VNĐ' : 'Số ca'})
+                      </button>
+                    </div>
+                  )}
+
                   {/* Toggle Giao diện Sáng / Tối trong Popup (Theme Switch) */}
                   <button
                     type="button"
@@ -2173,8 +2342,19 @@ export const ComparisonChartsView: React.FC<Props> = ({
                   <div className="max-w-4xl mx-auto w-full py-4 space-y-4">
                     <div className={`rounded-2xl p-6 border shadow-lg space-y-4 transition-colors ${modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80' : 'bg-white border-gray-200 shadow-sm'}`}>
                       {divergingData.map((item) => {
-                        const maxAbsPct = Math.max(...divergingData.map(d => Math.abs(d.pct)), 10);
-                        const barWidthPct = Math.min(Math.round((Math.abs(item.pct) / maxAbsPct) * 100), 100);
+                        const maxAbsVal = divergingMetric === 'diff'
+                          ? Math.max(...divergingData.map(d => Math.abs(d.diff)), 1)
+                          : Math.max(...divergingData.map(d => Math.abs(d.pct)), 10);
+                        const curValDiff = divergingMetric === 'diff' ? Math.abs(item.diff) : Math.abs(item.pct);
+                        const barWidthPct = Math.min(Math.round((curValDiff / maxAbsVal) * 100), 100);
+
+                        const formattedDiff = `${item.diff > 0 ? '+' : ''}${metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`}`;
+                        const formattedPct = `${item.isPositive ? '+' : ''}${item.pct}%`;
+                        const displayBadge = divergingMetric === 'diff'
+                          ? `${formattedDiff} (${formattedPct})`
+                          : `${formattedPct} (${formattedDiff})`;
+
+                        const barInnerLabel = divergingMetric === 'diff' ? formattedDiff : formattedPct;
 
                         return (
                           <div key={item.code} className={`p-3 rounded-xl transition-colors ${modalTheme === 'dark' ? 'hover:bg-[#282a2d]' : 'hover:bg-gray-50'}`}>
@@ -2190,8 +2370,14 @@ export const ComparisonChartsView: React.FC<Props> = ({
                                 <span className={modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
                                   {compareLabel}: <strong className={modalTheme === 'dark' ? 'text-gray-300' : 'text-gray-800'}>{metricMode === 'revenue' ? fmtMoney(item.compVal) : `${fmtNum(item.compVal)} ca`}</strong>
                                 </span>
-                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold ${item.isPositive ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700' : 'bg-rose-950/80 text-rose-300 border border-rose-700'}`}>
-                                  {item.isPositive ? `+${item.pct}%` : `${item.pct}%`} ({item.diff > 0 ? '+' : ''}{metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`})
+                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold ${
+                                  item.diff === 0
+                                    ? (modalTheme === 'dark' ? 'bg-gray-800 text-gray-400 border border-gray-700' : 'bg-gray-100 text-gray-700 border border-gray-300')
+                                    : item.isPositive
+                                    ? (modalTheme === 'dark' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700' : 'bg-emerald-100 text-emerald-800 border border-emerald-300')
+                                    : (modalTheme === 'dark' ? 'bg-rose-950/80 text-rose-300 border border-rose-700' : 'bg-rose-100 text-rose-800 border border-rose-300')
+                                }`}>
+                                  {displayBadge}
                                 </span>
                               </div>
                             </div>
@@ -2199,25 +2385,25 @@ export const ComparisonChartsView: React.FC<Props> = ({
                             {/* Diverging bar track - Chuẩn thanh biểu đồ cao h-8, bo góc nhẹ rounded-lg */}
                             <div className={`grid grid-cols-2 gap-2 h-8 rounded-lg overflow-hidden p-1 border ${modalTheme === 'dark' ? 'bg-[#151617] border-gray-700/60' : 'bg-gray-100 border-gray-200'}`}>
                               <div className="flex justify-end items-center">
-                                {!item.isPositive && (
+                                {item.diff < 0 && (
                                   <div
                                     className="h-full bg-rose-500 rounded-md transition-all duration-500 group-hover:bg-rose-400 flex items-center justify-end px-2 shadow-2xs"
-                                    style={{ width: `${Math.max(barWidthPct, 8)}%` }}
+                                    style={{ width: `${Math.max(barWidthPct, 10)}%` }}
                                   >
                                     <span className="text-[11px] font-bold text-white whitespace-nowrap">
-                                      {item.pct}%
+                                      {barInnerLabel}
                                     </span>
                                   </div>
                                 )}
                               </div>
                               <div className="flex justify-start items-center">
-                                {item.isPositive && (
+                                {item.diff > 0 && (
                                   <div
                                     className="h-full bg-emerald-500 rounded-md transition-all duration-500 group-hover:bg-emerald-400 flex items-center justify-start px-2 shadow-2xs"
-                                    style={{ width: `${Math.max(barWidthPct, 8)}%` }}
+                                    style={{ width: `${Math.max(barWidthPct, 10)}%` }}
                                   >
                                     <span className="text-[11px] font-bold text-white whitespace-nowrap">
-                                      +{item.pct}%
+                                      {barInnerLabel}
                                     </span>
                                   </div>
                                 )}
@@ -2311,19 +2497,17 @@ export const ComparisonChartsView: React.FC<Props> = ({
                 {/* 3. Waterfall Expanded */}
                 {expandedChart === 'waterfall' && (
                   <div className="w-full flex-1 min-h-[500px] overflow-x-auto pb-4">
-                    <div style={{ minWidth: Math.max(900, waterfallData.length * 85) }} className="h-[530px]">
+                    <div style={{ minWidth: Math.max(960, waterfallData.length * 120) }} className="h-[580px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={waterfallData} margin={{ top: 35, right: 30, left: 30, bottom: 85 }}>
+                        <BarChart data={waterfallData} margin={{ top: 35, right: 30, left: 30, bottom: 105 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={modalTheme === 'dark' ? '#334155' : '#e2e8f0'} />
                           <XAxis
                             dataKey="name"
-                            height={80}
-                            tick={{ fontSize: 11, fill: modalTheme === 'dark' ? '#cbd5e1' : '#334155' }}
+                            height={105}
                             interval={0}
-                            angle={-32}
-                            textAnchor="end"
-                            dx={-4}
-                            dy={4}
+                            tickLine={false}
+                            axisLine={{ stroke: modalTheme === 'dark' ? '#475569' : '#cbd5e1' }}
+                            tick={(props: any) => renderWaterfallTick(props, modalTheme === 'dark')}
                           />
                           <YAxis
                             tickFormatter={val => metricMode === 'revenue' ? fmtMoney(val) : fmtNum(val)}
@@ -2342,7 +2526,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                                   {item.type === 'step' ? (
                                     <div>
                                       <span className={isDark ? 'text-gray-400' : 'text-gray-500'}>Mức đóng góp: </span>
-                                      <strong className={item.isPositive ? (isDark ? 'text-emerald-400 font-bold' : 'text-emerald-600 font-bold') : (isDark ? 'text-rose-400 font-bold' : 'text-rose-600 font-bold')}>
+                                      <strong className={item.diff === 0 ? (isDark ? 'text-gray-400 font-bold' : 'text-gray-600 font-bold') : item.isPositive ? (isDark ? 'text-emerald-400 font-bold' : 'text-emerald-600 font-bold') : (isDark ? 'text-rose-400 font-bold' : 'text-rose-600 font-bold')}>
                                         {item.diff > 0 ? '+' : ''}{metricMode === 'revenue' ? fmtFullMoney(item.diff) : `${item.diff} ca`}
                                       </strong>
                                     </div>
@@ -2359,12 +2543,14 @@ export const ComparisonChartsView: React.FC<Props> = ({
                             }}
                           />
                           <Bar dataKey="base" stackId="waterfall" fill="transparent" />
-                          <Bar dataKey="value" stackId="waterfall" radius={[4, 4, 0, 0]}>
+                          <Bar dataKey="value" stackId="waterfall" radius={[4, 4, 0, 0]} minPointSize={3}>
                             <LabelList content={renderWaterfallModalLabel} />
                             {waterfallData.map((entry, index) => {
                               let color = '#3b82f6';
                               if (entry.type === 'start' || entry.type === 'end') {
                                 color = modalTheme === 'dark' ? '#60a5fa' : '#1e40af';
+                              } else if (entry.diff === 0) {
+                                color = modalTheme === 'dark' ? '#64748b' : '#94a3b8';
                               } else if (entry.isPositive) {
                                 color = PALETTE.emerald;
                               } else {
@@ -2434,7 +2620,13 @@ export const ComparisonChartsView: React.FC<Props> = ({
                           }}
                         />
                         <Bar dataKey="avgCur" name="Bình quân ca mổ" radius={[6, 6, 0, 0]}>
-                          <LabelList content={renderRevPerCaseLabel} />
+                          <LabelList
+                            dataKey="avgCur"
+                            position="top"
+                            formatter={(val: number) => val > 0 ? fmtMoney(val) : ''}
+                            style={{ fontSize: 11, fontWeight: 700, fill: modalTheme === 'dark' ? '#5eead4' : '#0f3a60' }}
+                            offset={8}
+                          />
                           {revPerCaseData.list.map((entry, index) => (
                             <Cell
                               key={`cell-exp-rev-${index}`}
