@@ -320,6 +320,46 @@ export const ComparisonChartsView: React.FC<Props> = ({
     };
   }, [expandedChart]);
 
+  // Theo dõi chiều rộng container biểu đồ Waterfall để tự động tính toán kích thước box tối ưu (không cuộn ngang)
+  const [modalWidth, setModalWidth] = useState<number>(() => typeof window !== 'undefined' ? window.innerWidth - 80 : 1200);
+  const [cardWidth, setCardWidth] = useState<number>(() => typeof window !== 'undefined' ? 700 : 650);
+
+  const waterfallModalRef = useRef<HTMLDivElement>(null);
+  const waterfallCardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const updateWidths = () => {
+      if (waterfallModalRef.current && waterfallModalRef.current.clientWidth > 0) {
+        setModalWidth(waterfallModalRef.current.clientWidth);
+      }
+      if (waterfallCardRef.current && waterfallCardRef.current.clientWidth > 0) {
+        setCardWidth(waterfallCardRef.current.clientWidth);
+      }
+    };
+    updateWidths();
+
+    if (!window.ResizeObserver) {
+      window.addEventListener('resize', updateWidths);
+      return () => window.removeEventListener('resize', updateWidths);
+    }
+
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        if (entry.target === waterfallModalRef.current && entry.contentRect.width > 0) {
+          setModalWidth(entry.contentRect.width);
+        } else if (entry.target === waterfallCardRef.current && entry.contentRect.width > 0) {
+          setCardWidth(entry.contentRect.width);
+        }
+      }
+    });
+
+    if (waterfallModalRef.current) ro.observe(waterfallModalRef.current);
+    if (waterfallCardRef.current) ro.observe(waterfallCardRef.current);
+
+    return () => ro.disconnect();
+  }, [expandedChart, waterfallScope]);
+
   const getExpandedChartMeta = (type: ExpandedChartType) => {
     switch (type) {
       case 'diverging':
@@ -683,6 +723,21 @@ export const ComparisonChartsView: React.FC<Props> = ({
     return items;
   }, [groups, waterfallScope, waterfallMode, waterfallHiddenItems, metricMode, compareTarget, compareLabel, periodMeta]);
 
+  // Tính toán chiều rộng khả dụng cho mỗi cột Waterfall để tự động co giãn box, không cần cuộn ngang
+  const modalSlotWidth = useMemo(() => {
+    const n = waterfallData.length || 1;
+    // margins in modal: left 25 + right 25 = 50px
+    const w = modalWidth > 0 ? modalWidth - 60 : (typeof window !== 'undefined' ? window.innerWidth - 100 : 1200);
+    return Math.max(48, Math.floor(w / n));
+  }, [modalWidth, waterfallData.length]);
+
+  const cardSlotWidth = useMemo(() => {
+    const n = waterfallData.length || 1;
+    // margins in card: left 20 + right 20 = 40px
+    const w = cardWidth > 0 ? cardWidth - 50 : 650;
+    return Math.max(48, Math.floor(w / n));
+  }, [cardWidth, waterfallData.length]);
+
   // 4. DỮ LIỆU VIỆN PHÍ BÌNH QUÂN / CA (Revenue per Case)
   const revPerCaseData = useMemo(() => {
     let grandCurTotalRev = 0;
@@ -823,14 +878,20 @@ export const ComparisonChartsView: React.FC<Props> = ({
     );
   };
 
-  // Render box tên đầy đủ PTTT ngay dưới mỗi box số liệu Waterfall
-  const renderWaterfallTick = (props: any, isDark: boolean = false) => {
+  // Render box tên đầy đủ PTTT ngay dưới mỗi box số liệu Waterfall (tự động co giãn theo không gian thực tế)
+  const renderWaterfallTick = (props: any, isDark: boolean = false, slotWidth?: number) => {
     const { x, y, index } = props;
     const item = waterfallData[index];
     if (!item) return null;
 
-    const boxWidth = 104;
+    // Tự động co giãn chiều rộng box theo độ rộng thực tế của mỗi cột trên màn hình
+    // Đảm bảo không bị cuộn ngang, khoảng hở giữa 2 box tối thiểu 5px, chiều rộng box từ 48px đến 104px
+    const currentSlot = slotWidth || 80;
+    const boxWidth = Math.max(48, Math.min(104, Math.floor(currentSlot - 5)));
     const boxHeight = 84;
+
+    const isCompact = boxWidth < 82;
+    const isUltraCompact = boxWidth < 62;
 
     const isStartOrEnd = item.type === 'start' || item.type === 'end';
     const isZero = item.diff === 0;
@@ -878,16 +939,18 @@ export const ComparisonChartsView: React.FC<Props> = ({
           style={{ overflow: 'visible' }}
         >
           <div
-            className={`h-full p-2 rounded-xl border flex flex-col justify-between shadow-2xs transition-all text-center select-none ${bgClass} ${borderClass}`}
+            className={`h-full ${isUltraCompact ? 'p-1' : isCompact ? 'p-1.5' : 'p-2'} rounded-xl border flex flex-col justify-between shadow-2xs transition-all text-center select-none ${bgClass} ${borderClass}`}
             title={item.fullName}
           >
             <div
-              className={`text-[11px] leading-snug font-semibold line-clamp-3 overflow-hidden text-ellipsis ${textClass}`}
+              className={`${
+                isUltraCompact ? 'text-[9px] leading-[1.15]' : isCompact ? 'text-[9.5px] leading-tight' : 'text-[11px] leading-snug'
+              } font-semibold line-clamp-3 overflow-hidden text-ellipsis ${textClass}`}
             >
               {item.fullName || item.name}
             </div>
-            <div className="pt-1 flex justify-center">
-              <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${badgeClass}`}>
+            <div className="pt-0.5 flex justify-center">
+              <span className={`${isUltraCompact ? 'px-1 py-0.2 text-[8px]' : isCompact ? 'px-1.5 py-0.2 text-[9px]' : 'px-1.5 py-0.5 text-[10px]'} rounded-md font-bold border ${badgeClass}`}>
                 {badgeText}
               </span>
             </div>
@@ -1392,7 +1455,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
       {/* ── TẦNG 2: CẦU NỐI BIẾN ĐỘNG & TÀI CHÍNH Y TẾ ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biểu đồ 3: Waterfall Chart (Cầu nối Đóng góp Biến động) */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs flex flex-col">
+        <div className={`bg-white rounded-2xl border border-gray-200 p-5 shadow-xs flex flex-col transition-all duration-300 ${waterfallScope !== 'hospital' ? 'col-span-1 lg:col-span-2' : ''}`}>
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div>
               <div className="flex items-center gap-2">
@@ -1445,10 +1508,10 @@ export const ComparisonChartsView: React.FC<Props> = ({
             </div>
           </div>
 
-          <div className="flex-1 w-full overflow-x-auto pb-2">
-            <div style={{ minWidth: Math.max(760, waterfallData.length * 115) }} className="h-[440px]">
+          <div ref={waterfallCardRef} className="flex-1 w-full overflow-x-auto sm:overflow-x-hidden pb-2">
+            <div className="w-full h-[440px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={waterfallData} margin={{ top: 25, right: 20, left: 20, bottom: 105 }}>
+                <BarChart data={waterfallData} margin={{ top: 25, right: 15, left: 15, bottom: 105 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis
                     dataKey="name"
@@ -1456,7 +1519,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                     interval={0}
                     tickLine={false}
                     axisLine={{ stroke: '#cbd5e1' }}
-                    tick={(props: any) => renderWaterfallTick(props, false)}
+                    tick={(props: any) => renderWaterfallTick(props, false, cardSlotWidth)}
                   />
                   <YAxis
                     tickFormatter={val => metricMode === 'revenue' ? fmtMoney(val) : fmtNum(val)}
@@ -2496,10 +2559,10 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                 {/* 3. Waterfall Expanded */}
                 {expandedChart === 'waterfall' && (
-                  <div className="w-full flex-1 min-h-[500px] overflow-x-auto pb-4">
-                    <div style={{ minWidth: Math.max(960, waterfallData.length * 120) }} className="h-[580px]">
+                  <div ref={waterfallModalRef} className="w-full flex-1 min-h-[500px] overflow-x-auto sm:overflow-x-hidden pb-4">
+                    <div className="w-full h-[580px]">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={waterfallData} margin={{ top: 35, right: 30, left: 30, bottom: 105 }}>
+                        <BarChart data={waterfallData} margin={{ top: 35, right: 20, left: 20, bottom: 105 }}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={modalTheme === 'dark' ? '#334155' : '#e2e8f0'} />
                           <XAxis
                             dataKey="name"
@@ -2507,7 +2570,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                             interval={0}
                             tickLine={false}
                             axisLine={{ stroke: modalTheme === 'dark' ? '#475569' : '#cbd5e1' }}
-                            tick={(props: any) => renderWaterfallTick(props, modalTheme === 'dark')}
+                            tick={(props: any) => renderWaterfallTick(props, modalTheme === 'dark', modalSlotWidth)}
                           />
                           <YAxis
                             tickFormatter={val => metricMode === 'revenue' ? fmtMoney(val) : fmtNum(val)}
