@@ -47,7 +47,22 @@
   - Bộ lọc tìm kiếm, lọc theo loại ghi chú, lọc theo nhân viên cụ thể.
   - Nút **Xuất Excel Ngoài giờ** khổ A4 ngang (`exportOvertimeToExcel`).
 
-### 1.4. Cấu Hình Cổng Dev Server
+### 1.4. Bộ Lọc Theo Khoa / Phòng Trong Tab Ngoài Giờ
+- Thêm dropdown chọn Khoa / Phòng linh hoạt trong toolbar.
+- Tự động lọc danh sách ngoài giờ theo nhân sự thuộc khoa được chọn.
+- Tự động liên kết với dropdown Nhân viên (chỉ hiển thị nhân viên thuộc khoa đó kèm số lượng ca ngoài giờ).
+- Cập nhật số liệu tức thì trên 4 thẻ KPI tóm tắt và tự động gán tên khoa vào tiêu đề file Excel khi xuất báo cáo.
+
+### 1.5. Khắc Phục Lỗi UI Bị Lộn Xộn Khi Bật / Tắt Giúp Việc (GV)
+- **Gộp phiên mổ (Consolidated Session):** Trong file dữ liệu bệnh viện, một ca phẫu thuật thường gồm nhiều dòng DVKT cho cùng 1 bệnh nhân. Trước đây tính toán trên từng dòng DVKT làm phát sinh nhiều dòng trùng lặp và phân mảnh trạng thái của GV. Ta đã hợp nhất các dòng có cùng `patientId` và thời gian bắt đầu/kết thúc thành 1 phiên mổ duy nhất, gộp đầy đủ kíp mổ (kể cả GV) và nối tên kỹ thuật.
+- **Cố định 3 cột nhận diện bệnh nhân (UI/UX Pro Max):**
+  - Cột `STT`: `45px`, `sticky left-0`
+  - Cột `Mã BN`: `85px`, `sticky left-[45px]`
+  - Cột `Họ tên`: `160px`, `sticky left-[130px]` kèm hiệu ứng bóng đổ phân cách.
+  - Bổ sung `<colgroup>` với kích thước cố định từng cột và đổi sang `border-separate border-spacing-0`.
+  - Kết quả: Khi cuộn ngang sang phải để xem kíp mổ và GV, thông tin bệnh nhân luôn được ghim cố định ở cạnh trái, các cột không còn bị xô lệch hay biến dạng khi Bật/Tắt GV.
+
+### 1.6. Cấu Hình Cổng Dev Server
 - Chuyển cổng mặc định của Vite sang **`3002`** trong `vite.config.ts` để tránh xung đột với `kios-xm` (cổng 3000) và `claude-proxy` (cổng 3001).
 
 ---

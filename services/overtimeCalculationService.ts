@@ -139,6 +139,27 @@ export function calculateOvertimeRows(
     roleKeys.push('gv');
   }
 
+  // 1. Nhóm các bản ghi theo phiên phẫu thuật (Cùng bệnh nhân + Cùng giờ bắt đầu & kết thúc)
+  // Trong danh sách phẫu thuật (Minh Lộ/Excel), 1 ca phẫu thuật thực tế thường gồm nhiều DVKT
+  // (ví dụ: Cắt ruột thừa + Dẫn lưu ổ bụng) dẫn đến nhiều dòng trùng giờ cho cùng 1 bệnh nhân.
+  // Ta cần hợp nhất theo phiên phẫu thuật để tính đúng thời gian ngoài giờ thực tế và tập hợp đủ kíp mổ.
+  interface ConsolidatedSession {
+    patientId: string;
+    patientName: string;
+    tenKT: string;
+    rawStart: Date;
+    rawEnd: Date;
+    ptChinh?: string;
+    ptPhu?: string;
+    bsGM?: string;
+    ktvGM?: string;
+    tdc?: string;
+    gv?: string;
+    originalRecord: SurgeryRecord;
+  }
+
+  const sessionMap = new Map<string, ConsolidatedSession>();
+
   records.forEach((record) => {
     const rawStart = record.start || (record.ngayBD ? new Date(record.ngayBD) : null);
     const rawEnd = record.end || (record.ngayKT ? new Date(record.ngayKT) : null);
@@ -147,10 +168,52 @@ export function calculateOvertimeRows(
       return;
     }
 
+    const pId = (record.patientId || '').trim();
+    const sessionKey = `${pId}_${rawStart.getTime()}_${rawEnd.getTime()}`;
+
+    const existing = sessionMap.get(sessionKey);
+    if (!existing) {
+      sessionMap.set(sessionKey, {
+        patientId: pId,
+        patientName: record.patientName || '',
+        tenKT: (record.tenKT || '').trim(),
+        rawStart,
+        rawEnd,
+        ptChinh: record.ptChinh?.trim() || undefined,
+        ptPhu: record.ptPhu?.trim() || undefined,
+        bsGM: record.bsGM?.trim() || undefined,
+        ktvGM: record.ktvGM?.trim() || undefined,
+        tdc: record.tdc?.trim() || undefined,
+        gv: record.gv?.trim() || undefined,
+        originalRecord: record,
+      });
+    } else {
+      // Hợp nhất tên kỹ thuật nếu khác
+      if (record.tenKT && record.tenKT.trim()) {
+        const cleanKT = record.tenKT.trim();
+        if (!existing.tenKT.includes(cleanKT)) {
+          existing.tenKT = `${existing.tenKT}; ${cleanKT}`;
+        }
+      }
+      // Bổ sung nhân sự nếu dòng này có mà dòng trước thiếu (đặc biệt là GV)
+      if (!existing.ptChinh && record.ptChinh) existing.ptChinh = record.ptChinh.trim();
+      if (!existing.ptPhu && record.ptPhu) existing.ptPhu = record.ptPhu.trim();
+      if (!existing.bsGM && record.bsGM) existing.bsGM = record.bsGM.trim();
+      if (!existing.ktvGM && record.ktvGM) existing.ktvGM = record.ktvGM.trim();
+      if (!existing.tdc && record.tdc) existing.tdc = record.tdc.trim();
+      if (!existing.gv && record.gv) existing.gv = record.gv.trim();
+    }
+  });
+
+  const consolidatedSessions = Array.from(sessionMap.values());
+
+  consolidatedSessions.forEach((session) => {
+    const { rawStart, rawEnd, originalRecord } = session;
+
     // Thu thập danh sách nhân viên tham gia ca mổ
     const staffList: StaffRoleAssignment[] = [];
     roleKeys.forEach((key) => {
-      const name = (record[key] || '').toString().trim();
+      const name = (session[key] || '').toString().trim();
       if (name) {
         staffList.push({ name, roleKey: key });
       }
@@ -346,13 +409,13 @@ export function calculateOvertimeRows(
       const durationMin = Math.round((interval.end.getTime() - interval.start.getTime()) / 60000);
       if (durationMin <= 0) return;
 
-      const rowId = `${record.patientId || 'BN'}_${rawStart.getTime()}_${idx}_${interval.ghiChu}`;
+      const rowId = `${session.patientId || 'BN'}_${rawStart.getTime()}_${idx}_${interval.ghiChu}`;
 
       resultRows.push({
         id: rowId,
-        patientId: record.patientId || '',
-        patientName: record.patientName || '',
-        tenKT: record.tenKT || '',
+        patientId: session.patientId || '',
+        patientName: session.patientName || '',
+        tenKT: session.tenKT || '',
         ngayBD: formatFullDateTime(rawStart),
         ngayKT: formatFullDateTime(rawEnd),
         ptChinh: interval.staffMap.ptChinh || '',
@@ -366,7 +429,7 @@ export function calculateOvertimeRows(
         durationText: formatDurationText(durationMin),
         durationMinutes: durationMin,
         ghiChu: interval.ghiChu,
-        originalRecord: record,
+        originalRecord: originalRecord,
       });
     });
   });

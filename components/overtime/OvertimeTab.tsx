@@ -58,6 +58,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
   // 2. Bộ lọc & Phân trang
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGhiChu, setFilterGhiChu] = useState<'ALL' | 'Kíp mổ phiên' | 'Kíp trực'>('ALL');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
   const [selectedStaff, setSelectedStaff] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -68,7 +69,29 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
     return calculateOvertimeRows(records, dutySchedules, config?.workingHours, includeGV);
   }, [records, dutySchedules, config?.workingHours, includeGV]);
 
-  // 4. Danh sách tất cả nhân viên có xuất hiện trong danh sách ngoài giờ
+  // 4. Ánh xạ Nhân viên -> Khoa
+  const staffDeptMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (config?.staffList || []).forEach((s) => {
+      if (s.name) {
+        const trimmed = s.name.trim();
+        const dept = (s.department || '').trim();
+        if (dept) {
+          map.set(trimmed, dept);
+          map.set(trimmed.toLowerCase(), dept);
+        }
+      }
+    });
+    return map;
+  }, [config?.staffList]);
+
+  const getStaffDept = (name: string | undefined): string => {
+    if (!name) return '';
+    const trimmed = name.trim();
+    return staffDeptMap.get(trimmed) || staffDeptMap.get(trimmed.toLowerCase()) || '';
+  };
+
+  // 5. Danh sách tất cả nhân viên có xuất hiện trong danh sách ngoài giờ
   const uniqueStaffInOvertime = useMemo(() => {
     const set = new Set<string>();
     overtimeRows.forEach((r) => {
@@ -82,39 +105,74 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
     return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
   }, [overtimeRows, includeGV]);
 
-  // 5. Thống kê tổng quan
-  const stats = useMemo(() => {
-    let totalMinutes = 0;
-    let countPhien = 0;
-    let countTruc = 0;
+  // 6. Danh sách các khoa xuất hiện trong dữ liệu ngoài giờ
+  const availableDepartments = useMemo(() => {
+    const configuredDepts = (config?.departments || []).filter(Boolean);
+    const deptsWithOvertime = new Set<string>();
 
-    overtimeRows.forEach((r) => {
-      totalMinutes += r.durationMinutes || 0;
-      if (r.ghiChu === 'Kíp trực') {
-        countTruc++;
-      } else {
-        countPhien++;
+    overtimeRows.forEach((row) => {
+      const staffMembers = [row.ptChinh, row.ptPhu, row.bsGM, row.ktvGM, row.tdc];
+      if (includeGV && row.gv) staffMembers.push(row.gv);
+      staffMembers.forEach((name) => {
+        if (name && name.trim()) {
+          const dept = getStaffDept(name);
+          if (dept) deptsWithOvertime.add(dept);
+        }
+      });
+    });
+
+    const ordered: string[] = [];
+    configuredDepts.forEach((d) => {
+      if (deptsWithOvertime.has(d)) {
+        ordered.push(d);
+        deptsWithOvertime.delete(d);
       }
     });
 
-    return {
-      totalRows: overtimeRows.length,
-      totalDurationText: formatDurationText(totalMinutes),
-      totalMinutes,
-      countPhien,
-      countTruc,
-    };
-  }, [overtimeRows]);
+    Array.from(deptsWithOvertime)
+      .sort((a, b) => a.localeCompare(b, 'vi'))
+      .forEach((d) => ordered.push(d));
 
-  // 6. Lọc dữ liệu theo tìm kiếm và dropdowns
+    return ordered;
+  }, [config?.departments, overtimeRows, includeGV, staffDeptMap]);
+
+  // 7. Danh sách nhân viên trong dropdown (lọc theo khoa nếu đã chọn khoa)
+  const availableStaff = useMemo(() => {
+    if (selectedDepartment === 'ALL') {
+      return uniqueStaffInOvertime;
+    }
+    return uniqueStaffInOvertime.filter((name) => getStaffDept(name) === selectedDepartment);
+  }, [uniqueStaffInOvertime, selectedDepartment, staffDeptMap]);
+
+  // Xử lý thay đổi Khoa
+  const handleDepartmentChange = (dept: string) => {
+    setSelectedDepartment(dept);
+    if (dept !== 'ALL' && selectedStaff !== 'ALL') {
+      if (getStaffDept(selectedStaff) !== dept) {
+        setSelectedStaff('ALL');
+      }
+    }
+  };
+
+  // 8. Lọc dữ liệu theo tìm kiếm, khoa, ghi chú và nhân viên
   const filteredRows = useMemo(() => {
     return overtimeRows.filter((row) => {
-      // Lọc theo ghi chú
       if (filterGhiChu !== 'ALL' && row.ghiChu !== filterGhiChu) {
         return false;
       }
 
-      // Lọc theo nhân viên cụ thể
+      if (selectedDepartment !== 'ALL') {
+        const rowStaff = [row.ptChinh, row.ptPhu, row.bsGM, row.ktvGM, row.tdc];
+        if (includeGV && row.gv) rowStaff.push(row.gv);
+
+        const hasStaffInDept = rowStaff.some((name) => {
+          if (!name || !name.trim()) return false;
+          return getStaffDept(name) === selectedDepartment;
+        });
+
+        if (!hasStaffInDept) return false;
+      }
+
       if (selectedStaff !== 'ALL') {
         const hasStaff =
           row.ptChinh === selectedStaff ||
@@ -126,7 +184,6 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
         if (!hasStaff) return false;
       }
 
-      // Lọc theo từ khóa tìm kiếm
       if (searchTerm.trim()) {
         const term = searchTerm.trim().toLowerCase();
         const matches =
@@ -148,9 +205,39 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
       return true;
     });
-  }, [overtimeRows, filterGhiChu, selectedStaff, searchTerm, includeGV]);
+  }, [overtimeRows, filterGhiChu, selectedDepartment, selectedStaff, searchTerm, includeGV, staffDeptMap]);
 
-  // 7. Phân trang
+  const isFiltered =
+    selectedDepartment !== 'ALL' ||
+    selectedStaff !== 'ALL' ||
+    filterGhiChu !== 'ALL' ||
+    Boolean(searchTerm.trim());
+
+  // 9. Thống kê tổng quan (phản ánh theo bộ lọc hiện tại)
+  const stats = useMemo(() => {
+    let totalMinutes = 0;
+    let countPhien = 0;
+    let countTruc = 0;
+
+    filteredRows.forEach((r) => {
+      totalMinutes += r.durationMinutes || 0;
+      if (r.ghiChu === 'Kíp trực') {
+        countTruc++;
+      } else {
+        countPhien++;
+      }
+    });
+
+    return {
+      totalRows: filteredRows.length,
+      totalDurationText: formatDurationText(totalMinutes),
+      totalMinutes,
+      countPhien,
+      countTruc,
+    };
+  }, [filteredRows]);
+
+  // 10. Phân trang
   const totalPages = Math.ceil(filteredRows.length / rowsPerPage) || 1;
   const paginatedRows = useMemo(() => {
     const start = (currentPage - 1) * rowsPerPage;
@@ -159,16 +246,24 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterGhiChu, selectedStaff, rowsPerPage, includeGV]);
+  }, [searchTerm, filterGhiChu, selectedDepartment, selectedStaff, rowsPerPage, includeGV]);
 
-  // 8. Xử lý xuất Excel
+  // 11. Xử lý xuất Excel
   const handleExportExcel = async () => {
     if (filteredRows.length === 0) return;
     try {
       setIsExporting(true);
+      let reportTitle = reportDateRangeText || 'Danh sách phẫu thuật ngoài giờ';
+      if (selectedDepartment !== 'ALL') {
+        reportTitle += ` - KHOA ${selectedDepartment.toUpperCase()}`;
+      }
+      if (selectedStaff !== 'ALL') {
+        reportTitle += ` - ${selectedStaff.toUpperCase()}`;
+      }
+
       await exportOvertimeToExcel(
         filteredRows,
-        reportDateRangeText || 'Danh sách phẫu thuật ngoài giờ',
+        reportTitle,
         config?.hospitalName || 'BỆNH VIỆN',
         includeGV
       );
@@ -196,10 +291,20 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-gray-50/70 border-b border-gray-200">
         <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-gray-500">Tổng số lượt ngoài giờ</div>
-            <div className="text-lg font-extrabold text-[#003366] mt-0.5">{stats.totalRows} lượt</div>
+            <div className="text-[11px] font-medium text-gray-500 flex items-center gap-1">
+              <span>Tổng số lượt ngoài giờ</span>
+              {isFiltered && <span className="text-blue-600 font-semibold">(Đã lọc)</span>}
+            </div>
+            <div className="text-lg font-extrabold text-[#003366] mt-0.5">
+              {stats.totalRows} lượt
+              {isFiltered && (
+                <span className="text-xs font-normal text-gray-400 ml-1.5">
+                  / {overtimeRows.length} gốc
+                </span>
+              )}
+            </div>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
+          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
             <Layers className="w-5 h-5" />
           </div>
         </div>
@@ -261,18 +366,47 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
             <option value="Kíp trực">Chỉ Kíp trực</option>
           </select>
 
+          {/* Lọc theo Khoa / Phòng */}
+          <select
+            value={selectedDepartment}
+            onChange={(e) => handleDepartmentChange(e.target.value)}
+            className={`px-2.5 py-1.5 text-xs bg-white border rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium ${
+              selectedDepartment !== 'ALL'
+                ? 'border-blue-400 text-blue-800 bg-blue-50/60 font-semibold'
+                : 'border-gray-200 text-gray-700'
+            }`}
+          >
+            <option value="ALL">Tất cả khoa ({availableDepartments.length})</option>
+            {availableDepartments.map((dept) => (
+              <option key={dept} value={dept}>
+                Khoa {dept}
+              </option>
+            ))}
+          </select>
+
           {/* Lọc theo nhân viên */}
           <select
             value={selectedStaff}
             onChange={(e) => setSelectedStaff(e.target.value)}
-            className="px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-lg text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[180px]"
+            className={`px-2.5 py-1.5 text-xs bg-white border rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[210px] ${
+              selectedStaff !== 'ALL'
+                ? 'border-blue-400 text-blue-800 bg-blue-50/60 font-semibold'
+                : 'border-gray-200 text-gray-700'
+            }`}
           >
-            <option value="ALL">Tất cả nhân viên ({uniqueStaffInOvertime.length})</option>
-            {uniqueStaffInOvertime.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
+            <option value="ALL">
+              {selectedDepartment === 'ALL'
+                ? `Tất cả nhân viên (${uniqueStaffInOvertime.length})`
+                : `Tất cả NV khoa ${selectedDepartment} (${availableStaff.length})`}
+            </option>
+            {availableStaff.map((name) => {
+              const dept = getStaffDept(name);
+              return (
+                <option key={name} value={name}>
+                  {name} {selectedDepartment === 'ALL' && dept ? `(${dept})` : ''}
+                </option>
+              );
+            })}
           </select>
 
           {/* Toggle Bật / Tắt Giúp việc (GV) */}
@@ -322,38 +456,83 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       </div>
 
       {/* ── Table Container ── */}
-      <div className="flex-1 overflow-auto max-h-[calc(100vh-320px)]">
-        <table className="w-full text-xs border-collapse">
+      <div className="flex-1 overflow-auto max-h-[calc(100vh-320px)] border-b border-gray-100">
+        <table className="w-max min-w-full text-xs border-separate border-spacing-0">
+          <colgroup>
+            <col style={{ width: 45, minWidth: 45, maxWidth: 45 }} />
+            <col style={{ width: 85, minWidth: 85, maxWidth: 85 }} />
+            <col style={{ width: 160, minWidth: 160, maxWidth: 160 }} />
+            <col style={{ width: 220, minWidth: 220, maxWidth: 220 }} />
+            <col style={{ width: 125, minWidth: 125, maxWidth: 125 }} />
+            <col style={{ width: 125, minWidth: 125, maxWidth: 125 }} />
+            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
+            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
+            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
+            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
+            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
+            {includeGV && <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />}
+            <col style={{ width: 80, minWidth: 80, maxWidth: 80 }} />
+            <col style={{ width: 80, minWidth: 80, maxWidth: 80 }} />
+            <col style={{ width: 75, minWidth: 75, maxWidth: 75 }} />
+            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
+          </colgroup>
+
           <thead>
-            <tr className="bg-[#003366] text-white select-none sticky top-0 z-10">
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[45px] border-r border-blue-900/60">STT</th>
-              <th className="px-2.5 py-2.5 text-left font-semibold w-[90px] border-r border-blue-900/60">Mã BN</th>
-              <th className="px-3 py-2.5 text-left font-semibold min-w-[140px] border-r border-blue-900/60">Họ tên</th>
-              <th className="px-3 py-2.5 text-left font-semibold min-w-[200px] border-r border-blue-900/60">Tên kỹ thuật</th>
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[125px] border-r border-blue-900/60">Ngày BĐ</th>
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[125px] border-r border-blue-900/60">Ngày KT</th>
-              <th className="px-2.5 py-2.5 text-left font-semibold min-w-[110px] border-r border-blue-900/60">PT chính</th>
-              <th className="px-2.5 py-2.5 text-left font-semibold min-w-[110px] border-r border-blue-900/60">PT phụ</th>
-              <th className="px-2.5 py-2.5 text-left font-semibold min-w-[110px] border-r border-blue-900/60">BS GM</th>
-              <th className="px-2.5 py-2.5 text-left font-semibold min-w-[110px] border-r border-blue-900/60">KTV GM</th>
-              <th className="px-2.5 py-2.5 text-left font-semibold min-w-[110px] border-r border-blue-900/60">TDC</th>
+            <tr className="bg-[#003366] text-white select-none sticky top-0 z-20">
+              <th className="sticky left-0 z-30 bg-[#003366] px-2.5 py-2.5 text-center font-semibold w-[45px] min-w-[45px] max-w-[45px] border-r border-b border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                STT
+              </th>
+              <th className="sticky left-[45px] z-30 bg-[#003366] px-2.5 py-2.5 text-left font-semibold w-[85px] min-w-[85px] max-w-[85px] border-r border-b border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                Mã BN
+              </th>
+              <th className="sticky left-[130px] z-30 bg-[#003366] px-3 py-2.5 text-left font-semibold w-[160px] min-w-[160px] max-w-[160px] border-r border-b border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)]">
+                Họ tên
+              </th>
+              <th className="px-3 py-2.5 text-left font-semibold w-[220px] min-w-[220px] max-w-[220px] border-r border-b border-blue-900/60">
+                Tên kỹ thuật
+              </th>
+              <th className="px-2.5 py-2.5 text-center font-semibold w-[125px] min-w-[125px] max-w-[125px] border-r border-b border-blue-900/60">
+                Ngày BĐ
+              </th>
+              <th className="px-2.5 py-2.5 text-center font-semibold w-[125px] min-w-[125px] max-w-[125px] border-r border-b border-blue-900/60">
+                Ngày KT
+              </th>
+              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+                PT chính
+              </th>
+              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+                PT phụ
+              </th>
+              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+                BS GM
+              </th>
+              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+                KTV GM
+              </th>
+              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+                TDC
+              </th>
               {includeGV && (
-                <th className="px-2.5 py-2.5 text-left font-semibold min-w-[110px] border-r border-blue-900/60">GV</th>
+                <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60 bg-blue-900/80 text-blue-100">
+                  GV
+                </th>
               )}
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[75px] border-r border-blue-900/60 bg-blue-950/70">
+              <th className="px-2 py-2.5 text-center font-semibold w-[80px] min-w-[80px] max-w-[80px] border-r border-b border-blue-900/60 bg-blue-950/70">
                 Ngoài giờ (từ)
               </th>
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[75px] border-r border-blue-900/60 bg-blue-950/70">
+              <th className="px-2 py-2.5 text-center font-semibold w-[80px] min-w-[80px] max-w-[80px] border-r border-b border-blue-900/60 bg-blue-950/70">
                 Ngoài giờ (đến)
               </th>
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[75px] border-r border-blue-900/60 bg-amber-700">
+              <th className="px-2 py-2.5 text-center font-semibold w-[75px] min-w-[75px] max-w-[75px] border-r border-b border-blue-900/60 bg-amber-700 text-amber-50">
                 TS giờ
               </th>
-              <th className="px-3 py-2.5 text-center font-semibold w-[120px]">Ghi chú</th>
+              <th className="px-2.5 py-2.5 text-center font-semibold w-[120px] min-w-[120px] max-w-[120px] border-b border-blue-900/60">
+                Ghi chú
+              </th>
             </tr>
           </thead>
 
-          <tbody className="divide-y divide-gray-200 bg-white">
+          <tbody className="bg-white">
             {paginatedRows.length === 0 ? (
               <tr>
                 <td
@@ -369,72 +548,102 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
                 const globalIndex = (currentPage - 1) * rowsPerPage + idx + 1;
                 const isTruc = row.ghiChu === 'Kíp trực';
 
+                const rowBg = isTruc ? 'bg-amber-50/40' : idx % 2 === 1 ? 'bg-gray-50/50' : 'bg-white';
+                const stickyBg = isTruc ? 'bg-[#FFF8F0]' : idx % 2 === 1 ? 'bg-[#F9FAFB]' : 'bg-white';
+
                 return (
                   <tr
                     key={row.id}
-                    className={`hover:bg-blue-50/40 transition-colors ${
-                      isTruc ? 'bg-orange-50/30' : idx % 2 === 1 ? 'bg-gray-50/40' : 'bg-white'
-                    }`}
+                    className={`hover:bg-blue-50/50 transition-colors ${rowBg}`}
                   >
-                    <td className="px-2.5 py-2 text-center text-gray-500 font-mono border-r border-gray-100">
+                    {/* Cột 1: STT (Sticky) */}
+                    <td
+                      className={`sticky left-0 z-10 ${stickyBg} px-2.5 py-2 text-center text-gray-500 font-mono border-r border-b border-gray-100 w-[45px] min-w-[45px] max-w-[45px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]`}
+                    >
                       {globalIndex}
                     </td>
-                    <td className="px-2.5 py-2 font-mono font-medium text-gray-700 border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 2: Mã BN (Sticky) */}
+                    <td
+                      className={`sticky left-[45px] z-10 ${stickyBg} px-2.5 py-2 font-mono font-medium text-gray-700 border-r border-b border-gray-100 whitespace-nowrap w-[85px] min-w-[85px] max-w-[85px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] truncate`}
+                      title={row.patientId}
+                    >
                       {row.patientId}
                     </td>
-                    <td className="px-3 py-2 font-semibold text-gray-900 border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 3: Họ tên (Sticky) */}
+                    <td
+                      className={`sticky left-[130px] z-10 ${stickyBg} px-3 py-2 font-semibold text-gray-900 border-r border-b border-gray-100 whitespace-nowrap w-[160px] min-w-[160px] max-w-[160px] shadow-[4px_0_6px_rgba(0,0,0,0.08)] truncate`}
+                      title={row.patientName}
+                    >
                       {row.patientName}
                     </td>
-                    <td className="px-3 py-2 text-gray-700 border-r border-gray-100">
-                      <div className="line-clamp-2" title={row.tenKT}>
+
+                    {/* Cột 4: Tên kỹ thuật */}
+                    <td className="px-3 py-2 text-gray-700 border-r border-b border-gray-100 w-[220px] min-w-[220px] max-w-[220px]">
+                      <div className="line-clamp-2 text-xs" title={row.tenKT}>
                         {row.tenKT}
                       </div>
                     </td>
-                    <td className="px-2.5 py-2 text-center text-gray-600 font-mono text-[11px] border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 5: Ngày BĐ */}
+                    <td className="px-2.5 py-2 text-center text-gray-600 font-mono text-[11px] border-r border-b border-gray-100 whitespace-nowrap w-[125px] min-w-[125px] max-w-[125px]">
                       {row.ngayBD}
                     </td>
-                    <td className="px-2.5 py-2 text-center text-gray-600 font-mono text-[11px] border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 6: Ngày KT */}
+                    <td className="px-2.5 py-2 text-center text-gray-600 font-mono text-[11px] border-r border-b border-gray-100 whitespace-nowrap w-[125px] min-w-[125px] max-w-[125px]">
                       {row.ngayKT}
                     </td>
 
-                    {/* Các cột nhân sự: Chỉ hiện nếu người đó thuộc diện ngoài giờ */}
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-gray-100 whitespace-nowrap">
+                    {/* Cột 7: PT chính */}
+                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.ptChinh}>
                       {row.ptChinh ? (
                         <span className="font-medium text-blue-900">{row.ptChinh}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 8: PT phụ */}
+                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.ptPhu}>
                       {row.ptPhu ? (
                         <span className="font-medium text-blue-900">{row.ptPhu}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 9: BS GM */}
+                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.bsGM}>
                       {row.bsGM ? (
                         <span className="font-medium text-indigo-900">{row.bsGM}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 10: KTV GM */}
+                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.ktvGM}>
                       {row.ktvGM ? (
                         <span className="font-medium text-indigo-900">{row.ktvGM}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-gray-100 whitespace-nowrap">
+
+                    {/* Cột 11: TDC */}
+                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.tdc}>
                       {row.tdc ? (
                         <span className="font-medium text-teal-900">{row.tdc}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
+
+                    {/* Cột 12: GV (nếu BẬT) */}
                     {includeGV && (
-                      <td className="px-2.5 py-2 text-gray-800 border-r border-gray-100 whitespace-nowrap">
+                      <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.gv}>
                         {row.gv ? (
                           <span className="font-medium text-teal-900">{row.gv}</span>
                         ) : (
@@ -443,21 +652,23 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
                       </td>
                     )}
 
-                    {/* Ngoài giờ Từ - Đến */}
-                    <td className="px-2.5 py-2 text-center font-mono font-bold text-gray-800 border-r border-gray-100 bg-blue-50/20 whitespace-nowrap">
+                    {/* Cột 13: Ngoài giờ Từ */}
+                    <td className="px-2 py-2 text-center font-mono font-bold text-gray-800 border-r border-b border-gray-100 bg-blue-50/20 whitespace-nowrap w-[80px] min-w-[80px] max-w-[80px]">
                       {row.timeFrom}
                     </td>
-                    <td className="px-2.5 py-2 text-center font-mono font-bold text-gray-800 border-r border-gray-100 bg-blue-50/20 whitespace-nowrap">
+
+                    {/* Cột 14: Ngoài giờ Đến */}
+                    <td className="px-2 py-2 text-center font-mono font-bold text-gray-800 border-r border-b border-gray-100 bg-blue-50/20 whitespace-nowrap w-[80px] min-w-[80px] max-w-[80px]">
                       {row.timeTo}
                     </td>
 
-                    {/* TS Giờ */}
-                    <td className="px-2.5 py-2 text-center font-mono font-extrabold text-amber-700 bg-amber-50/50 border-r border-gray-100 whitespace-nowrap">
+                    {/* Cột 15: TS Giờ */}
+                    <td className="px-2 py-2 text-center font-mono font-extrabold text-amber-700 bg-amber-50/50 border-r border-b border-gray-100 whitespace-nowrap w-[75px] min-w-[75px] max-w-[75px]">
                       {row.durationText}
                     </td>
 
-                    {/* Ghi chú */}
-                    <td className="px-3 py-2 text-center whitespace-nowrap">
+                    {/* Cột 16: Ghi chú */}
+                    <td className="px-2.5 py-2 text-center border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px]">
                       {isTruc ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">
                           Kíp trực
