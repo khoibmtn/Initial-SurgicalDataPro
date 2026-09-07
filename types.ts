@@ -132,6 +132,35 @@ export interface PaymentData {
   }[];
 }
 
+export interface DutyScheduleDateConfig {
+  date: string; // YYYY-MM-DD
+  isHoliday: boolean; // true = ngày nghỉ, lễ, tết, thứ 7, CN; false = ngày hành chính
+  onCallStaff: string[]; // Danh sách họ tên nhân viên được phân công trực 24h
+  updatedAt?: number;
+}
+
+export interface OvertimeRecordRow {
+  id: string; // unique row id
+  stt?: number;
+  patientId: string;
+  patientName: string;
+  tenKT: string;
+  ngayBD: string;
+  ngayKT: string;
+  ptChinh?: string;
+  ptPhu?: string;
+  bsGM?: string;
+  ktvGM?: string;
+  tdc?: string;
+  gv?: string;
+  timeFrom: string; // HH:mm
+  timeTo: string;   // HH:mm
+  durationText: string; // e.g. "30ph", "1h20", "2h"
+  durationMinutes: number;
+  ghiChu: 'Kíp mổ phiên' | 'Kíp trực';
+  originalRecord: SurgeryRecord;
+}
+
 export interface ProcessingResult {
   success: boolean;
   message: string;

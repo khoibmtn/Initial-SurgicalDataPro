@@ -14,13 +14,18 @@ import { ServicePriceTab } from './components/ServicePriceTab';
 import { subscribeToSurgeryNamePrices, getNamePrice } from './services/surgeryNamePriceService';
 import { matchAndApplyServicePrices } from './services/servicePriceProcessor';
 // AI analysis removed — geminiService import no longer needed
-import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember, PatientServicePriceGroup, SurgeryNamePrice } from './types';
+import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember, PatientServicePriceGroup, SurgeryNamePrice, DutyScheduleDateConfig, OvertimeRecordRow } from './types';
 import { FileUpload } from './components/FileUpload';
 import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
 import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem, ErrorBoundary } from './components/ui';
+import { DutyScheduleTab } from './components/duty/DutyScheduleTab';
+import { OvertimeTab } from './components/overtime/OvertimeTab';
+import { dutyScheduleService, getDutyDateKey, formatDateKey, DUTY_SCHEDULE_CHANGE_EVENT } from './services/dutyScheduleService';
+import { getScheduleForDate, calculateOvertimeRows } from './services/overtimeCalculationService';
 import {
   Activity,
   AlertTriangle,
+  CalendarDays,
   Clock,
   Cpu,
   Database,
@@ -1125,7 +1130,7 @@ interface ReportState {
   stats: ProcessedStats | null;
   isProcessing: boolean;
   listFile: File | null;
-  activeTable: 'list' | 'staff' | 'machine' | 'missing' | 'payment' | null;
+  activeTable: 'list' | 'staff' | 'machine' | 'missing' | 'payment' | 'duty' | 'overtime' | null;
   selectedRecordIds: string[]; // IDs of selected records (for 'list' table)
   searchTerms: {
     list: string;
@@ -1133,6 +1138,8 @@ interface ReportState {
     machine: string;
     missing: string;
     payment: string;
+    duty?: string;
+    overtime?: string;
   };
   // UI State for Date Range Pickers (Independent per tab)
   dateFrom: string;
@@ -1158,7 +1165,9 @@ const initialReportState: ReportState = {
     staff: '',
     machine: '',
     missing: '',
-    payment: ''
+    payment: '',
+    duty: '',
+    overtime: ''
   },
   dateFrom: format(new Date(), 'yyyy-MM-dd'),
   timeFrom: '00:00',
@@ -1243,6 +1252,106 @@ const InnerApp: React.FC = () => {
   const updateCurrentReport = (updates: Partial<ReportState>) => {
     updateReportState(currentType, updates, activeDataTab);
   };
+
+  // ── Lịch trực & Ngoài giờ (Shared State across Daily & Monthly) ──
+  const [dutySchedules, setDutySchedules] = useState<Record<string, DutyScheduleDateConfig>>({});
+  const [isSavingDutySchedule, setIsSavingDutySchedule] = useState<boolean>(false);
+
+  // Lắng nghe sự kiện đồng bộ Lịch trực thời gian thực
+  useEffect(() => {
+    const handleDutyChange = (e: any) => {
+      if (e.detail?.date) {
+        setDutySchedules((prev) => ({
+          ...prev,
+          [e.detail.date]: e.detail,
+        }));
+      } else if (e.detail && typeof e.detail === 'object') {
+        setDutySchedules((prev) => ({
+          ...prev,
+          ...e.detail,
+        }));
+      }
+    };
+    window.addEventListener(DUTY_SCHEDULE_CHANGE_EVENT, handleDutyChange);
+    return () => window.removeEventListener(DUTY_SCHEDULE_CHANGE_EVENT, handleDutyChange);
+  }, []);
+
+  // Tự động nạp dữ liệu lịch trực cho các ngày có trong danh sách ca mổ
+  useEffect(() => {
+    const records = currentReport.result?.validRecords;
+    if (!records || records.length === 0) return;
+
+    const dateKeys = new Set<string>();
+    records.forEach((r) => {
+      const start = r.start || (r.ngayBD ? new Date(r.ngayBD) : null);
+      const end = r.end || (r.ngayKT ? new Date(r.ngayKT) : null);
+      if (start && !isNaN(start.getTime())) {
+        const sch = getScheduleForDate(start, config?.workingHours);
+        dateKeys.add(getDutyDateKey(start, sch.morningFrom || '07:00'));
+        dateKeys.add(formatDateKey(start));
+      }
+      if (end && !isNaN(end.getTime())) {
+        dateKeys.add(formatDateKey(end));
+      }
+    });
+
+    const keysArray = Array.from(dateKeys);
+    if (keysArray.length > 0) {
+      dutyScheduleService.getDutySchedulesForDates(keysArray).then((fetched) => {
+        setDutySchedules((prev) => ({
+          ...prev,
+          ...fetched,
+        }));
+      });
+    }
+  }, [currentReport.result?.validRecords, config?.workingHours]);
+
+  // Cập nhật cấu hình lịch trực cho một ngày và lưu tức thì vào Firestore
+  const handleUpdateDutySchedule = async (dateKey: string, isHoliday: boolean, onCallStaff: string[]) => {
+    const updatedItem: DutyScheduleDateConfig = {
+      date: dateKey,
+      isHoliday,
+      onCallStaff,
+      updatedAt: Date.now(),
+    };
+    setDutySchedules((prev) => ({
+      ...prev,
+      [dateKey]: updatedItem,
+    }));
+    setIsSavingDutySchedule(true);
+    try {
+      await dutyScheduleService.saveDutyScheduleDate(dateKey, isHoliday, onCallStaff);
+    } catch (err) {
+      console.error('Lỗi khi lưu lịch trực:', err);
+    } finally {
+      setIsSavingDutySchedule(false);
+    }
+  };
+
+  // Tính số lượng ngày trực và số lượng lượt ca ngoài giờ cho badge của TabLine
+  const currentReportDutyDateCount = useMemo(() => {
+    if (!currentReport.result?.validRecords || currentReport.result.validRecords.length === 0) return 0;
+    const keys = new Set<string>();
+    currentReport.result.validRecords.forEach((r) => {
+      const start = r.start || (r.ngayBD ? new Date(r.ngayBD) : null);
+      if (start && !isNaN(start.getTime())) {
+        const sch = getScheduleForDate(start, config?.workingHours);
+        keys.add(getDutyDateKey(start, sch.morningFrom || '07:00'));
+      }
+    });
+    return keys.size;
+  }, [currentReport.result?.validRecords, config?.workingHours]);
+
+  const currentReportOvertimeCount = useMemo(() => {
+    if (!currentReport.result?.validRecords || currentReport.result.validRecords.length === 0) return 0;
+    try {
+      const includeGV = typeof localStorage !== 'undefined' ? localStorage.getItem('sdp_overtime_include_gv') === 'true' : false;
+      const rows = calculateOvertimeRows(currentReport.result.validRecords, dutySchedules, config?.workingHours, includeGV);
+      return rows.length;
+    } catch {
+      return 0;
+    }
+  }, [currentReport.result?.validRecords, dutySchedules, config?.workingHours]);
 
   const executeDelete = async () => {
     const selectedIds = currentReport.selectedRecordIds || [];
@@ -2612,6 +2721,30 @@ const InnerApp: React.FC = () => {
           />
       );
     }
+
+    if (currentReport.activeTable === 'duty') {
+      return (
+        <DutyScheduleTab
+          records={currentReport.result.validRecords}
+          dutySchedules={dutySchedules}
+          onUpdateDutySchedule={handleUpdateDutySchedule}
+          config={config}
+          isSaving={isSavingDutySchedule}
+        />
+      );
+    }
+
+    if (currentReport.activeTable === 'overtime') {
+      return (
+        <OvertimeTab
+          records={currentReport.result.validRecords}
+          dutySchedules={dutySchedules}
+          config={config}
+          onNavigateToDutyTab={() => setActiveTable('duty')}
+          reportDateRangeText={currentReport.result?.dateRangeText || currentReport.listDateRange || ''}
+        />
+      );
+    }
     return null;
   };
 
@@ -3261,6 +3394,15 @@ const InnerApp: React.FC = () => {
         currentReport.dataSource || 'EXCEL'
       );
 
+      // Tự động lưu luôn thông tin Lịch trực vào Firestore khi lưu báo cáo
+      if (dutySchedules && Object.keys(dutySchedules).length > 0) {
+        try {
+          await dutyScheduleService.batchSaveDutySchedules(dutySchedules);
+        } catch (err) {
+          console.warn('[handleSaveReport] Could not batch save duty schedules:', err);
+        }
+      }
+
       // Build appropriate message based on results
       let msg = '';
       if (savedCount > 0 && updatedCount > 0) {
@@ -3896,6 +4038,8 @@ const InnerApp: React.FC = () => {
                           { value: 'machine', label: 'Trùng máy', icon: Cpu, badge: currentReport.stats?.machineConflicts ?? 0, badgeColor: (currentReport.stats?.machineConflicts ?? 0) > 0 ? 'bg-amber-100 text-amber-700' : undefined },
                           { value: 'missing', label: 'Thiếu máy', icon: AlertTriangle, badge: currentReport.stats?.missingMachines ?? 0, badgeColor: (currentReport.stats?.missingMachines ?? 0) > 0 ? 'bg-orange-100 text-orange-700' : undefined },
                           { value: 'payment', label: 'Thanh toán', icon: DollarSign, badge: currentReport.result?.paymentData?.rows?.length || 0, badgeColor: 'bg-emerald-100 text-emerald-700' },
+                          { value: 'duty', label: 'Lịch trực', icon: CalendarDays, badge: currentReportDutyDateCount || 0 },
+                          { value: 'overtime', label: 'Ngoài giờ', icon: Clock, badge: currentReportOvertimeCount || 0, badgeColor: currentReportOvertimeCount > 0 ? 'bg-amber-100 text-amber-800' : undefined },
                         ]}
                         size="sm"
                         bordered

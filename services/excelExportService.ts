@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
-import { SurgeryRecord, ProcessingResult, LaborAllowanceItem } from '../types';
+import { SurgeryRecord, ProcessingResult, LaborAllowanceItem, OvertimeRecordRow } from '../types';
 import { AppConfig } from '../contexts/ConfigContext';
 import { getAllowanceForRecord } from './laborConfigService';
 
@@ -694,3 +694,124 @@ export async function exportFormattedFullExcel(
   const filename = `Ket_qua_dinh_dang_${new Date().toISOString().split('T')[0]}.xlsx`;
   await saveWorkbook(wb, filename);
 }
+
+/**
+ * Xuất danh sách Phẫu thuật Ngoài giờ hành chính sang file Excel
+ */
+export async function exportOvertimeToExcel(
+  rows: OvertimeRecordRow[],
+  dateRange: string,
+  hospitalName: string = 'BỆNH VIỆN',
+  includeGV: boolean = false,
+  existingWb?: ExcelJS.Workbook
+) {
+  const wb = existingWb || new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Phẫu thuật Ngoài giờ', {
+    pageSetup: {
+      orientation: 'landscape',
+      paperSize: 9, // A4
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    },
+  });
+
+  const cols = [
+    { header: 'STT', key: 'stt', width: 6 },
+    { header: 'Mã BN', key: 'patientId', width: 12 },
+    { header: 'Họ và tên người bệnh', key: 'patientName', width: 22 },
+    { header: 'Tên phẫu thuật, thủ thuật', key: 'tenKT', width: 34 },
+    { header: 'Ngày BĐ', key: 'ngayBD', width: 18 },
+    { header: 'Ngày KT', key: 'ngayKT', width: 18 },
+    { header: 'PT chính', key: 'ptChinh', width: 18 },
+    { header: 'PT phụ', key: 'ptPhu', width: 18 },
+    { header: 'BS GM', key: 'bsGM', width: 18 },
+    { header: 'KTV GM', key: 'ktvGM', width: 18 },
+    { header: 'TDC', key: 'tdc', width: 18 },
+    ...(includeGV ? [{ header: 'GV', key: 'gv', width: 18 }] : []),
+    { header: 'Ngoài giờ (từ)', key: 'timeFrom', width: 14 },
+    { header: 'Ngoài giờ (đến)', key: 'timeTo', width: 14 },
+    { header: 'TS giờ', key: 'durationText', width: 12 },
+    { header: 'Ghi chú', key: 'ghiChu', width: 16 },
+  ];
+
+  const totalCols = cols.length;
+  let row = addReportHeader(
+    ws,
+    'BẢNG THỐNG KÊ PHẪU THUẬT NGOÀI GIỜ HÀNH CHÍNH',
+    dateRange,
+    hospitalName,
+    totalCols,
+    1
+  );
+
+  // Dòng tiêu đề bảng
+  const headerRow = ws.getRow(row);
+  cols.forEach((c, idx) => {
+    const cell = headerRow.getCell(idx + 1);
+    cell.value = c.header;
+    cell.font = { name: FONT_TIMES, size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF003366' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = thinBorder;
+    ws.getColumn(idx + 1).width = c.width;
+  });
+  headerRow.height = 26;
+  row++;
+
+  // Dòng dữ liệu
+  rows.forEach((r, idx) => {
+    const dataRow = ws.getRow(row);
+    let colIdx = 1;
+    dataRow.getCell(colIdx++).value = idx + 1;
+    dataRow.getCell(colIdx++).value = r.patientId;
+    dataRow.getCell(colIdx++).value = r.patientName;
+    dataRow.getCell(colIdx++).value = r.tenKT;
+    dataRow.getCell(colIdx++).value = r.ngayBD;
+    dataRow.getCell(colIdx++).value = r.ngayKT;
+    dataRow.getCell(colIdx++).value = r.ptChinh || '';
+    dataRow.getCell(colIdx++).value = r.ptPhu || '';
+    dataRow.getCell(colIdx++).value = r.bsGM || '';
+    dataRow.getCell(colIdx++).value = r.ktvGM || '';
+    dataRow.getCell(colIdx++).value = r.tdc || '';
+    if (includeGV) {
+      dataRow.getCell(colIdx++).value = r.gv || '';
+    }
+    dataRow.getCell(colIdx++).value = r.timeFrom;
+    dataRow.getCell(colIdx++).value = r.timeTo;
+    dataRow.getCell(colIdx++).value = r.durationText;
+    dataRow.getCell(colIdx++).value = r.ghiChu;
+
+    for (let c = 1; c <= totalCols; c++) {
+      const cell = dataRow.getCell(c);
+      cell.font = { name: FONT_TIMES, size: 10 };
+      cell.border = thinBorder;
+      if (c === 1 || c === 2 || c === 5 || c === 6 || c >= totalCols - 3) {
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      } else {
+        cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+      }
+    }
+    dataRow.height = 20;
+    row++;
+  });
+
+  // Dòng tổng cộng
+  const totalRow = ws.getRow(row);
+  ws.mergeCells(row, 1, row, 4);
+  totalRow.getCell(1).value = `Tổng cộng: ${rows.length} lượt phẫu thuật ngoài giờ`;
+  totalRow.getCell(1).font = { name: FONT_TIMES, size: 10, bold: true };
+  totalRow.getCell(1).alignment = { horizontal: 'left', vertical: 'middle' };
+
+  for (let c = 1; c <= totalCols; c++) {
+    totalRow.getCell(c).border = thinBorder;
+  }
+  row++;
+
+  if (!existingWb) {
+    const filename = `Bang_thong_ke_ngoai_gio_${new Date().toISOString().split('T')[0]}.xlsx`;
+    await saveWorkbook(wb, filename);
+  }
+}
+
