@@ -1,8 +1,11 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 08/09/2026 01:25 (Giờ địa phương GMT+7)  
+> **Thời gian tạo:** 08/09/2026 01:32 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-08-09-2026-01h31`  
+> **Commit mới nhất:** `5108709 fix: can chinh do rong sticky column tren bang Lich truc tranh de cot ngay dau tien`  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Trạng thái Build & Deploy:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`
+> **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
+> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`
 
 ---
 
@@ -18,10 +21,18 @@
   - Checkbox phân công trực 24h cho từng nhân viên.
 - **Lưu trữ tập trung Firestore (`dutyScheduleService.ts`):**
   - Lưu vào root collection `duty_schedules` với document ID là `YYYY-MM-DD`.
-  - Tự động nạp lại lịch trực khi mở ca mổ cũ.
+  - Tự động nạp lại lịch trực khi mở ca mổ cũ hoặc chuyển đổi giữa BC ngày $\longleftrightarrow$ BC tháng $\longleftrightarrow$ Kho lưu trữ.
   - Tự động lưu tức thì (Auto-save) khi click checkbox kèm phát sự kiện realtime `sdp-duty-schedule-changed`.
 
-### 1.2. Tab Ngoài Giờ (`OvertimeTab.tsx` & `overtimeCalculationService.ts`)
+### 1.2. Khắc Phục Lỗi Cột Ngày Đầu Tiên Bị Đè (Sticky Column Alignment)
+- **Vấn đề trước đây:** Cột Họ và tên nhân viên có `sticky left-[180px]`, nhưng ô `<td>` của cột Khoa / Phòng không đặt chiều rộng cố định khiến trình duyệt co cột Khoa xuống ~90px. Do đó cột Họ tên bị dạt sang phải và che khuất hoàn toàn cột ngày đầu tiên (`01/08`), đồng thời che một phần cột `02/08`.
+- **Giải pháp triệt để:**
+  - Bổ sung `<colgroup>` khai báo cố định: Cột 1 (`160px`), Cột 2 (`240px`), các cột ngày (`76px`).
+  - Đặt `w-[160px] min-w-[160px] max-w-[160px] sticky left-0` cho Cột 1 và `w-[240px] min-w-[240px] max-w-[240px] sticky left-[160px]` cho Cột 2 trên cả `<th>` và `<td>`.
+  - Tách hàng cấu hình ngày nghỉ thành 2 ô riêng biệt (Cột 1: `CẤU HÌNH`, Cột 2: `NGÀY NGHỈ / LỄ / TẾT`), loại bỏ `colSpan={2}` trên hàng sticky.
+  - Kiểm thử trực tiếp trên trình duyệt: Cột ngày `01/08` và `02/08` hiển thị rõ nét 100%, cuộn ngang mượt mà.
+
+### 1.3. Tab Ngoài Giờ (`OvertimeTab.tsx` & `overtimeCalculationService.ts`)
 - **Engine tính toán ngoài giờ đa phân đoạn:**
   - Tự động nhận diện mùa Hè (`01/05 - 30/09`) và mùa Đông (`01/10 - 30/04`) theo `config.workingHours`.
   - Phân loại cho từng cá nhân:
@@ -36,7 +47,7 @@
   - Bộ lọc tìm kiếm, lọc theo loại ghi chú, lọc theo nhân viên cụ thể.
   - Nút **Xuất Excel Ngoài giờ** khổ A4 ngang (`exportOvertimeToExcel`).
 
-### 1.3. Khắc Phục Xung Đột Cổng Dev Server
+### 1.4. Cấu Hình Cổng Dev Server
 - Chuyển cổng mặc định của Vite sang **`3002`** trong `vite.config.ts` để tránh xung đột với `kios-xm` (cổng 3000) và `claude-proxy` (cổng 3001).
 
 ---
@@ -81,5 +92,7 @@ export interface OvertimeRecordRow {
 ---
 
 ## 🚀 3. Trạng Thái Build & Triển Khai
-- `npm run build`: Thành công 100% không lỗi.
-- Đã kiểm thử trực tiếp trên trình duyệt `http://localhost:3002/`.
+- `npm run build`: Thành công 100% không lỗi (6.12s).
+- Đã đồng bộ mã nguồn lên nhánh `main` trên GitHub.
+- Nhánh làm việc hiện tại: `temp-08-09-2026-01h31`.
+- Đã kiểm thử trực quan trên trình duyệt `http://localhost:3002/`.
