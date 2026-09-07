@@ -272,16 +272,23 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
       {/* ── Matrix Table Container ── */}
       <div className="flex-1 overflow-auto max-h-[calc(100vh-280px)] border-b border-gray-100">
         <table className="w-full text-xs border-collapse">
+          <colgroup>
+            <col style={{ width: 160, minWidth: 160, maxWidth: 160 }} />
+            <col style={{ width: 240, minWidth: 240, maxWidth: 240 }} />
+            {dutyDates.map((dateKey) => (
+              <col key={dateKey} style={{ width: 76, minWidth: 76, maxWidth: 76 }} />
+            ))}
+          </colgroup>
           <thead>
             {/* Hàng 1: Tiêu đề các ngày */}
             <tr className="bg-[#003366] text-white select-none sticky top-0 z-20">
-              <th className="sticky left-0 z-30 bg-[#003366] px-3 py-2.5 text-left font-semibold w-[180px] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+              <th className="sticky left-0 z-30 bg-[#003366] px-3 py-2.5 text-left font-semibold w-[160px] min-w-[160px] max-w-[160px] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                 <div className="flex items-center gap-1.5">
                   <Building2 className="w-3.5 h-3.5 text-blue-200" />
                   <span>Khoa / Phòng</span>
                 </div>
               </th>
-              <th className="sticky left-[180px] z-30 bg-[#003366] px-3 py-2.5 text-left font-semibold w-[220px] border-r border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)]">
+              <th className="sticky left-[160px] z-30 bg-[#003366] px-3 py-2.5 text-left font-semibold w-[240px] min-w-[240px] max-w-[240px] border-r border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)]">
                 <div className="flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5 text-blue-200" />
                   <span>Họ và tên nhân viên</span>
@@ -296,7 +303,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 return (
                   <th
                     key={dateKey}
-                    className={`px-2.5 py-2 text-center font-semibold min-w-[76px] border-r border-blue-900/60 ${
+                    className={`px-2.5 py-2 text-center font-semibold w-[76px] min-w-[76px] max-w-[76px] border-r border-blue-900/60 ${
                       isHoliday ? 'bg-amber-700/80 text-amber-100' : ''
                     }`}
                   >
@@ -321,19 +328,21 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
 
             {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết */}
             <tr className="bg-amber-50/90 border-b-2 border-amber-300 sticky top-[41px] z-10 select-none">
-              <td
-                colSpan={2}
-                className="sticky left-0 z-25 bg-amber-100 px-3 py-2 text-left font-bold text-amber-900 border-r border-amber-300 shadow-[4px_0_6px_rgba(0,0,0,0.08)]"
-              >
+              <td className="sticky left-0 z-25 bg-amber-100 px-3 py-2 text-left font-bold text-amber-900 border-r border-amber-300 w-[160px] min-w-[160px] max-w-[160px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
+                  <span className="text-xs uppercase font-extrabold text-amber-900 tracking-wide">
+                    Cấu hình
+                  </span>
+                </div>
+              </td>
+              <td className="sticky left-[160px] z-25 bg-amber-100 px-3 py-2 text-left font-bold text-amber-900 border-r border-amber-300 w-[240px] min-w-[240px] max-w-[240px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
-                    <span className="text-xs uppercase font-extrabold text-amber-900 tracking-wide">
-                      Ngày nghỉ / Lễ / Tết
-                    </span>
-                  </div>
+                  <span className="text-xs uppercase font-extrabold text-amber-900 tracking-wide">
+                    Ngày nghỉ / Lễ / Tết
+                  </span>
                   <span className="text-[10px] font-normal text-amber-700 hidden lg:inline">
-                    (Check: Nghỉ 100% ngoài giờ; Bỏ check: Làm bù hành chính)
+                    (Nghỉ 100%)
                   </span>
                 </div>
               </td>
@@ -344,7 +353,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 return (
                   <td
                     key={dateKey}
-                    className="px-2 py-2 text-center border-r border-amber-200 bg-amber-50"
+                    className="px-2 py-2 text-center border-r border-amber-200 bg-amber-50 w-[76px] min-w-[76px] max-w-[76px]"
                   >
                     <label className="inline-flex items-center justify-center cursor-pointer p-1 rounded hover:bg-amber-200/60 transition-colors">
                       <input
@@ -373,11 +382,11 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   }`}
                 >
                   {/* Cột 1: Tên Khoa */}
-                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-gray-600 border-r border-gray-200 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.04)] whitespace-nowrap">
+                  <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-gray-600 border-r border-gray-200 text-xs shadow-[2px_0_4px_rgba(0,0,0,0.04)] whitespace-nowrap w-[160px] min-w-[160px] max-w-[160px] truncate">
                     {isFirstOfDept ? (
-                      <span className="font-bold text-gray-800 text-xs flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>
-                        {staff.department}
+                      <span className="font-bold text-gray-800 text-xs flex items-center gap-1 truncate" title={staff.department}>
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
+                        <span className="truncate">{staff.department}</span>
                       </span>
                     ) : (
                       <span className="text-gray-300 text-[10px] pl-3">↳</span>
@@ -385,12 +394,12 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   </td>
 
                   {/* Cột 2: Họ tên nhân viên */}
-                  <td className="sticky left-[180px] z-10 bg-white px-3 py-1.5 font-medium text-gray-900 border-r border-gray-200 shadow-[4px_0_6px_rgba(0,0,0,0.06)] whitespace-nowrap">
+                  <td className="sticky left-[160px] z-10 bg-white px-3 py-1.5 font-medium text-gray-900 border-r border-gray-200 shadow-[4px_0_6px_rgba(0,0,0,0.06)] whitespace-nowrap w-[240px] min-w-[240px] max-w-[240px]">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-semibold text-gray-800 hover:text-blue-700 cursor-default">
+                      <span className="font-semibold text-gray-800 hover:text-blue-700 cursor-default truncate" title={staff.name}>
                         {staff.name}
                       </span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono text-gray-500 bg-gray-100 border border-gray-200">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-mono text-gray-500 bg-gray-100 border border-gray-200 shrink-0">
                         {staff.derivedPos}
                       </span>
                     </div>
@@ -406,7 +415,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                     return (
                       <td
                         key={dateKey}
-                        className={`px-2 py-1.5 text-center border-r border-gray-100 transition-colors ${
+                        className={`px-2 py-1.5 text-center border-r border-gray-100 w-[76px] min-w-[76px] max-w-[76px] transition-colors ${
                           isOnCall
                             ? 'bg-blue-50/80 font-bold'
                             : isHol
