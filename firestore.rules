@@ -21,5 +21,10 @@ service cloud.firestore {
     match /surgery_profiles/{profileId} {
       allow read, write: if true;
     }
+
+    // Duty schedules (global schedule by date)
+    match /duty_schedules/{dateKey} {
+      allow read, write: if true;
+    }
   }
 }

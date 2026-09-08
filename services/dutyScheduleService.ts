@@ -83,13 +83,44 @@ export function getDutyDateKey(date: Date, morningStart: string = '07:00'): stri
   return formatDateKey(date);
 }
 
+const LOCAL_STORAGE_KEY_PREFIX = 'sdp_duty_schedule_';
+
+function getLocalDutySchedule(dateKey: string): DutyScheduleDateConfig | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`${LOCAL_STORAGE_KEY_PREFIX}${dateKey}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        date: dateKey,
+        isHoliday: Boolean(parsed.isHoliday),
+        onCallStaff: Array.isArray(parsed.onCallStaff) ? parsed.onCallStaff : [],
+        updatedAt: parsed.updatedAt || Date.now(),
+      };
+    }
+  } catch (err) {
+    console.warn(`[dutyScheduleService] Failed to read localStorage for ${dateKey}:`, err);
+  }
+  return null;
+}
+
+function setLocalDutySchedule(dateKey: string, data: DutyScheduleDateConfig): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(`${LOCAL_STORAGE_KEY_PREFIX}${dateKey}`, JSON.stringify(data));
+  } catch (err) {
+    console.warn(`[dutyScheduleService] Failed to write localStorage for ${dateKey}:`, err);
+  }
+}
+
 export const dutyScheduleService = {
   /**
    * Tải lịch trực cho một danh sách các ngày (YYYY-MM-DD).
-   * Nếu ngày nào chưa có trong Firestore, tự động tạo cấu hình mặc định:
-   * - T7, CN: isHoliday = true
-   * - Ngày thường: isHoliday = false
-   * - onCallStaff = []
+   * Cơ chế đa tầng (Dual-layer):
+   * 1. Ưu tiên đọc từ LocalStorage để render tức thì (0ms latency).
+   * 2. Đồng thời tải từ Firestore để đồng bộ hóa và cập nhật lại cache.
+   * 3. Nếu Firestore lỗi hoặc chưa có cấu hình, giữ nguyên dữ liệu LocalStorage đã lưu.
    */
   async getDutySchedulesForDates(dateKeys: string[]): Promise<Record<string, DutyScheduleDateConfig>> {
     const result: Record<string, DutyScheduleDateConfig> = {};
@@ -97,30 +128,53 @@ export const dutyScheduleService = {
 
     const uniqueDates = Array.from(new Set(dateKeys)).filter(Boolean);
 
+    // Bước 1: Khởi tạo kết quả ngay lập tức từ LocalStorage nếu có
+    uniqueDates.forEach((dateKey) => {
+      const local = getLocalDutySchedule(dateKey);
+      if (local) {
+        result[dateKey] = local;
+      }
+    });
+
     try {
       const fetchPromises = uniqueDates.map(async (dateKey) => {
+        const local = getLocalDutySchedule(dateKey);
         try {
           const docRef = doc(db, 'duty_schedules', dateKey);
           const snap = await getDoc(docRef);
           if (snap.exists()) {
             const data = snap.data();
-            return {
+            const config: DutyScheduleDateConfig = {
               date: dateKey,
               isHoliday: data.isHoliday !== undefined ? Boolean(data.isHoliday) : isWeekend(dateKey),
               onCallStaff: Array.isArray(data.onCallStaff) ? data.onCallStaff : [],
               updatedAt: data.updatedAt || Date.now(),
             };
+            // Cập nhật lại local cache từ Firestore
+            setLocalDutySchedule(dateKey, config);
+            return config;
+          } else if (local) {
+            // Nếu Firestore chưa có nhưng LocalStorage đã lưu, tự động đồng bộ lên Firestore
+            try {
+              await setDoc(docRef, local, { merge: true });
+            } catch (syncErr) {
+              console.warn(`[dutyScheduleService] Could not sync local schedule to Firestore for ${dateKey}:`, syncErr);
+            }
+            return local;
           }
         } catch (err) {
           console.warn(`[dutyScheduleService] Could not fetch duty schedule for ${dateKey}:`, err);
+          if (local) return local;
         }
-        // Default fallback if not found in Firestore
-        return {
+
+        // Fallback mặc định nếu cả Firestore và LocalStorage đều chưa có
+        const fallback: DutyScheduleDateConfig = local || {
           date: dateKey,
           isHoliday: isWeekend(dateKey),
           onCallStaff: [],
           updatedAt: Date.now(),
         };
+        return fallback;
       });
 
       const fetchedList = await Promise.all(fetchPromises);
@@ -130,12 +184,15 @@ export const dutyScheduleService = {
     } catch (error) {
       console.error('[dutyScheduleService] Error in getDutySchedulesForDates:', error);
       uniqueDates.forEach((dateKey) => {
-        result[dateKey] = {
-          date: dateKey,
-          isHoliday: isWeekend(dateKey),
-          onCallStaff: [],
-          updatedAt: Date.now(),
-        };
+        if (!result[dateKey]) {
+          const local = getLocalDutySchedule(dateKey);
+          result[dateKey] = local || {
+            date: dateKey,
+            isHoliday: isWeekend(dateKey),
+            onCallStaff: [],
+            updatedAt: Date.now(),
+          };
+        }
       });
     }
 
@@ -144,6 +201,9 @@ export const dutyScheduleService = {
 
   /**
    * Lưu hoặc cập nhật cấu hình trực của một ngày (Auto-save).
+   * 1. Ghi tức thì vào LocalStorage.
+   * 2. Phát sự kiện realtime trong ứng dụng.
+   * 3. Đồng bộ lên Firestore.
    */
   async saveDutyScheduleDate(
     dateKey: string,
@@ -151,27 +211,32 @@ export const dutyScheduleService = {
     onCallStaff: string[]
   ): Promise<void> {
     if (!dateKey) return;
+    const dataToSave: DutyScheduleDateConfig = {
+      date: dateKey,
+      isHoliday,
+      onCallStaff,
+      updatedAt: Date.now(),
+    };
+
+    // 1. Lưu ngay lập tức vào LocalStorage (Đảm bảo dữ liệu không bị mất)
+    setLocalDutySchedule(dateKey, dataToSave);
+
+    // 2. Phát sự kiện realtime cho các tab khác tự cập nhật
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent(DUTY_SCHEDULE_CHANGE_EVENT, {
+          detail: dataToSave,
+        })
+      );
+    }
+
+    // 3. Đồng bộ lên Firestore
     try {
       const docRef = doc(db, 'duty_schedules', dateKey);
-      const dataToSave: DutyScheduleDateConfig = {
-        date: dateKey,
-        isHoliday,
-        onCallStaff,
-        updatedAt: Date.now(),
-      };
       await setDoc(docRef, dataToSave, { merge: true });
-
-      // Phát sự kiện realtime cho các tab khác tự cập nhật
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent(DUTY_SCHEDULE_CHANGE_EVENT, {
-            detail: dataToSave,
-          })
-        );
-      }
     } catch (error) {
-      console.error(`[dutyScheduleService] Failed to save duty schedule for ${dateKey}:`, error);
-      throw error;
+      console.error(`[dutyScheduleService] Failed to save duty schedule to Firestore for ${dateKey}:`, error);
+      // Không throw error nếu local đã lưu thành công để UI không bị gián đoạn
     }
   },
 
@@ -184,6 +249,16 @@ export const dutyScheduleService = {
     const dates = Object.keys(schedules);
     if (dates.length === 0) return;
 
+    // 1. Lưu ngay lập tức vào LocalStorage
+    dates.forEach((dateKey) => {
+      setLocalDutySchedule(dateKey, schedules[dateKey]);
+    });
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(DUTY_SCHEDULE_CHANGE_EVENT, { detail: schedules }));
+    }
+
+    // 2. Lưu Firestore Batch
     try {
       const batch = writeBatch(db);
       for (const dateKey of dates) {
@@ -201,13 +276,8 @@ export const dutyScheduleService = {
         );
       }
       await batch.commit();
-
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent(DUTY_SCHEDULE_CHANGE_EVENT, { detail: schedules }));
-      }
     } catch (error) {
-      console.error('[dutyScheduleService] Batch save failed:', error);
-      throw error;
+      console.error('[dutyScheduleService] Batch save to Firestore failed:', error);
     }
   },
 };
