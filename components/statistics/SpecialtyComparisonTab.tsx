@@ -41,6 +41,7 @@ import {
   MonthlyTrendItem,
 } from '../../services/specialtyComparisonService';
 import { exportSpecialtyComparisonExcel, exportSpecialtyComparisonCSV } from '../../services/excelExportComparisonService';
+import { PageCombobox } from '../common/PageCombobox';
 import { ComparisonChartsView } from './ComparisonChartsView';
 
 interface Props {
@@ -2107,9 +2108,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </button>
 
-                <span className="px-2 py-1 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded shadow-2xs">
-                  {currentPage} / {totalPages}
-                </span>
+                <PageCombobox
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  size="sm"
+                />
 
                 <button
                   type="button"

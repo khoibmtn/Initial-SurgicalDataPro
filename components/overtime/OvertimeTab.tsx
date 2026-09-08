@@ -18,6 +18,7 @@ import { SurgeryRecord, DutyScheduleDateConfig, OvertimeRecordRow } from '../../
 import { AppConfig } from '../../contexts/ConfigContext';
 import { calculateOvertimeRows, formatDurationText } from '../../services/overtimeCalculationService';
 import { exportOvertimeToExcel } from '../../services/excelExportService';
+import { PageCombobox } from '../common/PageCombobox';
 
 interface OvertimeTabProps {
   records: SurgeryRecord[];
@@ -711,7 +712,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -720,9 +721,12 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
           >
             Trang trước
           </button>
-          <span className="px-2 text-xs font-semibold text-gray-700">
-            {currentPage} / {totalPages}
-          </span>
+          <PageCombobox
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            size="md"
+          />
           <button
             type="button"
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}

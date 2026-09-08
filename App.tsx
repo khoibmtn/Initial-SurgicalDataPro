@@ -20,6 +20,7 @@ import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
 import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem, ErrorBoundary } from './components/ui';
 import { DutyScheduleTab } from './components/duty/DutyScheduleTab';
 import { OvertimeTab } from './components/overtime/OvertimeTab';
+import { PageCombobox } from './components/common/PageCombobox';
 import { dutyScheduleService, getDutyDateKey, formatDateKey, DUTY_SCHEDULE_CHANGE_EVENT } from './services/dutyScheduleService';
 import { getScheduleForDate, calculateOvertimeRows } from './services/overtimeCalculationService';
 import {
@@ -1115,10 +1116,10 @@ const DynamicTable = <T extends Record<string, any>>({
               </select>
               <span className="hidden sm:inline-block ml-2 text-gray-400">| {startIndex + 1}-{Math.min(startIndex + rowsPerPage, data.length)} / {data.length}</span>
             </div>
-            <div className="flex items-center gap-1">
-              <button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1} className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600"><ChevronLeft className="h-3 w-3" /></button>
-              <span className="font-medium text-gray-700 px-2">{currentPage}/{totalPages}</span>
-              <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages} className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600"><ChevronRight className="h-3 w-3" /></button>
+            <div className="flex items-center gap-1.5">
+              <button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage === 1} className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 cursor-pointer"><ChevronLeft className="h-3 w-3" /></button>
+              <PageCombobox currentPage={currentPage} totalPages={totalPages} onPageChange={handlePageChange} size="sm" />
+              <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage === totalPages} className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 cursor-pointer"><ChevronRight className="h-3 w-3" /></button>
             </div>
           </div>
       )}

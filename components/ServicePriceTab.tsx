@@ -19,6 +19,7 @@ import {
   Info
 } from 'lucide-react';
 import { FileUpload } from './FileUpload';
+import { PageCombobox } from './common/PageCombobox';
 import {
   SurgeryRecord,
   PatientServicePriceGroup,
@@ -618,21 +619,24 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
                 Hiển thị {(currentPage - 1) * pageSize + 1} -{' '}
                 {Math.min(currentPage * pageSize, filteredDetails.length)} trên tổng số {filteredDetails.length} ca
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="p-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="p-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
-                <span className="px-2 font-semibold text-gray-700">
-                  {currentPage} / {totalPages}
-                </span>
+                <PageCombobox
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setCurrentPage}
+                  size="md"
+                />
                 <button
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
-                  className="p-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="p-1 rounded-lg border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>

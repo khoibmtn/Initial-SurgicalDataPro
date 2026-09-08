@@ -1089,7 +1089,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                           isMonthFocused
                             ? 'bg-blue-700 ring-1 ring-amber-300 text-amber-100'
                             : isHoliday
-                            ? 'bg-amber-700/80 text-amber-100'
+                            ? 'bg-amber-700 text-amber-100 border-r-amber-800/80'
                             : 'bg-[#003366]'
                         }`}
                       >
@@ -1117,11 +1117,11 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết */}
                 <tr
                   style={{ top: headerRow2Top }}
-                  className="group bg-amber-50 sticky z-30 select-none shadow-[0_3px_6px_-2px_rgba(0,0,0,0.15)]"
+                  className="group bg-amber-50 sticky z-30 select-none shadow-[0_4px_8px_-2px_rgba(180,83,9,0.35)]"
                 >
                   <td
-                    style={{ top: headerRow2Top }}
-                    className="sticky left-0 z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2 py-1 text-left font-bold text-amber-900 border-r border-amber-300 border-b-2 border-b-amber-500 w-[110px] min-w-[110px] max-w-[110px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]"
+                    style={{ top: headerRow2Top, borderBottom: '3.5px solid #b45309' }}
+                    className="sticky left-0 z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[110px] min-w-[110px] max-w-[110px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]"
                   >
                     <div className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0"></span>
@@ -1131,8 +1131,8 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                     </div>
                   </td>
                   <td
-                    style={{ top: headerRow2Top }}
-                    className="sticky left-[110px] z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 border-b-2 border-b-amber-500 w-[270px] min-w-[270px] max-w-[270px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]"
+                    style={{ top: headerRow2Top, borderBottom: '3.5px solid #b45309' }}
+                    className="sticky left-[110px] z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[270px] min-w-[270px] max-w-[270px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]"
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span
@@ -1164,10 +1164,11 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                           minWidth: colWidth,
                           maxWidth: colWidth,
                           top: headerRow2Top,
+                          borderBottom: '3.5px solid #b45309',
                         }}
-                        className={`sticky z-30 px-0.5 py-0.5 text-center border-r border-b-2 border-b-amber-500 transition-colors ${
+                        className={`sticky z-30 px-0.5 py-0.5 text-center border-r transition-colors ${
                           isHoliday
-                            ? 'bg-amber-200 text-amber-950 font-bold border-r-amber-300 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)] group-hover:bg-amber-300/90'
+                            ? 'bg-amber-200/90 text-amber-950 font-bold border-r-amber-300/80 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)] group-hover:bg-amber-300/90'
                             : 'bg-amber-50 border-r-amber-200 group-hover:bg-amber-100/90'
                         }`}
                       >
@@ -1323,10 +1324,10 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                             } ${
                               isOnCall
                                 ? 'bg-blue-200 text-blue-950 font-bold border-blue-300 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.2)] group-hover:bg-blue-300/90 group-hover:border-blue-400'
+                                : isHol
+                                ? 'bg-amber-100/85 border-amber-200/90 group-hover:bg-amber-200/85 group-hover:border-amber-300'
                                 : hasAnyDuty
                                 ? 'bg-blue-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
-                                : isHol
-                                ? 'bg-amber-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
                                 : 'border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
                             }`}
                           >
@@ -1430,10 +1431,10 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                           className={`px-1 py-0.5 text-center border-r transition-colors ${
                             isOnCall
                               ? 'bg-blue-200 text-blue-950 font-bold border-blue-300 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.2)] group-hover:bg-blue-300/90 group-hover:border-blue-400'
+                              : isHol
+                              ? 'bg-amber-100/85 border-amber-200/90 group-hover:bg-amber-200/85 group-hover:border-amber-300'
                               : hasAnyDuty
                               ? 'bg-blue-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
-                              : isHol
-                              ? 'bg-amber-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
                               : 'border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
                           }`}
                         >
