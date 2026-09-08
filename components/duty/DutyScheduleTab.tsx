@@ -650,6 +650,12 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   const paddingTop = virtualRows.length > 0 ? virtualRows[0].start : 0;
   const paddingBottom = virtualRows.length > 0 ? totalVirtualSize - virtualRows[virtualRows.length - 1].end : 0;
 
+  // Fixed heights and sticky top offsets for header rows
+  const headerRow0Height = 26;
+  const headerRow1Height = 36;
+  const headerRow1Top = isLongPeriod ? headerRow0Height : 0;
+  const headerRow2Top = isLongPeriod ? headerRow0Height + headerRow1Height : headerRow1Height;
+
   if (!records || records.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 bg-gray-50 border border-dashed border-gray-200 rounded-xl text-center">
@@ -998,161 +1004,186 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
         className="flex-1 overflow-auto max-h-[calc(100vh-270px)] border-b border-gray-100"
       >
         <table className="w-full text-xs border-collapse">
-          <colgroup>
-            {/* Cột 1: Khoa/Phòng thu hẹp xuống 110px */}
-            <col style={{ width: 110, minWidth: 110, maxWidth: 110 }} />
-            {/* Cột 2: Nhân viên mở rộng lên 270px */}
-            <col style={{ width: 270, minWidth: 270, maxWidth: 270 }} />
-            {displayedDates.map((dateKey) => (
-              <col
-                key={dateKey}
-                style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
-              />
-            ))}
-          </colgroup>
-          <thead>
-            {/* Hàng 0: Header nhóm Tháng (Chỉ hiển thị khi khoảng thời gian > 31 ngày) */}
-            {isLongPeriod && (
-              <tr className="bg-[#002855] text-white select-none sticky top-0 z-30">
-                <th
-                  colSpan={2}
-                  className="sticky left-0 z-35 bg-[#002244] px-2.5 py-1 text-left font-bold text-blue-200 text-[11px] border-r border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)] uppercase tracking-wide w-[380px] min-w-[380px] max-w-[380px]"
-                >
-                  <div className="flex items-center justify-between">
-                    <span>TOÀN KỲ: {dutyDates.length} NGÀY</span>
-                    <span className="text-[10px] text-blue-300 font-normal">
-                      {monthGroups.length} tháng
-                    </span>
-                  </div>
-                </th>
-                <th
-                  colSpan={displayedDates.length}
-                  className="text-center font-bold text-white text-[11px] py-1 border-r border-blue-800 uppercase tracking-wide bg-[#002855]"
-                >
-                  {activeMonthGroup ? `${activeMonthGroup.label} (${displayedDates.length} ngày)` : `Tháng ${activeMonthKey}`}
-                </th>
-              </tr>
-            )}
-
-            {/* Hàng 1: Tiêu đề các ngày */}
-            <tr
-              className={`bg-[#003366] text-white select-none sticky z-20 ${
-                isLongPeriod ? 'top-[26px]' : 'top-0'
-              }`}
-            >
-              <th className="sticky left-0 z-30 bg-[#003366] px-2 py-1.5 text-left font-semibold w-[110px] min-w-[110px] max-w-[110px] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
-                <div className="flex items-center gap-1">
-                  <Building2 className="w-3 h-3 text-blue-200 shrink-0" />
-                  <span className="text-[11px] truncate" title="Khoa / Phòng">Khoa/Phòng</span>
-                </div>
-              </th>
-              <th className="sticky left-[110px] z-30 bg-[#003366] px-2.5 py-1.5 text-left font-semibold w-[270px] min-w-[270px] max-w-[270px] border-r border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)]">
-                <div className="flex items-center gap-1">
-                  <Users className="w-3 h-3 text-blue-200 shrink-0" />
-                  <span className="text-[11.5px]">Họ và tên nhân viên</span>
-                </div>
-              </th>
-              {displayedDates.map((dateKey) => {
-                const dayOfWeek = getDayOfWeekLabel(dateKey);
-                const isSunOrSat = dayOfWeek === 'T7' || dayOfWeek === 'CN';
-                const curConfig = dutySchedules[dateKey];
-                const isHoliday = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
-                const dayOnly = dateKey.split('-')[2];
-                const isMonthFocused = focusedMonthKey && dateKey.startsWith(focusedMonthKey);
-
-                return (
-                  <th
+              <colgroup>
+                {/* Cột 1: Khoa/Phòng thu hẹp xuống 110px */}
+                <col style={{ width: 110, minWidth: 110, maxWidth: 110 }} />
+                {/* Cột 2: Nhân viên mở rộng lên 270px */}
+                <col style={{ width: 270, minWidth: 270, maxWidth: 270 }} />
+                {displayedDates.map((dateKey) => (
+                  <col
                     key={dateKey}
-                    className={`px-0.5 py-1 text-center font-semibold border-r border-blue-900/60 transition-colors ${
-                      isMonthFocused
-                        ? 'bg-blue-700 ring-1 ring-amber-300 text-amber-100'
-                        : isHoliday
-                        ? 'bg-amber-700/80 text-amber-100'
-                        : ''
-                    }`}
                     style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
+                  />
+                ))}
+              </colgroup>
+              <thead>
+                {/* Hàng 0: Header nhóm Tháng (Chỉ hiển thị khi khoảng thời gian > 31 ngày) */}
+                {isLongPeriod && (
+                  <tr
+                    style={{ top: 0 }}
+                    className="bg-[#002855] text-white select-none sticky z-40 h-[26px]"
                   >
-                    <div className="flex flex-col items-center justify-center">
-                      <span className="font-mono text-[11px] font-bold leading-tight">
-                        {isLongPeriod && viewMode === 'compact' ? dayOnly : formatDisplayDate(dateKey)}
-                      </span>
-                      <span
-                        className={`text-[8.5px] px-0.5 py-0 rounded mt-0.5 font-semibold leading-tight ${
-                          isSunOrSat
-                            ? 'bg-amber-400 text-gray-900'
-                            : isHoliday
-                            ? 'bg-red-400 text-white'
-                            : 'bg-blue-800 text-blue-100'
-                        }`}
-                      >
-                        {dayOfWeek}
-                      </span>
+                    <th
+                      colSpan={2}
+                      style={{ top: 0 }}
+                      className="sticky left-0 z-50 bg-[#002244] px-2.5 py-1 text-left font-bold text-blue-200 text-[11px] border-r border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)] uppercase tracking-wide w-[380px] min-w-[380px] max-w-[380px]"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>TOÀN KỲ: {dutyDates.length} NGÀY</span>
+                        <span className="text-[10px] text-blue-300 font-normal">
+                          {monthGroups.length} tháng
+                        </span>
+                      </div>
+                    </th>
+                    <th
+                      colSpan={displayedDates.length}
+                      style={{ top: 0 }}
+                      className="sticky z-40 text-center font-bold text-white text-[11px] py-1 border-r border-blue-800 uppercase tracking-wide bg-[#002855]"
+                    >
+                      {activeMonthGroup ? `${activeMonthGroup.label} (${displayedDates.length} ngày)` : `Tháng ${activeMonthKey}`}
+                    </th>
+                  </tr>
+                )}
+
+                {/* Hàng 1: Tiêu đề các ngày */}
+                <tr
+                  style={{ top: headerRow1Top }}
+                  className="bg-[#003366] text-white select-none sticky z-35 h-[36px]"
+                >
+                  <th
+                    style={{ top: headerRow1Top }}
+                    className="sticky left-0 z-45 bg-[#003366] px-2 py-1 text-left font-semibold w-[110px] min-w-[110px] max-w-[110px] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]"
+                  >
+                    <div className="flex items-center gap-1">
+                      <Building2 className="w-3 h-3 text-blue-200 shrink-0" />
+                      <span className="text-[11px] truncate" title="Khoa / Phòng">Khoa/Phòng</span>
                     </div>
                   </th>
-                );
-              })}
-            </tr>
-
-            {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết */}
-            <tr
-              className={`group bg-amber-50/90 border-b-2 border-amber-300 sticky z-10 select-none ${
-                isLongPeriod ? 'top-[58px]' : 'top-[34px]'
-              }`}
-            >
-              <td className="sticky left-0 z-25 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[110px] min-w-[110px] max-w-[110px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
-                <div className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0"></span>
-                  <span className="text-[10px] uppercase font-extrabold text-amber-900 tracking-wide truncate">
-                    Cấu hình
-                  </span>
-                </div>
-              </td>
-              <td className="sticky left-[110px] z-25 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[270px] min-w-[270px] max-w-[270px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]">
-                <div className="flex items-center justify-between gap-1">
-                  <span
-                    className="text-[10.5px] font-bold text-amber-900 tracking-tight leading-tight truncate"
-                    title="Check dòng này những ngày nghỉ cuối tuần, Lễ, Tết"
+                  <th
+                    style={{ top: headerRow1Top }}
+                    className="sticky left-[110px] z-45 bg-[#003366] px-2.5 py-1 text-left font-semibold w-[270px] min-w-[270px] max-w-[270px] border-r border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)]"
                   >
-                    Check dòng này những ngày nghỉ cuối tuần, Lễ, Tết
-                  </span>
-                  {/* Nút tiện ích điền nhanh T7, CN, Lễ toàn kỳ (Giai đoạn 2) */}
-                  <button
-                    type="button"
-                    onClick={handleAutoFillWeekendsAndHolidays}
-                    title="Tự động tích tất cả Thứ 7, Chủ Nhật và ngày Lễ trong đợt này là ngày nghỉ"
-                    className="shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-200 hover:bg-amber-300 border border-amber-400 text-amber-950 transition-colors cursor-pointer shadow-2xs flex items-center gap-0.5"
-                  >
-                    <span>+ T7, CN, Lễ</span>
-                  </button>
-                </div>
-              </td>
-              {displayedDates.map((dateKey) => {
-                const curConfig = dutySchedules[dateKey];
-                const isHoliday = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
+                    <div className="flex items-center gap-1">
+                      <Users className="w-3 h-3 text-blue-200 shrink-0" />
+                      <span className="text-[11.5px]">Họ và tên nhân viên</span>
+                    </div>
+                  </th>
+                  {displayedDates.map((dateKey) => {
+                    const dayOfWeek = getDayOfWeekLabel(dateKey);
+                    const isSunOrSat = dayOfWeek === 'T7' || dayOfWeek === 'CN';
+                    const curConfig = dutySchedules[dateKey];
+                    const isHoliday = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
+                    const dayOnly = dateKey.split('-')[2];
+                    const isMonthFocused = focusedMonthKey && dateKey.startsWith(focusedMonthKey);
 
-                return (
+                    return (
+                      <th
+                        key={dateKey}
+                        style={{
+                          width: colWidth,
+                          minWidth: colWidth,
+                          maxWidth: colWidth,
+                          top: headerRow1Top,
+                        }}
+                        className={`sticky z-35 px-0.5 py-1 text-center font-semibold border-r border-blue-900/60 transition-colors ${
+                          isMonthFocused
+                            ? 'bg-blue-700 ring-1 ring-amber-300 text-amber-100'
+                            : isHoliday
+                            ? 'bg-amber-700/80 text-amber-100'
+                            : 'bg-[#003366]'
+                        }`}
+                      >
+                        <div className="flex flex-col items-center justify-center">
+                          <span className="font-mono text-[11px] font-bold leading-tight">
+                            {isLongPeriod && viewMode === 'compact' ? dayOnly : formatDisplayDate(dateKey)}
+                          </span>
+                          <span
+                            className={`text-[8.5px] px-0.5 py-0 rounded mt-0.5 font-semibold leading-tight ${
+                              isSunOrSat
+                                ? 'bg-amber-400 text-gray-900'
+                                : isHoliday
+                                ? 'bg-red-400 text-white'
+                                : 'bg-blue-800 text-blue-100'
+                            }`}
+                          >
+                            {dayOfWeek}
+                          </span>
+                        </div>
+                      </th>
+                    );
+                  })}
+                </tr>
+
+                {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết */}
+                <tr
+                  style={{ top: headerRow2Top }}
+                  className="group bg-amber-50 sticky z-30 select-none shadow-[0_3px_6px_-2px_rgba(0,0,0,0.15)]"
+                >
                   <td
-                    key={dateKey}
-                    style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
-                    className={`px-0.5 py-0.5 text-center border-r transition-colors ${
-                      isHoliday
-                        ? 'bg-amber-200 text-amber-950 font-bold border-amber-300 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)] group-hover:bg-amber-300/90'
-                        : 'bg-amber-50/50 border-amber-200 group-hover:bg-amber-100/90'
-                    }`}
+                    style={{ top: headerRow2Top }}
+                    className="sticky left-0 z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2 py-1 text-left font-bold text-amber-900 border-r border-amber-300 border-b-2 border-b-amber-500 w-[110px] min-w-[110px] max-w-[110px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]"
                   >
-                    <label className="inline-flex items-center justify-center cursor-pointer p-0.5 rounded hover:bg-amber-300/60 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={isHoliday}
-                        onChange={() => handleToggleHoliday(dateKey)}
-                        className="w-3.5 h-3.5 rounded text-amber-600 border-amber-400 focus:ring-amber-500 cursor-pointer"
-                      />
-                    </label>
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0"></span>
+                      <span className="text-[10px] uppercase font-extrabold text-amber-900 tracking-wide truncate">
+                        Cấu hình
+                      </span>
+                    </div>
                   </td>
-                );
-              })}
-            </tr>
-          </thead>
+                  <td
+                    style={{ top: headerRow2Top }}
+                    className="sticky left-[110px] z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 border-b-2 border-b-amber-500 w-[270px] min-w-[270px] max-w-[270px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span
+                        className="text-[10.5px] font-bold text-amber-900 tracking-tight leading-tight truncate"
+                        title="Check dòng này những ngày nghỉ cuối tuần, Lễ, Tết"
+                      >
+                        Check dòng này những ngày nghỉ cuối tuần, Lễ, Tết
+                      </span>
+                      {/* Nút tiện ích điền nhanh T7, CN, Lễ toàn kỳ (Giai đoạn 2) */}
+                      <button
+                        type="button"
+                        onClick={handleAutoFillWeekendsAndHolidays}
+                        title="Tự động tích tất cả Thứ 7, Chủ Nhật và ngày Lễ trong đợt này là ngày nghỉ"
+                        className="shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-200 hover:bg-amber-300 border border-amber-400 text-amber-950 transition-colors cursor-pointer shadow-2xs flex items-center gap-0.5"
+                      >
+                        <span>+ T7, CN, Lễ</span>
+                      </button>
+                    </div>
+                  </td>
+                  {displayedDates.map((dateKey) => {
+                    const curConfig = dutySchedules[dateKey];
+                    const isHoliday = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
+
+                    return (
+                      <td
+                        key={dateKey}
+                        style={{
+                          width: colWidth,
+                          minWidth: colWidth,
+                          maxWidth: colWidth,
+                          top: headerRow2Top,
+                        }}
+                        className={`sticky z-30 px-0.5 py-0.5 text-center border-r border-b-2 border-b-amber-500 transition-colors ${
+                          isHoliday
+                            ? 'bg-amber-200 text-amber-950 font-bold border-r-amber-300 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)] group-hover:bg-amber-300/90'
+                            : 'bg-amber-50 border-r-amber-200 group-hover:bg-amber-100/90'
+                        }`}
+                      >
+                        <label className="inline-flex items-center justify-center cursor-pointer p-0.5 rounded hover:bg-amber-300/60 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={isHoliday}
+                            onChange={() => handleToggleHoliday(dateKey)}
+                            className="w-3.5 h-3.5 rounded text-amber-600 border-amber-400 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </label>
+                      </td>
+                    );
+                  })}
+                </tr>
+              </thead>
 
           <tbody className="divide-y divide-gray-200 bg-white">
             {/* Giai đoạn 3: Ảo hóa dòng với @tanstack/react-virtual khi > 31 ngày */}
