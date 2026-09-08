@@ -28,7 +28,7 @@ interface PrintPreviewProps {
     dateRange: string;
     data: any[];
     columns: ColumnDef<any>[];
-    type: 'list' | 'payment';
+    type: 'list' | 'payment' | 'overtime';
     orientation: 'portrait' | 'landscape';
     extraHeaderRow?: React.ReactNode;
     extraFooterRow?: React.ReactNode;
@@ -38,6 +38,7 @@ interface PrintPreviewProps {
     dailyStats?: DailyPrintStats;
     paymentStatsBlock?: React.ReactNode;
     signatureDate?: Date;
+    overtimeGroupedData?: any;
 }
 
 export const PrintPreview: React.FC<PrintPreviewProps> = ({
@@ -56,7 +57,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
     reportTab,
     dailyStats,
     paymentStatsBlock,
-    signatureDate
+    signatureDate,
+    overtimeGroupedData
 }) => {
     // Auto-print when open
     React.useEffect(() => {
@@ -120,139 +122,284 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
       `}</style>
 
             <div className="print-content w-full h-full">
+                {type === 'overtime' ? (
+                    <div>
+                        {/* OVERTIME REPORT HEADER */}
+                        <div className="text-center mb-6">
+                            <p className="font-bold uppercase text-[12px] tracking-wide">
+                                {overtimeGroupedData?.hospitalName || hospitalName}
+                            </p>
+                            <div className="inline-block text-center mx-auto mt-0.5">
+                                <p className="font-bold uppercase text-[12px] tracking-wide">
+                                    {overtimeGroupedData?.departmentHeaderName || 'KHOA PHẪU THUẬT - GÂY MÊ HỒI SỨC'}
+                                </p>
+                                <div className="w-2/3 mx-auto mt-1" style={{ borderBottom: '1.5px solid black' }}></div>
+                            </div>
+                            <h1 className="font-bold uppercase text-[15px] mt-6 mb-1 tracking-wide">
+                                {title || 'GIẤY BÁO LÀM VIỆC NGOÀI GIỜ'}
+                            </h1>
+                            <p className="text-[11px] italic">
+                                {overtimeGroupedData?.dateRangeText || dateRange}
+                            </p>
+                        </div>
 
-                {/* REPORT HEADER */}
-                <div className="mb-4">
-                    {/* Hospital Name */}
-                    <div className="inline-block text-center text-sm font-bold uppercase leading-relaxed mb-1">
-                        <p>SỞ Y TẾ HẢI PHÒNG</p>
-                        <p>{hospitalName}</p>
-                        <div className="bg-black h-[1px] w-1/3 mx-auto mt-0.5"></div>
+                        {/* TABLE */}
+                        <table className="w-full border-collapse border border-black text-[10px] font-[Times_New_Roman]">
+                            <thead>
+                                <tr className="bg-transparent">
+                                    <th rowSpan={2} className="border border-black px-1 py-1 text-center font-bold w-[30px]">TT</th>
+                                    <th rowSpan={2} className="border border-black px-2 py-1 text-center font-bold w-[120px]">Họ và tên</th>
+                                    <th rowSpan={2} className="border border-black px-2 py-1 text-center font-bold">Nội dung công việc</th>
+                                    <th colSpan={4} className="border border-black px-1 py-1 text-center font-bold">Thời gian làm thêm giờ</th>
+                                    <th rowSpan={2} className="border border-black px-1 py-1 text-center font-bold w-[60px]">Ghi chú</th>
+                                </tr>
+                                <tr className="bg-transparent">
+                                    <th className="border border-black px-1 py-1 text-center font-bold w-[45px]">Ngày</th>
+                                    <th className="border border-black px-1 py-1 text-center font-bold w-[50px]">Từ giờ</th>
+                                    <th className="border border-black px-1 py-1 text-center font-bold w-[50px]">Đến giờ</th>
+                                    <th className="border border-black px-1 py-1 text-center font-bold w-[55px]">T/số giờ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {overtimeGroupedData?.departmentBlocks?.map((deptBlock: any) => (
+                                    <React.Fragment key={deptBlock.deptCode}>
+                                        {/* Tiêu đề khoa khi chọn Tất cả các khoa */}
+                                        {overtimeGroupedData.isAllDepartments && (
+                                            <tr className="border-t border-b border-black font-bold break-inside-avoid">
+                                                <td className="border-l border-r border-black px-1 py-1 text-center"></td>
+                                                <td className="border-r border-black px-2 py-1 text-left font-bold">{deptBlock.deptCode}</td>
+                                                <td className="border-r border-black px-2 py-1"></td>
+                                                <td className="border-r border-black px-1 py-1"></td>
+                                                <td className="border-r border-black px-1 py-1"></td>
+                                                <td className="border-r border-black px-1 py-1"></td>
+                                                <td className="border-r border-black px-1 py-1"></td>
+                                                <td className="border-r border-black px-1 py-1"></td>
+                                            </tr>
+                                        )}
+
+                                        {/* Danh sách nhân viên trong khoa */}
+                                        {deptBlock.staffBlocks?.map((staffBlock: any) => {
+                                            const totalSurgeries = staffBlock.surgeries.length;
+                                            return (
+                                                <React.Fragment key={staffBlock.staffName}>
+                                                    {staffBlock.surgeries.map((s: any, sIdx: number) => {
+                                                        const isFirst = sIdx === 0;
+                                                        const isLast = sIdx === totalSurgeries - 1;
+                                                        const isSolidBottom = isLast && !overtimeGroupedData.showTotalRow;
+
+                                                        return (
+                                                            <tr
+                                                                key={s.id + '-' + sIdx}
+                                                                className="break-inside-avoid"
+                                                                style={{
+                                                                    borderBottom: isSolidBottom ? '1px solid black' : '1px dotted #444',
+                                                                }}
+                                                            >
+                                                                <td className="border-l border-r border-black px-1 py-1 text-center align-top">
+                                                                    {isFirst ? staffBlock.stt : ''}
+                                                                </td>
+                                                                <td className="border-r border-black px-2 py-1 text-left align-top">
+                                                                    {isFirst ? staffBlock.staffName : ''}
+                                                                </td>
+                                                                <td className="border-r border-black px-2 py-1 text-left align-top">
+                                                                    {s.surgeryName}
+                                                                </td>
+                                                                <td className="border-r border-black px-1 py-1 text-center align-top">
+                                                                    {s.dateText}
+                                                                </td>
+                                                                <td className="border-r border-black px-1 py-1 text-center align-top">
+                                                                    {s.timeFromText}
+                                                                </td>
+                                                                <td className="border-r border-black px-1 py-1 text-center align-top">
+                                                                    {s.timeToText}
+                                                                </td>
+                                                                <td className="border-r border-black px-1 py-1 text-center align-top font-medium">
+                                                                    {s.durationText}
+                                                                </td>
+                                                                <td className="border-r border-black px-1 py-1 text-center align-top"></td>
+                                                            </tr>
+                                                        );
+                                                    })}
+
+                                                    {/* Dòng Tổng */}
+                                                    {overtimeGroupedData.showTotalRow && (
+                                                        <tr
+                                                            className="break-inside-avoid font-bold"
+                                                            style={{ borderBottom: '1px solid black' }}
+                                                        >
+                                                            <td className="border-l border-r border-black px-1 py-1 text-center"></td>
+                                                            <td className="border-r border-black px-2 py-1"></td>
+                                                            <td className="border-r border-black px-2 py-1 text-center font-bold">Tổng</td>
+                                                            <td className="border-r border-black px-1 py-1"></td>
+                                                            <td className="border-r border-black px-1 py-1"></td>
+                                                            <td className="border-r border-black px-1 py-1"></td>
+                                                            <td className="border-r border-black px-1 py-1 text-center font-bold">
+                                                                {staffBlock.totalDurationText}
+                                                            </td>
+                                                            <td className="border-r border-black px-1 py-1"></td>
+                                                        </tr>
+                                                    )}
+                                                </React.Fragment>
+                                            );
+                                        })}
+                                    </React.Fragment>
+                                ))}
+                            </tbody>
+                        </table>
+
+                        {/* SIGNATURES FOR OVERTIME */}
+                        <div className="mt-3.5 text-center text-[11px] font-bold break-inside-avoid font-[Times_New_Roman]">
+                            <div className="grid grid-cols-3 gap-4 w-full">
+                                <div>
+                                    <p className="font-bold">Thủ trưởng duyệt</p>
+                                    <div className="h-16"></div>
+                                </div>
+                                <div>
+                                    <p className="font-bold">Người kiểm tra</p>
+                                    <div className="h-16"></div>
+                                </div>
+                                <div>
+                                    <p className="font-bold">Xác nhận của bộ phận</p>
+                                    <div className="h-16"></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                ) : (
+                    <div>
+                        {/* REPORT HEADER */}
+                        <div className="mb-4">
+                            {/* Hospital Name */}
+                            <div className="inline-block text-center text-sm font-bold uppercase leading-relaxed mb-1">
+                                <p>SỞ Y TẾ HẢI PHÒNG</p>
+                                <p>{hospitalName}</p>
+                                <div className="bg-black h-[1px] w-1/3 mx-auto mt-0.5"></div>
+                            </div>
 
-                    {/* Title */}
-                    <div className="text-center w-full">
-                        <h1 className="text-xl font-bold uppercase mb-0.5 whitespace-nowrap">{title}</h1>
-                        <p className="text-[11px] italic">{dateRange}</p>
-                    </div>
-                </div>
+                            {/* Title */}
+                            <div className="text-center w-full">
+                                <h1 className="text-xl font-bold uppercase mb-0.5 whitespace-nowrap">{title}</h1>
+                                <p className="text-[11px] italic">{dateRange}</p>
+                            </div>
+                        </div>
 
-                {/* TABLE */}
-                <table className="w-full border-collapse border border-black text-[10px] font-[Times_New_Roman]">
-                    {customThead ? customThead : (
-                        <thead>
-                            <tr className="bg-gray-100 print:bg-transparent">
-                                {columns.map((col) => {
-                                    let extraClass = "";
-                                    if (col.key === 'stt') extraClass = "col-stt";
-                                    if (col.key === 'taxId') extraClass = "col-tax";
-                                    if (col.key === 'name') extraClass = "col-name";
-                                    if (col.key === 'total_amount') extraClass = "col-total";
+                        {/* TABLE */}
+                        <table className="w-full border-collapse border border-black text-[10px] font-[Times_New_Roman]">
+                            {customThead ? customThead : (
+                                <thead>
+                                    <tr className="bg-gray-100 print:bg-transparent">
+                                        {columns.map((col) => {
+                                            let extraClass = "";
+                                            if (col.key === 'stt') extraClass = "col-stt";
+                                            if (col.key === 'taxId') extraClass = "col-tax";
+                                            if (col.key === 'name') extraClass = "col-name";
+                                            if (col.key === 'total_amount') extraClass = "col-total";
+                                            return (
+                                                <th key={col.key} className={`border border-black font-bold ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${extraClass}`} style={{ width: col.width }}>
+                                                    {col.label}
+                                                </th>
+                                            );
+                                        })}
+                                    </tr>
+                                </thead>
+                            )}
+                            <tbody>
+                                {extraHeaderRow}
+                                {data.map((row, idx) => {
+                                    const isFirstRowOverall = idx === 0;
+                                    const deptBorderClass = row.isNewDept && !isFirstRowOverall ? 'border-t-2 border-t-black' : '';
+
                                     return (
-                                        <th key={col.key} className={`border border-black font-bold ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${extraClass}`} style={{ width: col.width }}>
-                                            {col.label}
-                                        </th>
+                                        <tr key={idx} className="break-inside-avoid border-b border-black">
+                                            {columns.map((col) => {
+                                                let extraClass = "";
+                                                if (col.key === 'stt') extraClass = "col-stt";
+                                                if (col.key === 'department') extraClass = "col-dept";
+                                                if (col.key === 'taxId') extraClass = "col-tax";
+                                                if (col.key === 'name') extraClass = "col-name";
+                                                if (col.key === 'total_amount') extraClass = "col-total";
+                                                if (col.key === 'total_qty' || col.key.startsWith('val_')) extraClass = "col-numeric";
+
+                                                return (
+                                                    <td key={col.key} className={`border border-black ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${col.className || ''} ${deptBorderClass} ${extraClass}`}>
+                                                        {col.key === 'stt' ? (idx + 1) : (col.render ? col.render(row) : (row[col.key] || ''))}
+                                                    </td>
+                                                );
+                                            })}
+                                        </tr>
                                     );
                                 })}
-                            </tr>
-                        </thead>
-                    )}
-                    <tbody>
-                        {extraHeaderRow}
-                        {data.map((row, idx) => {
-                            const isFirstRowOverall = idx === 0;
-                            const deptBorderClass = row.isNewDept && !isFirstRowOverall ? 'border-t-2 border-t-black' : '';
+                                {extraFooterRow}
+                            </tbody>
+                        </table>
 
-                            return (
-                                <tr key={idx} className="break-inside-avoid border-b border-black">
-                                    {columns.map((col) => {
-                                        let extraClass = "";
-                                        if (col.key === 'stt') extraClass = "col-stt";
-                                        if (col.key === 'department') extraClass = "col-dept";
-                                        if (col.key === 'taxId') extraClass = "col-tax";
-                                        if (col.key === 'name') extraClass = "col-name";
-                                        if (col.key === 'total_amount') extraClass = "col-total";
-                                        if (col.key === 'total_qty' || col.key.startsWith('val_')) extraClass = "col-numeric";
-
-                                        return (
-                                            <td key={col.key} className={`border border-black ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${col.className || ''} ${deptBorderClass} ${extraClass}`}>
-                                                {col.key === 'stt' ? (idx + 1) : (col.render ? col.render(row) : (row[col.key] || ''))}
-                                            </td>
-                                        );
-                                    })}
-                                </tr>
-                            );
-                        })}
-                        {extraFooterRow}
-                    </tbody>
-                </table>
-
-                {/* DAILY LIST: Stats Summary Row */}
-                {reportTab === 'daily' && type === 'list' && dailyStats && (
-                    <div className="mt-2 mb-1 text-[10px] font-[Times_New_Roman] break-inside-avoid">
-                        <div className="flex justify-between px-1">
-                            <span><b>Tổng số PT:</b> {dailyStats.ptCount}&nbsp;&nbsp;&nbsp;<b>TT:</b> {dailyStats.ttCount}</span>
-                            <span><b>Tỷ lệ TT&lt;100%:</b> {dailyStats.lowPaymentCount}</span>
-                            <span><b>Trùng NV:</b> {dailyStats.staffConflicts}</span>
-                            <span><b>Trùng máy:</b> {dailyStats.machineConflicts}</span>
-                            <span><b>Thiếu mã máy:</b> {dailyStats.missingMachines}</span>
-                            <span><b>Chưa điền GV:</b> {dailyStats.missingAssistantCount}</span>
-                            <span><b>Lỗi thời gian:</b> {dailyStats.violateMinTimeCount}</span>
-                        </div>
-                    </div>
-                )}
-
-                {/* PAYMENT STATS BLOCK */}
-                {paymentStatsBlock && (
-                    <div className="mt-4 mb-2 text-[12px] font-[Times_New_Roman] break-inside-avoid text-left pl-2 font-bold leading-relaxed">
-                        {paymentStatsBlock}
-                    </div>
-                )}
-
-                {/* SIGNATURES */}
-                <div className="mt-6 text-center text-sm font-bold break-inside-avoid font-[Times_New_Roman]">
-                    {/* Date above Người lập */}
-                    <div className="flex justify-end mb-1 pr-8">
-                        <p className="font-normal italic text-xs">{dateString}</p>
-                    </div>
-
-                    {/* Daily List: 3 signatures */}
-                    {reportTab === 'daily' && type === 'list' ? (
-                        <div className="flex justify-between px-20">
-                            <div>
-                                <p className="uppercase">Điều dưỡng trưởng</p>
+                        {/* DAILY LIST: Stats Summary Row */}
+                        {reportTab === 'daily' && type === 'list' && dailyStats && (
+                            <div className="mt-2 mb-1 text-[10px] font-[Times_New_Roman] break-inside-avoid">
+                                <div className="flex justify-between px-1">
+                                    <span><b>Tổng số PT:</b> {dailyStats.ptCount}&nbsp;&nbsp;&nbsp;<b>TT:</b> {dailyStats.ttCount}</span>
+                                    <span><b>Tỷ lệ TT&lt;100%:</b> {dailyStats.lowPaymentCount}</span>
+                                    <span><b>Trùng NV:</b> {dailyStats.staffConflicts}</span>
+                                    <span><b>Trùng máy:</b> {dailyStats.machineConflicts}</span>
+                                    <span><b>Thiếu mã máy:</b> {dailyStats.missingMachines}</span>
+                                    <span><b>Chưa điền GV:</b> {dailyStats.missingAssistantCount}</span>
+                                    <span><b>Lỗi thời gian:</b> {dailyStats.violateMinTimeCount}</span>
+                                </div>
                             </div>
-                            <div>
-                                <p className="uppercase">Bác sĩ trực</p>
+                        )}
+
+                        {/* PAYMENT STATS BLOCK */}
+                        {paymentStatsBlock && (
+                            <div className="mt-4 mb-2 text-[12px] font-[Times_New_Roman] break-inside-avoid text-left pl-2 font-bold leading-relaxed">
+                                {paymentStatsBlock}
                             </div>
-                            <div>
-                                <p className="uppercase">Người lập</p>
+                        )}
+
+                        {/* SIGNATURES */}
+                        <div className="mt-6 text-center text-sm font-bold break-inside-avoid font-[Times_New_Roman]">
+                            {/* Date above Người lập */}
+                            <div className="flex justify-end mb-1 pr-8">
+                                <p className="font-normal italic text-xs">{dateString}</p>
                             </div>
-                        </div>
-                    ) : (
-                        /* Default: full 5 (or 4) signatures */
-                        <div className="flex justify-between px-8">
-                            <div>
-                                <p className="uppercase">Giám đốc</p>
-                            </div>
-                            {type === 'list' && (
-                                <div>
-                                    <p className="uppercase">KHTH</p>
+
+                            {/* Daily List: 3 signatures */}
+                            {reportTab === 'daily' && type === 'list' ? (
+                                <div className="flex justify-between px-20">
+                                    <div>
+                                        <p className="uppercase">Điều dưỡng trưởng</p>
+                                    </div>
+                                    <div>
+                                        <p className="uppercase">Bác sĩ trực</p>
+                                    </div>
+                                    <div>
+                                        <p className="uppercase">Người lập</p>
+                                    </div>
+                                </div>
+                            ) : (
+                                /* Default: full 5 (or 4) signatures */
+                                <div className="flex justify-between px-8">
+                                    <div>
+                                        <p className="uppercase">Giám đốc</p>
+                                    </div>
+                                    {type === 'list' && (
+                                        <div>
+                                            <p className="uppercase">KHTH</p>
+                                        </div>
+                                    )}
+                                    <div>
+                                        <p className="uppercase">TCKT</p>
+                                    </div>
+                                    <div>
+                                        <p className="uppercase">Trưởng khoa</p>
+                                    </div>
+                                    <div>
+                                        <p className="uppercase">Người lập</p>
+                                    </div>
                                 </div>
                             )}
-                            <div>
-                                <p className="uppercase">TCKT</p>
-                            </div>
-                            <div>
-                                <p className="uppercase">Trưởng khoa</p>
-                            </div>
-                            <div>
-                                <p className="uppercase">Người lập</p>
-                            </div>
                         </div>
-                    )}
-                </div>
-
+                    </div>
+                )}
             </div>
         </div>
     );

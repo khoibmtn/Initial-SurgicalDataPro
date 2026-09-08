@@ -2746,12 +2746,21 @@ const InnerApp: React.FC = () => {
           records={currentReport.result.validRecords}
           dutySchedules={dutySchedules}
           config={config}
+          dateFormat={dateFormat}
           onNavigateToDutyTab={() => setActiveTable('duty')}
           reportDateRangeText={
             (currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
               ? currentReport.queryDateRangeText
               : currentReport.result?.dateRangeText || currentReport.listDateRange || ''
           }
+          onRegisterPrintHandler={(handler) => {
+            overtimePrintHandlerRef.current = handler;
+          }}
+          onTriggerPrint={(pConfig) => {
+            setPrintOrientation(pConfig.orientation || 'portrait');
+            setPrintConfig(pConfig);
+            setIsPrintOpen(true);
+          }}
         />
       );
     }
@@ -2763,6 +2772,7 @@ const InnerApp: React.FC = () => {
   const [printConfig, setPrintConfig] = useState<any>(null);
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
   const printDropdownRef = useRef<HTMLDivElement>(null);
+  const overtimePrintHandlerRef = useRef<(() => void) | null>(null);
   const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('landscape');
 
   useEffect(() => {
@@ -3954,6 +3964,23 @@ const InnerApp: React.FC = () => {
                     </button>
                     {isPrintDropdownOpen && (
                       <div className="fb-dropdown top-full right-0 mt-1 w-52">
+                        {currentReport.activeTable === 'overtime' && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setIsPrintDropdownOpen(false);
+                                if (overtimePrintHandlerRef.current) {
+                                  overtimePrintHandlerRef.current();
+                                }
+                              }}
+                              className="fb-dropdown-item font-semibold text-primary-700"
+                            >
+                              <FileText className="text-primary-600" />
+                              <span>Giấy báo ngoài giờ</span>
+                            </button>
+                            <div className="fb-dropdown-divider" />
+                          </>
+                        )}
                         <button onClick={async () => { await handlePrintClick('list', 'landscape'); setIsPrintDropdownOpen(false); }} className="fb-dropdown-item">
                           <FileText />
                           <span>Danh sách PT — A4 ngang</span>

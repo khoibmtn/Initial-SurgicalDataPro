@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight, DollarSign, BookOpen, Database } from 'lucide-react';
+import { Save, RefreshCw, AlertCircle, Plus, Trash2, ArrowUp, ArrowDown, Download, Upload, UserPlus, Edit3, XCircle, ChevronRight, Search, ChevronLeft, Building2, Layers, Users, ClipboardList, Activity, Clock, Pencil, Check, Cpu, ToggleLeft, ToggleRight, DollarSign, BookOpen, Database, X } from 'lucide-react';
 import { Receipt } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig, RolePrice } from '../contexts/ConfigContext';
@@ -187,7 +187,12 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
         setShowSuggestions(false);
       }
     }, [showSuggestions, filteredSuggestions, highlightedIdx, handleSelectSuggestion]);
-    const [newDeptName, setNewDeptName] = useState("");
+
+    const [newDeptShortName, setNewDeptShortName] = useState("");
+    const [newDeptFullName, setNewDeptFullName] = useState("");
+    const [editingDeptIndex, setEditingDeptIndex] = useState<number | null>(null);
+    const [editDeptShortName, setEditDeptShortName] = useState("");
+    const [editDeptFullName, setEditDeptFullName] = useState("");
 
     // Section 2: Medical Staff State
     const [staffForm, setStaffForm] = useState<Omit<StaffMember, 'id'>>({
@@ -1619,37 +1624,79 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                     </div>
                                 </div>
 
-                                {/* Compact inline Add Form */}
-                                <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2 shadow-sm">
+                                {/* Compact inline Add Form với cả Tên vắn tắt và Tên đầy đủ */}
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-white rounded-xl border border-gray-200 p-2.5 shadow-xs">
                                     <input
                                         type="text"
-                                        value={newDeptName}
-                                        onChange={(e) => setNewDeptName(e.target.value)}
-                                        placeholder="Nhập tên khoa, phòng cần bổ sung..."
+                                        value={newDeptShortName}
+                                        onChange={(e) => setNewDeptShortName(e.target.value)}
+                                        placeholder="Tên vắn tắt (VD: GMHS)..."
+                                        className="w-full sm:w-48 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold focus:ring-1 focus:ring-blue-500 outline-none"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && newDeptShortName.trim()) {
+                                                const short = newDeptShortName.trim();
+                                                const depts = config.departments || [];
+                                                if (!depts.includes(short)) {
+                                                    const newDepts = [...depts, short];
+                                                    const newDetails = { ...(config.departmentDetails || {}) };
+                                                    if (newDeptFullName.trim()) {
+                                                        newDetails[short] = { fullName: newDeptFullName.trim() };
+                                                    }
+                                                    updateConfig({ departments: newDepts, departmentDetails: newDetails });
+                                                    setNewDeptShortName("");
+                                                    setNewDeptFullName("");
+                                                } else {
+                                                    alert(`Khoa phòng "${short}" đã tồn tại!`);
+                                                }
+                                            }
+                                        }}
+                                    />
+                                    <input
+                                        type="text"
+                                        value={newDeptFullName}
+                                        onChange={(e) => setNewDeptFullName(e.target.value)}
+                                        placeholder="Tên đầy đủ (VD: Phẫu thuật - Gây mê hồi sức)..."
                                         className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none"
                                         onKeyDown={(e) => {
-                                            if (e.key === 'Enter' && newDeptName.trim()) {
+                                            if (e.key === 'Enter' && newDeptShortName.trim()) {
+                                                const short = newDeptShortName.trim();
                                                 const depts = config.departments || [];
-                                                if (!depts.includes(newDeptName.trim())) {
-                                                    updateConfig({ departments: [...depts, newDeptName.trim()] });
-                                                    setNewDeptName("");
+                                                if (!depts.includes(short)) {
+                                                    const newDepts = [...depts, short];
+                                                    const newDetails = { ...(config.departmentDetails || {}) };
+                                                    if (newDeptFullName.trim()) {
+                                                        newDetails[short] = { fullName: newDeptFullName.trim() };
+                                                    }
+                                                    updateConfig({ departments: newDepts, departmentDetails: newDetails });
+                                                    setNewDeptShortName("");
+                                                    setNewDeptFullName("");
+                                                } else {
+                                                    alert(`Khoa phòng "${short}" đã tồn tại!`);
                                                 }
                                             }
                                         }}
                                     />
                                     <button
                                         onClick={() => {
-                                            if (newDeptName.trim()) {
-                                                const depts = config.departments || [];
-                                                if (!depts.includes(newDeptName.trim())) {
-                                                    updateConfig({ departments: [...depts, newDeptName.trim()] });
-                                                    setNewDeptName("");
+                                            const short = newDeptShortName.trim();
+                                            if (!short) return;
+                                            const depts = config.departments || [];
+                                            if (!depts.includes(short)) {
+                                                const newDepts = [...depts, short];
+                                                const newDetails = { ...(config.departmentDetails || {}) };
+                                                if (newDeptFullName.trim()) {
+                                                    newDetails[short] = { fullName: newDeptFullName.trim() };
                                                 }
+                                                updateConfig({ departments: newDepts, departmentDetails: newDetails });
+                                                setNewDeptShortName("");
+                                                setNewDeptFullName("");
+                                            } else {
+                                                alert(`Khoa phòng "${short}" đã tồn tại!`);
                                             }
                                         }}
-                                        disabled={!newDeptName.trim()}
+                                        disabled={!newDeptShortName.trim()}
                                         title="Thêm khoa phòng"
-                                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm whitespace-nowrap"
+                                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center justify-center gap-1 shadow-xs whitespace-nowrap cursor-pointer shrink-0"
                                     >
                                         <Plus className="h-3.5 w-3.5" /> Thêm
                                     </button>
@@ -1660,69 +1707,239 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                     <table className="w-full text-xs text-left">
                                         <thead className="bg-gray-50 border-b border-gray-200">
                                             <tr>
-                                                <th className="px-4 py-2.5 w-14 text-center text-gray-500 font-semibold border-r border-gray-100">STT</th>
-                                                <th className="px-4 py-2.5 text-gray-600 font-semibold">Tên khoa, phòng</th>
-                                                <th className="px-4 py-2.5 w-24 text-center text-gray-500 font-semibold">Thứ tự</th>
-                                                <th className="px-4 py-2.5 w-16 text-center text-gray-500 font-semibold">Xóa</th>
+                                                <th className="px-3 py-2.5 w-12 text-center text-gray-500 font-semibold border-r border-gray-100">STT</th>
+                                                <th className="px-3 py-2.5 w-44 text-gray-600 font-semibold">Tên vắn tắt</th>
+                                                <th className="px-3 py-2.5 text-gray-600 font-semibold">Tên đầy đủ</th>
+                                                <th className="px-3 py-2.5 w-20 text-center text-gray-500 font-semibold">Thứ tự</th>
+                                                <th className="px-3 py-2.5 w-24 text-center text-gray-500 font-semibold">Thao tác</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
                                             {(config.departments || []).length === 0 ? (
                                                 <tr>
-                                                    <td colSpan={4} className="px-4 py-10 text-center text-gray-400 italic text-sm">
+                                                    <td colSpan={5} className="px-4 py-10 text-center text-gray-400 italic text-sm">
                                                         Chưa có khoa phòng nào trong danh sách.
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                (config.departments || []).map((dept, idx) => (
-                                                    <tr key={dept} className="hover:bg-gray-50/70 transition-colors">
-                                                        <td className="px-4 py-2.5 text-center font-medium text-gray-400 border-r border-gray-100">{idx + 1}</td>
-                                                        <td className="px-4 py-2.5 font-semibold text-gray-800">{dept}</td>
-                                                        <td className="px-4 py-2 text-center">
-                                                            <div className="flex items-center justify-center gap-1">
-                                                                <button
-                                                                    onClick={() => {
-                                                                        if (idx === 0) return;
-                                                                        const depts = [...config.departments];
-                                                                        [depts[idx], depts[idx - 1]] = [depts[idx - 1], depts[idx]];
-                                                                        updateConfig({ departments: depts });
-                                                                    }}
-                                                                    disabled={idx === 0}
-                                                                    title="Di chuyển lên"
-                                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
-                                                                >
-                                                                    <ArrowUp className="h-3.5 w-3.5" />
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        if (idx === (config.departments || []).length - 1) return;
-                                                                        const depts = [...(config.departments || [])];
-                                                                        [depts[idx], depts[idx + 1]] = [depts[idx + 1], depts[idx]];
-                                                                        updateConfig({ departments: depts });
-                                                                    }}
-                                                                    disabled={idx === (config.departments || []).length - 1}
-                                                                    title="Di chuyển xuống"
-                                                                    className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors"
-                                                                >
-                                                                    <ArrowDown className="h-3.5 w-3.5" />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-4 py-2 text-center">
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    const depts = config.departments.filter((_, i) => i !== idx);
-                                                                    updateConfig({ departments: depts });
-                                                                }}
-                                                                title="Xóa"
-                                                                className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                                                            >
-                                                                <Trash2 className="h-3.5 w-3.5" />
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))
+                                                (config.departments || []).map((dept, idx) => {
+                                                    const isEditing = editingDeptIndex === idx;
+                                                    const deptDetail = config.departmentDetails?.[dept];
+                                                    const currentFullName = deptDetail?.fullName || '';
+
+                                                    if (isEditing) {
+                                                        return (
+                                                            <tr key={dept} className="bg-blue-50/50 ring-1 ring-blue-300 transition-colors">
+                                                                <td className="px-3 py-2 text-center font-medium text-gray-400 border-r border-gray-100">
+                                                                    {idx + 1}
+                                                                </td>
+                                                                <td className="px-2 py-1.5">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={editDeptShortName}
+                                                                        onChange={(e) => setEditDeptShortName(e.target.value)}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter') {
+                                                                                const newShort = editDeptShortName.trim();
+                                                                                if (!newShort) {
+                                                                                    alert("Tên vắn tắt không được để trống!");
+                                                                                    return;
+                                                                                }
+                                                                                const depts = [...(config.departments || [])];
+                                                                                const newDetails = { ...(config.departmentDetails || {}) };
+                                                                                if (newShort !== dept) {
+                                                                                    if (depts.some((d, i) => i !== idx && d.toLowerCase() === newShort.toLowerCase())) {
+                                                                                        alert(`Khoa phòng "${newShort}" đã tồn tại!`);
+                                                                                        return;
+                                                                                    }
+                                                                                    depts[idx] = newShort;
+                                                                                    delete newDetails[dept];
+                                                                                    newDetails[newShort] = { fullName: editDeptFullName.trim() };
+                                                                                    const updatedStaff = (config.staffList || []).map(s => s.department === dept ? { ...s, department: newShort } : s);
+                                                                                    updateConfig({ departments: depts, departmentDetails: newDetails, staffList: updatedStaff });
+                                                                                } else {
+                                                                                    newDetails[dept] = { fullName: editDeptFullName.trim() };
+                                                                                    updateConfig({ departmentDetails: newDetails });
+                                                                                }
+                                                                                setEditingDeptIndex(null);
+                                                                            } else if (e.key === 'Escape') {
+                                                                                setEditingDeptIndex(null);
+                                                                            }
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs font-bold text-gray-900 bg-white border border-blue-400 rounded focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                        placeholder="Tên vắn tắt..."
+                                                                        autoFocus
+                                                                    />
+                                                                </td>
+                                                                <td className="px-2 py-1.5">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={editDeptFullName}
+                                                                        onChange={(e) => setEditDeptFullName(e.target.value)}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter') {
+                                                                                const newShort = editDeptShortName.trim();
+                                                                                if (!newShort) {
+                                                                                    alert("Tên vắn tắt không được để trống!");
+                                                                                    return;
+                                                                                }
+                                                                                const depts = [...(config.departments || [])];
+                                                                                const newDetails = { ...(config.departmentDetails || {}) };
+                                                                                if (newShort !== dept) {
+                                                                                    if (depts.some((d, i) => i !== idx && d.toLowerCase() === newShort.toLowerCase())) {
+                                                                                        alert(`Khoa phòng "${newShort}" đã tồn tại!`);
+                                                                                        return;
+                                                                                    }
+                                                                                    depts[idx] = newShort;
+                                                                                    delete newDetails[dept];
+                                                                                    newDetails[newShort] = { fullName: editDeptFullName.trim() };
+                                                                                    const updatedStaff = (config.staffList || []).map(s => s.department === dept ? { ...s, department: newShort } : s);
+                                                                                    updateConfig({ departments: depts, departmentDetails: newDetails, staffList: updatedStaff });
+                                                                                } else {
+                                                                                    newDetails[dept] = { fullName: editDeptFullName.trim() };
+                                                                                    updateConfig({ departmentDetails: newDetails });
+                                                                                }
+                                                                                setEditingDeptIndex(null);
+                                                                            } else if (e.key === 'Escape') {
+                                                                                setEditingDeptIndex(null);
+                                                                            }
+                                                                        }}
+                                                                        className="w-full px-2 py-1 text-xs text-gray-800 bg-white border border-blue-400 rounded focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                        placeholder="Tên đầy đủ (VD: Phẫu thuật - Gây mê hồi sức)..."
+                                                                    />
+                                                                </td>
+                                                                <td className="px-3 py-2 text-center text-gray-300">
+                                                                    —
+                                                                </td>
+                                                                <td className="px-3 py-2 text-center">
+                                                                    <div className="flex items-center justify-center gap-1">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const newShort = editDeptShortName.trim();
+                                                                                if (!newShort) {
+                                                                                    alert("Tên vắn tắt không được để trống!");
+                                                                                    return;
+                                                                                }
+                                                                                const depts = [...(config.departments || [])];
+                                                                                const newDetails = { ...(config.departmentDetails || {}) };
+                                                                                if (newShort !== dept) {
+                                                                                    if (depts.some((d, i) => i !== idx && d.toLowerCase() === newShort.toLowerCase())) {
+                                                                                        alert(`Khoa phòng "${newShort}" đã tồn tại!`);
+                                                                                        return;
+                                                                                    }
+                                                                                    depts[idx] = newShort;
+                                                                                    delete newDetails[dept];
+                                                                                    newDetails[newShort] = { fullName: editDeptFullName.trim() };
+                                                                                    const updatedStaff = (config.staffList || []).map(s => s.department === dept ? { ...s, department: newShort } : s);
+                                                                                    updateConfig({ departments: depts, departmentDetails: newDetails, staffList: updatedStaff });
+                                                                                } else {
+                                                                                    newDetails[dept] = { fullName: editDeptFullName.trim() };
+                                                                                    updateConfig({ departmentDetails: newDetails });
+                                                                                }
+                                                                                setEditingDeptIndex(null);
+                                                                            }}
+                                                                            title="Lưu (Enter)"
+                                                                            className="p-1 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition-colors cursor-pointer"
+                                                                        >
+                                                                            <Check className="h-3.5 w-3.5 stroke-[2.5]" />
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setEditingDeptIndex(null)}
+                                                                            title="Hủy (Esc)"
+                                                                            className="p-1 rounded bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors cursor-pointer"
+                                                                        >
+                                                                            <X className="h-3.5 w-3.5 stroke-[2.5]" />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <tr key={dept} className="hover:bg-gray-50/70 transition-colors">
+                                                            <td className="px-3 py-2.5 text-center font-medium text-gray-400 border-r border-gray-100">{idx + 1}</td>
+                                                            <td className="px-3 py-2.5">
+                                                                <span className="font-bold text-gray-900 bg-gray-100/80 px-2 py-0.5 rounded border border-gray-200 font-mono text-[11px]">
+                                                                    {dept}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-3 py-2.5">
+                                                                {currentFullName ? (
+                                                                    <span className="font-medium text-gray-800">
+                                                                        {currentFullName}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="italic text-gray-400 text-[11px]">
+                                                                        (Chưa có tên đầy đủ)
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="px-3 py-2 text-center">
+                                                                <div className="flex items-center justify-center gap-1">
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (idx === 0) return;
+                                                                            const depts = [...config.departments];
+                                                                            [depts[idx], depts[idx - 1]] = [depts[idx - 1], depts[idx]];
+                                                                            updateConfig({ departments: depts });
+                                                                        }}
+                                                                        disabled={idx === 0}
+                                                                        title="Di chuyển lên"
+                                                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors cursor-pointer"
+                                                                    >
+                                                                        <ArrowUp className="h-3.5 w-3.5" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            if (idx === (config.departments || []).length - 1) return;
+                                                                            const depts = [...(config.departments || [])];
+                                                                            [depts[idx], depts[idx + 1]] = [depts[idx + 1], depts[idx]];
+                                                                            updateConfig({ departments: depts });
+                                                                        }}
+                                                                        disabled={idx === (config.departments || []).length - 1}
+                                                                        title="Di chuyển xuống"
+                                                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors cursor-pointer"
+                                                                    >
+                                                                        <ArrowDown className="h-3.5 w-3.5" />
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-3 py-2 text-center">
+                                                                <div className="flex items-center justify-center gap-1">
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setEditingDeptIndex(idx);
+                                                                            setEditDeptShortName(dept);
+                                                                            setEditDeptFullName(currentFullName);
+                                                                        }}
+                                                                        title="Sửa thông tin khoa/phòng"
+                                                                        className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors cursor-pointer"
+                                                                    >
+                                                                        <Pencil className="h-3.5 w-3.5" />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            if (confirm(`Bạn có chắc chắn muốn xóa khoa/phòng "${dept}"?`)) {
+                                                                                const depts = config.departments.filter((_, i) => i !== idx);
+                                                                                const newDetails = { ...(config.departmentDetails || {}) };
+                                                                                delete newDetails[dept];
+                                                                                updateConfig({ departments: depts, departmentDetails: newDetails });
+                                                                            }
+                                                                        }}
+                                                                        title="Xóa"
+                                                                        className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+                                                                    >
+                                                                        <Trash2 className="h-3.5 w-3.5" />
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
                                             )}
                                         </tbody>
                                     </table>

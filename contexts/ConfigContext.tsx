@@ -50,13 +50,19 @@ export interface WorkingHours {
 }
 
 
+export interface DepartmentDetail {
+    fullName?: string;
+    description?: string;
+}
+
 export interface AppConfig {
     priceConfig: { [key: string]: RolePrice };
     timeRules: { [key: string]: TimeRule };
     roleOrder: Record<string, number>;
     ignoredMachineCodes: string[]; // List of PTTT that don't need machine codes
     ignoredMachineNames: string[]; // List of Surgery Names that don't need machine codes
-    departments: string[]; // List of departments
+    departments: string[]; // List of departments (short names)
+    departmentDetails?: Record<string, DepartmentDetail>; // Extended metadata (e.g. fullName)
     staffList: StaffMember[]; // List of medical staff members
     uiSettings: UISettings;
     staffLimits: StaffLimitConfig;
@@ -161,6 +167,18 @@ const DEFAULT_WORKING_HOURS: WorkingHours = {
 };
 
 
+export const DEFAULT_DEPARTMENT_DETAILS: Record<string, DepartmentDetail> = {
+    'GMHS': { fullName: 'Phẫu thuật - Gây mê hồi sức' },
+    'Ngoại TH': { fullName: 'Ngoại Tổng hợp' },
+    'CTCH': { fullName: 'Chấn thương chỉnh hình' },
+    'Sản': { fullName: 'Phụ sản' },
+    'YHCT-PHCN': { fullName: 'Y học cổ truyền - Phục hồi chức năng' },
+    'TMH': { fullName: 'Tai Mũi Họng' },
+    'KSNK': { fullName: 'Kiểm soát nhiễm khuẩn' },
+    'Mắt': { fullName: 'Mắt' },
+    'CĐHA': { fullName: 'Chẩn đoán hình ảnh' }
+};
+
 export const DEFAULT_CONFIG: AppConfig = {
     priceConfig: DEFAULT_PRICE_CONFIG,
     timeRules: DEFAULT_TIME_RULES,
@@ -168,6 +186,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     ignoredMachineCodes: ["K0", "K1"],
     ignoredMachineNames: [],
     departments: [],
+    departmentDetails: DEFAULT_DEPARTMENT_DETAILS,
     staffList: [],
     uiSettings: DEFAULT_UI_SETTINGS,
     staffLimits: DEFAULT_STAFF_LIMITS,

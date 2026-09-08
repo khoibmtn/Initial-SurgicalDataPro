@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Clock,
   Search,
@@ -13,11 +13,22 @@ import {
   AlertCircle,
   Briefcase,
   Layers,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+  Check,
+  FileText,
 } from 'lucide-react';
 import { SurgeryRecord, DutyScheduleDateConfig, OvertimeRecordRow } from '../../types';
 import { AppConfig } from '../../contexts/ConfigContext';
 import { calculateOvertimeRows, formatDurationText } from '../../services/overtimeCalculationService';
 import { exportOvertimeToExcel } from '../../services/excelExportService';
+import {
+  OvertimeDurationFormat,
+  formatOvertimeDuration,
+  groupOvertimeDataForReport,
+} from '../../services/overtimeReportDataService';
+import { exportOvertimeToDocx } from '../../services/overtimeDocxExportService';
 import { PageCombobox } from '../common/PageCombobox';
 
 interface OvertimeTabProps {
@@ -26,6 +37,9 @@ interface OvertimeTabProps {
   config: AppConfig;
   onNavigateToDutyTab?: () => void;
   reportDateRangeText?: string;
+  dateFormat?: string;
+  onRegisterPrintHandler?: (handler: () => void) => void;
+  onTriggerPrint?: (printConfig: any) => void;
 }
 
 export const OvertimeTab: React.FC<OvertimeTabProps> = ({
@@ -34,6 +48,9 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
   config,
   onNavigateToDutyTab,
   reportDateRangeText,
+  dateFormat = 'dd/mm/yyyy hh:mm',
+  onRegisterPrintHandler,
+  onTriggerPrint,
 }) => {
   // 1. Tùy chọn Bật/Tắt Giúp việc (lưu vào localStorage)
   const [includeGV, setIncludeGV] = useState<boolean>(() => {
@@ -55,6 +72,49 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       return next;
     });
   };
+
+  // 1.1. Tùy chọn Định dạng TS Giờ
+  const [durationFormat, setDurationFormat] = useState<OvertimeDurationFormat>(() => {
+    try {
+      const saved = localStorage.getItem('sdp_overtime_duration_format');
+      if (saved === '01h45' || saved === '01h45p' || saved === '01h45ph' || saved === '01:45') {
+        return saved;
+      }
+    } catch {}
+    return '01h45';
+  });
+
+  // 1.2. Tùy chọn In dòng tổng thời gian
+  const [showTotalRow, setShowTotalRow] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sdp_overtime_show_total_row') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  // 1.3. State cho Dropdown Cấu hình và Xuất ngoài giờ
+  const [isConfigDropdownOpen, setIsConfigDropdownOpen] = useState(false);
+  const [activeSubmenu, setActiveSubmenu] = useState<'duration' | null>(null);
+  const configDropdownRef = useRef<HTMLDivElement>(null);
+
+  const [isExportDropdownOpen, setIsExportDropdownOpen] = useState(false);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Xử lý click outside đóng dropdowns
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (configDropdownRef.current && !configDropdownRef.current.contains(event.target as Node)) {
+        setIsConfigDropdownOpen(false);
+        setActiveSubmenu(null);
+      }
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target as Node)) {
+        setIsExportDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 2. Bộ lọc & Phân trang
   const [searchTerm, setSearchTerm] = useState('');
@@ -231,12 +291,12 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
     return {
       totalRows: filteredRows.length,
-      totalDurationText: formatDurationText(totalMinutes),
+      totalDurationText: formatOvertimeDuration(totalMinutes, durationFormat),
       totalMinutes,
       countPhien,
       countTruc,
     };
-  }, [filteredRows]);
+  }, [filteredRows, durationFormat]);
 
   // 10. Phân trang
   const totalPages = Math.ceil(filteredRows.length / rowsPerPage) || 1;
@@ -274,6 +334,109 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
     } finally {
       setIsExporting(false);
     }
+  };
+
+  // 12. Xử lý xuất file Word (.docx)
+  const handleExportDocx = async () => {
+    if (filteredRows.length === 0) return;
+    try {
+      setIsExporting(true);
+      const groupedData = groupOvertimeDataForReport(
+        filteredRows,
+        config,
+        selectedDepartment,
+        selectedStaff,
+        includeGV,
+        durationFormat,
+        showTotalRow,
+        reportDateRangeText || ''
+      );
+      await exportOvertimeToDocx(groupedData);
+    } catch (err) {
+      console.error('Lỗi khi xuất file Word Ngoài giờ:', err);
+      alert('Không thể xuất file Word: ' + (err as any)?.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // 13. Xử lý kích hoạt Bản in Giấy báo làm việc ngoài giờ
+  const handleTriggerPrint = () => {
+    const groupedData = groupOvertimeDataForReport(
+      filteredRows,
+      config,
+      selectedDepartment,
+      selectedStaff,
+      includeGV,
+      durationFormat,
+      showTotalRow,
+      reportDateRangeText || ''
+    );
+
+    onTriggerPrint?.({
+      type: 'overtime',
+      title: 'GIẤY BÁO LÀM VIỆC NGOÀI GIỜ',
+      dateRange: groupedData.dateRangeText,
+      data: [],
+      columns: [],
+      orientation: 'portrait',
+      overtimeGroupedData: groupedData,
+    });
+  };
+
+  useEffect(() => {
+    if (onRegisterPrintHandler) {
+      onRegisterPrintHandler(handleTriggerPrint);
+    }
+  }, [onRegisterPrintHandler, filteredRows, config, selectedDepartment, selectedStaff, includeGV, durationFormat, showTotalRow, reportDateRangeText]);
+
+  // 14. Định dạng hiển thị Ngày BĐ / Ngày KT 2 dòng nhỏ gọn (ăn theo dateFormat từ DS phẫu thuật)
+  const renderDateTimeCell = (dateTimeStr: string) => {
+    if (!dateTimeStr) return <span className="text-gray-300">-</span>;
+
+    let datePart = '';
+    let timePart = '';
+
+    const parts = dateTimeStr.trim().split(' ');
+    if (parts.length >= 2) {
+      datePart = parts[0];
+      timePart = parts[1];
+    } else {
+      datePart = dateTimeStr;
+    }
+
+    // Nếu format là 'dd/mm' hoặc 'dd/mm hh:mm' (rút gọn năm)
+    if (dateFormat?.includes('dd/mm') && !dateFormat.includes('dd/mm/yyyy')) {
+      const dParts = datePart.split('/');
+      if (dParts.length >= 2) {
+        datePart = `${dParts[0]}/${dParts[1]}`;
+      }
+    }
+
+    if (dateFormat === 'hh:mm' && timePart) {
+      return (
+        <div className="flex items-center justify-center leading-tight py-0.5">
+          <span className="font-mono text-xs text-gray-800 font-semibold whitespace-nowrap">{timePart}</span>
+        </div>
+      );
+    }
+
+    if (dateFormat === 'dd/mm/yyyy' || !timePart) {
+      return (
+        <div className="flex items-center justify-center leading-tight py-0.5">
+          <span className="font-mono text-[11px] text-gray-800 font-semibold whitespace-nowrap">{datePart}</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col items-center justify-center leading-tight py-0.5">
+        <span className="font-mono text-[11px] text-gray-800 font-semibold whitespace-nowrap">{datePart}</span>
+        {timePart && (
+          <span className="font-mono text-[10px] text-gray-500 whitespace-nowrap">{timePart}</span>
+        )}
+      </div>
+    );
   };
 
   if (!records || records.length === 0) {
@@ -344,6 +507,113 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       {/* ── Toolbar ── */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 border-b border-gray-200 bg-white">
         <div className="flex flex-wrap items-center gap-2">
+          {/* Nút Cấu hình ngoài giờ (trước box tìm kiếm) */}
+          <div className="relative" ref={configDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsConfigDropdownOpen(!isConfigDropdownOpen)}
+              title="Cấu hình hiển thị ngoài giờ"
+              className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs border cursor-pointer ${
+                isConfigDropdownOpen
+                  ? 'bg-primary-700 text-white border-primary-800'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-primary-300 hover:text-primary-700'
+              }`}
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <ChevronDown className={`w-3 h-3 transition-transform ${isConfigDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isConfigDropdownOpen && (
+              <div
+                className="fb-dropdown left-0 top-full mt-1.5 w-52 p-1 z-50 shadow-lg"
+                onMouseLeave={() => setActiveSubmenu(null)}
+              >
+                {/* 1. Ngoài giờ GV */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleToggleIncludeGV();
+                  }}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-gray-700 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-3.5 flex items-center justify-center text-blue-600 font-bold">
+                      {includeGV && <Check className="w-3.5 h-3.5" />}
+                    </span>
+                    <span>Ngoài giờ GV</span>
+                  </div>
+                  <Users className="w-3.5 h-3.5 text-gray-400" />
+                </button>
+
+                {/* 2. Định dạng TS giờ (Submenu) */}
+                <div
+                  className="relative"
+                  onMouseEnter={() => setActiveSubmenu('duration')}
+                >
+                  <div className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-gray-700 rounded-md hover:bg-gray-100 transition-colors cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3.5"></span>
+                      <span>Định dạng TS giờ</span>
+                    </div>
+                    <ChevronRight className="w-3 h-3 text-gray-400" />
+                  </div>
+
+                  {activeSubmenu === 'duration' && (
+                    <div className="fb-dropdown left-[95%] top-0 -ml-1 w-44 p-1 shadow-lg z-50">
+                      <div className="text-[10px] font-bold text-gray-400 uppercase mb-1 px-2 py-1 border-b flex justify-between items-center">
+                        <span>Chọn định dạng</span>
+                        <Clock className="w-2.5 h-2.5" />
+                      </div>
+                      {(['01h45', '01h45p', '01h45ph', '01:45'] as OvertimeDurationFormat[]).map((fmt) => (
+                        <button
+                          key={fmt}
+                          type="button"
+                          onClick={() => {
+                            setDurationFormat(fmt);
+                            localStorage.setItem('sdp_overtime_duration_format', fmt);
+                            setActiveSubmenu(null);
+                            setIsConfigDropdownOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-md transition-colors cursor-pointer ${
+                            durationFormat === fmt
+                              ? 'bg-blue-50 text-blue-700 font-semibold'
+                              : 'text-gray-700 hover:bg-gray-100'
+                          }`}
+                        >
+                          <span className="w-3.5 flex items-center justify-center font-bold">
+                            {durationFormat === fmt && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                          </span>
+                          <span className="font-mono">{fmt}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. In dòng tổng thời gian */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTotalRow((prev) => {
+                      const next = !prev;
+                      localStorage.setItem('sdp_overtime_show_total_row', String(next));
+                      return next;
+                    });
+                  }}
+                  className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-gray-700 rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="w-3.5 flex items-center justify-center text-blue-600 font-bold">
+                      {showTotalRow && <Check className="w-3.5 h-3.5" />}
+                    </span>
+                    <span>In dòng tổng thời gian</span>
+                  </div>
+                  <Layers className="w-3.5 h-3.5 text-gray-400" />
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Ô tìm kiếm */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -409,25 +679,6 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
               );
             })}
           </select>
-
-          {/* Toggle Bật / Tắt Giúp việc (GV) */}
-          <button
-            type="button"
-            onClick={handleToggleIncludeGV}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border font-medium transition-all select-none ${
-              includeGV
-                ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-xs'
-                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-            }`}
-            title="Bật/Tắt tính toán và hiển thị vị trí Giúp việc (GV) trong danh sách ngoài giờ"
-          >
-            {includeGV ? (
-              <ToggleRight className="w-4 h-4 text-blue-600" />
-            ) : (
-              <ToggleLeft className="w-4 h-4 text-gray-400" />
-            )}
-            <span>Giúp việc (GV): {includeGV ? 'BẬT' : 'TẮT'}</span>
-          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -436,23 +687,64 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
             <button
               type="button"
               onClick={onNavigateToDutyTab}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer"
             >
               <CalendarDays className="w-3.5 h-3.5 text-blue-600" />
               <span>Xem / Sửa Lịch trực</span>
             </button>
           )}
 
-          {/* Nút Xuất Excel */}
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            disabled={isExporting || filteredRows.length === 0}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 transition-colors shadow-xs"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>{isExporting ? 'Đang xuất...' : 'Xuất Excel Ngoài giờ'}</span>
-          </button>
+          {/* Nút Xuất ngoài giờ (Dropdown) */}
+          <div className="relative" ref={exportDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
+              disabled={isExporting || filteredRows.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>{isExporting ? 'Đang xuất...' : 'Xuất ngoài giờ'}</span>
+              <ChevronDown className={`w-3 h-3 transition-transform ${isExportDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isExportDropdownOpen && (
+              <div className="fb-dropdown top-full right-0 mt-1 w-52 p-1 z-50 shadow-lg">
+                {/* 1. Word (.docx): Giấy báo ngoài giờ */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsExportDropdownOpen(false);
+                    await handleExportDocx();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-700 rounded-lg transition-colors cursor-pointer text-left"
+                >
+                  <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                  <div>
+                    <div className="font-semibold text-gray-900">Giấy báo ngoài giờ</div>
+                    <div className="text-[10px] text-gray-400">File Word (.docx)</div>
+                  </div>
+                </button>
+
+                <div className="fb-dropdown-divider my-1" />
+
+                {/* 2. Excel (.xlsx): Excel đối chiếu */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsExportDropdownOpen(false);
+                    await handleExportExcel();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 rounded-lg transition-colors cursor-pointer text-left"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div>
+                    <div className="font-semibold text-gray-900">Excel đối chiếu</div>
+                    <div className="text-[10px] text-gray-400">File bảng tính (.xlsx)</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -462,72 +754,72 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
           <colgroup>
             <col style={{ width: 45, minWidth: 45, maxWidth: 45 }} />
             <col style={{ width: 85, minWidth: 85, maxWidth: 85 }} />
-            <col style={{ width: 160, minWidth: 160, maxWidth: 160 }} />
-            <col style={{ width: 220, minWidth: 220, maxWidth: 220 }} />
-            <col style={{ width: 125, minWidth: 125, maxWidth: 125 }} />
-            <col style={{ width: 125, minWidth: 125, maxWidth: 125 }} />
-            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
-            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
-            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
-            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
-            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
-            {includeGV && <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />}
+            <col style={{ width: 140, minWidth: 140, maxWidth: 140 }} />
+            <col style={{ width: 200, minWidth: 160 }} />
             <col style={{ width: 80, minWidth: 80, maxWidth: 80 }} />
             <col style={{ width: 80, minWidth: 80, maxWidth: 80 }} />
+            <col style={{ width: 110, minWidth: 90 }} />
+            <col style={{ width: 110, minWidth: 90 }} />
+            <col style={{ width: 110, minWidth: 90 }} />
+            <col style={{ width: 110, minWidth: 90 }} />
+            <col style={{ width: 110, minWidth: 90 }} />
+            {includeGV && <col style={{ width: 110, minWidth: 90 }} />}
             <col style={{ width: 75, minWidth: 75, maxWidth: 75 }} />
-            <col style={{ width: 120, minWidth: 120, maxWidth: 120 }} />
+            <col style={{ width: 75, minWidth: 75, maxWidth: 75 }} />
+            <col style={{ width: 70, minWidth: 70, maxWidth: 70 }} />
+            <col style={{ width: 110, minWidth: 100, maxWidth: 120 }} />
           </colgroup>
 
           <thead>
             <tr className="bg-[#003366] text-white select-none sticky top-0 z-20">
-              <th className="sticky left-0 z-30 bg-[#003366] px-2.5 py-2.5 text-center font-semibold w-[45px] min-w-[45px] max-w-[45px] border-r border-b border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+              <th className="sticky left-0 z-30 bg-[#003366] px-2 py-2.5 text-center font-semibold w-[45px] min-w-[45px] max-w-[45px] border-r border-b border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                 STT
               </th>
-              <th className="sticky left-[45px] z-30 bg-[#003366] px-2.5 py-2.5 text-left font-semibold w-[85px] min-w-[85px] max-w-[85px] border-r border-b border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+              <th className="sticky left-[45px] z-30 bg-[#003366] px-2 py-2.5 text-left font-semibold w-[85px] min-w-[85px] max-w-[85px] border-r border-b border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                 Mã BN
               </th>
-              <th className="sticky left-[130px] z-30 bg-[#003366] px-3 py-2.5 text-left font-semibold w-[160px] min-w-[160px] max-w-[160px] border-r border-b border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)]">
+              <th className="sticky left-[130px] z-30 bg-[#003366] px-2.5 py-2.5 text-left font-semibold w-[140px] min-w-[140px] max-w-[140px] border-r border-b border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)]">
                 Họ tên
               </th>
-              <th className="px-3 py-2.5 text-left font-semibold w-[220px] min-w-[220px] max-w-[220px] border-r border-b border-blue-900/60">
+              <th className="px-2.5 py-2.5 text-left font-semibold w-[200px] min-w-[160px] border-r border-b border-blue-900/60">
                 Tên kỹ thuật
               </th>
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[125px] min-w-[125px] max-w-[125px] border-r border-b border-blue-900/60">
+              <th className="px-1 py-2.5 text-center font-semibold w-[80px] min-w-[80px] max-w-[80px] border-r border-b border-blue-900/60">
                 Ngày BĐ
               </th>
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[125px] min-w-[125px] max-w-[125px] border-r border-b border-blue-900/60">
+              <th className="px-1 py-2.5 text-center font-semibold w-[80px] min-w-[80px] max-w-[80px] border-r border-b border-blue-900/60">
                 Ngày KT
               </th>
-              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+              <th className="px-2 py-2.5 text-left font-semibold w-[110px] min-w-[90px] border-r border-b border-blue-900/60">
                 PT chính
               </th>
-              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+              <th className="px-2 py-2.5 text-left font-semibold w-[110px] min-w-[90px] border-r border-b border-blue-900/60">
                 PT phụ
               </th>
-              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+              <th className="px-2 py-2.5 text-left font-semibold w-[110px] min-w-[90px] border-r border-b border-blue-900/60">
                 BS GM
               </th>
-              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+              <th className="px-2 py-2.5 text-left font-semibold w-[110px] min-w-[90px] border-r border-b border-blue-900/60">
                 KTV GM
               </th>
-              <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60">
+              <th className="px-2 py-2.5 text-left font-semibold w-[110px] min-w-[90px] border-r border-b border-blue-900/60">
                 TDC
               </th>
               {includeGV && (
-                <th className="px-2.5 py-2.5 text-left font-semibold w-[120px] min-w-[120px] max-w-[120px] border-r border-b border-blue-900/60 bg-blue-900/80 text-blue-100">
+                <th className="px-2 py-2.5 text-left font-semibold w-[110px] min-w-[90px] border-r border-b border-blue-900/60 bg-blue-900/80 text-blue-100">
                   GV
                 </th>
               )}
-              <th className="px-2 py-2.5 text-center font-semibold w-[80px] min-w-[80px] max-w-[80px] border-r border-b border-blue-900/60 bg-blue-950/70">
+              <th className="px-1.5 py-2.5 text-center font-semibold w-[75px] min-w-[75px] max-w-[75px] border-r border-b border-blue-900/60 bg-blue-950/70">
                 Ngoài giờ (từ)
               </th>
-              <th className="px-2 py-2.5 text-center font-semibold w-[80px] min-w-[80px] max-w-[80px] border-r border-b border-blue-900/60 bg-blue-950/70">
+              <th className="px-1.5 py-2.5 text-center font-semibold w-[75px] min-w-[75px] max-w-[75px] border-r border-b border-blue-900/60 bg-blue-950/70">
                 Ngoài giờ (đến)
               </th>
-              <th className="px-2 py-2.5 text-center font-semibold w-[75px] min-w-[75px] max-w-[75px] border-r border-b border-blue-900/60 bg-amber-700 text-amber-50">
+              <th className="px-1.5 py-2.5 text-center font-semibold w-[70px] min-w-[70px] max-w-[70px] border-r border-b border-blue-900/60 bg-amber-700 text-amber-50">
                 TS giờ
               </th>
-              <th className="px-2.5 py-2.5 text-center font-semibold w-[120px] min-w-[120px] max-w-[120px] border-b border-blue-900/60">
+              <th className="px-2 py-2.5 text-center font-semibold w-[110px] min-w-[100px] border-b border-blue-900/60">
                 Ghi chú
               </th>
             </tr>
@@ -559,14 +851,14 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
                   >
                     {/* Cột 1: STT (Sticky) */}
                     <td
-                      className={`sticky left-0 z-10 ${stickyBg} px-2.5 py-2 text-center text-gray-500 font-mono border-r border-b border-gray-100 w-[45px] min-w-[45px] max-w-[45px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]`}
+                      className={`sticky left-0 z-10 ${stickyBg} px-2 py-2 text-center text-gray-500 font-mono border-r border-b border-gray-100 w-[45px] min-w-[45px] max-w-[45px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] align-middle`}
                     >
                       {globalIndex}
                     </td>
 
                     {/* Cột 2: Mã BN (Sticky) */}
                     <td
-                      className={`sticky left-[45px] z-10 ${stickyBg} px-2.5 py-2 font-mono font-medium text-gray-700 border-r border-b border-gray-100 whitespace-nowrap w-[85px] min-w-[85px] max-w-[85px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] truncate`}
+                      className={`sticky left-[45px] z-10 ${stickyBg} px-1.5 py-2 font-mono text-[11px] font-medium text-gray-700 border-r border-b border-gray-100 w-[85px] min-w-[85px] max-w-[85px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] break-all leading-tight align-middle`}
                       title={row.patientId}
                     >
                       {row.patientId}
@@ -574,69 +866,69 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
                     {/* Cột 3: Họ tên (Sticky) */}
                     <td
-                      className={`sticky left-[130px] z-10 ${stickyBg} px-3 py-2 font-semibold text-gray-900 border-r border-b border-gray-100 whitespace-nowrap w-[160px] min-w-[160px] max-w-[160px] shadow-[4px_0_6px_rgba(0,0,0,0.08)] truncate`}
+                      className={`sticky left-[130px] z-10 ${stickyBg} px-2.5 py-2 font-semibold text-gray-900 border-r border-b border-gray-100 w-[140px] min-w-[140px] max-w-[140px] shadow-[4px_0_6px_rgba(0,0,0,0.08)] break-words leading-tight align-middle`}
                       title={row.patientName}
                     >
                       {row.patientName}
                     </td>
 
                     {/* Cột 4: Tên kỹ thuật */}
-                    <td className="px-3 py-2 text-gray-700 border-r border-b border-gray-100 w-[220px] min-w-[220px] max-w-[220px]">
-                      <div className="line-clamp-2 text-xs" title={row.tenKT}>
+                    <td className="px-2.5 py-2 text-gray-700 border-r border-b border-gray-100 w-[200px] min-w-[160px] align-middle">
+                      <div className="line-clamp-2 text-xs leading-tight" title={row.tenKT}>
                         {row.tenKT}
                       </div>
                     </td>
 
                     {/* Cột 5: Ngày BĐ */}
-                    <td className="px-2.5 py-2 text-center text-gray-600 font-mono text-[11px] border-r border-b border-gray-100 whitespace-nowrap w-[125px] min-w-[125px] max-w-[125px]">
-                      {row.ngayBD}
+                    <td className="px-1 py-1.5 text-center border-r border-b border-gray-100 w-[80px] min-w-[80px] max-w-[80px] align-middle">
+                      {renderDateTimeCell(row.ngayBD)}
                     </td>
 
                     {/* Cột 6: Ngày KT */}
-                    <td className="px-2.5 py-2 text-center text-gray-600 font-mono text-[11px] border-r border-b border-gray-100 whitespace-nowrap w-[125px] min-w-[125px] max-w-[125px]">
-                      {row.ngayKT}
+                    <td className="px-1 py-1.5 text-center border-r border-b border-gray-100 w-[80px] min-w-[80px] max-w-[80px] align-middle">
+                      {renderDateTimeCell(row.ngayKT)}
                     </td>
 
                     {/* Cột 7: PT chính */}
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.ptChinh}>
+                    <td className="px-2 py-1.5 text-gray-800 border-r border-b border-gray-100 w-[110px] min-w-[90px] break-words leading-tight align-middle" title={row.ptChinh}>
                       {row.ptChinh ? (
-                        <span className="font-medium text-blue-900">{row.ptChinh}</span>
+                        <span className="font-medium text-blue-900 break-words">{row.ptChinh}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
 
                     {/* Cột 8: PT phụ */}
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.ptPhu}>
+                    <td className="px-2 py-1.5 text-gray-800 border-r border-b border-gray-100 w-[110px] min-w-[90px] break-words leading-tight align-middle" title={row.ptPhu}>
                       {row.ptPhu ? (
-                        <span className="font-medium text-blue-900">{row.ptPhu}</span>
+                        <span className="font-medium text-blue-900 break-words">{row.ptPhu}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
 
                     {/* Cột 9: BS GM */}
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.bsGM}>
+                    <td className="px-2 py-1.5 text-gray-800 border-r border-b border-gray-100 w-[110px] min-w-[90px] break-words leading-tight align-middle" title={row.bsGM}>
                       {row.bsGM ? (
-                        <span className="font-medium text-indigo-900">{row.bsGM}</span>
+                        <span className="font-medium text-indigo-900 break-words">{row.bsGM}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
 
                     {/* Cột 10: KTV GM */}
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.ktvGM}>
+                    <td className="px-2 py-1.5 text-gray-800 border-r border-b border-gray-100 w-[110px] min-w-[90px] break-words leading-tight align-middle" title={row.ktvGM}>
                       {row.ktvGM ? (
-                        <span className="font-medium text-indigo-900">{row.ktvGM}</span>
+                        <span className="font-medium text-indigo-900 break-words">{row.ktvGM}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
                     </td>
 
                     {/* Cột 11: TDC */}
-                    <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.tdc}>
+                    <td className="px-2 py-1.5 text-gray-800 border-r border-b border-gray-100 w-[110px] min-w-[90px] break-words leading-tight align-middle" title={row.tdc}>
                       {row.tdc ? (
-                        <span className="font-medium text-teal-900">{row.tdc}</span>
+                        <span className="font-medium text-teal-900 break-words">{row.tdc}</span>
                       ) : (
                         <span className="text-gray-300">-</span>
                       )}
@@ -644,9 +936,9 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
                     {/* Cột 12: GV (nếu BẬT) */}
                     {includeGV && (
-                      <td className="px-2.5 py-2 text-gray-800 border-r border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px] truncate" title={row.gv}>
+                      <td className="px-2 py-1.5 text-gray-800 border-r border-b border-gray-100 w-[110px] min-w-[90px] break-words leading-tight align-middle" title={row.gv}>
                         {row.gv ? (
-                          <span className="font-medium text-teal-900">{row.gv}</span>
+                          <span className="font-medium text-teal-900 break-words">{row.gv}</span>
                         ) : (
                           <span className="text-gray-300">-</span>
                         )}
@@ -654,22 +946,22 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
                     )}
 
                     {/* Cột 13: Ngoài giờ Từ */}
-                    <td className="px-2 py-2 text-center font-mono font-bold text-gray-800 border-r border-b border-gray-100 bg-blue-50/20 whitespace-nowrap w-[80px] min-w-[80px] max-w-[80px]">
+                    <td className="px-1.5 py-1.5 text-center font-mono font-bold text-gray-800 border-r border-b border-gray-100 bg-blue-50/20 whitespace-nowrap w-[75px] min-w-[75px] max-w-[75px] align-middle">
                       {row.timeFrom}
                     </td>
 
                     {/* Cột 14: Ngoài giờ Đến */}
-                    <td className="px-2 py-2 text-center font-mono font-bold text-gray-800 border-r border-b border-gray-100 bg-blue-50/20 whitespace-nowrap w-[80px] min-w-[80px] max-w-[80px]">
+                    <td className="px-1.5 py-1.5 text-center font-mono font-bold text-gray-800 border-r border-b border-gray-100 bg-blue-50/20 whitespace-nowrap w-[75px] min-w-[75px] max-w-[75px] align-middle">
                       {row.timeTo}
                     </td>
 
                     {/* Cột 15: TS Giờ */}
-                    <td className="px-2 py-2 text-center font-mono font-extrabold text-amber-700 bg-amber-50/50 border-r border-b border-gray-100 whitespace-nowrap w-[75px] min-w-[75px] max-w-[75px]">
-                      {row.durationText}
+                    <td className="px-1.5 py-1.5 text-center font-mono font-extrabold text-amber-700 bg-amber-50/50 border-r border-b border-gray-100 whitespace-nowrap w-[70px] min-w-[70px] max-w-[70px] align-middle">
+                      {formatOvertimeDuration(row.durationMinutes || 0, durationFormat)}
                     </td>
 
                     {/* Cột 16: Ghi chú */}
-                    <td className="px-2.5 py-2 text-center border-b border-gray-100 whitespace-nowrap w-[120px] min-w-[120px] max-w-[120px]">
+                    <td className="px-2 py-1.5 text-center border-b border-gray-100 w-[110px] min-w-[100px] align-middle">
                       {isTruc ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">
                           Kíp trực
