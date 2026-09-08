@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   CalendarDays,
   CheckCircle2,
@@ -11,6 +11,8 @@ import {
   Filter,
   X,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Columns3,
   CalendarRange,
   ArrowLeftToLine,
@@ -35,6 +37,7 @@ interface DutyScheduleTabProps {
   onUpdateDutySchedule: (dateKey: string, isHoliday: boolean, onCallStaff: string[]) => void;
   config: AppConfig;
   isSaving?: boolean;
+  dateRangeText?: string;
 }
 
 interface StaffRowItem {
@@ -44,12 +47,33 @@ interface StaffRowItem {
   deptWeight: number;
 }
 
+// Hàm trích xuất ngày bắt đầu và kết thúc từ chuỗi khoảng thời gian báo cáo (nếu có)
+function parseDateRange(text?: string): { startKey?: string; endKey?: string } {
+  if (!text) return {};
+  // 1. Khớp định dạng ngày kiểu Việt Nam: DD/MM/YYYY hoặc D/M/YYYY
+  const dmyMatches = text.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g);
+  if (dmyMatches && dmyMatches.length >= 2) {
+    const [d1, m1, y1] = dmyMatches[0].split('/').map(Number);
+    const [d2, m2, y2] = dmyMatches[1].split('/').map(Number);
+    const startKey = `${y1}-${String(m1).padStart(2, '0')}-${String(d1).padStart(2, '0')}`;
+    const endKey = `${y2}-${String(m2).padStart(2, '0')}-${String(d2).padStart(2, '0')}`;
+    return { startKey, endKey };
+  }
+  // 2. Khớp định dạng ngày kiểu ISO: YYYY-MM-DD
+  const ymdMatches = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/g);
+  if (ymdMatches && ymdMatches.length >= 2) {
+    return { startKey: ymdMatches[0], endKey: ymdMatches[1] };
+  }
+  return {};
+}
+
 export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   records,
   dutySchedules,
   onUpdateDutySchedule,
   config,
   isSaving = false,
+  dateRangeText,
 }) => {
   // Bộ lọc
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
@@ -63,14 +87,20 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   const [focusedMonthKey, setFocusedMonthKey] = useState<string | null>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Xác định danh sách các ngày cột (từ ngày trực sớm nhất đến ngày ca mổ kết thúc muộn nhất)
+  // 1. Xác định danh sách các ngày cột (từ ngày bắt đầu đến ngày kết thúc của kỳ báo cáo)
   const dutyDates = useMemo(() => {
-    if (!records || records.length === 0) return [];
+    const { startKey: queryStartKey, endKey: queryEndKey } = parseDateRange(dateRangeText);
 
-    let earliestDutyDateStr: string | null = null;
-    let latestEndDate: Date | null = null;
+    let earliestDutyDateStr: string | null = queryStartKey || null;
+    let latestEndDate: Date | null = queryEndKey
+      ? new Date(
+          Number(queryEndKey.split('-')[0]),
+          Number(queryEndKey.split('-')[1]) - 1,
+          Number(queryEndKey.split('-')[2])
+        )
+      : null;
 
-    records.forEach((r) => {
+    (records || []).forEach((r) => {
       const start = r.start || (r.ngayBD ? new Date(r.ngayBD) : null);
       const end = r.end || (r.ngayKT ? new Date(r.ngayKT) : null);
 
@@ -108,7 +138,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
     }
 
     return dates;
-  }, [records, config?.workingHours]);
+  }, [records, config?.workingHours, dateRangeText]);
 
   // Điều kiện kích hoạt chế độ dài hạn
   const isLongPeriod = dutyDates.length > 31;
@@ -238,6 +268,78 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
     return groups;
   }, [dutyDates, isLongPeriod]);
 
+  // Mặc định khi ở chế độ dài hạn (> 31 ngày) là thu gọn tất cả các khoa khi load
+  const prevDutyDatesLengthRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (isLongPeriod && availableDepartments.length > 0) {
+      if (prevDutyDatesLengthRef.current !== dutyDates.length) {
+        setCollapsedDepts(new Set(availableDepartments));
+        prevDutyDatesLengthRef.current = dutyDates.length;
+      }
+    } else if (!isLongPeriod) {
+      if (prevDutyDatesLengthRef.current !== dutyDates.length) {
+        setCollapsedDepts(new Set());
+        prevDutyDatesLengthRef.current = dutyDates.length;
+      }
+    }
+  }, [isLongPeriod, availableDepartments, dutyDates.length]);
+
+  // Mặc định chọn tháng đầu tiên khi load ở chế độ dài hạn
+  useEffect(() => {
+    if (isLongPeriod && monthGroups.length > 0) {
+      if (!activeMonthKey || !monthGroups.some((g) => g.monthKey === activeMonthKey)) {
+        setActiveMonthKey(monthGroups[0].monthKey);
+      }
+    }
+  }, [isLongPeriod, monthGroups, activeMonthKey]);
+
+  // Danh sách các Năm có trong đợt báo cáo
+  const yearList = useMemo(() => {
+    const years = new Set<string>();
+    monthGroups.forEach((g) => {
+      const y = g.monthKey.split('-')[0];
+      years.add(y);
+    });
+    return Array.from(years).sort();
+  }, [monthGroups]);
+
+  // Năm hiện tại đang được chọn (tính từ activeMonthKey)
+  const selectedYear = useMemo(() => {
+    if (activeMonthKey) return activeMonthKey.split('-')[0];
+    return yearList.length > 0 ? yearList[0] : '';
+  }, [activeMonthKey, yearList]);
+
+  // Danh sách các tháng thuộc Năm đang chọn
+  const monthsInSelectedYear = useMemo(() => {
+    if (!selectedYear) return monthGroups;
+    return monthGroups.filter((g) => g.monthKey.startsWith(selectedYear));
+  }, [monthGroups, selectedYear]);
+
+  // Vị trí chỉ số tháng hiện tại trong danh sách toàn bộ các tháng
+  const currentMonthIdx = useMemo(() => {
+    if (!activeMonthKey || monthGroups.length === 0) return 0;
+    const idx = monthGroups.findIndex((g) => g.monthKey === activeMonthKey);
+    return idx >= 0 ? idx : 0;
+  }, [activeMonthKey, monthGroups]);
+
+  const canPrevMonth = currentMonthIdx > 0;
+  const canNextMonth = currentMonthIdx < monthGroups.length - 1;
+
+  const handleYearChange = (newYear: string) => {
+    const target = monthGroups.find((g) => g.monthKey.startsWith(newYear));
+    if (target) {
+      scrollToMonth(target.startIndex, target.monthKey);
+    }
+  };
+
+  const handleMonthChange = (newMonthKey: string) => {
+    const target = monthGroups.find((g) => g.monthKey === newMonthKey);
+    if (target) {
+      scrollToMonth(target.startIndex, target.monthKey);
+    }
+  };
+
   // Ngày hôm nay (nếu nằm trong khoảng ngày báo cáo)
   const todayStr = useMemo(() => {
     const now = new Date();
@@ -263,6 +365,20 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
     });
   };
 
+  const handlePrevMonth = () => {
+    if (canPrevMonth) {
+      const prevG = monthGroups[currentMonthIdx - 1];
+      scrollToMonth(prevG.startIndex, prevG.monthKey);
+    }
+  };
+
+  const handleNextMonth = () => {
+    if (canNextMonth) {
+      const nextG = monthGroups[currentMonthIdx + 1];
+      scrollToMonth(nextG.startIndex, nextG.monthKey);
+    }
+  };
+
   const scrollToToday = () => {
     const idx = dutyDates.indexOf(todayStr);
     if (idx === -1 || !tableContainerRef.current) return;
@@ -275,25 +391,22 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   };
 
   const scrollToFirstDay = () => {
-    tableContainerRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
     if (monthGroups.length > 0) {
-      setActiveMonthKey(monthGroups[0].monthKey);
-      setFocusedMonthKey(monthGroups[0].monthKey);
-      setTimeout(() => setFocusedMonthKey(null), 1800);
+      scrollToMonth(monthGroups[0].startIndex, monthGroups[0].monthKey);
+    } else {
+      tableContainerRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
     }
   };
 
   const scrollToLastDay = () => {
-    if (!tableContainerRef.current) return;
-    tableContainerRef.current.scrollTo({
-      left: tableContainerRef.current.scrollWidth,
-      behavior: 'smooth',
-    });
     if (monthGroups.length > 0) {
-      const lastKey = monthGroups[monthGroups.length - 1].monthKey;
-      setActiveMonthKey(lastKey);
-      setFocusedMonthKey(lastKey);
-      setTimeout(() => setFocusedMonthKey(null), 1800);
+      const last = monthGroups[monthGroups.length - 1];
+      scrollToMonth(last.startIndex, last.monthKey);
+    } else if (tableContainerRef.current) {
+      tableContainerRef.current.scrollTo({
+        left: tableContainerRef.current.scrollWidth,
+        behavior: 'smooth',
+      });
     }
   };
 
@@ -608,23 +721,106 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
         </div>
       </div>
 
-      {/* ── Sub-bar: Thanh điều hướng Tháng nhanh (Chỉ xuất hiện khi > 31 ngày) ── */}
+      {/* ── Sub-bar: Thanh điều hướng Tháng gọn (Chỉ xuất hiện khi > 31 ngày) ── */}
       {isLongPeriod && monthGroups.length > 1 && (
-        <div className="flex items-center justify-between gap-2 px-4 py-1.5 bg-blue-50/70 border-b border-blue-200/80 text-xs select-none">
-          <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-1.5 bg-blue-50/70 border-b border-blue-200/80 text-xs select-none">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <span className="flex items-center gap-1 font-bold text-blue-900 text-[11px]">
               <CalendarRange className="w-3.5 h-3.5 text-blue-700" />
-              <span>Nhảy nhanh tháng:</span>
+              <span>Điều hướng:</span>
             </span>
-            <button
-              type="button"
-              onClick={scrollToFirstDay}
-              title="Cuộn về ngày đầu kỳ"
-              className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10.5px] font-medium bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 transition-colors cursor-pointer"
-            >
-              <ArrowLeftToLine className="w-3 h-3" />
-              <span>Đầu kỳ</span>
-            </button>
+
+            {/* Cụm điều khiển: [Đầu kỳ] [Lùi 1 tháng] [Dropdown Chọn Năm] [Dropdown Chọn Tháng] [Tiến 1 tháng] [Cuối kỳ] */}
+            <div className="flex items-center bg-white rounded-lg border border-blue-300 shadow-2xs overflow-hidden">
+              {/* Button Đầu kỳ */}
+              <button
+                type="button"
+                onClick={scrollToFirstDay}
+                disabled={!canPrevMonth}
+                title="Về đầu kỳ"
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-900 hover:bg-blue-100 border-r border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                <ArrowLeftToLine className="w-3 h-3" />
+                <span className="hidden sm:inline">Đầu kỳ</span>
+              </button>
+
+              {/* Button Chuyển lùi 1 tháng */}
+              <button
+                type="button"
+                onClick={handlePrevMonth}
+                disabled={!canPrevMonth}
+                title="Lùi 1 tháng"
+                className="p-1 px-1.5 text-blue-900 hover:bg-blue-100 border-r border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Dropdown Chọn Năm */}
+              <div className="relative flex items-center px-2 py-0.5 bg-blue-50/50 border-r border-blue-200">
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wide select-none mr-1">
+                  Năm:
+                </span>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => handleYearChange(e.target.value)}
+                  className="pl-0.5 pr-4 py-0.5 text-xs font-bold text-blue-950 bg-transparent border-0 focus:outline-none focus:ring-0 cursor-pointer appearance-none"
+                  title="Chọn Năm để điều hướng nhanh"
+                >
+                  {yearList.map((y) => (
+                    <option key={y} value={y} className="text-gray-900 font-semibold">
+                      {y}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3 h-3 text-blue-700 absolute right-1 pointer-events-none" />
+              </div>
+
+              {/* Dropdown Chọn Tháng trong Năm */}
+              <div className="relative flex items-center px-2 py-0.5">
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wide select-none mr-1">
+                  Tháng:
+                </span>
+                <select
+                  value={activeMonthKey || (monthsInSelectedYear[0]?.monthKey ?? '')}
+                  onChange={(e) => handleMonthChange(e.target.value)}
+                  className="pl-0.5 pr-4 py-0.5 text-xs font-bold text-blue-950 bg-transparent border-0 focus:outline-none focus:ring-0 cursor-pointer appearance-none"
+                  title="Chọn Tháng để điều hướng nhanh"
+                >
+                  {monthsInSelectedYear.map((g) => {
+                    const monthNum = g.monthKey.split('-')[1];
+                    return (
+                      <option key={g.monthKey} value={g.monthKey} className="text-gray-900 font-medium">
+                        Tháng {monthNum} ({g.dates.length} ngày)
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronDown className="w-3 h-3 text-blue-700 absolute right-1 pointer-events-none" />
+              </div>
+
+              {/* Button Tiến 1 tháng */}
+              <button
+                type="button"
+                onClick={handleNextMonth}
+                disabled={!canNextMonth}
+                title="Tiến 1 tháng"
+                className="p-1 px-1.5 text-blue-900 hover:bg-blue-100 border-l border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Button Cuối kỳ */}
+              <button
+                type="button"
+                onClick={scrollToLastDay}
+                disabled={!canNextMonth}
+                title="Đến cuối kỳ"
+                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-900 hover:bg-blue-100 border-l border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+              >
+                <span className="hidden sm:inline">Cuối kỳ</span>
+                <ArrowRightToLine className="w-3 h-3" />
+              </button>
+            </div>
 
             {/* Phím tắt nhảy đến hôm nay (nếu có trong kỳ) */}
             {isTodayInRange && (
@@ -632,7 +828,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 type="button"
                 onClick={scrollToToday}
                 title={`Cuộn nhanh đến hôm nay (${formatDisplayDate(todayStr)})`}
-                className="flex items-center gap-1 px-2 py-0.5 rounded text-[10.5px] font-bold bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-900 transition-colors cursor-pointer shadow-2xs"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-900 transition-colors cursor-pointer shadow-2xs"
               >
                 <Sparkles className="w-3 h-3 text-amber-600" />
                 <span>Hôm nay ({formatDisplayDate(todayStr)})</span>
@@ -640,52 +836,25 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
             )}
           </div>
 
-          {/* Month Pills list */}
-          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-thin">
-            {monthGroups.map((g) => {
-              const isActive = activeMonthKey === g.monthKey;
-              return (
-                <button
-                  key={g.monthKey}
-                  type="button"
-                  onClick={() => scrollToMonth(g.startIndex, g.monthKey)}
-                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all shrink-0 cursor-pointer ${
-                    isActive
-                      ? 'bg-blue-700 text-white shadow-xs scale-105 ring-2 ring-blue-300'
-                      : 'bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 shadow-2xs'
-                  }`}
-                >
-                  {g.label} <span className="text-[9.5px] opacity-80">({g.dates.length}n)</span>
-                </button>
-              );
-            })}
-          </div>
-
+          {/* Phía bên phải: Nút Mở rộng / Thu gọn tất cả khoa */}
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={scrollToLastDay}
-              title="Cuộn đến ngày cuối kỳ"
-              className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10.5px] font-medium bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 transition-colors cursor-pointer"
-            >
-              <span>Cuối kỳ</span>
-              <ArrowRightToLine className="w-3 h-3" />
-            </button>
-
             {availableDepartments.length > 1 && (
-              <div className="flex items-center gap-1 pl-2 border-l border-blue-200">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setCollapsedDepts((prev) =>
-                      prev.size > 0 ? new Set() : new Set(availableDepartments)
-                    )
-                  }
-                  className="text-[10.5px] font-medium text-blue-700 hover:text-blue-900 underline cursor-pointer"
-                >
-                  {collapsedDepts.size > 0 ? 'Mở rộng tất cả khoa' : 'Thu gọn tất cả khoa'}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setCollapsedDepts((prev) =>
+                    prev.size > 0 ? new Set() : new Set(availableDepartments)
+                  )
+                }
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 transition-colors cursor-pointer shadow-2xs"
+              >
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-blue-600 transition-transform ${
+                    collapsedDepts.size > 0 ? '' : 'rotate-180'
+                  }`}
+                />
+                <span>{collapsedDepts.size > 0 ? 'Mở rộng tất cả khoa' : 'Thu gọn tất cả khoa'}</span>
+              </button>
             )}
           </div>
         </div>
@@ -886,32 +1055,43 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                         data-index={virtualRow.index}
                         className="bg-slate-100/95 border-y border-slate-300 select-none"
                       >
+                        {/* Cột cố định sticky left-0 bao trọn 2 cột Khoa/Nhân viên (380px) khi cuộn ngang */}
                         <td
-                          colSpan={2 + dutyDates.length}
-                          className="px-3 py-1 text-slate-800 text-[11px]"
+                          colSpan={2}
+                          className="sticky left-0 z-10 bg-slate-100 border-r border-slate-300 px-3 py-1 text-slate-800 text-[11px] shadow-[4px_0_6px_rgba(0,0,0,0.06)] w-[380px] min-w-[380px] max-w-[380px]"
                         >
-                          <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => toggleDeptCollapse(item.department)}
+                            className="flex items-center gap-1.5 text-slate-800 hover:text-blue-700 font-bold cursor-pointer truncate w-full text-left"
+                            title={`Khoa ${item.department} (${item.staffCount} nhân sự) - Nhấp để ${
+                              item.isCollapsed ? 'mở rộng' : 'thu gọn'
+                            }`}
+                          >
+                            <ChevronDown
+                              className={`w-3.5 h-3.5 text-slate-600 transition-transform shrink-0 ${
+                                item.isCollapsed ? '-rotate-90' : ''
+                              }`}
+                            />
+                            <span className="truncate">KHOA: {item.department}</span>
+                            <span className="text-[10px] text-slate-500 font-normal shrink-0">
+                              ({item.staffCount} nhân sự)
+                            </span>
+                          </button>
+                        </td>
+
+                        {/* Phần còn lại của hàng trải dài qua các cột ngày, nút Mở rộng / Thu gọn ở cuối hàng như cũ */}
+                        <td
+                          colSpan={dutyDates.length}
+                          className="bg-slate-50/70 border-b border-slate-200 px-4 py-1"
+                        >
+                          <div className="flex justify-end">
                             <button
                               type="button"
                               onClick={() => toggleDeptCollapse(item.department)}
-                              className="flex items-center gap-1.5 text-slate-800 hover:text-blue-700 font-bold cursor-pointer"
+                              className="text-[10.5px] text-blue-700 hover:text-blue-900 hover:underline cursor-pointer font-semibold px-2 py-0.5 rounded hover:bg-blue-50 transition-colors"
                             >
-                              <ChevronDown
-                                className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
-                                  item.isCollapsed ? '-rotate-90' : ''
-                                }`}
-                              />
-                              <span>KHOA: {item.department}</span>
-                              <span className="text-[10px] text-slate-500 font-normal">
-                                ({item.staffCount} nhân sự)
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => toggleDeptCollapse(item.department)}
-                              className="text-[10px] text-blue-700 hover:underline cursor-pointer"
-                            >
-                              {item.isCollapsed ? 'Nhấn để mở rộng' : 'Thu gọn khoa này'}
+                              {item.isCollapsed ? 'Mở rộng' : 'Thu gọn'}
                             </button>
                           </div>
                         </td>

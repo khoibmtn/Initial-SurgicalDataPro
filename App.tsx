@@ -2730,6 +2730,11 @@ const InnerApp: React.FC = () => {
           onUpdateDutySchedule={handleUpdateDutySchedule}
           config={config}
           isSaving={isSavingDutySchedule}
+          dateRangeText={
+            (currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
+              ? currentReport.queryDateRangeText
+              : currentReport.result?.dateRangeText || currentReport.queryDateRangeText || currentReport.listDateRange || ''
+          }
         />
       );
     }
@@ -2741,7 +2746,11 @@ const InnerApp: React.FC = () => {
           dutySchedules={dutySchedules}
           config={config}
           onNavigateToDutyTab={() => setActiveTable('duty')}
-          reportDateRangeText={currentReport.result?.dateRangeText || currentReport.listDateRange || ''}
+          reportDateRangeText={
+            (currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
+              ? currentReport.queryDateRangeText
+              : currentReport.result?.dateRangeText || currentReport.listDateRange || ''
+          }
         />
       );
     }
@@ -3257,7 +3266,8 @@ const InnerApp: React.FC = () => {
         thanhTien: r.thanhTien,
       }));
 
-      const res = await reprocessSurgicalRecords(convertedRecords, config);
+      const queryRangeText = `Từ ngày ${formatDateForDisplay(storageState.dateFrom, storageState.timeFrom)} đến ngày ${formatDateForDisplay(storageState.dateTo, storageState.timeTo)}`;
+      const res = await reprocessSurgicalRecords(convertedRecords, config, queryRangeText);
 
       if (res.success) {
         // Auto-fill assistant AND machine data for monthly reports from daily reports
@@ -3325,7 +3335,7 @@ const InnerApp: React.FC = () => {
               const freshResult = reprocessSurgicalRecords(
                 res.validRecords,
                 config,
-                res.dateRangeText || ''
+                queryRangeText
               );
 
               // Update state with fresh calculations
@@ -3924,7 +3934,9 @@ const InnerApp: React.FC = () => {
                 <div className="flex items-center justify-between gap-2 px-4 mt-3">
                   {/* Date range text (left) */}
                   <p className="text-xs text-gray-500 font-medium">
-                    {currentReport.result?.dateRangeText || ''}
+                    {(currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
+                      ? currentReport.queryDateRangeText
+                      : currentReport.result?.dateRangeText || ''}
                   </p>
                   {/* Action buttons (right) */}
                   <div className="flex items-center gap-2 shrink-0">
