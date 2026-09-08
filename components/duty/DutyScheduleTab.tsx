@@ -437,8 +437,8 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
             </tr>
 
             {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết */}
-            <tr className="bg-amber-50/90 border-b-2 border-amber-300 sticky top-[34px] z-10 select-none">
-              <td className="sticky left-0 z-25 bg-amber-100 px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[150px] min-w-[150px] max-w-[150px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
+            <tr className="group bg-amber-50/90 border-b-2 border-amber-300 sticky top-[34px] z-10 select-none">
+              <td className="sticky left-0 z-25 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[150px] min-w-[150px] max-w-[150px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
                 <div className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse"></span>
                   <span className="text-[10.5px] uppercase font-extrabold text-amber-900 tracking-wide">
@@ -446,7 +446,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   </span>
                 </div>
               </td>
-              <td className="sticky left-[150px] z-25 bg-amber-100 px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[230px] min-w-[230px] max-w-[230px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]">
+              <td className="sticky left-[150px] z-25 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[230px] min-w-[230px] max-w-[230px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-amber-900 tracking-tight leading-tight">
                     Check dòng này những ngày nghỉ cuối tuần, Lễ, Tết
@@ -460,14 +460,18 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 return (
                   <td
                     key={dateKey}
-                    className="px-1 py-0.5 text-center border-r border-amber-200 bg-amber-50 w-[70px] min-w-[70px] max-w-[70px]"
+                    className={`px-1 py-0.5 text-center border-r transition-colors w-[70px] min-w-[70px] max-w-[70px] ${
+                      isHoliday
+                        ? 'bg-amber-200 text-amber-950 font-bold border-amber-300 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)] group-hover:bg-amber-300/90'
+                        : 'bg-amber-50/50 border-amber-200 group-hover:bg-amber-100/90'
+                    }`}
                   >
-                    <label className="inline-flex items-center justify-center cursor-pointer p-0.5 rounded hover:bg-amber-200/60 transition-colors">
+                    <label className="inline-flex items-center justify-center cursor-pointer p-0.5 rounded hover:bg-amber-300/60 transition-colors">
                       <input
                         type="checkbox"
                         checked={isHoliday}
                         onChange={() => handleToggleHoliday(dateKey)}
-                        className="w-3.5 h-3.5 rounded text-amber-600 border-amber-300 focus:ring-amber-500 cursor-pointer"
+                        className="w-3.5 h-3.5 rounded text-amber-600 border-amber-400 focus:ring-amber-500 cursor-pointer"
                       />
                     </label>
                   </td>
@@ -490,19 +494,19 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
 
               // Màu nền đồng bộ cho toàn bộ dòng check
               const rowBgClass = hasAnyDuty
-                ? 'bg-blue-50/45 hover:bg-blue-100/40'
-                : 'bg-white hover:bg-slate-50/80';
+                ? 'bg-blue-50/45'
+                : 'bg-white';
               const stickyBgClass = hasAnyDuty ? 'bg-[#f0f7ff]' : 'bg-white';
 
               return (
                 <tr
                   key={staff.name}
-                  className={`transition-colors ${rowBgClass} ${
+                  className={`group transition-colors ${rowBgClass} ${
                     isFirstOfDept && sIdx > 0 ? 'border-t-2 border-gray-300' : ''
                   }`}
                 >
                   {/* Cột 1: Tên Khoa */}
-                  <td className={`sticky left-0 z-10 ${stickyBgClass} px-2.5 py-1 text-gray-600 border-r border-gray-200 text-[11px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] whitespace-nowrap w-[150px] min-w-[150px] max-w-[150px] truncate`}>
+                  <td className={`sticky left-0 z-10 ${stickyBgClass} group-hover:bg-blue-100/90 transition-colors px-2.5 py-1 text-gray-600 border-r border-gray-200 text-[11px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] whitespace-nowrap w-[150px] min-w-[150px] max-w-[150px] truncate`}>
                     {isFirstOfDept ? (
                       <span className="font-bold text-gray-800 text-[11.5px] flex items-center gap-1 truncate" title={staff.department}>
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
@@ -514,7 +518,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   </td>
 
                   {/* Cột 2: Họ tên nhân viên */}
-                  <td className={`sticky left-[150px] z-10 ${stickyBgClass} px-2.5 py-1 font-medium text-gray-900 border-r border-gray-200 shadow-[4px_0_6px_rgba(0,0,0,0.06)] whitespace-nowrap w-[230px] min-w-[230px] max-w-[230px]`}>
+                  <td className={`sticky left-[150px] z-10 ${stickyBgClass} group-hover:bg-blue-100/90 transition-colors px-2.5 py-1 font-medium text-gray-900 border-r border-gray-200 shadow-[4px_0_6px_rgba(0,0,0,0.06)] whitespace-nowrap w-[230px] min-w-[230px] max-w-[230px]`}>
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 truncate">
                         <span className="font-semibold text-gray-800 hover:text-blue-700 cursor-default truncate text-[11.5px]" title={staff.name}>
@@ -522,7 +526,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                         </span>
                         {hasAnyDuty && (
                           <span className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200 shrink-0">
-                            {dutyCount} trực
+                            trực {dutyCount}b
                           </span>
                         )}
                       </div>
@@ -542,17 +546,17 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                     return (
                       <td
                         key={dateKey}
-                        className={`px-1 py-0.5 text-center border-r border-gray-100 w-[70px] min-w-[70px] max-w-[70px] transition-colors ${
+                        className={`px-1 py-0.5 text-center border-r transition-colors w-[70px] min-w-[70px] max-w-[70px] ${
                           isOnCall
-                            ? 'bg-blue-100/75 font-bold text-blue-950 border-r border-blue-200/60'
+                            ? 'bg-blue-200 text-blue-950 font-bold border-blue-300 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.2)] group-hover:bg-blue-300/90 group-hover:border-blue-400'
                             : hasAnyDuty
-                            ? 'bg-blue-50/25'
+                            ? 'bg-blue-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
                             : isHol
-                            ? 'bg-amber-50/25'
-                            : 'hover:bg-gray-50'
+                            ? 'bg-amber-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
+                            : 'border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
                         }`}
                       >
-                        <label className="inline-flex items-center justify-center p-0.5 rounded cursor-pointer hover:bg-blue-100/70 transition-colors">
+                        <label className="inline-flex items-center justify-center p-0.5 rounded cursor-pointer hover:bg-blue-300/50 transition-colors">
                           <input
                             type="checkbox"
                             checked={isOnCall}
