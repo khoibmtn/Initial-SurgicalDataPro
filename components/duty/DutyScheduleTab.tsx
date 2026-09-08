@@ -1,14 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   CalendarDays,
-  CheckCircle2,
   Search,
   Users,
   Building2,
   HelpCircle,
-  SunMedium,
-  RotateCcw,
-  Filter,
   X,
   ChevronDown,
   ChevronLeft,
@@ -18,6 +14,7 @@ import {
   ArrowLeftToLine,
   ArrowRightToLine,
   Sparkles,
+  Check,
 } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { SurgeryRecord, DutyScheduleDateConfig } from '../../types';
@@ -38,6 +35,7 @@ interface DutyScheduleTabProps {
   config: AppConfig;
   isSaving?: boolean;
   dateRangeText?: string;
+  onMonthSelect?: (monthKey: string) => void;
 }
 
 interface StaffRowItem {
@@ -74,6 +72,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   config,
   isSaving = false,
   dateRangeText,
+  onMonthSelect,
 }) => {
   // Bộ lọc
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
@@ -86,6 +85,25 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   const [activeMonthKey, setActiveMonthKey] = useState<string>('');
   const [focusedMonthKey, setFocusedMonthKey] = useState<string | null>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  // Popover state cho dropdown Năm và Tháng (Custom UI/UX Pro Max, loại bỏ hoàn toàn lỗi double arrow)
+  const [isYearOpen, setIsYearOpen] = useState(false);
+  const [isMonthOpen, setIsMonthOpen] = useState(false);
+  const yearDropdownRef = useRef<HTMLDivElement>(null);
+  const monthDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (yearDropdownRef.current && !yearDropdownRef.current.contains(event.target as Node)) {
+        setIsYearOpen(false);
+      }
+      if (monthDropdownRef.current && !monthDropdownRef.current.contains(event.target as Node)) {
+        setIsMonthOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 1. Xác định danh sách các ngày cột (từ ngày bắt đầu đến ngày kết thúc của kỳ báo cáo)
   const dutyDates = useMemo(() => {
@@ -326,19 +344,83 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   const canPrevMonth = currentMonthIdx > 0;
   const canNextMonth = currentMonthIdx < monthGroups.length - 1;
 
-  const handleYearChange = (newYear: string) => {
-    const target = monthGroups.find((g) => g.monthKey.startsWith(newYear));
-    if (target) {
-      scrollToMonth(target.startIndex, target.monthKey);
-    }
-  };
+  // Khi ở chế độ khoảng thời gian dài (> 31 ngày), chỉ render các cột ngày của tháng đang chọn
+  // Giúp DOM giảm từ 1000+ cột xuống 28-31 cột, thao tác 60 FPS siêu mượt
+  const displayedDates = useMemo(() => {
+    if (!isLongPeriod || !activeMonthKey) return dutyDates;
+    const filtered = dutyDates.filter((d) => d.startsWith(activeMonthKey));
+    return filtered.length > 0 ? filtered : dutyDates;
+  }, [dutyDates, isLongPeriod, activeMonthKey]);
 
-  const handleMonthChange = (newMonthKey: string) => {
-    const target = monthGroups.find((g) => g.monthKey === newMonthKey);
-    if (target) {
-      scrollToMonth(target.startIndex, target.monthKey);
+  const activeMonthGroup = useMemo(() => {
+    if (!activeMonthKey) return null;
+    return monthGroups.find((g) => g.monthKey === activeMonthKey) || null;
+  }, [monthGroups, activeMonthKey]);
+
+  // Tính toán động mốc thời gian tua trực 24h theo cấu hình mùa (Hè/Thu vs Đông/Xuân)
+  // Nếu trong tháng hoặc khoảng thời gian hiển thị có 2 cấu hình (ví dụ chuyển mùa giữa tháng)
+  // thì liệt kê chi tiết từng mốc theo khoảng thời gian tương ứng.
+  const dutyShiftNote = useMemo(() => {
+    if (!displayedDates || displayedDates.length === 0) {
+      return '(từ 07:00 ngày T đến 06:59 ngày T+1)';
     }
-  };
+
+    interface DutyShiftSegment {
+      startDate: string;
+      endDate: string;
+      morningFrom: string;
+      startShift: string;
+      endShift: string;
+    }
+
+    const segments: DutyShiftSegment[] = [];
+
+    displayedDates.forEach((d) => {
+      const parts = d.split('-').map(Number);
+      const dateObj = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+      const sched = getScheduleForDate(dateObj, config?.workingHours);
+      const morningFrom = sched?.morningFrom || '07:00';
+
+      const [h, m] = morningFrom.split(':').map(Number);
+      let endH = isNaN(h) ? 6 : h;
+      let endM = (isNaN(m) ? 0 : m) - 1;
+      if (endM < 0) {
+        endM = 59;
+        endH = (endH - 1 + 24) % 24;
+      }
+      const endShift = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+
+      const lastSeg = segments[segments.length - 1];
+      if (lastSeg && lastSeg.morningFrom === morningFrom) {
+        lastSeg.endDate = d;
+      } else {
+        segments.push({
+          startDate: d,
+          endDate: d,
+          morningFrom,
+          startShift: morningFrom,
+          endShift,
+        });
+      }
+    });
+
+    if (segments.length === 1) {
+      const seg = segments[0];
+      return `(từ ${seg.startShift} ngày T đến ${seg.endShift} ngày T+1)`;
+    }
+
+    // Nếu có từ 2 cấu hình trở lên trong khoảng thời gian hiển thị (ví dụ chuyển mùa giữa tháng)
+    const formattedSegments = segments.map((seg) => {
+      const fromText = formatDisplayDate(seg.startDate);
+      const toText = formatDisplayDate(seg.endDate);
+      const rangeText = seg.startDate === seg.endDate
+        ? `ngày ${fromText}`
+        : `từ ${fromText} đến ${toText}`;
+      return `${rangeText}: từ ${seg.startShift} ngày T đến ${seg.endShift} ngày T+1`;
+    });
+
+    return `(${formattedSegments.join('; ')})`;
+  }, [displayedDates, config?.workingHours]);
 
   // Ngày hôm nay (nếu nằm trong khoảng ngày báo cáo)
   const todayStr = useMemo(() => {
@@ -351,62 +433,65 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
 
   const isTodayInRange = useMemo(() => dutyDates.includes(todayStr), [dutyDates, todayStr]);
 
-  // Các hàm điều hướng cuộn nhanh
-  const scrollToMonth = (startIndex: number, monthKey: string) => {
+  // Hàm chuyển tháng mượt mà, đồng thời reset cuộn ngang về đầu tháng và báo callback lên parent
+  const switchMonth = (monthKey: string) => {
     setActiveMonthKey(monthKey);
     setFocusedMonthKey(monthKey);
     setTimeout(() => setFocusedMonthKey(null), 1800);
 
-    if (!tableContainerRef.current) return;
-    const scrollTarget = startIndex * colWidth;
-    tableContainerRef.current.scrollTo({
-      left: scrollTarget,
-      behavior: 'smooth',
-    });
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollLeft = 0;
+    }
+    onMonthSelect?.(monthKey);
+  };
+
+  const handleYearChange = (newYear: string) => {
+    const target = monthGroups.find((g) => g.monthKey.startsWith(newYear));
+    if (target) {
+      switchMonth(target.monthKey);
+    }
+  };
+
+  const handleMonthChange = (newMonthKey: string) => {
+    switchMonth(newMonthKey);
   };
 
   const handlePrevMonth = () => {
     if (canPrevMonth) {
       const prevG = monthGroups[currentMonthIdx - 1];
-      scrollToMonth(prevG.startIndex, prevG.monthKey);
+      switchMonth(prevG.monthKey);
     }
   };
 
   const handleNextMonth = () => {
     if (canNextMonth) {
       const nextG = monthGroups[currentMonthIdx + 1];
-      scrollToMonth(nextG.startIndex, nextG.monthKey);
+      switchMonth(nextG.monthKey);
     }
-  };
-
-  const scrollToToday = () => {
-    const idx = dutyDates.indexOf(todayStr);
-    if (idx === -1 || !tableContainerRef.current) return;
-    const scrollTarget = idx * colWidth;
-    tableContainerRef.current.scrollTo({ left: scrollTarget, behavior: 'smooth' });
-    const todayMonth = todayStr.substring(0, 7);
-    setActiveMonthKey(todayMonth);
-    setFocusedMonthKey(todayMonth);
-    setTimeout(() => setFocusedMonthKey(null), 1800);
   };
 
   const scrollToFirstDay = () => {
     if (monthGroups.length > 0) {
-      scrollToMonth(monthGroups[0].startIndex, monthGroups[0].monthKey);
-    } else {
-      tableContainerRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+      switchMonth(monthGroups[0].monthKey);
     }
   };
 
   const scrollToLastDay = () => {
     if (monthGroups.length > 0) {
-      const last = monthGroups[monthGroups.length - 1];
-      scrollToMonth(last.startIndex, last.monthKey);
-    } else if (tableContainerRef.current) {
-      tableContainerRef.current.scrollTo({
-        left: tableContainerRef.current.scrollWidth,
-        behavior: 'smooth',
-      });
+      switchMonth(monthGroups[monthGroups.length - 1].monthKey);
+    }
+  };
+
+  const scrollToToday = () => {
+    const todayMonth = todayStr.substring(0, 7);
+    if (monthGroups.some((g) => g.monthKey === todayMonth)) {
+      switchMonth(todayMonth);
+      setTimeout(() => {
+        const idx = displayedDates.indexOf(todayStr);
+        if (idx !== -1 && tableContainerRef.current) {
+          tableContainerRef.current.scrollTo({ left: idx * colWidth, behavior: 'smooth' });
+        }
+      }, 60);
     }
   };
 
@@ -478,21 +563,6 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
     onUpdateDutySchedule(dateKey, current.isHoliday, Array.from(staffSet));
   };
 
-  // Reset tất cả ngày nghỉ về mặc định (T7, CN)
-  const handleResetHolidays = () => {
-    dutyDates.forEach((d) => {
-      const current = dutySchedules[d] || {
-        date: d,
-        isHoliday: isWeekend(d),
-        onCallStaff: [],
-      };
-      const defaultHol = isWeekend(d);
-      if (current.isHoliday !== defaultHol) {
-        onUpdateDutySchedule(d, defaultHol, current.onCallStaff || []);
-      }
-    });
-  };
-
   // Tự động đánh dấu T7, CN và các ngày Lễ Việt Nam là ngày nghỉ (Batch Schedule Utility)
   const handleAutoFillWeekendsAndHolidays = () => {
     dutyDates.forEach((d) => {
@@ -549,7 +619,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
         });
       }
       if (!collapsedDepts.has(currentDept)) {
-        const dutyCount = dutyDates.reduce((cnt, d) => {
+        const dutyCount = displayedDates.reduce((cnt, d) => {
           const staffOnCall = dutySchedules[d]?.onCallStaff || [];
           return cnt + (staffOnCall.includes(staff.name) ? 1 : 0);
         }, 0);
@@ -565,7 +635,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
     });
 
     return items;
-  }, [filteredStaff, staffList, collapsedDepts, dutyDates, dutySchedules, isLongPeriod]);
+  }, [filteredStaff, staffList, collapsedDepts, displayedDates, dutySchedules, isLongPeriod]);
 
   // Hook ảo hóa hàng của @tanstack/react-virtual
   const rowVirtualizer = useVirtualizer({
@@ -614,10 +684,6 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   {filteredStaff.length}/{staffList.length} nhân sự
                 </span>
               </div>
-              <p className="text-[10.5px] text-gray-500 flex items-center gap-1 mt-0.5">
-                <SunMedium className="w-3 h-3 text-amber-500" />
-                Tua trực 24h tính từ giờ hành chính sáng ngày T đến trước giờ hành chính sáng ngày T+1.
-              </p>
             </div>
           </div>
         </div>
@@ -701,47 +767,30 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
               <span>Xóa lọc</span>
             </button>
           )}
-
-          {/* Nút đặt lại ngày nghỉ */}
-          <button
-            type="button"
-            onClick={handleResetHolidays}
-            title="Đặt lại ngày nghỉ về mặc định (Chỉ T7, CN)"
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-          >
-            <RotateCcw className="w-3 h-3 text-gray-500" />
-            <span>Mặc định ngày nghỉ</span>
-          </button>
-
-          {/* Trạng thái lưu */}
-          <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium select-none">
-            <CheckCircle2 className={`w-3 h-3 text-emerald-600 ${isSaving ? 'animate-spin' : ''}`} />
-            <span>{isSaving ? 'Đang lưu...' : 'Đã đồng bộ Firestore'}</span>
-          </div>
         </div>
       </div>
 
-      {/* ── Sub-bar: Thanh điều hướng Tháng gọn (Chỉ xuất hiện khi > 31 ngày) ── */}
+      {/* ── Sub-bar: Thanh điều hướng Tháng gọn UI/UX Pro Max (Chỉ xuất hiện khi > 31 ngày) ── */}
       {isLongPeriod && monthGroups.length > 1 && (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-1.5 bg-blue-50/70 border-b border-blue-200/80 text-xs select-none">
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <span className="flex items-center gap-1 font-bold text-blue-900 text-[11px]">
-              <CalendarRange className="w-3.5 h-3.5 text-blue-700" />
-              <span>Điều hướng:</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-1.5 bg-slate-50 border-b border-slate-200/80 text-xs select-none">
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <span className="flex items-center gap-1.5 font-bold text-slate-700 text-[11px]">
+              <CalendarRange className="w-3.5 h-3.5 text-blue-600" />
+              <span>Điều hướng tháng:</span>
             </span>
 
-            {/* Cụm điều khiển: [Đầu kỳ] [Lùi 1 tháng] [Dropdown Chọn Năm] [Dropdown Chọn Tháng] [Tiến 1 tháng] [Cuối kỳ] */}
-            <div className="flex items-center bg-white rounded-lg border border-blue-300 shadow-2xs overflow-hidden">
+            {/* Cụm điều khiển phân đoạn: [Đầu kỳ] [Lùi] | [Năm] | [Tháng] | [Tiến] [Cuối kỳ] */}
+            <div className="inline-flex items-center p-0.5 bg-slate-100 rounded-lg border border-slate-200/90 shadow-2xs">
               {/* Button Đầu kỳ */}
               <button
                 type="button"
                 onClick={scrollToFirstDay}
                 disabled={!canPrevMonth}
-                title="Về đầu kỳ"
-                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-900 hover:bg-blue-100 border-r border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+                title="Về tháng đầu kỳ"
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-white rounded-md disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all cursor-pointer"
               >
                 <ArrowLeftToLine className="w-3 h-3" />
-                <span className="hidden sm:inline">Đầu kỳ</span>
+                <span className="hidden sm:inline text-[11px]">Đầu kỳ</span>
               </button>
 
               {/* Button Chuyển lùi 1 tháng */}
@@ -750,53 +799,136 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 onClick={handlePrevMonth}
                 disabled={!canPrevMonth}
                 title="Lùi 1 tháng"
-                className="p-1 px-1.5 text-blue-900 hover:bg-blue-100 border-r border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="p-1 px-1.5 text-slate-700 hover:text-blue-700 hover:bg-white rounded-md disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all cursor-pointer"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </button>
 
-              {/* Dropdown Chọn Năm */}
-              <div className="relative flex items-center px-2 py-0.5 bg-blue-50/50 border-r border-blue-200">
-                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wide select-none mr-1">
-                  Năm:
-                </span>
-                <select
-                  value={selectedYear}
-                  onChange={(e) => handleYearChange(e.target.value)}
-                  className="pl-0.5 pr-4 py-0.5 text-xs font-bold text-blue-950 bg-transparent border-0 focus:outline-none focus:ring-0 cursor-pointer appearance-none"
-                  title="Chọn Năm để điều hướng nhanh"
+              <div className="h-4 w-px bg-slate-200 mx-0.5" />
+
+              {/* Popover Chọn Năm */}
+              <div className="relative" ref={yearDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsYearOpen((prev) => !prev);
+                    setIsMonthOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                    isYearOpen
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-800 hover:bg-white hover:text-blue-700'
+                  }`}
+                  title="Chọn Năm để điều hướng"
                 >
-                  {yearList.map((y) => (
-                    <option key={y} value={y} className="text-gray-900 font-semibold">
-                      {y}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3 h-3 text-blue-700 absolute right-1 pointer-events-none" />
+                  <span
+                    className={`text-[10px] uppercase font-semibold tracking-wider ${
+                      isYearOpen ? 'text-blue-100' : 'text-slate-400'
+                    }`}
+                  >
+                    Năm
+                  </span>
+                  <span className="font-mono text-xs">{selectedYear}</span>
+                  <ChevronDown
+                    className={`w-3 h-3 transition-transform duration-150 ${
+                      isYearOpen ? 'rotate-180 text-white' : 'text-slate-500'
+                    }`}
+                  />
+                </button>
+
+                {isYearOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 min-w-[110px] bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-56 overflow-y-auto">
+                    {yearList.map((y) => {
+                      const isSelected = y === selectedYear;
+                      return (
+                        <button
+                          key={y}
+                          type="button"
+                          onClick={() => {
+                            handleYearChange(y);
+                            setIsYearOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left font-medium transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-50 text-blue-700 font-bold'
+                              : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span>{y}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
-              {/* Dropdown Chọn Tháng trong Năm */}
-              <div className="relative flex items-center px-2 py-0.5">
-                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wide select-none mr-1">
-                  Tháng:
-                </span>
-                <select
-                  value={activeMonthKey || (monthsInSelectedYear[0]?.monthKey ?? '')}
-                  onChange={(e) => handleMonthChange(e.target.value)}
-                  className="pl-0.5 pr-4 py-0.5 text-xs font-bold text-blue-950 bg-transparent border-0 focus:outline-none focus:ring-0 cursor-pointer appearance-none"
-                  title="Chọn Tháng để điều hướng nhanh"
+              <div className="h-4 w-px bg-slate-200 mx-0.5" />
+
+              {/* Popover Chọn Tháng */}
+              <div className="relative" ref={monthDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMonthOpen((prev) => !prev);
+                    setIsYearOpen(false);
+                  }}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                    isMonthOpen
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-800 hover:bg-white hover:text-blue-700'
+                  }`}
+                  title="Chọn Tháng để điều hướng"
                 >
-                  {monthsInSelectedYear.map((g) => {
-                    const monthNum = g.monthKey.split('-')[1];
-                    return (
-                      <option key={g.monthKey} value={g.monthKey} className="text-gray-900 font-medium">
-                        Tháng {monthNum} ({g.dates.length} ngày)
-                      </option>
-                    );
-                  })}
-                </select>
-                <ChevronDown className="w-3 h-3 text-blue-700 absolute right-1 pointer-events-none" />
+                  <span
+                    className={`text-[10px] uppercase font-semibold tracking-wider ${
+                      isMonthOpen ? 'text-blue-100' : 'text-slate-400'
+                    }`}
+                  >
+                    Tháng
+                  </span>
+                  <span className="font-mono text-xs">
+                    {activeMonthKey ? activeMonthKey.split('-')[1] : '01'}
+                  </span>
+                  <ChevronDown
+                    className={`w-3 h-3 transition-transform duration-150 ${
+                      isMonthOpen ? 'rotate-180 text-white' : 'text-slate-500'
+                    }`}
+                  />
+                </button>
+
+                {isMonthOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 min-w-[175px] bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-50 animate-in fade-in zoom-in-95 duration-100 max-h-64 overflow-y-auto">
+                    <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 mb-0.5">
+                      Năm {selectedYear}
+                    </div>
+                    {monthsInSelectedYear.map((g) => {
+                      const isSelected = g.monthKey === activeMonthKey;
+                      const monthNum = g.monthKey.split('-')[1];
+                      return (
+                        <button
+                          key={g.monthKey}
+                          type="button"
+                          onClick={() => {
+                            handleMonthChange(g.monthKey);
+                            setIsMonthOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left font-medium transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-50 text-blue-700 font-bold'
+                              : 'text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span>Tháng {monthNum} ({g.dates.length} ngày)</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+
+              <div className="h-4 w-px bg-slate-200 mx-0.5" />
 
               {/* Button Tiến 1 tháng */}
               <button
@@ -804,7 +936,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 onClick={handleNextMonth}
                 disabled={!canNextMonth}
                 title="Tiến 1 tháng"
-                className="p-1 px-1.5 text-blue-900 hover:bg-blue-100 border-l border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="p-1 px-1.5 text-slate-700 hover:text-blue-700 hover:bg-white rounded-md disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all cursor-pointer"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -814,10 +946,10 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 type="button"
                 onClick={scrollToLastDay}
                 disabled={!canNextMonth}
-                title="Đến cuối kỳ"
-                className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-900 hover:bg-blue-100 border-l border-blue-200 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+                title="Đến tháng cuối kỳ"
+                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-white rounded-md disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-all cursor-pointer"
               >
-                <span className="hidden sm:inline">Cuối kỳ</span>
+                <span className="hidden sm:inline text-[11px]">Cuối kỳ</span>
                 <ArrowRightToLine className="w-3 h-3" />
               </button>
             </div>
@@ -827,10 +959,10 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
               <button
                 type="button"
                 onClick={scrollToToday}
-                title={`Cuộn nhanh đến hôm nay (${formatDisplayDate(todayStr)})`}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10.5px] font-bold bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-900 transition-colors cursor-pointer shadow-2xs"
+                title={`Chuyển nhanh đến hôm nay (${formatDisplayDate(todayStr)})`}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 transition-colors cursor-pointer shadow-2xs"
               >
-                <Sparkles className="w-3 h-3 text-amber-600" />
+                <Sparkles className="w-3.5 h-3.5 text-amber-600" />
                 <span>Hôm nay ({formatDisplayDate(todayStr)})</span>
               </button>
             )}
@@ -846,10 +978,10 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                     prev.size > 0 ? new Set() : new Set(availableDepartments)
                   )
                 }
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 transition-colors cursor-pointer shadow-2xs"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 transition-colors cursor-pointer shadow-2xs"
               >
                 <ChevronDown
-                  className={`w-3.5 h-3.5 text-blue-600 transition-transform ${
+                  className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
                     collapsedDepts.size > 0 ? '' : 'rotate-180'
                   }`}
                 />
@@ -871,7 +1003,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
             <col style={{ width: 110, minWidth: 110, maxWidth: 110 }} />
             {/* Cột 2: Nhân viên mở rộng lên 270px */}
             <col style={{ width: 270, minWidth: 270, maxWidth: 270 }} />
-            {dutyDates.map((dateKey) => (
+            {displayedDates.map((dateKey) => (
               <col
                 key={dateKey}
                 style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
@@ -893,20 +1025,12 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                     </span>
                   </div>
                 </th>
-                {monthGroups.map((g) => {
-                  const isMonthFocused = focusedMonthKey === g.monthKey;
-                  return (
-                    <th
-                      key={g.monthKey}
-                      colSpan={g.dates.length}
-                      className={`text-center font-bold text-white text-[11px] py-1 border-r border-blue-800 uppercase tracking-wide transition-colors ${
-                        isMonthFocused ? 'bg-blue-600 ring-2 ring-amber-300' : 'bg-[#002855]'
-                      }`}
-                    >
-                      {g.label} ({g.dates.length} ngày)
-                    </th>
-                  );
-                })}
+                <th
+                  colSpan={displayedDates.length}
+                  className="text-center font-bold text-white text-[11px] py-1 border-r border-blue-800 uppercase tracking-wide bg-[#002855]"
+                >
+                  {activeMonthGroup ? `${activeMonthGroup.label} (${displayedDates.length} ngày)` : `Tháng ${activeMonthKey}`}
+                </th>
               </tr>
             )}
 
@@ -928,7 +1052,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   <span className="text-[11.5px]">Họ và tên nhân viên</span>
                 </div>
               </th>
-              {dutyDates.map((dateKey) => {
+              {displayedDates.map((dateKey) => {
                 const dayOfWeek = getDayOfWeekLabel(dateKey);
                 const isSunOrSat = dayOfWeek === 'T7' || dayOfWeek === 'CN';
                 const curConfig = dutySchedules[dateKey];
@@ -1002,7 +1126,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   </button>
                 </div>
               </td>
-              {dutyDates.map((dateKey) => {
+              {displayedDates.map((dateKey) => {
                 const curConfig = dutySchedules[dateKey];
                 const isHoliday = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
 
@@ -1038,7 +1162,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   <tr>
                     <td
                       style={{ height: `${paddingTop}px` }}
-                      colSpan={2 + dutyDates.length}
+                      colSpan={2 + displayedDates.length}
                       className="p-0 border-0 pointer-events-none"
                     />
                   </tr>
@@ -1082,7 +1206,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
 
                         {/* Phần còn lại của hàng trải dài qua các cột ngày, nút Mở rộng / Thu gọn ở cuối hàng như cũ */}
                         <td
-                          colSpan={dutyDates.length}
+                          colSpan={displayedDates.length}
                           className="bg-slate-50/70 border-b border-slate-200 px-4 py-1"
                         >
                           <div className="flex justify-end">
@@ -1148,7 +1272,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                       </td>
 
                       {/* Cột 3..N: Checkbox trực cho từng ngày */}
-                      {dutyDates.map((dateKey) => {
+                      {displayedDates.map((dateKey) => {
                         const curConfig = dutySchedules[dateKey];
                         const onCallList = curConfig ? curConfig.onCallStaff || [] : [];
                         const isOnCall = onCallList.includes(staff.name);
@@ -1195,7 +1319,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   <tr>
                     <td
                       style={{ height: `${paddingBottom}px` }}
-                      colSpan={2 + dutyDates.length}
+                      colSpan={2 + displayedDates.length}
                       className="p-0 border-0 pointer-events-none"
                     />
                   </tr>
@@ -1205,7 +1329,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
               /* Giao diện chuẩn khi <= 31 ngày (không qua ảo hóa, giữ nguyên 100% bản gốc) */
               filteredStaff.map((staff, sIdx) => {
                 const isFirstOfDept = sIdx === 0 || staff.department !== filteredStaff[sIdx - 1].department;
-                const dutyCount = dutyDates.reduce((cnt, d) => {
+                const dutyCount = displayedDates.reduce((cnt, d) => {
                   const staffOnCall = dutySchedules[d]?.onCallStaff || [];
                   return cnt + (staffOnCall.includes(staff.name) ? 1 : 0);
                 }, 0);
@@ -1262,7 +1386,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                     </td>
 
                     {/* Cột 3..N: Checkbox trực cho từng ngày */}
-                    {dutyDates.map((dateKey) => {
+                    {displayedDates.map((dateKey) => {
                       const curConfig = dutySchedules[dateKey];
                       const onCallList = curConfig ? curConfig.onCallStaff || [] : [];
                       const isOnCall = onCallList.includes(staff.name);
@@ -1303,10 +1427,10 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
 
       {/* ── Footer Info ── */}
       <div className="px-4 py-1.5 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between text-xs text-gray-500 gap-2">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded bg-blue-600 inline-block shrink-0"></span>
-            <span>Check trực: Phân công trực 24h (từ 07:00 ngày T đến 06:59 ngày T+1)</span>
+            <span>Check trực: Phân công trực 24h {dutyShiftNote}</span>
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded bg-amber-500 inline-block shrink-0"></span>
