@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   CalendarDays,
   CheckCircle2,
@@ -10,6 +10,11 @@ import {
   RotateCcw,
   Filter,
   X,
+  ChevronDown,
+  Columns3,
+  CalendarRange,
+  ArrowLeftToLine,
+  ArrowRightToLine,
 } from 'lucide-react';
 import { SurgeryRecord, DutyScheduleDateConfig } from '../../types';
 import { AppConfig } from '../../contexts/ConfigContext';
@@ -48,6 +53,12 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
   const [selectedStaff, setSelectedStaff] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState<string>('');
+
+  // Chế độ dành cho khoảng thời gian dài (> 31 ngày)
+  const [viewMode, setViewMode] = useState<'standard' | 'compact'>('standard');
+  const [collapsedDepts, setCollapsedDepts] = useState<Set<string>>(new Set());
+  const [activeMonthKey, setActiveMonthKey] = useState<string>('');
+  const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // 1. Xác định danh sách các ngày cột (từ ngày trực sớm nhất đến ngày ca mổ kết thúc muộn nhất)
   const dutyDates = useMemo(() => {
@@ -95,6 +106,10 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
 
     return dates;
   }, [records, config?.workingHours]);
+
+  // Điều kiện kích hoạt chế độ dài hạn
+  const isLongPeriod = dutyDates.length > 31;
+  const colWidth = isLongPeriod && viewMode === 'compact' ? 40 : 70;
 
   // 2. Trích xuất và sắp xếp danh sách nhân viên thực tế có mặt trong đợt báo cáo này
   const staffList = useMemo(() => {
@@ -186,6 +201,74 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
     return list.map((s) => s.name);
   }, [staffList, selectedDepartment]);
 
+  // 5. Gom nhóm các ngày theo Tháng (Chỉ dùng khi khoảng thời gian > 31 ngày)
+  const monthGroups = useMemo(() => {
+    if (!isLongPeriod) return [];
+    const map = new Map<string, string[]>();
+    dutyDates.forEach((d) => {
+      const mKey = d.substring(0, 7); // 'YYYY-MM'
+      if (!map.has(mKey)) map.set(mKey, []);
+      map.get(mKey)!.push(d);
+    });
+
+    let runningIndex = 0;
+    const groups: Array<{
+      monthKey: string;
+      label: string;
+      shortLabel: string;
+      dates: string[];
+      startIndex: number;
+    }> = [];
+
+    map.forEach((dates, monthKey) => {
+      const [y, m] = monthKey.split('-');
+      groups.push({
+        monthKey,
+        label: `Tháng ${m}/${y}`,
+        shortLabel: `T${m}/${y.slice(2)}`,
+        dates,
+        startIndex: runningIndex,
+      });
+      runningIndex += dates.length;
+    });
+
+    return groups;
+  }, [dutyDates, isLongPeriod]);
+
+  // Các hàm điều hướng cuộn nhanh
+  const scrollToMonth = (startIndex: number, monthKey: string) => {
+    setActiveMonthKey(monthKey);
+    if (!tableContainerRef.current) return;
+    const scrollTarget = startIndex * colWidth;
+    tableContainerRef.current.scrollTo({
+      left: scrollTarget,
+      behavior: 'smooth',
+    });
+  };
+
+  const scrollToFirstDay = () => {
+    tableContainerRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+    if (monthGroups.length > 0) setActiveMonthKey(monthGroups[0].monthKey);
+  };
+
+  const scrollToLastDay = () => {
+    if (!tableContainerRef.current) return;
+    tableContainerRef.current.scrollTo({
+      left: tableContainerRef.current.scrollWidth,
+      behavior: 'smooth',
+    });
+    if (monthGroups.length > 0) setActiveMonthKey(monthGroups[monthGroups.length - 1].monthKey);
+  };
+
+  const toggleDeptCollapse = (dept: string) => {
+    setCollapsedDepts((prev) => {
+      const next = new Set(prev);
+      if (next.has(dept)) next.delete(dept);
+      else next.add(dept);
+      return next;
+    });
+  };
+
   const handleDepartmentChange = (dept: string) => {
     setSelectedDepartment(dept);
     setSelectedStaff('ALL');
@@ -199,7 +282,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
     setSearchTerm('');
   };
 
-  // 5. Lọc danh sách nhân viên theo các điều kiện bộ lọc
+  // 6. Lọc danh sách nhân viên theo các điều kiện bộ lọc
   const filteredStaff = useMemo(() => {
     return staffList.filter((s) => {
       if (selectedDepartment !== 'ALL' && s.department !== selectedDepartment) {
@@ -285,6 +368,11 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 <span className="text-[10px] px-2 py-0.2 rounded-full bg-blue-100 text-blue-800 font-semibold">
                   {dutyDates.length} ngày
                 </span>
+                {isLongPeriod && monthGroups.length > 0 && (
+                  <span className="text-[10px] px-2 py-0.2 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-200">
+                    {monthGroups.length} tháng
+                  </span>
+                )}
                 <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-100 text-slate-800 font-semibold">
                   {filteredStaff.length}/{staffList.length} nhân sự
                 </span>
@@ -299,6 +387,23 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
 
         {/* ── Bộ lọc & Thao tác ── */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Nút chuyển chế độ xem Siêu gọn / Chuẩn (Chỉ kích hoạt khi > 31 ngày) */}
+          {isLongPeriod && (
+            <button
+              type="button"
+              onClick={() => setViewMode((m) => (m === 'standard' ? 'compact' : 'standard'))}
+              title={viewMode === 'compact' ? 'Chuyển sang chế độ xem chuẩn (70px/cột)' : 'Chuyển sang chế độ xem siêu gọn (40px/cột)'}
+              className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+                viewMode === 'compact'
+                  ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                  : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              <Columns3 className="w-3 h-3" />
+              <span>{viewMode === 'compact' ? 'Chuẩn (70px)' : 'Siêu gọn (40px)'}</span>
+            </button>
+          )}
+
           {/* Lọc theo Khoa */}
           <select
             value={selectedDepartment}
@@ -379,19 +484,125 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
         </div>
       </div>
 
+      {/* ── Sub-bar: Thanh điều hướng Tháng nhanh (Chỉ xuất hiện khi > 31 ngày) ── */}
+      {isLongPeriod && monthGroups.length > 1 && (
+        <div className="flex items-center justify-between gap-2 px-4 py-1.5 bg-blue-50/70 border-b border-blue-200/80 text-xs select-none">
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="flex items-center gap-1 font-bold text-blue-900 text-[11px]">
+              <CalendarRange className="w-3.5 h-3.5 text-blue-700" />
+              <span>Nhảy nhanh tháng:</span>
+            </span>
+            <button
+              type="button"
+              onClick={scrollToFirstDay}
+              title="Cuộn về ngày đầu kỳ"
+              className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10.5px] font-medium bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 transition-colors cursor-pointer"
+            >
+              <ArrowLeftToLine className="w-3 h-3" />
+              <span>Đầu kỳ</span>
+            </button>
+          </div>
+
+          {/* Month Pills list */}
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-thin">
+            {monthGroups.map((g) => {
+              const isActive = activeMonthKey === g.monthKey;
+              return (
+                <button
+                  key={g.monthKey}
+                  type="button"
+                  onClick={() => scrollToMonth(g.startIndex, g.monthKey)}
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold transition-all shrink-0 cursor-pointer ${
+                    isActive
+                      ? 'bg-blue-700 text-white shadow-xs scale-105 ring-2 ring-blue-300'
+                      : 'bg-white hover:bg-blue-100 text-blue-900 border border-blue-200 shadow-2xs'
+                  }`}
+                >
+                  {g.label} <span className="text-[9.5px] opacity-80">({g.dates.length}n)</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={scrollToLastDay}
+              title="Cuộn đến ngày cuối kỳ"
+              className="flex items-center gap-0.5 px-2 py-0.5 rounded text-[10.5px] font-medium bg-white hover:bg-blue-100 border border-blue-200 text-blue-800 transition-colors cursor-pointer"
+            >
+              <span>Cuối kỳ</span>
+              <ArrowRightToLine className="w-3 h-3" />
+            </button>
+
+            {availableDepartments.length > 1 && (
+              <div className="flex items-center gap-1 pl-2 border-l border-blue-200">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCollapsedDepts((prev) =>
+                      prev.size > 0 ? new Set() : new Set(availableDepartments)
+                    )
+                  }
+                  className="text-[10.5px] font-medium text-blue-700 hover:text-blue-900 underline cursor-pointer"
+                >
+                  {collapsedDepts.size > 0 ? 'Mở rộng tất cả khoa' : 'Thu gọn tất cả khoa'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Matrix Table Container ── */}
-      <div className="flex-1 overflow-auto max-h-[calc(100vh-270px)] border-b border-gray-100">
+      <div
+        ref={tableContainerRef}
+        className="flex-1 overflow-auto max-h-[calc(100vh-270px)] border-b border-gray-100"
+      >
         <table className="w-full text-xs border-collapse">
           <colgroup>
             <col style={{ width: 150, minWidth: 150, maxWidth: 150 }} />
             <col style={{ width: 230, minWidth: 230, maxWidth: 230 }} />
             {dutyDates.map((dateKey) => (
-              <col key={dateKey} style={{ width: 70, minWidth: 70, maxWidth: 70 }} />
+              <col
+                key={dateKey}
+                style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
+              />
             ))}
           </colgroup>
           <thead>
+            {/* Hàng 0: Header nhóm Tháng (Chỉ hiển thị khi khoảng thời gian > 31 ngày) */}
+            {isLongPeriod && (
+              <tr className="bg-[#002855] text-white select-none sticky top-0 z-30">
+                <th
+                  colSpan={2}
+                  className="sticky left-0 z-35 bg-[#002244] px-2.5 py-1 text-left font-bold text-blue-200 text-[11px] border-r border-blue-900 shadow-[4px_0_6px_rgba(0,0,0,0.15)] uppercase tracking-wide"
+                >
+                  <div className="flex items-center justify-between">
+                    <span>TOÀN KỲ: {dutyDates.length} NGÀY</span>
+                    <span className="text-[10px] text-blue-300 font-normal">
+                      {monthGroups.length} tháng
+                    </span>
+                  </div>
+                </th>
+                {monthGroups.map((g) => (
+                  <th
+                    key={g.monthKey}
+                    colSpan={g.dates.length}
+                    className="bg-[#002855] text-center font-bold text-white text-[11px] py-1 border-r border-blue-800 uppercase tracking-wide"
+                  >
+                    {g.label} ({g.dates.length} ngày)
+                  </th>
+                ))}
+              </tr>
+            )}
+
             {/* Hàng 1: Tiêu đề các ngày */}
-            <tr className="bg-[#003366] text-white select-none sticky top-0 z-20">
+            <tr
+              className={`bg-[#003366] text-white select-none sticky z-20 ${
+                isLongPeriod ? 'top-[26px]' : 'top-0'
+              }`}
+            >
               <th className="sticky left-0 z-30 bg-[#003366] px-2.5 py-1.5 text-left font-semibold w-[150px] min-w-[150px] max-w-[150px] border-r border-blue-900 shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                 <div className="flex items-center gap-1">
                   <Building2 className="w-3 h-3 text-blue-200" />
@@ -409,16 +620,20 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 const isSunOrSat = dayOfWeek === 'T7' || dayOfWeek === 'CN';
                 const curConfig = dutySchedules[dateKey];
                 const isHoliday = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
+                const dayOnly = dateKey.split('-')[2];
 
                 return (
                   <th
                     key={dateKey}
-                    className={`px-1 py-1 text-center font-semibold w-[70px] min-w-[70px] max-w-[70px] border-r border-blue-900/60 ${
+                    className={`px-1 py-1 text-center font-semibold border-r border-blue-900/60 ${
                       isHoliday ? 'bg-amber-700/80 text-amber-100' : ''
                     }`}
+                    style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
                   >
                     <div className="flex flex-col items-center">
-                      <span className="font-mono text-[11px] font-bold leading-tight">{formatDisplayDate(dateKey)}</span>
+                      <span className="font-mono text-[11px] font-bold leading-tight">
+                        {isLongPeriod && viewMode === 'compact' ? dayOnly : formatDisplayDate(dateKey)}
+                      </span>
                       <span
                         className={`text-[9px] px-1 py-0 rounded mt-0.5 font-semibold ${
                           isSunOrSat
@@ -437,7 +652,11 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
             </tr>
 
             {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết */}
-            <tr className="group bg-amber-50/90 border-b-2 border-amber-300 sticky top-[34px] z-10 select-none">
+            <tr
+              className={`group bg-amber-50/90 border-b-2 border-amber-300 sticky z-10 select-none ${
+                isLongPeriod ? 'top-[58px]' : 'top-[34px]'
+              }`}
+            >
               <td className="sticky left-0 z-25 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[150px] min-w-[150px] max-w-[150px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]">
                 <div className="flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse"></span>
@@ -460,7 +679,8 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                 return (
                   <td
                     key={dateKey}
-                    className={`px-1 py-0.5 text-center border-r transition-colors w-[70px] min-w-[70px] max-w-[70px] ${
+                    style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
+                    className={`px-1 py-0.5 text-center border-r transition-colors ${
                       isHoliday
                         ? 'bg-amber-200 text-amber-950 font-bold border-amber-300 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)] group-hover:bg-amber-300/90'
                         : 'bg-amber-50/50 border-amber-200 group-hover:bg-amber-100/90'
@@ -484,6 +704,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
             {filteredStaff.map((staff, sIdx) => {
               // Kiểm tra xem có bắt đầu nhóm khoa mới không
               const isFirstOfDept = sIdx === 0 || staff.department !== filteredStaff[sIdx - 1].department;
+              const isDeptCollapsed = isLongPeriod && collapsedDepts.has(staff.department);
 
               // Tính tổng số buổi trực của nhân viên này trong danh sách ngày
               const dutyCount = dutyDates.reduce((cnt, d) => {
@@ -493,81 +714,129 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
               const hasAnyDuty = dutyCount > 0;
 
               // Màu nền đồng bộ cho toàn bộ dòng check
-              const rowBgClass = hasAnyDuty
-                ? 'bg-blue-50/45'
-                : 'bg-white';
+              const rowBgClass = hasAnyDuty ? 'bg-blue-50/45' : 'bg-white';
               const stickyBgClass = hasAnyDuty ? 'bg-[#f0f7ff]' : 'bg-white';
 
               return (
-                <tr
-                  key={staff.name}
-                  className={`group transition-colors ${rowBgClass} ${
-                    isFirstOfDept && sIdx > 0 ? 'border-t-2 border-gray-300' : ''
-                  }`}
-                >
-                  {/* Cột 1: Tên Khoa */}
-                  <td className={`sticky left-0 z-10 ${stickyBgClass} group-hover:bg-blue-100/90 transition-colors px-2.5 py-1 text-gray-600 border-r border-gray-200 text-[11px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] whitespace-nowrap w-[150px] min-w-[150px] max-w-[150px] truncate`}>
-                    {isFirstOfDept ? (
-                      <span className="font-bold text-gray-800 text-[11.5px] flex items-center gap-1 truncate" title={staff.department}>
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
-                        <span className="truncate">{staff.department}</span>
-                      </span>
-                    ) : (
-                      <span className="text-gray-300 text-[10px] pl-3">↳</span>
-                    )}
-                  </td>
-
-                  {/* Cột 2: Họ tên nhân viên */}
-                  <td className={`sticky left-[150px] z-10 ${stickyBgClass} group-hover:bg-blue-100/90 transition-colors px-2.5 py-1 font-medium text-gray-900 border-r border-gray-200 shadow-[4px_0_6px_rgba(0,0,0,0.06)] whitespace-nowrap w-[230px] min-w-[230px] max-w-[230px]`}>
-                    <div className="flex items-center justify-between gap-1.5">
-                      <div className="flex items-center gap-1.5 truncate">
-                        <span className="font-semibold text-gray-800 hover:text-blue-700 cursor-default truncate text-[11.5px]" title={staff.name}>
-                          {staff.name}
-                        </span>
-                        {hasAnyDuty && (
-                          <span className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200 shrink-0">
-                            trực {dutyCount}b
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[9px] px-1 py-0.2 rounded font-mono text-gray-500 bg-gray-100 border border-gray-200 shrink-0">
-                        {staff.derivedPos}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Cột 3..N: Checkbox trực cho từng ngày */}
-                  {dutyDates.map((dateKey) => {
-                    const curConfig = dutySchedules[dateKey];
-                    const onCallList = curConfig ? curConfig.onCallStaff || [] : [];
-                    const isOnCall = onCallList.includes(staff.name);
-                    const isHol = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
-
-                    return (
+                <React.Fragment key={staff.name}>
+                  {/* Dòng phân cách Khoa dạng Accordion (Chỉ kích hoạt khi > 31 ngày) */}
+                  {isLongPeriod && isFirstOfDept && (
+                    <tr className="bg-slate-100/95 border-y border-slate-300 select-none">
                       <td
-                        key={dateKey}
-                        className={`px-1 py-0.5 text-center border-r transition-colors w-[70px] min-w-[70px] max-w-[70px] ${
-                          isOnCall
-                            ? 'bg-blue-200 text-blue-950 font-bold border-blue-300 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.2)] group-hover:bg-blue-300/90 group-hover:border-blue-400'
-                            : hasAnyDuty
-                            ? 'bg-blue-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
-                            : isHol
-                            ? 'bg-amber-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
-                            : 'border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
-                        }`}
+                        colSpan={2 + dutyDates.length}
+                        className="px-3 py-1 text-slate-800 text-[11px]"
                       >
-                        <label className="inline-flex items-center justify-center p-0.5 rounded cursor-pointer hover:bg-blue-300/50 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={isOnCall}
-                            onChange={() => handleToggleStaffOnCall(dateKey, staff.name)}
-                            className="w-3.5 h-3.5 rounded text-blue-600 border-gray-300 focus:ring-blue-500 cursor-pointer"
-                          />
-                        </label>
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => toggleDeptCollapse(staff.department)}
+                            className="flex items-center gap-1.5 text-slate-800 hover:text-blue-700 font-bold cursor-pointer"
+                          >
+                            <ChevronDown
+                              className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
+                                isDeptCollapsed ? '-rotate-90' : ''
+                              }`}
+                            />
+                            <span>KHOA: {staff.department}</span>
+                            <span className="text-[10px] text-slate-500 font-normal">
+                              ({staffList.filter((s) => s.department === staff.department).length} nhân sự)
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleDeptCollapse(staff.department)}
+                            className="text-[10px] text-blue-700 hover:underline cursor-pointer"
+                          >
+                            {isDeptCollapsed ? 'Nhấn để mở rộng' : 'Thu gọn khoa này'}
+                          </button>
+                        </div>
                       </td>
-                    );
-                  })}
-                </tr>
+                    </tr>
+                  )}
+
+                  {/* Ẩn hàng nhân viên nếu khoa đang bị thu gọn */}
+                  {!isDeptCollapsed && (
+                    <tr
+                      className={`group transition-colors ${rowBgClass} ${
+                        !isLongPeriod && isFirstOfDept && sIdx > 0 ? 'border-t-2 border-gray-300' : ''
+                      }`}
+                    >
+                      {/* Cột 1: Tên Khoa */}
+                      <td
+                        className={`sticky left-0 z-10 ${stickyBgClass} group-hover:bg-blue-100/90 transition-colors px-2.5 py-1 text-gray-600 border-r border-gray-200 text-[11px] shadow-[2px_0_4px_rgba(0,0,0,0.04)] whitespace-nowrap w-[150px] min-w-[150px] max-w-[150px] truncate`}
+                      >
+                        {isFirstOfDept ? (
+                          <span
+                            className="font-bold text-gray-800 text-[11.5px] flex items-center gap-1 truncate"
+                            title={staff.department}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 shrink-0"></span>
+                            <span className="truncate">{staff.department}</span>
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 text-[10px] pl-3">↳</span>
+                        )}
+                      </td>
+
+                      {/* Cột 2: Họ tên nhân viên */}
+                      <td
+                        className={`sticky left-[150px] z-10 ${stickyBgClass} group-hover:bg-blue-100/90 transition-colors px-2.5 py-1 font-medium text-gray-900 border-r border-gray-200 shadow-[4px_0_6px_rgba(0,0,0,0.06)] whitespace-nowrap w-[230px] min-w-[230px] max-w-[230px]`}
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span
+                              className="font-semibold text-gray-800 hover:text-blue-700 cursor-default truncate text-[11.5px]"
+                              title={staff.name}
+                            >
+                              {staff.name}
+                            </span>
+                            {hasAnyDuty && (
+                              <span className="text-[9px] px-1 py-0.2 rounded-full font-bold bg-blue-100 text-blue-800 border border-blue-200 shrink-0">
+                                trực {dutyCount}b
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[9px] px-1 py-0.2 rounded font-mono text-gray-500 bg-gray-100 border border-gray-200 shrink-0">
+                            {staff.derivedPos}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Cột 3..N: Checkbox trực cho từng ngày */}
+                      {dutyDates.map((dateKey) => {
+                        const curConfig = dutySchedules[dateKey];
+                        const onCallList = curConfig ? curConfig.onCallStaff || [] : [];
+                        const isOnCall = onCallList.includes(staff.name);
+                        const isHol = curConfig ? curConfig.isHoliday : isWeekend(dateKey);
+
+                        return (
+                          <td
+                            key={dateKey}
+                            style={{ width: colWidth, minWidth: colWidth, maxWidth: colWidth }}
+                            className={`px-1 py-0.5 text-center border-r transition-colors ${
+                              isOnCall
+                                ? 'bg-blue-200 text-blue-950 font-bold border-blue-300 shadow-[inset_0_0_0_1px_rgba(37,99,235,0.2)] group-hover:bg-blue-300/90 group-hover:border-blue-400'
+                                : hasAnyDuty
+                                ? 'bg-blue-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
+                                : isHol
+                                ? 'bg-amber-50/25 border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
+                                : 'border-gray-100 group-hover:bg-blue-100/70 group-hover:border-blue-200'
+                            }`}
+                          >
+                            <label className="inline-flex items-center justify-center p-0.5 rounded cursor-pointer hover:bg-blue-300/50 transition-colors">
+                              <input
+                                type="checkbox"
+                                checked={isOnCall}
+                                onChange={() => handleToggleStaffOnCall(dateKey, staff.name)}
+                                className="w-3.5 h-3.5 rounded text-blue-600 border-gray-300 focus:ring-blue-500 cursor-pointer"
+                              />
+                            </label>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>
