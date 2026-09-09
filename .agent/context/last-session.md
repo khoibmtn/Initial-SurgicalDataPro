@@ -1,17 +1,39 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 09/09/2026 19:20 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `temp-09-09-2026-19h19`  
-> **Commit mới nhất:** `78bc8a6 feat: phát hiện ca mổ trùng trong excel import & khóa/mở khóa bảo mật trang cấu hình`  
+> **Thời gian tạo:** 09/09/2026 20:05 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-09-09-2026-20h03`  
+> **Commit mới nhất:** `e09378e fix(layout): xóa khoảng trống thừa giữa sidebar và frame chính & ẩn toàn bộ text gợi ý mật khẩu mặc định`  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`
 
 ---
 
-## 📌 1. Các Tính Năng Đã Triển Khai Trong Phiên
+## 📌 1. Các Tính Năng & Sửa Lỗi Đã Triển Khai Trong Phiên
 
-### 1.1. Phát Hiện Ca Mổ Trùng Trong File Excel Import (Báo Cáo Tháng & Báo Cáo Hàng Ngày)
+### 1.1. Sửa Lỗi Khoảng Trống Layout Lớn Giữa Panel Sidebar và Frame Chính (`App.tsx`)
+- **Vấn đề:** Sau khi cập nhật code trước đó, xuất hiện khoảng trống trắng rất lớn (unwanted whitespace gap) giữa mép phải Sidebar và nội dung chính (`<main>`), xảy ra ở cả 2 trạng thái Sidebar thu gọn (56px) và mở rộng (200px).
+- **Nguyên nhân cốt lõi:**
+  - `<Sidebar>` được đặt làm con trực tiếp trong layout flex (`<div className="... flex overflow-hidden">`) của `App.tsx`.
+  - Vì Sidebar nằm trong luồng flex bình thường (không phải `position: fixed` hay `absolute`), nó đã chiếm sẵn bề rộng 56px hoặc 200px.
+  - Thẻ `<main>` lại có thêm inline style `marginLeft: sidebarCollapsed ? 'var(--sidebar-collapsed-w)' : 'var(--sidebar-w)'` và class `transition-[margin-left]`, khiến nội dung bị đẩy thụt lùi sang phải thêm một lần nữa, tạo ra khoảng trắng khổng lồ.
+- **Giải pháp xử lý:**
+  - Xóa bỏ hoàn toàn thuộc tính `style={{ marginLeft: ... }}` và class `transition-[margin-left]` trên thẻ `<main>`.
+  - Thiết lập thẻ `<main>` thành: `<main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto animate-fade-in">`.
+  - Nhờ cơ chế Flexbox (`flex-1 min-w-0`), thẻ `<main>` tự động co giãn và gắn khít sát liền mạch vào cạnh phải của `<Sidebar>` với chính xác 0px khoảng trống thừa ở cả 2 chế độ bung và thu gọn.
+
+### 1.2. Ẩn Toàn Bộ Text Gợi Ý Mật Khẩu Mặc Định "123456" Trên Giao Diện UI
+- **Yêu cầu:** Mật khẩu mặc định ban đầu vẫn giữ giá trị kỹ thuật là `123456` trong logic hệ thống, nhưng trên giao diện người dùng phải xóa bỏ hoàn toàn tất cả các đoạn văn bản gợi ý mật khẩu để đảm bảo tính thẩm mỹ và an toàn thông tin.
+- **Các vị trí đã tinh chỉnh:**
+  - `components/ConfigurationTab.tsx`:
+    - Xóa phần text `(Mật khẩu mặc định: <strong>123456</strong>)` trong câu hướng dẫn của `UnlockModal`.
+    - Đổi placeholder từ `Mật khẩu (mặc định: 123456)` thành `Nhập mật khẩu`.
+  - `components/ui/Sidebar.tsx`:
+    - Xóa text `(Mật khẩu mặc định: 123456)` trong mô tả trạng thái khóa của `AccountModal`.
+    - Đổi placeholder ô nhập mở khóa từ `Mật khẩu (mặc định: 123456)` thành `Nhập mật khẩu`.
+    - Đổi placeholder ô nhập mật khẩu cũ từ `Mật khẩu cũ (mặc định: 123456)` thành `Nhập mật khẩu hiện tại`.
+
+### 1.3. Phát Hiện Ca Mổ Trùng Trong File Excel Import (Báo Cáo Tháng & Báo Cáo Hàng Ngày)
 - **Hàm cốt lõi (`services/excelProcessor.ts`):**
   - `checkDuplicateSurgeriesInExcel(listData: any[][]): string | null`: Duyệt trực tiếp bảng dữ liệu từ dòng 9 trở đi (dòng dữ liệu thực tế, số dòng hiển thị 1-based: `i + 1`).
   - **Tiêu chí ca trùng:**
@@ -25,15 +47,9 @@
   - **Lớp 2 (`processListData` trong `processSurgicalFiles`):** Kiểm tra lại trước khi bóc tách mảng `records`. Nếu có ca trùng, ném ngoại lệ chặn hoàn toàn tiến trình.
 - **Xử lý UI tại `App.tsx`:**
   - `ToastContainer` được cập nhật style `whitespace-pre-line break-words max-h-[80vh] overflow-y-auto` để hiển thị danh sách dòng trùng xuống dòng rõ ràng, trực quan.
-  - Khi phát hiện trùng: hiển thị toast lỗi (duration kéo dài 14s để người dùng dễ đọc), tự động reset `listFile: null, listDateRange: ""` để hủy file và chặn không cho dữ liệu trùng vào bảng hoặc lưu vào Firestore/bộ nhớ.
+  - Khi phát hiện trùng: hiển thị toast lỗi (duration 14s để người dùng dễ đọc), tự động reset `listFile: null, listDateRange: ""` để hủy file và chặn không cho dữ liệu trùng vào bảng hoặc lưu vào Firestore/bộ nhớ.
 
-### 1.2. Khắc Phục Lỗi Tìm Kiếm & Lọc Ô Trống
-- **Tìm kiếm tiếng Việt thông minh:** Kết hợp tìm kiếm có dấu và không dấu (`removeVietnameseTones`) trên tất cả các trường: Tên BN, Mã BN, Tên kỹ thuật, Khoa/phòng, Bác sĩ/Kíp mổ.
-- **Lọc ô trống Giúp việc (`gv`):** Sửa lỗi lọc trạng thái ô trống của Giúp việc trong bảng danh sách phẫu thuật, phản hồi tức thì khi chọn điều kiện lọc.
-- **Chống nhân bản ca mổ:** Ngăn chặn việc nhân đôi dữ liệu khi đồng bộ từ bộ nhớ Firestore.
-- **Tự động đồng bộ giá:** Đồng bộ đơn giá phê duyệt từ Báo cáo tháng sang Báo cáo hàng ngày.
-
-### 1.3. Khóa / Mở Khóa Trang Cấu Hình & Đổi Mật Khẩu
+### 1.4. Khóa / Mở Khóa Trang Cấu Hình & Đổi Mật Khẩu
 - **Cơ chế Bảo mật (`contexts/ConfigContext.tsx`):**
   - `isLocked`: Quản lý trạng thái khóa toàn cục. Mặc định luôn là `true` khi mở ứng dụng hoặc mở tab mới.
   - Mở khóa theo phiên (`sessionStorage.getItem('config_unlocked')`): Khi người dùng đóng tab/trình duyệt, trạng thái mở khóa tự động bị hủy, đảm bảo an toàn tuyệt đối.
@@ -97,9 +113,10 @@ export interface ContextToolbarProps {
 
 ---
 
-## 🚀 3. Trạng Thái Build & Triển Khai
-- `npm run build`: Thành công 100%, không lỗi TypeScript hay cảnh báo cú pháp (6.86s).
-- Đã gộp vào nhánh chính `main` và đẩy lên GitHub `origin main`: Commit `78bc8a6`.
-- Đã deploy thành công lên Production Vercel: https://initial-surgical-data-pro.vercel.app (Aliased & Ready).
-- Nhánh làm việc hiện tại: `temp-09-09-2026-19h19`.
-- Đã kiểm thử tự động toàn diện qua Browser Subagent: Kiểm tra luồng khóa mặc định, mở khóa bằng `123456`, khóa lại, đổi mật khẩu, và kiểm tra tính năng chỉ xem trên trang Cấu hình.
+## 🚀 3. Trạng Thái Triển Khai & Kiểm Thử
+- **Build Production:** `npm run build` đạt 100% không lỗi (8.10s).
+- **GitHub Origin:** Đã merge và push thành công vào `main`.
+- **Vercel Production:** Đã deploy thành công và trỏ alias trực tiếp vào `https://initial-surgical-data-pro.vercel.app`.
+- **Kiểm thử trực quan E2E qua Browser Subagent:**
+  - Sidebar co giãn mượt mà: Main frame bám sát 0px khoảng trống thừa ở cả 2 trạng thái 56px và 200px.
+  - Modal "Mở khóa cấu hình" và modal "Tài khoản & Bảo mật" hoàn toàn không còn bất kỳ chữ gợi ý mật khẩu mặc định "123456" nào.
