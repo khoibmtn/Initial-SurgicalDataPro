@@ -200,10 +200,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Start Inline Edit ───────────────────────────────────────────────────
   const startEditAllowance = (item: LaborAllowanceItem) => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi chỉnh sửa.");
-      return;
-    }
+    if (isLocked) return;
     setEditingId(item.id);
     setEditingType('allowance');
     setEditChinh(item.chinh);
@@ -214,10 +211,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const startEditTime = (item: LaborTimeItem) => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi chỉnh sửa.");
-      return;
-    }
+    if (isLocked) return;
     setEditingId(item.id);
     setEditingType('time');
     setEditMin(item.min);
@@ -227,10 +221,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const startEditTable = (item: LaborTableItem) => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi chỉnh sửa.");
-      return;
-    }
+    if (isLocked) return;
     setEditingId(item.id);
     setEditingType('table');
     setEditLimit(item.limit);
@@ -245,10 +236,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Save Inline Edit ────────────────────────────────────────────────────
   const saveInlineEdit = async () => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa!");
-      return;
-    }
+    if (isLocked) return;
     if (!editingId || !editingType) return;
     if (!editFrom) {
       showToast('Vui lòng nhập ngày hiệu lực từ', 'error');
@@ -290,10 +278,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Open Add Milestone ──────────────────────────────────────────────────
   const openAddAllowance = (loai: string, currentItem?: LaborAllowanceItem) => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thêm mốc.");
-      return;
-    }
+    if (isLocked) return;
     setAddModal({
       type: 'allowance',
       key: loai,
@@ -307,10 +292,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const openAddTime = (loai: string, currentItem?: LaborTimeItem) => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thêm mốc.");
-      return;
-    }
+    if (isLocked) return;
     setAddModal({
       type: 'time',
       key: loai,
@@ -323,10 +305,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const openAddTable = (posKey: string, label: string, currentItem?: LaborTableItem) => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thêm mốc.");
-      return;
-    }
+    if (isLocked) return;
     setAddModal({
       type: 'table',
       key: posKey,
@@ -337,10 +316,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const saveAddMilestone = async () => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa!");
-      return;
-    }
+    if (isLocked) return;
     if (!addModal || !newEffectiveFrom) {
       showToast('Vui lòng nhập ngày hiệu lực từ', 'error');
       return;
@@ -384,10 +360,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Execute Safe Delete ─────────────────────────────────────────────────
   const executeDelete = async () => {
-    if (isLocked) {
-      alert("Cấu hình đang bị khóa!");
-      return;
-    }
+    if (isLocked) return;
     if (!confirmDelete) return;
     setSaving(true);
     try {
@@ -574,31 +547,37 @@ export const LaborConfigManager: React.FC<Props> = () => {
                               <div className="flex items-center justify-center gap-0.5">
                                 <button
                                   type="button"
-                                  onClick={() => startEditAllowance(activeItem)}
-                                  className="p-1 rounded text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
-                                  title="Sửa dòng này"
+                                  onClick={() => { if (isLocked) return; startEditAllowance(activeItem); }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Sửa dòng này"}
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => openAddAllowance(loai, activeItem)}
-                                  className="p-1 rounded text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                  title="Thêm mốc hiệu lực mới"
+                                  onClick={() => { if (isLocked) return; openAddAllowance(loai, activeItem); }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Thêm mốc hiệu lực mới"}
                                 >
                                   <Plus className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setConfirmDelete({
-                                    type: 'allowance',
-                                    id: activeItem.id,
-                                    title: `Xóa phụ cấp "${LOAI_LABELS[loai] || loai}"`,
-                                    subtitle: `Hiệu lực từ ${activeItem.effectiveFrom}${activeItem.effectiveTo ? ' đến ' + activeItem.effectiveTo : ' (Hiện tại)'}`,
-                                    isActive: activeItem.effectiveTo === null,
-                                  })}
-                                  className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                  title="Xóa dòng này"
+                                  onClick={() => {
+                                    if (isLocked) return;
+                                    setConfirmDelete({
+                                      type: 'allowance',
+                                      id: activeItem.id,
+                                      title: `Xóa phụ cấp "${LOAI_LABELS[loai] || loai}"`,
+                                      subtitle: `Hiệu lực từ ${activeItem.effectiveFrom}${activeItem.effectiveTo ? ' đến ' + activeItem.effectiveTo : ' (Hiện tại)'}`,
+                                      isActive: activeItem.effectiveTo === null,
+                                    });
+                                  }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-rose-600 hover:bg-rose-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Xóa dòng này"}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -618,8 +597,9 @@ export const LaborConfigManager: React.FC<Props> = () => {
                       <td className="py-2.5 px-2 text-center">
                         <button
                           type="button"
-                          onClick={() => openAddAllowance(loai)}
-                          className="px-2 py-0.5 text-xs rounded bg-teal-600 text-white hover:bg-teal-700 transition-colors"
+                          onClick={() => { if (isLocked) return; openAddAllowance(loai); }}
+                          disabled={isLocked}
+                          className={`px-2 py-0.5 text-xs rounded transition-colors ${isLocked ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
                         >
                           Thêm
                         </button>
@@ -706,23 +686,28 @@ export const LaborConfigManager: React.FC<Props> = () => {
                             <div className="flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
-                                onClick={() => startEditAllowance(item)}
-                                className="p-1 rounded text-gray-400 hover:text-teal-600 hover:bg-teal-50 transition-colors"
-                                title="Sửa dòng lịch sử"
+                                onClick={() => { if (isLocked) return; startEditAllowance(item); }}
+                                disabled={isLocked}
+                                className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-teal-600 hover:bg-teal-50'}`}
+                                title={isLocked ? "Cấu hình đang bị khóa" : "Sửa dòng lịch sử"}
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setConfirmDelete({
-                                  type: 'allowance',
-                                  id: item.id,
-                                  title: `Xóa mốc cũ "${LOAI_LABELS[loai] || loai}"`,
-                                  subtitle: `Từ ${item.effectiveFrom} đến ${item.effectiveTo}`,
-                                  isActive: false,
-                                })}
-                                className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                title="Xóa mốc lịch sử này"
+                                onClick={() => {
+                                  if (isLocked) return;
+                                  setConfirmDelete({
+                                    type: 'allowance',
+                                    id: item.id,
+                                    title: `Xóa mốc cũ "${LOAI_LABELS[loai] || loai}"`,
+                                    subtitle: `Từ ${item.effectiveFrom} đến ${item.effectiveTo}`,
+                                    isActive: false,
+                                  });
+                                }}
+                                disabled={isLocked}
+                                className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-rose-600 hover:bg-rose-50'}`}
+                                title={isLocked ? "Cấu hình đang bị khóa" : "Xóa mốc lịch sử này"}
                               >
                                 <Trash2 className="w-3 h-3" />
                               </button>
@@ -886,31 +871,37 @@ export const LaborConfigManager: React.FC<Props> = () => {
                               <div className="flex items-center justify-center gap-0.5">
                                 <button
                                   type="button"
-                                  onClick={() => startEditTime(activeItem)}
-                                  className="p-1 rounded text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
-                                  title="Sửa"
+                                  onClick={() => { if (isLocked) return; startEditTime(activeItem); }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-cyan-600 hover:bg-cyan-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Sửa"}
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => openAddTime(loai, activeItem)}
-                                  className="p-1 rounded text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                  title="Thêm mốc mới"
+                                  onClick={() => { if (isLocked) return; openAddTime(loai, activeItem); }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Thêm mốc mới"}
                                 >
                                   <Plus className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setConfirmDelete({
-                                    type: 'time',
-                                    id: activeItem.id,
-                                    title: `Xóa định mức thời gian "${LOAI_LABELS[loai] || loai}"`,
-                                    subtitle: `Hiệu lực từ ${activeItem.effectiveFrom}${activeItem.effectiveTo ? ' đến ' + activeItem.effectiveTo : ' (Hiện tại)'}`,
-                                    isActive: activeItem.effectiveTo === null,
-                                  })}
-                                  className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                  title="Xóa dòng"
+                                  onClick={() => {
+                                    if (isLocked) return;
+                                    setConfirmDelete({
+                                      type: 'time',
+                                      id: activeItem.id,
+                                      title: `Xóa định mức thời gian "${LOAI_LABELS[loai] || loai}"`,
+                                      subtitle: `Hiệu lực từ ${activeItem.effectiveFrom}${activeItem.effectiveTo ? ' đến ' + activeItem.effectiveTo : ' (Hiện tại)'}`,
+                                      isActive: activeItem.effectiveTo === null,
+                                    });
+                                  }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-rose-600 hover:bg-rose-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Xóa dòng"}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -994,21 +985,26 @@ export const LaborConfigManager: React.FC<Props> = () => {
                             <div className="flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
-                                onClick={() => startEditTime(item)}
-                                className="p-1 rounded text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
+                                onClick={() => { if (isLocked) return; startEditTime(item); }}
+                                disabled={isLocked}
+                                className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-cyan-600 hover:bg-cyan-50'}`}
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setConfirmDelete({
-                                  type: 'time',
-                                  id: item.id,
-                                  title: `Xóa mốc cũ "${LOAI_LABELS[loai] || loai}"`,
-                                  subtitle: `Từ ${item.effectiveFrom} đến ${item.effectiveTo}`,
-                                  isActive: false,
-                                })}
-                                className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                onClick={() => {
+                                  if (isLocked) return;
+                                  setConfirmDelete({
+                                    type: 'time',
+                                    id: item.id,
+                                    title: `Xóa mốc cũ "${LOAI_LABELS[loai] || loai}"`,
+                                    subtitle: `Từ ${item.effectiveFrom} đến ${item.effectiveTo}`,
+                                    isActive: false,
+                                  });
+                                }}
+                                disabled={isLocked}
+                                className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-rose-600 hover:bg-rose-50'}`}
                               >
                                 <Trash2 className="w-3 h-3" />
                               </button>
@@ -1166,31 +1162,37 @@ export const LaborConfigManager: React.FC<Props> = () => {
                               <div className="flex items-center justify-center gap-0.5">
                                 <button
                                   type="button"
-                                  onClick={() => startEditTable(activeItem)}
-                                  className="p-1 rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
-                                  title="Sửa định mức"
+                                  onClick={() => { if (isLocked) return; startEditTable(activeItem); }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Sửa định mức"}
                                 >
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => openAddTable(pos.key, pos.label, activeItem)}
-                                  className="p-1 rounded text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 transition-colors"
-                                  title="Thêm mốc hiệu lực mới"
+                                  onClick={() => { if (isLocked) return; openAddTable(pos.key, pos.label, activeItem); }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-emerald-600 hover:bg-emerald-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Thêm mốc hiệu lực mới"}
                                 >
                                   <Plus className="w-3.5 h-3.5" />
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setConfirmDelete({
-                                    type: 'table',
-                                    id: activeItem.id,
-                                    title: `Xóa định mức bàn mổ "${pos.label}"`,
-                                    subtitle: `Hiệu lực từ ${activeItem.effectiveFrom}${activeItem.effectiveTo ? ' đến ' + activeItem.effectiveTo : ' (Hiện tại)'}`,
-                                    isActive: activeItem.effectiveTo === null,
-                                  })}
-                                  className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                  title="Xóa dòng"
+                                  onClick={() => {
+                                    if (isLocked) return;
+                                    setConfirmDelete({
+                                      type: 'table',
+                                      id: activeItem.id,
+                                      title: `Xóa định mức bàn mổ "${pos.label}"`,
+                                      subtitle: `Hiệu lực từ ${activeItem.effectiveFrom}${activeItem.effectiveTo ? ' đến ' + activeItem.effectiveTo : ' (Hiện tại)'}`,
+                                      isActive: activeItem.effectiveTo === null,
+                                    });
+                                  }}
+                                  disabled={isLocked}
+                                  className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-rose-600 hover:bg-rose-50'}`}
+                                  title={isLocked ? "Cấu hình đang bị khóa" : "Xóa dòng"}
                                 >
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
@@ -1210,8 +1212,9 @@ export const LaborConfigManager: React.FC<Props> = () => {
                       <td className="py-2.5 px-2 text-center">
                         <button
                           type="button"
-                          onClick={() => openAddTable(pos.key, pos.label)}
-                          className="px-2 py-0.5 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
+                          onClick={() => { if (isLocked) return; openAddTable(pos.key, pos.label); }}
+                          disabled={isLocked}
+                          className={`px-2 py-0.5 text-xs rounded transition-colors ${isLocked ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
                         >
                           Thêm
                         </button>
@@ -1294,21 +1297,26 @@ export const LaborConfigManager: React.FC<Props> = () => {
                             <div className="flex items-center justify-center gap-0.5">
                               <button
                                 type="button"
-                                onClick={() => startEditTable(item)}
-                                className="p-1 rounded text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                                onClick={() => { if (isLocked) return; startEditTable(item); }}
+                                disabled={isLocked}
+                                className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'}`}
                               >
                                 <Pencil className="w-3 h-3" />
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setConfirmDelete({
-                                  type: 'table',
-                                  id: item.id,
-                                  title: `Xóa mốc cũ "${pos.label}"`,
-                                  subtitle: `Từ ${item.effectiveFrom} đến ${item.effectiveTo}`,
-                                  isActive: false,
-                                })}
-                                className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                onClick={() => {
+                                  if (isLocked) return;
+                                  setConfirmDelete({
+                                    type: 'table',
+                                    id: item.id,
+                                    title: `Xóa mốc cũ "${pos.label}"`,
+                                    subtitle: `Từ ${item.effectiveFrom} đến ${item.effectiveTo}`,
+                                    isActive: false,
+                                  });
+                                }}
+                                disabled={isLocked}
+                                className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed pointer-events-none opacity-40' : 'text-gray-400 hover:text-rose-600 hover:bg-rose-50'}`}
                               >
                                 <Trash2 className="w-3 h-3" />
                               </button>

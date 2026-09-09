@@ -155,7 +155,6 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
   // --- Delete ---
   const handleDelete = async (id: string) => {
     if (isLocked) {
-      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
       return;
     }
     if (!window.confirm('Xóa mục này khỏi danh mục chi phí? Logic hiệu lực sẽ được tự động điều chỉnh.')) return;
@@ -297,7 +296,7 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <InstantTooltip content="Xuất toàn bộ danh mục chi phí ra file Excel (.xlsx)">
+          <InstantTooltip position="bottom" content="Xuất toàn bộ danh mục chi phí ra file Excel (.xlsx)">
             <button
               onClick={() => exportCostItemsExcel(costItems)}
               disabled={costItems.length === 0}
@@ -480,13 +479,13 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                         ) : (
                           <>
                             <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Sửa chi phí thuốc/VTTH và hiệu lực chi phí"}>
-                              <button disabled={isLocked} onClick={() => startEdit(item)} className="p-1 text-primary-600 hover:bg-primary-50 rounded disabled:opacity-40 disabled:cursor-not-allowed"><Edit3 className="h-3.5 w-3.5" /></button>
+                              <button disabled={isLocked} onClick={() => { if (!isLocked) startEdit(item); }} className="p-1 text-primary-600 hover:bg-primary-50 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"><Edit3 className="h-3.5 w-3.5" /></button>
                             </InstantTooltip>
                             <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Tạo phiên bản mới (clone với hiệu lực mới, tự đóng hiệu lực cũ)"}>
-                              <button disabled={isLocked} onClick={() => startDuplicate(item)} className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-40 disabled:cursor-not-allowed"><Copy className="h-3.5 w-3.5" /></button>
+                              <button disabled={isLocked} onClick={() => { if (!isLocked) startDuplicate(item); }} className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"><Copy className="h-3.5 w-3.5" /></button>
                             </InstantTooltip>
                             <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Xóa khỏi DM chi phí (tự điều chỉnh khoảng hiệu lực)"}>
-                              <button disabled={isLocked} onClick={() => handleDelete(item.id)} className="p-1 text-red-500 hover:bg-red-50 rounded disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 className="h-3.5 w-3.5" /></button>
+                              <button disabled={isLocked} onClick={() => { if (!isLocked) handleDelete(item.id); }} className="p-1 text-red-500 hover:bg-red-50 rounded disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"><Trash2 className="h-3.5 w-3.5" /></button>
                             </InstantTooltip>
                           </>
                         )}

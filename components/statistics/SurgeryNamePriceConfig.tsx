@@ -654,11 +654,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Quét DM thiếu (phát hiện ca chưa có giá, hiển thị đề xuất để user duyệt) */}
-          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Quét toàn bộ ca PT trên hệ thống để phát hiện các kỹ thuật chưa có trong DM giá. Hiển thị danh sách đề xuất để bạn xem lại và tick chọn trước khi thêm."}>
+          <InstantTooltip position="bottom" content={isLocked ? "Cấu hình đang bị khóa" : "Quét toàn bộ ca PT trên hệ thống để phát hiện các kỹ thuật chưa có trong DM giá. Hiển thị danh sách đề xuất để bạn xem lại và tick chọn trước khi thêm."}>
             <button
               onClick={handleScanMissing}
               disabled={seeding || isLocked}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
             >
               {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scan className="h-3.5 w-3.5" />}
               {seeding ? seedProgress || 'Đang quét...' : 'Quét DM thiếu'}
@@ -667,7 +667,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
 
           {/* Excel dropdown (gộp Excel mẫu, Xuất Excel, Import Excel) */}
           <div className="relative">
-            <InstantTooltip content="Thao tác Excel: tải mẫu, xuất danh mục, import từ file">
+            <InstantTooltip position="bottom" content="Thao tác Excel: tải mẫu, xuất danh mục, import từ file">
               <button
                 onClick={() => setShowExcelMenu(v => !v)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
@@ -699,11 +699,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </div>
 
           {/* Refill từ file Excel */}
-          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Quét các ca đã import từ file Excel DVKT để đối chiếu và cập nhật giá trong DM. Sau đó tự động áp giá cho các ca chưa có giá."}>
+          <InstantTooltip position="bottom" content={isLocked ? "Cấu hình đang bị khóa" : "Quét các ca đã import từ file Excel DVKT để đối chiếu và cập nhật giá trong DM. Sau đó tự động áp giá cho các ca chưa có giá."}>
             <button
               onClick={handleStartExcelRefill}
               disabled={isRefilling || isLocked}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors shadow-sm"
             >
               {isRefilling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-600" />}
               {isRefilling ? refillProgress || 'Đang quét...' : 'Refill từ Excel'}
@@ -711,11 +711,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </InstantTooltip>
 
           {/* Thêm mới */}
-          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Thêm thủ công 1 kỹ thuật mới vào danh mục giá"}>
+          <InstantTooltip position="bottom" content={isLocked ? "Cấu hình đang bị khóa" : "Thêm thủ công 1 kỹ thuật mới vào danh mục giá"}>
             <button
               onClick={handleStartAdd}
               disabled={isLocked}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               Thêm mới
@@ -723,11 +723,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </InstantTooltip>
 
           {selectedIds.size > 0 && (
-            <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Xóa tất cả các mục đã chọn khỏi danh mục giá"}>
+            <InstantTooltip position="bottom" content={isLocked ? "Cấu hình đang bị khóa" : "Xóa tất cả các mục đã chọn khỏi danh mục giá"}>
               <button
                 onClick={handleBulkDelete}
                 disabled={saving || isLocked}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Xóa {selectedIds.size}
@@ -748,7 +748,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
             className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
           />
         </div>
-        <InstantTooltip content="Bật/tắt bộ lọc nâng cao: hiệu lực, đơn giá, DM chi phí, profile">
+        <InstantTooltip position="bottom" content="Bật/tắt bộ lọc nâng cao: hiệu lực, đơn giá, DM chi phí, profile">
           <button
             onClick={() => setShowFilters(v => !v)}
             className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border rounded-lg transition-colors whitespace-nowrap ${
@@ -1170,10 +1170,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                           <button
                             disabled={isLocked}
                             onClick={async () => {
-                              if (isLocked) {
-                                showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
-                                return;
-                              }
+                              if (isLocked) return;
                               try {
                                 await toggleCostItem(p, !isInCost, costItems);
                                 showToast(isInCost ? 'Đã xóa khỏi DM chi phí' : 'Đã thêm vào DM chi phí');
@@ -1181,7 +1178,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                                 showToast(err.message || 'Lỗi toggle', 'error');
                               }
                             }}
-                            className={`p-0.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            className={`p-0.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none ${
                               isInCost ? 'text-emerald-600 hover:text-emerald-800' : 'text-gray-300 hover:text-gray-500'
                             }`}
                           >
@@ -1194,8 +1191,8 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                           <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Sửa mục này"}>
                             <button
                               disabled={isLocked}
-                              onClick={() => handleStartEdit(p)}
-                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              onClick={() => { if (!isLocked) handleStartEdit(p); }}
+                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
                             >
                               <Edit3 className="h-3.5 w-3.5" />
                             </button>
@@ -1203,8 +1200,8 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                           <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Xóa mục này"}>
                             <button
                               disabled={isLocked}
-                              onClick={() => handleDelete(p)}
-                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              onClick={() => { if (!isLocked) handleDelete(p); }}
+                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>

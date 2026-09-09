@@ -919,29 +919,6 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
               />
             </ContextToolbar>
 
-            {/* Banner chế độ chỉ xem khi đang khóa */}
-            {isLocked && (
-              <div className="bg-amber-50 border-b border-amber-200 px-6 py-2 flex items-center justify-between text-xs text-amber-900 shrink-0">
-                <div className="flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>
-                    <strong>Chế độ Chỉ xem (Đang khóa):</strong> Toàn bộ cấu hình đang ở chế độ xem. Bạn không thể thêm mới, sửa, xóa, di chuyển hoặc thay đổi bất kỳ thiết lập nào.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUnlockModalPwd('');
-                    setUnlockModalError('');
-                    setIsUnlockModalOpen(true);
-                  }}
-                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md font-semibold text-[11px] transition-colors shadow-xs cursor-pointer shrink-0"
-                >
-                  Mở khóa chỉnh sửa
-                </button>
-              </div>
-            )}
-
             {/* Modal Nhập mật khẩu mở khóa Cấu hình */}
             {isUnlockModalOpen && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
@@ -1204,26 +1181,26 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                 )}
 
                                 {/* Compact Add/Edit Form */}
-                                <div className="flex items-end gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2">
+                                <div className={`flex items-end gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2 ${isLocked ? 'pointer-events-none select-none opacity-80' : ''}`}>
                                     <div className="flex-1 min-w-0">
                                         <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">ID máy</label>
-                                        <input type="text" value={regForm.machineId} disabled={isLocked} onChange={(e) => setRegForm({ ...regForm, machineId: e.target.value })} placeholder="M001" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
+                                        <input type="text" value={regForm.machineId} disabled={isLocked} readOnly={isLocked} tabIndex={isLocked ? -1 : undefined} onChange={(e) => { if (!isLocked) setRegForm({ ...regForm, machineId: e.target.value }); }} placeholder="M001" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Mã máy <span className="text-red-500">*</span></label>
-                                        <input type="text" value={regForm.machineCode} disabled={isLocked} onChange={(e) => setRegForm({ ...regForm, machineCode: e.target.value })} placeholder="NS-001" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
+                                        <input type="text" value={regForm.machineCode} disabled={isLocked} readOnly={isLocked} tabIndex={isLocked ? -1 : undefined} onChange={(e) => { if (!isLocked) setRegForm({ ...regForm, machineCode: e.target.value }); }} placeholder="NS-001" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
                                     </div>
                                     <div className="flex-[2] min-w-0">
                                         <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Tên máy</label>
-                                        <input type="text" value={regForm.machineName} disabled={isLocked} onChange={(e) => setRegForm({ ...regForm, machineName: e.target.value })} placeholder="Nội soi Karl Storz" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
+                                        <input type="text" value={regForm.machineName} disabled={isLocked} readOnly={isLocked} tabIndex={isLocked ? -1 : undefined} onChange={(e) => { if (!isLocked) setRegForm({ ...regForm, machineName: e.target.value }); }} placeholder="Nội soi Karl Storz" className="w-full px-2 py-1 border border-gray-200 rounded text-xs focus:ring-1 focus:ring-blue-500 outline-none disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed" />
                                     </div>
                                     {editingRegId ? (
                                         <>
-                                            <button onClick={handleSaveRegistry} disabled={isLocked} className="px-3 py-1 bg-orange-500 text-white font-semibold rounded text-xs hover:bg-orange-600 disabled:opacity-50 transition-all flex items-center gap-1 whitespace-nowrap"><Save className="h-3.5 w-3.5" /> Lưu</button>
-                                            <button onClick={() => { setEditingRegId(null); setRegForm({ machineId: "", machineCode: "", machineName: "", active: true }); }} disabled={isLocked} className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-50 rounded transition-colors" title="Hủy"><XCircle className="h-4 w-4" /></button>
+                                            <button onClick={handleSaveRegistry} disabled={isLocked} className="px-3 py-1 bg-orange-500 text-white font-semibold rounded text-xs hover:bg-orange-600 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed transition-all flex items-center gap-1 whitespace-nowrap"><Save className="h-3.5 w-3.5" /> Lưu</button>
+                                            <button onClick={() => { if (isLocked) return; setEditingRegId(null); setRegForm({ machineId: "", machineCode: "", machineName: "", active: true }); }} disabled={isLocked} className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed rounded transition-colors" title="Hủy"><XCircle className="h-4 w-4" /></button>
                                         </>
                                     ) : (
-                                        <button onClick={handleAddRegistry} disabled={!regForm.machineCode.trim() || isLocked} className="px-3 py-1 bg-blue-600 text-white font-semibold rounded text-xs hover:bg-blue-700 disabled:opacity-50 transition-all flex items-center gap-1 whitespace-nowrap"><Plus className="h-3.5 w-3.5" /> Thêm</button>
+                                        <button onClick={handleAddRegistry} disabled={!regForm.machineCode.trim() || isLocked} className="px-3 py-1 bg-blue-600 text-white font-semibold rounded text-xs hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed transition-all flex items-center gap-1 whitespace-nowrap"><Plus className="h-3.5 w-3.5" /> Thêm</button>
                                     )}
                                 </div>
 
@@ -1263,7 +1240,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     disabled={isLocked}
                                                                     onClick={(e) => { e.stopPropagation(); if (!isLocked) handleToggleActiveRegistry(entry.id); }}
                                                                     title={isLocked ? 'Cấu hình đang khóa (Chỉ xem)' : entry.active ? 'Đang sử dụng — bấm để tắt' : 'Đã tắt — bấm để bật'}
-                                                                    className={isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}
+                                                                    className={isLocked ? 'cursor-not-allowed opacity-40 pointer-events-none' : 'cursor-pointer'}
                                                                 >
                                                                     {entry.active ? <ToggleRight className="h-5 w-5 text-green-500" /> : <ToggleLeft className="h-5 w-5 text-gray-300" />}
                                                                 </button>
@@ -1273,7 +1250,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     disabled={isLocked}
                                                                     onClick={(e) => { e.stopPropagation(); if (!isLocked) handleDeleteRegistry(entry.id); }}
                                                                     title={isLocked ? 'Cấu hình đang khóa (Chỉ xem)' : 'Xóa'}
-                                                                    className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-red-100 text-red-400 hover:text-red-600 cursor-pointer'}`}
+                                                                    className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed opacity-40 pointer-events-none' : 'hover:bg-red-100 text-red-400 hover:text-red-600 cursor-pointer'}`}
                                                                 >
                                                                     <Trash2 className="h-3.5 w-3.5" />
                                                                 </button>
@@ -1329,10 +1306,12 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                         <input
                                             type="text"
                                             value={config.hospitalName || ""}
-                                            onChange={(e) => updateConfig({ hospitalName: e.target.value })}
+                                            onChange={(e) => { if (!isLocked) updateConfig({ hospitalName: e.target.value }); }}
                                             disabled={isLocked}
+                                            readOnly={isLocked}
+                                            tabIndex={isLocked ? -1 : undefined}
                                             placeholder="Nhập tên bệnh viện hiển thị trên báo cáo..."
-                                            className={`flex-1 px-3 py-2 border border-gray-200 rounded-lg outline-none text-sm font-medium ${isLocked ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-gray-800 bg-white'}`}
+                                            className={`flex-1 px-3 py-2 border border-gray-200 rounded-lg outline-none text-sm font-medium ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-gray-800 bg-white'}`}
                                         />
                                         <div className="flex items-center gap-1.5 text-gray-400 select-none">
                                             <Save className="h-3.5 w-3.5 text-green-500" />
@@ -1353,7 +1332,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                         </div>
                                     </div>
 
-                                    <div className="overflow-hidden border border-gray-200 rounded-xl bg-white">
+                                    <div className={`overflow-hidden border border-gray-200 rounded-xl bg-white ${isLocked ? 'pointer-events-none select-none opacity-80' : ''}`}>
                                         <table className="w-full text-xs">
                                             <thead className="bg-gray-50 border-b border-gray-200">
                                                 <tr>
@@ -1373,7 +1352,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 type="text"
                                                                 value={config.workingHours?.summer.dateFrom || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     const val = e.target.value.replace(/-/g, '/');
                                                                     updateConfig({
                                                                         workingHours: {
@@ -1383,6 +1365,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.summer.dateFrom || "";
                                                                     if (!validateDate(val)) {
                                                                         updateConfig({
@@ -1394,14 +1377,17 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     }
                                                                 }}
                                                                 placeholder="DD/MM"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                             <span className="text-gray-500">Đến</span>
                                                             <input
                                                                 type="text"
                                                                 value={config.workingHours?.summer.dateTo || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     const val = e.target.value.replace(/-/g, '/');
                                                                     updateConfig({
                                                                         workingHours: {
@@ -1411,6 +1397,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.summer.dateTo || "";
                                                                     if (!validateDate(val)) {
                                                                         updateConfig({
@@ -1422,7 +1409,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     }
                                                                 }}
                                                                 placeholder="DD/MM"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                         </div>
                                                     </td>
@@ -1433,7 +1420,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 type="text"
                                                                 value={config.workingHours?.winter.dateFrom || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     const val = e.target.value.replace(/-/g, '/');
                                                                     updateConfig({
                                                                         workingHours: {
@@ -1443,6 +1433,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.winter.dateFrom || "";
                                                                     if (!validateDate(val)) {
                                                                         updateConfig({
@@ -1454,14 +1445,17 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     }
                                                                 }}
                                                                 placeholder="DD/MM"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                             <span className="text-gray-500">Đến</span>
                                                             <input
                                                                 type="text"
                                                                 value={config.workingHours?.winter.dateTo || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     const val = e.target.value.replace(/-/g, '/');
                                                                     updateConfig({
                                                                         workingHours: {
@@ -1471,6 +1465,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.winter.dateTo || "";
                                                                     if (!validateDate(val)) {
                                                                         updateConfig({
@@ -1482,7 +1477,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     }
                                                                 }}
                                                                 placeholder="DD/MM"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                         </div>
                                                     </td>
@@ -1498,7 +1493,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 type="text"
                                                                 value={config.workingHours?.summer.morningFrom || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         updateConfig({
                                                                             workingHours: {
@@ -1509,6 +1507,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.summer.morningFrom || "";
                                                                     if (val.length !== 5 || val === "00:00") {
                                                                         updateConfig({
@@ -1521,14 +1520,17 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                             <span className="text-gray-500">đến</span>
                                                             <input
                                                                 type="text"
                                                                 value={config.workingHours?.summer.morningTo || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         const fromTime = config.workingHours?.summer.morningFrom || "";
                                                                         if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
@@ -1543,6 +1545,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const fromTime = config.workingHours?.summer.morningFrom || "";
                                                                     const toTime = config.workingHours?.summer.morningTo || "";
                                                                     if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
@@ -1556,7 +1559,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                         </div>
                                                     </td>
@@ -1567,7 +1570,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 type="text"
                                                                 value={config.workingHours?.winter.morningFrom || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         updateConfig({
                                                                             workingHours: {
@@ -1578,6 +1584,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.winter.morningFrom || "";
                                                                     if (val.length !== 5 || val === "00:00") {
                                                                         updateConfig({
@@ -1590,14 +1597,17 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                             <span className="text-gray-500">đến</span>
                                                             <input
                                                                 type="text"
                                                                 value={config.workingHours?.winter.morningTo || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         const fromTime = config.workingHours?.winter.morningFrom || "";
                                                                         if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
@@ -1612,6 +1622,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const fromTime = config.workingHours?.winter.morningFrom || "";
                                                                     const toTime = config.workingHours?.winter.morningTo || "";
                                                                     if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
@@ -1625,7 +1636,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                         </div>
                                                     </td>
@@ -1641,7 +1652,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 type="text"
                                                                 value={config.workingHours?.summer.afternoonFrom || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         updateConfig({
                                                                             workingHours: {
@@ -1652,6 +1666,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.summer.afternoonFrom || "";
                                                                     if (val.length !== 5 || val === "00:00") {
                                                                         updateConfig({
@@ -1664,14 +1679,17 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                             <span className="text-gray-500">đến</span>
                                                             <input
                                                                 type="text"
                                                                 value={config.workingHours?.summer.afternoonTo || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         const fromTime = config.workingHours?.summer.afternoonFrom || "";
                                                                         if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
@@ -1686,6 +1704,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const fromTime = config.workingHours?.summer.afternoonFrom || "";
                                                                     const toTime = config.workingHours?.summer.afternoonTo || "";
                                                                     if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
@@ -1699,7 +1718,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                         </div>
                                                     </td>
@@ -1710,7 +1729,10 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 type="text"
                                                                 value={config.workingHours?.winter.afternoonFrom || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         updateConfig({
                                                                             workingHours: {
@@ -1721,6 +1743,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const val = config.workingHours?.winter.afternoonFrom || "";
                                                                     if (val.length !== 5 || val === "00:00") {
                                                                         updateConfig({
@@ -1733,14 +1756,17 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                             <span className="text-gray-500">đến</span>
                                                             <input
                                                                 type="text"
                                                                 value={config.workingHours?.winter.afternoonTo || ""}
                                                                 disabled={isLocked}
+                                                                readOnly={isLocked}
+                                                                tabIndex={isLocked ? -1 : undefined}
                                                                 onChange={(e) => {
+                                                                    if (isLocked) return;
                                                                     handleWorkingHoursTimeChange(e.target.value, (formatted) => {
                                                                         const fromTime = config.workingHours?.winter.afternoonFrom || "";
                                                                         if (formatted.length === 5 && !isTimeBefore(fromTime, formatted)) {
@@ -1755,6 +1781,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     });
                                                                 }}
                                                                 onBlur={() => {
+                                                                    if (isLocked) return;
                                                                     const fromTime = config.workingHours?.winter.afternoonFrom || "";
                                                                     const toTime = config.workingHours?.winter.afternoonTo || "";
                                                                     if (toTime.length !== 5 || toTime === "00:00" || (toTime.length === 5 && !isTimeBefore(fromTime, toTime))) {
@@ -1768,7 +1795,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 }}
                                                                 maxLength={5}
                                                                 placeholder="HH:mm"
-                                                                className="w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                                                                className={`w-[80px] px-2.5 py-1 border border-gray-200 rounded text-center font-mono text-xs outline-none ${isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed pointer-events-none select-none' : 'bg-white focus:ring-1 focus:ring-blue-500'}`}
                                                             />
                                                         </div>
                                                     </td>
@@ -1853,10 +1880,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                     />
                                     <button
                                         onClick={() => {
-                                            if (isLocked) {
-                                                alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thêm khoa phòng.");
-                                                return;
-                                            }
+                                            if (isLocked) return;
                                             const short = newDeptShortName.trim();
                                             if (!short) return;
                                             const depts = config.departments || [];
@@ -1875,7 +1899,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                         }}
                                         disabled={!newDeptShortName.trim() || isLocked}
                                         title={isLocked ? "Cấu hình đang bị khóa" : "Thêm khoa phòng"}
-                                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center justify-center gap-1 shadow-xs whitespace-nowrap cursor-pointer shrink-0"
+                                        className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition-all flex items-center justify-center gap-1 shadow-xs whitespace-nowrap cursor-pointer shrink-0"
                                     >
                                         <Plus className="h-3.5 w-3.5" /> Thêm
                                     </button>
@@ -2065,10 +2089,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     type="button"
                                                                     disabled={isLocked}
                                                                     onClick={() => {
-                                                                        if (isLocked) {
-                                                                            alert("Cấu hình đang bị khóa! Vui lòng mở khóa để thay đổi.");
-                                                                            return;
-                                                                        }
+                                                                        if (isLocked) return;
                                                                         const isIncluded = deptDetail?.includeInReport ?? true;
                                                                         const newDetails = { ...(config.departmentDetails || {}) };
                                                                         newDetails[dept] = {
@@ -2077,8 +2098,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                         };
                                                                         updateConfig({ departmentDetails: newDetails });
                                                                     }}
-                                                                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${(deptDetail?.includeInReport ?? true) ? 'bg-emerald-500' : 'bg-gray-300'}`}
-                                                                    title={isLocked ? 'Cấu hình đang khóa' : (deptDetail?.includeInReport ?? true) ? 'Đang bật: Lấy ca mổ thuộc khoa này vào báo cáo' : 'Đang tắt: Bỏ qua ca mổ thuộc khoa này khi import'}
+                                                                    className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${isLocked ? 'cursor-not-allowed opacity-40 pointer-events-none' : 'cursor-pointer'} ${(deptDetail?.includeInReport ?? true) ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                                                                    title={isLocked ? 'Cấu hình đang khóa (Chỉ xem)' : (deptDetail?.includeInReport ?? true) ? 'Đang bật: Lấy ca mổ thuộc khoa này vào báo cáo' : 'Đang tắt: Bỏ qua ca mổ thuộc khoa này khi import'}
                                                                 >
                                                                     <span
                                                                         className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${(deptDetail?.includeInReport ?? true) ? 'translate-x-4' : 'translate-x-0'}`}
@@ -2096,7 +2117,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                         }}
                                                                         disabled={idx === 0 || isLocked}
                                                                         title="Di chuyển lên"
-                                                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors cursor-pointer"
+                                                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 disabled:pointer-events-none disabled:cursor-not-allowed transition-colors cursor-pointer"
                                                                     >
                                                                         <ArrowUp className="h-3.5 w-3.5" />
                                                                     </button>
@@ -2109,7 +2130,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                         }}
                                                                         disabled={idx === (config.departments || []).length - 1 || isLocked}
                                                                         title="Di chuyển xuống"
-                                                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 transition-colors cursor-pointer"
+                                                                        className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600 disabled:opacity-20 disabled:pointer-events-none disabled:cursor-not-allowed transition-colors cursor-pointer"
                                                                     >
                                                                         <ArrowDown className="h-3.5 w-3.5" />
                                                                     </button>
@@ -2119,27 +2140,21 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                 <div className="flex items-center justify-center gap-1">
                                                                     <button
                                                                         onClick={() => {
-                                                                            if (isLocked) {
-                                                                                alert("Cấu hình đang bị khóa! Vui lòng mở khóa để sửa khoa/phòng.");
-                                                                                return;
-                                                                            }
+                                                                            if (isLocked) return;
                                                                             setEditingDeptIndex(idx);
                                                                             setEditDeptShortName(dept);
                                                                             setEditDeptFullName(currentFullName);
                                                                         }}
                                                                         disabled={isLocked}
-                                                                        title="Sửa thông tin khoa/phòng"
-                                                                        className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-blue-50 text-gray-400 hover:text-blue-600 cursor-pointer'}`}
+                                                                        title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : "Sửa thông tin khoa/phòng"}
+                                                                        className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed opacity-40 pointer-events-none' : 'hover:bg-blue-50 text-gray-400 hover:text-blue-600 cursor-pointer'}`}
                                                                     >
                                                                         <Pencil className="h-3.5 w-3.5" />
                                                                     </button>
                                                                     <button
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            if (isLocked) {
-                                                                                alert("Cấu hình đang bị khóa! Vui lòng mở khóa để xóa khoa/phòng.");
-                                                                                return;
-                                                                            }
+                                                                            if (isLocked) return;
                                                                             if (confirm(`Bạn có chắc chắn muốn xóa khoa/phòng "${dept}"?`)) {
                                                                                 const depts = config.departments.filter((_, i) => i !== idx);
                                                                                 const newDetails = { ...(config.departmentDetails || {}) };
@@ -2148,8 +2163,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                             }
                                                                         }}
                                                                         disabled={isLocked}
-                                                                        title="Xóa"
-                                                                        className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer'}`}
+                                                                        title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : "Xóa"}
+                                                                        className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed opacity-40 pointer-events-none' : 'hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer'}`}
                                                                     >
                                                                         <Trash2 className="h-3.5 w-3.5" />
                                                                     </button>
@@ -2203,17 +2218,14 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 <div
                                                     key={role.key}
                                                     onClick={() => {
-                                                        if (isLocked) {
-                                                            alert("Cấu hình đang bị khóa! Vui lòng mở khóa để thay đổi vị trí kíp mổ.");
-                                                            return;
-                                                        }
+                                                        if (isLocked) return;
                                                         const updatedFilters = {
                                                             ...roleFilters,
                                                             [role.key]: !isChecked
                                                         };
                                                         updateConfig({ reportRoleFilters: updatedFilters });
                                                     }}
-                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all select-none ${isLocked ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'} ${
+                                                    className={`flex items-center justify-between p-3 rounded-xl border transition-all select-none ${isLocked ? 'cursor-not-allowed opacity-60 pointer-events-none' : 'cursor-pointer'} ${
                                                         isChecked
                                                             ? 'bg-emerald-50/40 border-emerald-200 text-emerald-900 shadow-xs'
                                                             : 'bg-gray-50/70 border-gray-200 text-gray-500'
@@ -2234,17 +2246,14 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                         disabled={isLocked}
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            if (isLocked) {
-                                                                alert("Cấu hình đang bị khóa! Vui lòng mở khóa để thay đổi vị trí kíp mổ.");
-                                                                return;
-                                                            }
+                                                            if (isLocked) return;
                                                             const updatedFilters = {
                                                                 ...roleFilters,
                                                                 [role.key]: !isChecked
                                                             };
                                                             updateConfig({ reportRoleFilters: updatedFilters });
                                                         }}
-                                                        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${
+                                                        className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500/20 ${isLocked ? 'cursor-not-allowed opacity-40 pointer-events-none' : 'cursor-pointer'} ${
                                                             isChecked ? 'bg-emerald-500' : 'bg-gray-300'
                                                         }`}
                                                     >
@@ -2301,7 +2310,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                 </div>
 
                                 {/* Compact Add / Edit Form (Single Line) */}
-                                <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-sm space-y-2">
+                                <div className={`bg-white rounded-xl border border-gray-200 p-3 shadow-sm space-y-2 ${isLocked ? 'pointer-events-none select-none opacity-80' : ''}`}>
                                     <div className="flex items-center justify-between text-xs font-semibold text-gray-700">
                                         <span>{editingStaffId ? 'Chỉnh sửa thông tin nhân sự' : 'Thêm nhân sự mới'}</span>
                                         {editingStaffId && (
@@ -2317,7 +2326,9 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 type="text"
                                                 value={staffForm.name}
                                                 disabled={isLocked}
-                                                onChange={(e) => setStaffForm({ ...staffForm, name: e.target.value })}
+                                                readOnly={isLocked}
+                                                tabIndex={isLocked ? -1 : undefined}
+                                                onChange={(e) => { if (!isLocked) setStaffForm({ ...staffForm, name: e.target.value }); }}
                                                 placeholder="Nguyễn Văn A"
                                                 className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none h-[35px] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                                             />
@@ -2327,7 +2338,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                             <select
                                                 value={staffForm.position}
                                                 disabled={isLocked}
-                                                onChange={(e) => setStaffForm({ ...staffForm, position: e.target.value as any })}
+                                                tabIndex={isLocked ? -1 : undefined}
+                                                onChange={(e) => { if (!isLocked) setStaffForm({ ...staffForm, position: e.target.value as any }); }}
                                                 className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[35px] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                                             >
                                                 <option value="">-- Vị trí --</option>
@@ -2342,7 +2354,9 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 type="text"
                                                 value={staffForm.taxId}
                                                 disabled={isLocked}
-                                                onChange={(e) => setStaffForm({ ...staffForm, taxId: e.target.value })}
+                                                readOnly={isLocked}
+                                                tabIndex={isLocked ? -1 : undefined}
+                                                onChange={(e) => { if (!isLocked) setStaffForm({ ...staffForm, taxId: e.target.value }); }}
                                                 placeholder="Nhập MST..."
                                                 className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:ring-1 focus:ring-blue-500 outline-none h-[35px] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                                             />
@@ -2352,7 +2366,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                             <select
                                                 value={staffForm.department}
                                                 disabled={isLocked}
-                                                onChange={(e) => setStaffForm({ ...staffForm, department: e.target.value })}
+                                                tabIndex={isLocked ? -1 : undefined}
+                                                onChange={(e) => { if (!isLocked) setStaffForm({ ...staffForm, department: e.target.value }); }}
                                                 className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[35px] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed"
                                             >
                                                 <option value="">-- Khoa phòng --</option>
@@ -2367,14 +2382,14 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                     <button
                                                         onClick={handleSaveStaff}
                                                         disabled={!staffForm.name.trim() || isLocked}
-                                                        className="px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm h-[35px] whitespace-nowrap"
+                                                        className="px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1 shadow-sm h-[35px] whitespace-nowrap"
                                                     >
                                                         <Save className="h-3.5 w-3.5" /> Lưu
                                                     </button>
                                                     <button
                                                         onClick={handleNextStaff}
                                                         disabled={isLocked}
-                                                        className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 border border-blue-200 rounded-lg transition-all flex items-center gap-1 h-[35px] whitespace-nowrap"
+                                                        className="px-2.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed border border-blue-200 rounded-lg transition-all flex items-center gap-1 h-[35px] whitespace-nowrap"
                                                         title="Lưu và chuyển đến nhân viên tiếp theo"
                                                     >
                                                         <ChevronRight className="h-3.5 w-3.5" /> Kế tiếp
@@ -2382,7 +2397,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                     <button
                                                         onClick={resetStaffForm}
                                                         disabled={isLocked}
-                                                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-50 rounded-lg transition-colors h-[35px] flex items-center justify-center"
+                                                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed rounded-lg transition-colors h-[35px] flex items-center justify-center"
                                                         title="Hủy bỏ"
                                                     >
                                                         <XCircle className="h-4 w-4" />
@@ -2392,7 +2407,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                 <button
                                                     onClick={handleSaveStaff}
                                                     disabled={!staffForm.name.trim() || isLocked}
-                                                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap h-[35px]"
+                                                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm whitespace-nowrap h-[35px]"
                                                 >
                                                     <Plus className="h-3.5 w-3.5" /> Thêm
                                                 </button>
@@ -2445,7 +2460,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                             onClick={() => {
                                                                 if (!isLocked) handleEditStaff(staff);
                                                             }}
-                                                            className={`${isLocked ? 'cursor-default' : 'cursor-pointer'} transition-colors ${
+                                                            className={`${isLocked ? 'cursor-default pointer-events-none' : 'cursor-pointer'} transition-colors ${
                                                                 editingStaffId === staff.id
                                                                     ? 'bg-blue-50/70 font-medium'
                                                                     : 'hover:bg-gray-50/70'
@@ -2475,7 +2490,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                                                     }}
                                                                     disabled={isLocked}
                                                                     title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : "Xóa"}
-                                                                    className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-red-50 text-gray-400 hover:text-red-500'}`}
+                                                                    className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed opacity-40 pointer-events-none' : 'hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer'}`}
                                                                 >
                                                                     <Trash2 className="h-3.5 w-3.5" />
                                                                 </button>
