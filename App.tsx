@@ -3883,11 +3883,8 @@ const InnerApp: React.FC = () => {
         syncStatus={isSaving ? 'processing' : currentReport.isProcessing ? 'processing' : currentReport.result && currentReport.hasAutoFilledData ? 'unsaved' : 'synced'}
       />
 
-      {/* Main Content Area — offset by sidebar width */}
-      <main
-        className="flex-1 flex flex-col h-screen overflow-y-auto animate-fade-in transition-[margin-left] duration-200"
-        style={{ marginLeft: sidebarCollapsed ? 'var(--sidebar-collapsed-w)' : 'var(--sidebar-w)' }}
-      >
+      {/* Main Content Area */}
+      <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto animate-fade-in">
         {(activeTab === 'daily' || activeTab === 'monthly') && (
           <div className="flex flex-col animate-fade-in relative w-full h-full">
 

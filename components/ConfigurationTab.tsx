@@ -963,11 +963,11 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                   </div>
                   <div className="p-5 space-y-3">
                     <p className="text-xs text-gray-600 leading-relaxed">
-                      Nhập mật khẩu để mở quyền thêm, sửa, xóa và thay đổi thiết lập trong phiên làm việc này (Mật khẩu mặc định: <strong>123456</strong>):
+                      Nhập mật khẩu để mở quyền thêm, sửa, xóa và thay đổi thiết lập trong phiên làm việc này:
                     </p>
                     <input
                       type="password"
-                      placeholder="Mật khẩu (mặc định: 123456)"
+                      placeholder="Nhập mật khẩu"
                       value={unlockModalPwd}
                       onChange={(e) => setUnlockModalPwd(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleUnlockModalSubmit()}

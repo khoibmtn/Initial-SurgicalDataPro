@@ -290,7 +290,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 <p className="text-xs text-gray-600 leading-relaxed">
                   {isLocked
-                    ? 'Cấu hình đang được khóa để ngăn chỉnh sửa. Nhập mật khẩu để mở khóa trong phiên làm việc hiện tại (Mật khẩu mặc định: 123456).'
+                    ? 'Cấu hình đang được khóa để ngăn chỉnh sửa. Nhập mật khẩu để mở khóa trong phiên làm việc hiện tại.'
                     : 'Cấu hình đang mở. Bạn có thể thêm, sửa, xóa các thiết lập. Khóa lại bất kỳ lúc nào để bảo vệ dữ liệu.'}
                 </p>
 
@@ -298,7 +298,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="flex gap-2 pt-1">
                     <input
                       type="password"
-                      placeholder="Mật khẩu (mặc định: 123456)"
+                      placeholder="Nhập mật khẩu"
                       value={unlockPwd}
                       onChange={(e) => setUnlockPwd(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
@@ -337,7 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <label className="block text-[11px] font-semibold text-gray-700 mb-1">Mật khẩu hiện tại</label>
                     <input
                       type="password"
-                      placeholder="Mật khẩu cũ (mặc định: 123456)"
+                      placeholder="Nhập mật khẩu hiện tại"
                       value={oldPwd}
                       onChange={(e) => setOldPwd(e.target.value)}
                       className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500"
