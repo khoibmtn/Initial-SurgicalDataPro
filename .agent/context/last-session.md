@@ -1,8 +1,8 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 08/09/2026 01:32 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `temp-08-09-2026-01h31`  
-> **Commit mới nhất:** `5108709 fix: can chinh do rong sticky column tren bang Lich truc tranh de cot ngay dau tien`  
+> **Thời gian tạo:** 09/09/2026 19:20 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-09-09-2026-19h19`  
+> **Commit mới nhất:** `78bc8a6 feat: phát hiện ca mổ trùng trong excel import & khóa/mở khóa bảo mật trang cấu hình`  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`
@@ -11,103 +11,95 @@
 
 ## 📌 1. Các Tính Năng Đã Triển Khai Trong Phiên
 
-### 1.1. Tab Lịch Trực (`DutyScheduleTab.tsx`)
-- **Quản lý Tua trực 24h:**
-  - Tua trực bắt đầu từ giờ hành chính sáng ngày T (`07:00` mùa hè, `07:30` mùa đông) đến trước giờ hành chính sáng ngày T+1 (`06:59` hoặc `07:29`).
-- **Ma trận Ngày × Nhân viên kíp mổ:**
-  - Liệt kê các ngày diễn ra phẫu thuật (`dd/MM`), ngày cuối cùng là ngày kết thúc muộn nhất.
-  - Cột Khoa và Họ tên cố định bên trái, sắp xếp theo thứ tự Khoa trong Cấu hình và Bảng thanh toán.
-  - Hàng cấu hình **Ngày nghỉ / Lễ / Tết**: Checkbox từng ngày (mặc định Thứ 7 & Chủ Nhật được check). Check = nghỉ 100% ngoài giờ; Bỏ check = làm bù hành chính.
-  - Checkbox phân công trực 24h cho từng nhân viên.
-- **Lưu trữ tập trung Firestore (`dutyScheduleService.ts`):**
-  - Lưu vào root collection `duty_schedules` với document ID là `YYYY-MM-DD`.
-  - Tự động nạp lại lịch trực khi mở ca mổ cũ hoặc chuyển đổi giữa BC ngày $\longleftrightarrow$ BC tháng $\longleftrightarrow$ Kho lưu trữ.
-  - Tự động lưu tức thì (Auto-save) khi click checkbox kèm phát sự kiện realtime `sdp-duty-schedule-changed`.
+### 1.1. Phát Hiện Ca Mổ Trùng Trong File Excel Import (Báo Cáo Tháng & Báo Cáo Hàng Ngày)
+- **Hàm cốt lõi (`services/excelProcessor.ts`):**
+  - `checkDuplicateSurgeriesInExcel(listData: any[][]): string | null`: Duyệt trực tiếp bảng dữ liệu từ dòng 9 trở đi (dòng dữ liệu thực tế, số dòng hiển thị 1-based: `i + 1`).
+  - **Tiêu chí ca trùng:**
+    - Cùng bệnh nhân: Cùng Mã BN (`maBN`) hoặc cùng Tên BN nếu thiếu mã.
+    - Cùng phẫu thuật: Tên dịch vụ kỹ thuật (`tenKT`) chuẩn hóa giống nhau (bỏ dấu, xóa khoảng trắng thừa).
+    - Cùng khoảng thời gian: Cùng Ngày bắt đầu (`ngayBD`) và Ngày kết thúc (`ngayKT`).
+  - **Thông báo lỗi chi tiết:** Chỉ rõ chính xác từng cặp dòng trùng nhau, ví dụ:  
+    `• Dòng 15 trùng với Dòng 42 (BN: 2301923 - NGUYEN VAN A | Phẫu thuật: PT nội soi cắt túi mật | Thời gian: 08:30 10/08/2026 -> 10:15 10/08/2026)`
+- **Cơ chế Chặn kép (Double-layer Safety Guard):**
+  - **Lớp 1 (`validateListFile`):** Kiểm tra ngay khi người dùng chọn hoặc kéo thả file Excel vào khu vực upload. Nếu phát hiện trùng, chặn import ngay lập tức.
+  - **Lớp 2 (`processListData` trong `processSurgicalFiles`):** Kiểm tra lại trước khi bóc tách mảng `records`. Nếu có ca trùng, ném ngoại lệ chặn hoàn toàn tiến trình.
+- **Xử lý UI tại `App.tsx`:**
+  - `ToastContainer` được cập nhật style `whitespace-pre-line break-words max-h-[80vh] overflow-y-auto` để hiển thị danh sách dòng trùng xuống dòng rõ ràng, trực quan.
+  - Khi phát hiện trùng: hiển thị toast lỗi (duration kéo dài 14s để người dùng dễ đọc), tự động reset `listFile: null, listDateRange: ""` để hủy file và chặn không cho dữ liệu trùng vào bảng hoặc lưu vào Firestore/bộ nhớ.
 
-### 1.2. Khắc Phục Lỗi Cột Ngày Đầu Tiên Bị Đè (Sticky Column Alignment)
-- **Vấn đề trước đây:** Cột Họ và tên nhân viên có `sticky left-[180px]`, nhưng ô `<td>` của cột Khoa / Phòng không đặt chiều rộng cố định khiến trình duyệt co cột Khoa xuống ~90px. Do đó cột Họ tên bị dạt sang phải và che khuất hoàn toàn cột ngày đầu tiên (`01/08`), đồng thời che một phần cột `02/08`.
-- **Giải pháp triệt để:**
-  - Bổ sung `<colgroup>` khai báo cố định: Cột 1 (`160px`), Cột 2 (`240px`), các cột ngày (`76px`).
-  - Đặt `w-[160px] min-w-[160px] max-w-[160px] sticky left-0` cho Cột 1 và `w-[240px] min-w-[240px] max-w-[240px] sticky left-[160px]` cho Cột 2 trên cả `<th>` và `<td>`.
-  - Tách hàng cấu hình ngày nghỉ thành 2 ô riêng biệt (Cột 1: `CẤU HÌNH`, Cột 2: `NGÀY NGHỈ / LỄ / TẾT`), loại bỏ `colSpan={2}` trên hàng sticky.
-  - Kiểm thử trực tiếp trên trình duyệt: Cột ngày `01/08` và `02/08` hiển thị rõ nét 100%, cuộn ngang mượt mà.
+### 1.2. Khắc Phục Lỗi Tìm Kiếm & Lọc Ô Trống
+- **Tìm kiếm tiếng Việt thông minh:** Kết hợp tìm kiếm có dấu và không dấu (`removeVietnameseTones`) trên tất cả các trường: Tên BN, Mã BN, Tên kỹ thuật, Khoa/phòng, Bác sĩ/Kíp mổ.
+- **Lọc ô trống Giúp việc (`gv`):** Sửa lỗi lọc trạng thái ô trống của Giúp việc trong bảng danh sách phẫu thuật, phản hồi tức thì khi chọn điều kiện lọc.
+- **Chống nhân bản ca mổ:** Ngăn chặn việc nhân đôi dữ liệu khi đồng bộ từ bộ nhớ Firestore.
+- **Tự động đồng bộ giá:** Đồng bộ đơn giá phê duyệt từ Báo cáo tháng sang Báo cáo hàng ngày.
 
-### 1.3. Tab Ngoài Giờ (`OvertimeTab.tsx` & `overtimeCalculationService.ts`)
-- **Engine tính toán ngoài giờ đa phân đoạn:**
-  - Tự động nhận diện mùa Hè (`01/05 - 30/09`) và mùa Đông (`01/10 - 30/04`) theo `config.workingHours`.
-  - Phân loại cho từng cá nhân:
-    - **Nhân viên trực:** Không tính ngoài giờ trong ca trực. Nếu ca mổ kéo dài quá `07:00` sáng hôm sau thì tính ngoài giờ từ `07:00` đến khi mổ xong (Ghi chú: **`Kíp trực`**).
-    - **Nhân viên không trực:** Mọi thời điểm ngoài giờ hành chính (trưa, tối, đêm hoặc ngày nghỉ) tính là ngoài giờ (Ghi chú: **`Kíp mổ phiên`**).
-  - **Tách dòng thông minh:** Nếu các bác sĩ có khoảng ngoài giờ khác nhau (ví dụ ca `06:30 - 08:00` có BS thường trú ngoài giờ `06:30 - 07:00` và BS trực ngoài giờ `07:00 - 08:00`), hệ thống tự động tách thành 2 dòng riêng biệt.
-  - **Chỉ hiển thị người thực tế làm ngoài giờ:** Trên mỗi dòng, cột chức danh chỉ điền tên người làm ngoài giờ trong khoảng đó, các vị trí còn lại để trống.
-  - Định dạng thời gian chuẩn: `30ph`, `55ph`, `1h`, `1h20`, `2h`.
-- **Giao diện bảng 16 cột:**
-  - 4 thẻ KPI tóm tắt: Tổng số lượt ngoài giờ, Tổng thời gian (font-mono màu hổ phách), Kíp mổ phiên, Kíp trực.
-  - Công tắc Toggle: **Bật / Tắt Giúp việc (GV)** (lưu vào localStorage).
-  - Bộ lọc tìm kiếm, lọc theo loại ghi chú, lọc theo nhân viên cụ thể.
-  - Nút **Xuất Excel Ngoài giờ** khổ A4 ngang (`exportOvertimeToExcel`).
-
-### 1.4. Bộ Lọc Theo Khoa / Phòng Trong Tab Ngoài Giờ
-- Thêm dropdown chọn Khoa / Phòng linh hoạt trong toolbar.
-- Tự động lọc danh sách ngoài giờ theo nhân sự thuộc khoa được chọn.
-- Tự động liên kết với dropdown Nhân viên (chỉ hiển thị nhân viên thuộc khoa đó kèm số lượng ca ngoài giờ).
-- Cập nhật số liệu tức thì trên 4 thẻ KPI tóm tắt và tự động gán tên khoa vào tiêu đề file Excel khi xuất báo cáo.
-
-### 1.5. Khắc Phục Lỗi UI Bị Lộn Xộn Khi Bật / Tắt Giúp Việc (GV)
-- **Gộp phiên mổ (Consolidated Session):** Trong file dữ liệu bệnh viện, một ca phẫu thuật thường gồm nhiều dòng DVKT cho cùng 1 bệnh nhân. Trước đây tính toán trên từng dòng DVKT làm phát sinh nhiều dòng trùng lặp và phân mảnh trạng thái của GV. Ta đã hợp nhất các dòng có cùng `patientId` và thời gian bắt đầu/kết thúc thành 1 phiên mổ duy nhất, gộp đầy đủ kíp mổ (kể cả GV) và nối tên kỹ thuật.
-- **Cố định 3 cột nhận diện bệnh nhân (UI/UX Pro Max):**
-  - Cột `STT`: `45px`, `sticky left-0`
-  - Cột `Mã BN`: `85px`, `sticky left-[45px]`
-  - Cột `Họ tên`: `160px`, `sticky left-[130px]` kèm hiệu ứng bóng đổ phân cách.
-  - Bổ sung `<colgroup>` với kích thước cố định từng cột và đổi sang `border-separate border-spacing-0`.
-  - Kết quả: Khi cuộn ngang sang phải để xem kíp mổ và GV, thông tin bệnh nhân luôn được ghim cố định ở cạnh trái, các cột không còn bị xô lệch hay biến dạng khi Bật/Tắt GV.
-
-### 1.6. Cấu Hình Cổng Dev Server
-- Chuyển cổng mặc định của Vite sang **`3002`** trong `vite.config.ts` để tránh xung đột với `kios-xm` (cổng 3000) và `claude-proxy` (cổng 3001).
+### 1.3. Khóa / Mở Khóa Trang Cấu Hình & Đổi Mật Khẩu
+- **Cơ chế Bảo mật (`contexts/ConfigContext.tsx`):**
+  - `isLocked`: Quản lý trạng thái khóa toàn cục. Mặc định luôn là `true` khi mở ứng dụng hoặc mở tab mới.
+  - Mở khóa theo phiên (`sessionStorage.getItem('config_unlocked')`): Khi người dùng đóng tab/trình duyệt, trạng thái mở khóa tự động bị hủy, đảm bảo an toàn tuyệt đối.
+  - Mật khẩu lưu tại máy cục bộ người dùng (`localStorage.getItem('admin_config_password')`), mặc định ban đầu là `123456`, không ảnh hưởng tới người dùng khác.
+  - Cung cấp các phương thức: `unlockConfig(password)`, `lockConfig()`, `changePassword(oldPass, newPass)`.
+  - Hàm `updateConfig` và `resetConfig` tự động chặn và bắn toast thông báo nếu đang bị khóa.
+- **Nút Khóa / Mở Khóa trên Trang Cấu hình (`components/ConfigurationTab.tsx`):**
+  - Tích hợp vào `ContextToolbar` qua thuộc tính `beforeTitle`, nằm ngay trước nhãn tiêu đề "Cấu hình".
+  - Trạng thái `🔒 Đang khóa`: Nút màu xám/amber; click vào sẽ mở `UnlockModal` yêu cầu nhập mật khẩu.
+  - Trạng thái `🔓 Đã mở khóa`: Nút màu xanh emerald; click vào sẽ khóa lại ngay lập tức.
+  - Banner cảnh báo màu hổ phách: *"Chế độ Chỉ xem (Đang khóa cấu hình) — Bạn đang ở chế độ xem an toàn. Toàn bộ tính năng thêm, sửa, xóa, import đã được vô hiệu hóa..."* hiển thị rõ ràng khi đang khóa.
+- **Chức năng Đổi Mật Khẩu ở Sidebar (`components/ui/Sidebar.tsx`):**
+  - Nút **"Tài khoản & Bảo mật"** được đặt ở chân Sidebar, ngay phía trên nút "Thu gọn".
+  - Hiển thị badge trạng thái `🔒 Khóa` hoặc `🟢 Mở` ở cả 2 chế độ Sidebar mở rộng và thu gọn.
+  - Mở modal bảo mật gồm 2 tab/khu vực:
+    1. Trạng thái cấu hình & Mở/Khóa nhanh trong phiên hiện tại.
+    2. Đổi mật khẩu cấu hình (nhập mật khẩu hiện tại, mật khẩu mới, xác nhận mật khẩu mới).
+- **Vô hiệu hóa toàn diện các Tab Cấu hình khi Khóa (Chế độ Chỉ xem):**
+  - **Tab Khoa / Phòng (`departments`):** Vô hiệu hóa form thêm mới, nút di chuyển thứ tự lên/xuống, nút Sửa, Xóa, toggle báo cáo và toggle 5 vị trí kíp mổ.
+  - **Tab Hành chính (`admin`):** Vô hiệu hóa ô nhập Tên bệnh viện và toàn bộ 12 ô cài đặt giờ làm việc (mùa hè/mùa đông).
+  - **Tab Nhân sự (`staff-list`):** Vô hiệu hóa nút Import Excel, form Thêm/Sửa nhân sự, nút Lưu, Kế tiếp, Xóa, click chọn dòng.
+  - **Tab Danh mục Mã máy (`registry`):** Vô hiệu hóa nút Backfill, Import Excel, form Thêm/Sửa, toggle kích hoạt, xóa mã máy, click chọn dòng.
+  - **Tab Định mức lao động (`LaborConfigManager.tsx`):** Vô hiệu hóa ô nhập định mức và các nút điều chỉnh.
+  - **Tab DM Chương KT (`ChapterCatalogConfig.tsx`):** Vô hiệu hóa Nạp mặc định, Import Excel, Thêm mới, Xóa đã chọn, các checkbox và nút Sửa/Xóa từng dòng.
+  - **Tab DM Giá DVKT (`SurgeryNamePriceConfig.tsx`):** Vô hiệu hóa Quét DM thiếu, Refill từ Excel, Thêm mới, Xóa đã chọn, menu Import Excel, toggle DM Chi phí và nút Sửa/Xóa.
+  - **Tab DM Chi phí PTTT (`SurgeryCostConfig.tsx`):** Vô hiệu hóa chỉnh sửa inline, Duplicate phiên bản mới, Xóa chi phí và các nút submit modal.
+  - **Tab DM Kỹ thuật dùng mã máy (`RequiredMachineCatalogConfig.tsx`):** Vô hiệu hóa Nhập Excel, Thêm DVKT, toggle Bắt buộc dùng máy, nút Sửa/Xóa và các modal submit.
 
 ---
 
 ## 📂 2. Cấu Trúc Dữ Liệu & Schema Mới
 
-### 2.1. Cấu hình Lịch trực (`DutyScheduleDateConfig`)
+### 2.1. Config Context Interface (`contexts/ConfigContext.tsx`)
 ```ts
-export interface DutyScheduleDateConfig {
-  date: string; // YYYY-MM-DD
-  isHoliday: boolean; // true = ngày nghỉ, lễ, tết, thứ 7, CN; false = ngày hành chính
-  onCallStaff: string[]; // Danh sách họ tên nhân viên được phân công trực 24h
-  updatedAt?: number;
+interface ConfigContextType {
+  config: AppConfig;
+  updateConfig: (newConfig: Partial<AppConfig>) => void;
+  resetConfig: () => void;
+  // Khóa / Mở khóa & Bảo mật
+  isLocked: boolean;
+  unlockConfig: (password: string) => { success: boolean; error?: string };
+  lockConfig: () => void;
+  changePassword: (oldPass: string, newPass: string) => { success: boolean; error?: string };
 }
 ```
 
-### 2.2. Dòng Bảng Ngoài Giờ (`OvertimeRecordRow`)
+### 2.2. ContextToolbar Props (`components/ui/ContextToolbar.tsx`)
 ```ts
-export interface OvertimeRecordRow {
-  id: string;
-  stt?: number;
-  patientId: string;
-  patientName: string;
-  tenKT: string;
-  ngayBD: string;
-  ngayKT: string;
-  ptChinh?: string;
-  ptPhu?: string;
-  bsGM?: string;
-  ktvGM?: string;
-  tdc?: string;
-  gv?: string;
-  timeFrom: string; // HH:mm
-  timeTo: string;   // HH:mm
-  durationText: string; // e.g. "30ph", "1h20", "2h"
-  durationMinutes: number;
-  ghiChu: 'Kíp mổ phiên' | 'Kíp trực';
-  originalRecord: SurgeryRecord;
+export interface ContextToolbarProps {
+  title?: string;
+  beforeTitle?: React.ReactNode; // Vị trí đặt nút Khóa/Mở khóa ngay trước tiêu đề
+  icon?: React.ReactNode;
+  breadcrumbs?: BreadcrumbItem[];
+  actions?: React.ReactNode;
+  filters?: React.ReactNode;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  className?: string;
 }
 ```
 
 ---
 
 ## 🚀 3. Trạng Thái Build & Triển Khai
-- `npm run build`: Thành công 100% không lỗi (6.12s).
-- Đã đồng bộ mã nguồn lên nhánh `main` trên GitHub.
-- Nhánh làm việc hiện tại: `temp-08-09-2026-01h31`.
-- Đã kiểm thử trực quan trên trình duyệt `http://localhost:3002/`.
+- `npm run build`: Thành công 100%, không lỗi TypeScript hay cảnh báo cú pháp (6.86s).
+- Đã gộp vào nhánh chính `main` và đẩy lên GitHub `origin main`: Commit `78bc8a6`.
+- Đã deploy thành công lên Production Vercel: https://initial-surgical-data-pro.vercel.app (Aliased & Ready).
+- Nhánh làm việc hiện tại: `temp-09-09-2026-19h19`.
+- Đã kiểm thử tự động toàn diện qua Browser Subagent: Kiểm tra luồng khóa mặc định, mở khóa bằng `123456`, khóa lại, đổi mật khẩu, và kiểm tra tính năng chỉ xem trên trang Cấu hình.
