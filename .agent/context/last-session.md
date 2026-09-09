@@ -1,7 +1,7 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 09/09/2026 21:40 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `temp-09-09-2026-20h29`  
+> **Thời gian tạo:** 09/09/2026 21:48 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-09-09-2026-21h37`  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`
@@ -9,6 +9,19 @@
 ---
 
 ## 📌 1. Các Tính Năng & Sửa Lỗi Đã Triển Khai Trong Phiên
+
+### 1.4. Tách Riêng & Mở Rộng Box Nhập Giờ:Phút Tại Modal Chỉnh Sửa Ca Phẫu Thuật (Edit Case)
+- **Vấn đề trước đây:**
+  - Trong modal "Chỉnh sửa thông tin phẫu thuật" (mục *2. THỜI GIAN THỰC HIỆN & PHÂN LOẠI*), box nhập ngày và giờ:phút bị gộp chung vào một container có viền ngoài.
+  - Box giờ phút bị ép kích thước `w-12` (chỉ 48px), cộng với 2 icon Lucide (`Calendar`, `Clock`) bên trong khiến chuỗi `HH:mm` (như `08:00`, `07:30`) bị tràn và trình duyệt cắt cụt chỉ còn thấy phần giờ và dấu hai chấm (`08:`), không quan sát được số phút.
+- **Giải pháp xử lý:**
+  - **`components/surgery/SurgeryEditModal.tsx` (`DateTimeField`):**
+    - Tách container gộp thành 2 box nhập liệu độc lập đặt cạnh nhau với `gap-2` (giống như giao diện các ô lọc khoảng thời gian ở thanh công cụ chính):
+      - **Box Ngày (`input[type="date"]`):** `flex-1 min-w-0 px-2.5 py-1.5 h-[34px] bg-white border rounded-lg text-xs font-medium text-gray-800 shadow-sm focus:ring-2 outline-none cursor-pointer`. Bỏ icon `Calendar` thừa bên trái vì trình duyệt đã tích hợp sẵn biểu tượng calendar picker.
+      - **Box Giờ:Phút (`input[type="text"]`):** Tăng kích thước chiều rộng từ `w-12` (48px) lên `w-20` (80px, `shrink-0`), `h-[34px]`, căn giữa `text-center font-mono`, viền độc lập `rounded-lg shadow-sm`. Bỏ icon `Clock` thừa.
+    - Áp dụng đồng bộ cho cả 3 trường thời gian: "Thời gian bắt đầu", "Thời gian kết thúc", "Thời gian chỉ định".
+    - Giữ nguyên cơ chế cảnh báo lỗi logic thời gian (`hasError ? 'border-red-400 text-red-600' : ...`), tự động format ký tự số và phím ESC hoàn tác.
+
 
 ### 1.1. Vô Hiệu Hóa Toàn Diện Nút/Control Khi Khóa Trang Cấu Hình (`isLocked`)
 - **Vấn đề trước đây:**

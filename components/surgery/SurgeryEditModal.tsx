@@ -12,7 +12,7 @@
  */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
-  X, Save, User, Calendar, Clock, Stethoscope, Users,
+  X, Save, User, Clock, Stethoscope, Users,
   Cpu, DollarSign, ChevronDown, Check, Sparkles, Hash
 } from 'lucide-react';
 import { SurgeryRecord, StaffMember, MachineEntry, SurgeryNamePrice } from '../../types';
@@ -224,31 +224,30 @@ const DateTimeField: React.FC<DateTimeFieldProps> = ({
           <span className="text-[10px] text-red-500 font-normal">{errorMsg}</span>
         )}
       </label>
-      <div className={`flex items-center gap-1.5 bg-white border rounded-lg px-2.5 py-1.5 shadow-sm focus-within:ring-2 transition-all ${
-        hasError
-          ? 'border-red-400 focus-within:ring-red-300 focus-within:border-red-500'
-          : 'border-gray-300 focus-within:ring-primary-500 focus-within:border-primary-500'
-      }`}>
-        <Calendar className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+      <div className="flex items-center gap-2">
         <input
           type="date"
-          value={dateValue}
+          value={dateValue || ''}
           onChange={e => onDateChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          className="text-xs bg-transparent border-0 outline-none text-gray-800 font-medium flex-1 cursor-pointer min-w-0"
+          className={`flex-1 min-w-0 px-2.5 py-1.5 h-[34px] bg-white border rounded-lg text-xs font-medium text-gray-800 shadow-sm focus:ring-2 outline-none cursor-pointer transition-all ${
+            hasError
+              ? 'border-red-400 focus:ring-red-300 focus:border-red-500'
+              : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500'
+          }`}
         />
-        <span className="text-gray-300 font-light select-none">|</span>
-        <Clock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
         <input
           type="text"
           inputMode="numeric"
-          value={timeValue}
+          value={timeValue || ''}
           onChange={handleTimeInputChange}
           onKeyDown={handleKeyDown}
           placeholder="HH:mm"
           maxLength={5}
-          className={`text-xs bg-transparent border-0 outline-none font-medium w-12 font-mono text-center ${
-            hasError ? 'text-red-600' : 'text-gray-800'
+          className={`w-20 shrink-0 px-2 py-1.5 h-[34px] bg-white border rounded-lg text-xs font-mono font-medium text-center shadow-sm focus:ring-2 outline-none placeholder:text-gray-400 transition-all ${
+            hasError
+              ? 'border-red-400 focus:ring-red-300 focus:border-red-500 text-red-600'
+              : 'border-gray-300 focus:ring-primary-500 focus:border-primary-500 text-gray-800'
           }`}
         />
       </div>
