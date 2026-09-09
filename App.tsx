@@ -1218,8 +1218,95 @@ const InnerApp: React.FC = () => {
   // 4 Independent states: report type × data source
   const [dailyStorageState, setDailyStorageState] = useState<ReportState>(initialReportState);
   const [dailyUploadState, setDailyUploadState] = useState<ReportState>(initialReportState);
-  const [monthlyStorageState, setMonthlyStorageState] = useState<ReportState>(initialReportState);
+
+  // Chế độ chọn thời gian trong Báo cáo tháng: 'month' (Tháng) hoặc 'range' (Khoảng thời gian)
+  const [monthlyTimeMode, setMonthlyTimeMode] = useState<'month' | 'range'>('month');
+
+  // Tính năm và tháng mặc định: Năm hiện tại, Tháng = tháng hiện tại - 1 (nếu tháng 1 thì lùi về tháng 12 năm trước)
+  const [selectedMonthlyYear, setSelectedMonthlyYear] = useState<number>(() => {
+    const now = new Date();
+    const curMonth = now.getMonth() + 1;
+    return curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
+  });
+  const [selectedMonthlyMonth, setSelectedMonthlyMonth] = useState<number>(() => {
+    const curMonth = new Date().getMonth() + 1;
+    return curMonth === 1 ? 12 : curMonth - 1;
+  });
+
+  // Danh mục năm và tháng có dữ liệu thực tế từ Firestore
+  const [availableMonthlyYears, setAvailableMonthlyYears] = useState<number[]>([2023, 2024, 2025, 2026]);
+  const [availableMonthlyMonthsMap, setAvailableMonthlyMonthsMap] = useState<Record<number, number[]>>({
+    2023: [5, 6, 7, 8, 9, 10, 11, 12],
+    2024: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    2025: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    2026: [1, 2, 3, 4, 5, 6, 7, 8],
+  });
+
+  const [monthlyStorageState, setMonthlyStorageState] = useState<ReportState>(() => {
+    const now = new Date();
+    const curMonth = now.getMonth() + 1;
+    const defYear = curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
+    const defMonth = curMonth === 1 ? 12 : curMonth - 1;
+    const mStr = String(defMonth).padStart(2, '0');
+    const lastDay = new Date(defYear, defMonth, 0).getDate();
+    return {
+      ...initialReportState,
+      dateFrom: `${defYear}-${mStr}-01`,
+      timeFrom: '00:00',
+      dateTo: `${defYear}-${mStr}-${String(lastDay).padStart(2, '0')}`,
+      timeTo: '23:59',
+    };
+  });
   const [monthlyUploadState, setMonthlyUploadState] = useState<ReportState>(initialReportState);
+
+  // Tải danh mục năm & tháng có dữ liệu từ Firestore
+  useEffect(() => {
+    reportService.getAvailableMonthlyYearsAndMonths().then(({ years, monthsMap }) => {
+      if (years && years.length > 0) {
+        setAvailableMonthlyYears(years);
+        setAvailableMonthlyMonthsMap(monthsMap);
+      }
+    }).catch(err => {
+      console.warn("Lỗi tải danh mục năm/tháng cho báo cáo tháng:", err);
+    });
+  }, []);
+
+  const applyMonthlyDateRange = (year: number, month: number) => {
+    const mStr = String(month).padStart(2, '0');
+    const lastDay = new Date(year, month, 0).getDate();
+    const dateFrom = `${year}-${mStr}-01`;
+    const dateTo = `${year}-${mStr}-${String(lastDay).padStart(2, '0')}`;
+    setMonthlyStorageState(prev => ({
+      ...prev,
+      dateFrom,
+      timeFrom: '00:00',
+      dateTo,
+      timeTo: '23:59'
+    }));
+  };
+
+  const handleMonthlyYearChange = (newYear: number) => {
+    setSelectedMonthlyYear(newYear);
+    const monthsForYear = availableMonthlyMonthsMap[newYear] || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    let newMonth = selectedMonthlyMonth;
+    if (!monthsForYear.includes(newMonth)) {
+      newMonth = monthsForYear[monthsForYear.length - 1];
+      setSelectedMonthlyMonth(newMonth);
+    }
+    applyMonthlyDateRange(newYear, newMonth);
+  };
+
+  const handleMonthlyMonthChange = (newMonth: number) => {
+    setSelectedMonthlyMonth(newMonth);
+    applyMonthlyDateRange(selectedMonthlyYear, newMonth);
+  };
+
+  const handleMonthlyTimeModeChange = (mode: 'month' | 'range') => {
+    setMonthlyTimeMode(mode);
+    if (mode === 'month') {
+      applyMonthlyDateRange(selectedMonthlyYear, selectedMonthlyMonth);
+    }
+  };
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
   const [saveConfirm, setSaveConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
 
@@ -3232,10 +3319,25 @@ const InnerApp: React.FC = () => {
 
   const handleGetReport = async () => {
     const storageState = getState(currentType, 'storage');
+
+    let effDateFrom = storageState.dateFrom;
+    let effTimeFrom = storageState.timeFrom;
+    let effDateTo = storageState.dateTo;
+    let effTimeTo = storageState.timeTo;
+
+    if (currentType === 'monthly' && monthlyTimeMode === 'month') {
+      const mStr = String(selectedMonthlyMonth).padStart(2, '0');
+      const lastDay = new Date(selectedMonthlyYear, selectedMonthlyMonth, 0).getDate();
+      effDateFrom = `${selectedMonthlyYear}-${mStr}-01`;
+      effTimeFrom = '00:00';
+      effDateTo = `${selectedMonthlyYear}-${mStr}-${String(lastDay).padStart(2, '0')}`;
+      effTimeTo = '23:59';
+    }
+
     // Construct Date Range from State with explicit timezone (Vietnam = +07:00)
     // This ensures the date-time is correctly parsed as local time before conversion to UTC
-    const dateFromStr = `${storageState.dateFrom}T${storageState.timeFrom}:00.000+07:00`;
-    const dateToStr = `${storageState.dateTo}T${storageState.timeTo}:59.999+07:00`;
+    const dateFromStr = `${effDateFrom}T${effTimeFrom}:00.000+07:00`;
+    const dateToStr = `${effDateTo}T${effTimeTo}:59.999+07:00`;
 
     // Validate
     const paramsValid = new Date(dateFromStr) <= new Date(dateToStr);
@@ -3262,7 +3364,7 @@ const InnerApp: React.FC = () => {
           dataSource: undefined,
           queryDateRangeText: ''
         }, 'storage');
-        addToast(`Không có trường hợp phẫu thuật nào trong khoảng thời gian từ ${storageState.dateFrom} ${storageState.timeFrom} đến ${storageState.dateTo} ${storageState.timeTo}`, 'error');
+        addToast(`Không có trường hợp phẫu thuật nào trong khoảng thời gian từ ${effDateFrom} ${effTimeFrom} đến ${effDateTo} ${effTimeTo}`, 'error');
         return;
       }
 
@@ -3277,7 +3379,7 @@ const InnerApp: React.FC = () => {
         thanhTien: r.thanhTien,
       }));
 
-      const queryRangeText = `Từ ngày ${formatDateForDisplay(storageState.dateFrom, storageState.timeFrom)} đến ngày ${formatDateForDisplay(storageState.dateTo, storageState.timeTo)}`;
+      const queryRangeText = `Từ ngày ${formatDateForDisplay(effDateFrom, effTimeFrom)} đến ngày ${formatDateForDisplay(effDateTo, effTimeTo)}`;
       const res = await reprocessSurgicalRecords(convertedRecords, config, queryRangeText);
 
       if (res.success) {
@@ -3722,56 +3824,168 @@ const InnerApp: React.FC = () => {
             {/* STORAGE container */}
             <div style={{ display: activeDataTab === 'storage' ? 'block' : 'none' }}>
               <div className="px-4 pt-3 pb-2">
-                <div className="flex items-end gap-3 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Từ:</label>
-                    <input
-                      type="date"
-                      value={getState(currentType, 'storage').dateFrom}
-                      onChange={(e) => updateReportState(currentType, { dateFrom: e.target.value }, 'storage')}
-                      className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
-                    />
-                    <input
-                      type="text"
-                      placeholder="HH:mm"
-                      value={getState(currentType, 'storage').timeFrom}
-                      onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeFrom: val }, 'storage'))}
-                      maxLength={5}
-                      className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
-                    />
+                {currentType === 'monthly' ? (
+                  /* ── GIAO DIỆN BÁO CÁO THÁNG ── */
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {/* 1. Box Lấy số liệu theo */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Lấy số liệu theo:</label>
+                      <select
+                        value={monthlyTimeMode}
+                        onChange={(e) => handleMonthlyTimeModeChange(e.target.value as 'month' | 'range')}
+                        className="px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 outline-none shadow-xs cursor-pointer"
+                      >
+                        <option value="month">Tháng</option>
+                        <option value="range">Khoảng thời gian</option>
+                      </select>
+                    </div>
+
+                    {monthlyTimeMode === 'month' ? (
+                      <>
+                        {/* 2. Box Năm */}
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Năm:</label>
+                          <select
+                            value={selectedMonthlyYear}
+                            onChange={(e) => handleMonthlyYearChange(Number(e.target.value))}
+                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 outline-none shadow-xs cursor-pointer min-w-[85px]"
+                          >
+                            {availableMonthlyYears.map(y => (
+                              <option key={y} value={y}>Năm {y}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* 3. Box Tháng */}
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Tháng:</label>
+                          <select
+                            value={selectedMonthlyMonth}
+                            onChange={(e) => handleMonthlyMonthChange(Number(e.target.value))}
+                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 outline-none shadow-xs cursor-pointer min-w-[95px]"
+                          >
+                            {(availableMonthlyMonthsMap[selectedMonthlyYear] || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).map(m => (
+                              <option key={m} value={m}>Tháng {String(m).padStart(2, '0')}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Nút Lấy dữ liệu (ở chế độ Tháng chỉ có nút này, KHÔNG có nút Dữ liệu trực) */}
+                        <button
+                          onClick={handleGetReport}
+                          className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white transition-colors shadow-sm cursor-pointer"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Lấy dữ liệu
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {/* Chế độ Khoảng thời gian: hiển thị đầy đủ Từ/Đến, Lấy dữ liệu và Dữ liệu trực */}
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Từ:</label>
+                          <input
+                            type="date"
+                            value={getState(currentType, 'storage').dateFrom}
+                            onChange={(e) => updateReportState(currentType, { dateFrom: e.target.value }, 'storage')}
+                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
+                          />
+                          <input
+                            type="text"
+                            placeholder="HH:mm"
+                            value={getState(currentType, 'storage').timeFrom}
+                            onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeFrom: val }, 'storage'))}
+                            maxLength={5}
+                            className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Đến:</label>
+                          <input
+                            type="date"
+                            value={getState(currentType, 'storage').dateTo}
+                            onChange={(e) => updateReportState(currentType, { dateTo: e.target.value }, 'storage')}
+                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
+                          />
+                          <input
+                            type="text"
+                            placeholder="HH:mm"
+                            value={getState(currentType, 'storage').timeTo}
+                            onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeTo: val }, 'storage'))}
+                            maxLength={5}
+                            className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
+                          />
+                        </div>
+                        <button
+                          onClick={handleGetReport}
+                          className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white transition-colors shadow-sm cursor-pointer"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Lấy dữ liệu
+                        </button>
+                        <button
+                          onClick={handleAutoFill24hShift}
+                          className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-white text-primary-700 border border-primary-200 hover:bg-primary-50 transition-colors cursor-pointer"
+                        >
+                          <Zap className="h-3.5 w-3.5" />
+                          Dữ liệu trực
+                        </button>
+                      </>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Đến:</label>
-                    <input
-                      type="date"
-                      value={getState(currentType, 'storage').dateTo}
-                      onChange={(e) => updateReportState(currentType, { dateTo: e.target.value }, 'storage')}
-                      className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
-                    />
-                    <input
-                      type="text"
-                      placeholder="HH:mm"
-                      value={getState(currentType, 'storage').timeTo}
-                      onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeTo: val }, 'storage'))}
-                      maxLength={5}
-                      className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
-                    />
+                ) : (
+                  /* ── GIAO DIỆN BÁO CÁO HÀNG NGÀY (GIỮ NGUYÊN) ── */
+                  <div className="flex items-end gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Từ:</label>
+                      <input
+                        type="date"
+                        value={getState(currentType, 'storage').dateFrom}
+                        onChange={(e) => updateReportState(currentType, { dateFrom: e.target.value }, 'storage')}
+                        className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="HH:mm"
+                        value={getState(currentType, 'storage').timeFrom}
+                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeFrom: val }, 'storage'))}
+                        maxLength={5}
+                        className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Đến:</label>
+                      <input
+                        type="date"
+                        value={getState(currentType, 'storage').dateTo}
+                        onChange={(e) => updateReportState(currentType, { dateTo: e.target.value }, 'storage')}
+                        className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="HH:mm"
+                        value={getState(currentType, 'storage').timeTo}
+                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeTo: val }, 'storage'))}
+                        maxLength={5}
+                        className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
+                      />
+                    </div>
+                    <button
+                      onClick={handleGetReport}
+                      className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white transition-colors shadow-sm"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                      Lấy dữ liệu
+                    </button>
+                    <button
+                      onClick={handleAutoFill24hShift}
+                      className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-white text-primary-700 border border-primary-200 hover:bg-primary-50 transition-colors"
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      Dữ liệu trực
+                    </button>
                   </div>
-                  <button
-                    onClick={handleGetReport}
-                    className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white transition-colors shadow-sm"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Lấy dữ liệu
-                  </button>
-                  <button
-                    onClick={handleAutoFill24hShift}
-                    className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-white text-primary-700 border border-primary-200 hover:bg-primary-50 transition-colors"
-                  >
-                    <Zap className="h-3.5 w-3.5" />
-                    Dữ liệu trực
-                  </button>
-                </div>
+                )}
               </div>
             </div>
 
