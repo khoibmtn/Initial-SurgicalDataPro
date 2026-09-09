@@ -1114,14 +1114,14 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   })}
                 </tr>
 
-                {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết */}
+                {/* Hàng 2: Hàng cấu hình Ngày nghỉ / Lễ / Tết - Đổ màu đặc (solid) chống xuyên thấu khi cuộn */}
                 <tr
-                  style={{ top: headerRow2Top }}
-                  className="group bg-amber-50 sticky z-30 select-none shadow-[0_4px_8px_-2px_rgba(180,83,9,0.35)]"
+                  style={{ top: headerRow2Top, backgroundColor: '#fef3c7' }}
+                  className="group sticky z-30 select-none shadow-[0_4px_8px_-2px_rgba(180,83,9,0.35)]"
                 >
                   <td
-                    style={{ top: headerRow2Top, borderBottom: '3.5px solid #b45309' }}
-                    className="sticky left-0 z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[110px] min-w-[110px] max-w-[110px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]"
+                    style={{ top: headerRow2Top, borderBottom: '3.5px solid #b45309', backgroundColor: '#fde68a' }}
+                    className="sticky left-0 z-40 bg-[#fde68a] hover:bg-[#fcd34d] transition-colors px-2 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[110px] min-w-[110px] max-w-[110px] shadow-[2px_0_4px_rgba(0,0,0,0.04)]"
                   >
                     <div className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse shrink-0"></span>
@@ -1131,8 +1131,8 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                     </div>
                   </td>
                   <td
-                    style={{ top: headerRow2Top, borderBottom: '3.5px solid #b45309' }}
-                    className="sticky left-[110px] z-40 bg-amber-100 group-hover:bg-amber-200 transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[270px] min-w-[270px] max-w-[270px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]"
+                    style={{ top: headerRow2Top, borderBottom: '3.5px solid #b45309', backgroundColor: '#fde68a' }}
+                    className="sticky left-[110px] z-40 bg-[#fde68a] hover:bg-[#fcd34d] transition-colors px-2.5 py-1 text-left font-bold text-amber-900 border-r border-amber-300 w-[270px] min-w-[270px] max-w-[270px] shadow-[4px_0_6px_rgba(0,0,0,0.08)]"
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span
@@ -1146,7 +1146,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                         type="button"
                         onClick={handleAutoFillWeekendsAndHolidays}
                         title="Tự động tích tất cả Thứ 7, Chủ Nhật và ngày Lễ trong đợt này là ngày nghỉ"
-                        className="shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-200 hover:bg-amber-300 border border-amber-400 text-amber-950 transition-colors cursor-pointer shadow-2xs flex items-center gap-0.5"
+                        className="shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-amber-300 hover:bg-amber-400 border border-amber-500 text-amber-950 transition-colors cursor-pointer shadow-2xs flex items-center gap-0.5"
                       >
                         <span>+ T7, CN, Lễ</span>
                       </button>
@@ -1165,14 +1165,15 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                           maxWidth: colWidth,
                           top: headerRow2Top,
                           borderBottom: '3.5px solid #b45309',
+                          backgroundColor: isHoliday ? '#fcd34d' : '#fef3c7',
                         }}
                         className={`sticky z-30 px-0.5 py-0.5 text-center border-r transition-colors ${
                           isHoliday
-                            ? 'bg-amber-200/90 text-amber-950 font-bold border-r-amber-300/80 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)] group-hover:bg-amber-300/90'
-                            : 'bg-amber-50 border-r-amber-200 group-hover:bg-amber-100/90'
+                            ? 'bg-[#fcd34d] text-amber-950 font-bold border-r-amber-400 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.3)] hover:bg-[#fbbf24]'
+                            : 'bg-[#fef3c7] border-r-amber-300 hover:bg-[#fde68a]'
                         }`}
                       >
-                        <label className="inline-flex items-center justify-center cursor-pointer p-0.5 rounded hover:bg-amber-300/60 transition-colors">
+                        <label className="inline-flex items-center justify-center cursor-pointer p-0.5 rounded hover:bg-amber-300 transition-colors">
                           <input
                             type="checkbox"
                             checked={isHoliday}
