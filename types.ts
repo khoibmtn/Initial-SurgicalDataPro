@@ -84,6 +84,7 @@ export interface SurgeryRecord {
   donGia?: number;       // Đơn giá (VNĐ)
   thanhTien?: number;    // Thành tiền (VNĐ)
   priceSource?: 'excel_dvkt' | 'catalog'; // Nguồn gốc giá: 'excel_dvkt' (từ file Excel Thống kê DVKT) hoặc 'catalog' (từ DM giá)
+  excelRowIndex?: number; // Dòng trong file Excel gốc (1-based)
 }
 
 export type StaffRole = "PT_CHINH" | "PT_PHU" | "BS_GM" | "KTV_GM" | "TDC" | "GV";
@@ -161,6 +162,15 @@ export interface OvertimeRecordRow {
   originalRecord: SurgeryRecord;
 }
 
+export interface ImportFilterSummary {
+  totalInFile: number;
+  importedCount: number;
+  excludedCount: number;
+  missingStaffCount: number;      // Số ca có NV đối soát không có trong danh mục
+  unassignedStaffCount: number;   // Số ca có NV đối soát có tên nhưng chưa xếp khoa
+  unmatchedDeptCount: number;     // Số ca có NV thuộc khoa không được chọn
+}
+
 export interface ProcessingResult {
   success: boolean;
   message: string;
@@ -179,6 +189,7 @@ export interface ProcessingResult {
   minDate?: Date;
   maxDate?: Date;
   extractedStaff?: StaffMember[];
+  filterSummary?: ImportFilterSummary; // Thống kê bóc tách bộ lọc khoa phòng / vai trò
 }
 
 export interface FileState {

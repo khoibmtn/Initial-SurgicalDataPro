@@ -547,13 +547,14 @@ export function reprocessSurgicalRecords(
     ws[`C${rowStart}`] = { t: "s", v: "Mã số thuế", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
     ws[`D${rowStart}`] = { t: "s", v: "HỌ TÊN", s: { font: { bold: true }, alignment: { vertical: "center", horizontal: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } } };
 
+    ws["!merges"] = ws["!merges"] || [];
+
     topHeaders.forEach(grp => {
         const startC = XLSX.utils.encode_col(grp.startCol);
         ws[`${startC}${rowStart}`] = {
             t: "s", v: grp.title,
             s: { font: { bold: true }, alignment: { horizontal: "center", vertical: "center" }, border: { top: { style: "thin" }, bottom: { style: "thin" }, left: { style: "thin" }, right: { style: "thin" } } }
         };
-        if (!ws["!merges"]) ws["!merges"] = [];
         ws["!merges"].push({ s: { r: rowStart - 1, c: grp.startCol }, e: { r: rowStart - 1, c: grp.endCol } });
     });
 
@@ -588,8 +589,8 @@ export function reprocessSurgicalRecords(
     }
 
     // Totals
-    const updatedRange = XLSX.utils.decode_range(ws["!ref"]!);
-    const lastDataColIndex = updatedRange.e.c;
+    const updatedRange = XLSX.utils.decode_range(ws["!ref"] || "A1:D7");
+    const lastDataColIndex = Math.max(3, updatedRange.e.c);
     const totalColIndex = lastDataColIndex + 1;
     const totalColLetter = XLSX.utils.encode_col(totalColIndex);
 

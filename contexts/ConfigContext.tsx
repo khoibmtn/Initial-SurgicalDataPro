@@ -50,9 +50,26 @@ export interface WorkingHours {
 }
 
 
+export interface RoleFilterConfig {
+    ptChinh: boolean; // PT Chính
+    ptPhu: boolean;   // PT Phụ
+    bsGM: boolean;    // BS GM
+    ktvGM: boolean;   // KTV GM
+    tdc: boolean;     // TDC
+}
+
+export const DEFAULT_ROLE_FILTERS: RoleFilterConfig = {
+    ptChinh: true,
+    ptPhu: true,
+    bsGM: true,
+    ktvGM: true,
+    tdc: true,
+};
+
 export interface DepartmentDetail {
     fullName?: string;
     description?: string;
+    includeInReport?: boolean; // Mặc định true nếu chưa thiết lập
 }
 
 export interface AppConfig {
@@ -63,6 +80,7 @@ export interface AppConfig {
     ignoredMachineNames: string[]; // List of Surgery Names that don't need machine codes
     departments: string[]; // List of departments (short names)
     departmentDetails?: Record<string, DepartmentDetail>; // Extended metadata (e.g. fullName)
+    reportRoleFilters?: RoleFilterConfig; // Bộ lọc 5 vị trí kíp mổ lấy vào báo cáo
     staffList: StaffMember[]; // List of medical staff members
     uiSettings: UISettings;
     staffLimits: StaffLimitConfig;
@@ -85,6 +103,11 @@ export interface ConfigContextType {
     getAllowance: (loai: string, date?: any) => RolePrice;
     getTimeRule: (loai: string, date?: any) => TimeRule;
     getTableLimit: (posKey: string, date?: any) => number;
+    // Security / Lock Mode (Luôn khóa mặc định, mở theo session, lưu local)
+    isLocked: boolean;
+    unlockConfig: (password: string) => { success: boolean; error?: string };
+    lockConfig: () => void;
+    changePassword: (oldPassword: string, newPassword: string) => { success: boolean; error?: string };
 }
 
 // --- Defaults ---
@@ -187,6 +210,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     ignoredMachineNames: [],
     departments: [],
     departmentDetails: DEFAULT_DEPARTMENT_DETAILS,
+    reportRoleFilters: DEFAULT_ROLE_FILTERS,
     staffList: [],
     uiSettings: DEFAULT_UI_SETTINGS,
     staffLimits: DEFAULT_STAFF_LIMITS,
@@ -204,6 +228,10 @@ const ConfigContext = createContext<ConfigContextType>({
     getAllowance: (loai: string) => DEFAULT_PRICE_CONFIG[loai] || { "Chính": 0, "Phụ": 0, "Giúp việc": 0 },
     getTimeRule: (loai: string) => DEFAULT_TIME_RULES[loai] || { min: 0, max: 0 },
     getTableLimit: () => 1,
+    isLocked: true,
+    unlockConfig: () => ({ success: false }),
+    lockConfig: () => { },
+    changePassword: () => ({ success: false }),
 });
 
 export const useConfig = () => useContext(ConfigContext);
@@ -211,6 +239,50 @@ export const useConfig = () => useContext(ConfigContext);
 export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
     const [isLoaded, setIsLoaded] = useState(false);
+
+    // Luôn khóa mặc định khi mở ứng dụng/phiên mới; mở theo session; mật khẩu lưu local
+    const [isLocked, setIsLocked] = useState<boolean>(() => {
+        try {
+            return sessionStorage.getItem('config_unlocked') !== 'true';
+        } catch {
+            return true;
+        }
+    });
+
+    const unlockConfig = (password: string): { success: boolean; error?: string } => {
+        const stored = localStorage.getItem('admin_config_password') || '123456';
+        if (password === stored) {
+            try {
+                sessionStorage.setItem('config_unlocked', 'true');
+            } catch (e) {
+                console.error(e);
+            }
+            setIsLocked(false);
+            return { success: true };
+        }
+        return { success: false, error: 'Mật khẩu không chính xác!' };
+    };
+
+    const lockConfig = () => {
+        try {
+            sessionStorage.removeItem('config_unlocked');
+        } catch (e) {
+            console.error(e);
+        }
+        setIsLocked(true);
+    };
+
+    const changePassword = (oldPassword: string, newPassword: string): { success: boolean; error?: string } => {
+        const stored = localStorage.getItem('admin_config_password') || '123456';
+        if (oldPassword !== stored) {
+            return { success: false, error: 'Mật khẩu hiện tại không đúng!' };
+        }
+        if (!newPassword || newPassword.trim().length < 4) {
+            return { success: false, error: 'Mật khẩu mới phải có ít nhất 4 ký tự!' };
+        }
+        localStorage.setItem('admin_config_password', newPassword.trim());
+        return { success: true };
+    };
 
     // Load config from Firebase on mount
     useEffect(() => {
@@ -339,6 +411,10 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }, []);
 
     const updateConfig = (newPart: Partial<AppConfig>) => {
+        if (isLocked) {
+            alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thực hiện chỉnh sửa.");
+            return;
+        }
         // Merge newPart with the current config to create the full object to save.
         const fullNewConfig = { ...config, ...newPart };
 
@@ -410,6 +486,10 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     const resetConfig = () => {
+        if (isLocked) {
+            alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi khôi phục cài đặt gốc.");
+            return;
+        }
         if (confirm("Bạn có chắc chắn muốn khôi phục cài đặt gốc? Hành động này sẽ cập nhật cấu hình trên server!")) {
             const configRef = ref(db, 'app_config');
             set(configRef, DEFAULT_CONFIG).catch((err) => {
@@ -432,7 +512,19 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
 
     return (
-        <ConfigContext.Provider value={{ config, updateConfig, resetConfig, isLoaded, getAllowance, getTimeRule, getTableLimit }}>
+        <ConfigContext.Provider value={{
+            config,
+            updateConfig,
+            resetConfig,
+            isLoaded,
+            getAllowance,
+            getTimeRule,
+            getTableLimit,
+            isLocked,
+            unlockConfig,
+            lockConfig,
+            changePassword
+        }}>
             {children}
         </ConfigContext.Provider>
     );

@@ -5,6 +5,7 @@ import {
     writeBatch,
     serverTimestamp,
     setDoc,
+    updateDoc,
     Timestamp,
     query,
     where,
@@ -26,7 +27,7 @@ import { normalizeMaTuongDuong } from "./servicePriceProcessor";
 const BATCH_SIZE = 450; // Firestore batch limit is 500, keep safe margin
 
 // Helper: Convert App Record -> Persistence Record
-function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): PersistedSurgeryRecord {
+export function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): PersistedSurgeryRecord {
     return {
         stt: rec.stt,
         patientId: rec.patientId,
@@ -63,6 +64,75 @@ function toPersistedRecord(rec: SurgeryRecord, type: 'DAILY' | 'MONTHLY'): Persi
     };
 }
 
+export function makeSurgeryDeduplicationKey(patientId: string, ngayBDOrDate: any, tenKT: string): string {
+    const cleanId = (patientId || '').trim().toLowerCase();
+    const cleanName = (tenKT || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    let timeKey = '';
+    if (ngayBDOrDate instanceof Date && !isNaN(ngayBDOrDate.getTime())) {
+        timeKey = ngayBDOrDate.toISOString().substring(0, 16);
+    } else if (typeof ngayBDOrDate === 'string') {
+        timeKey = ngayBDOrDate.trim().substring(0, 16);
+    }
+    return `${cleanId}__${timeKey}__${cleanName}`;
+}
+
+export function deduplicateRecords<T extends PersistedSurgeryRecord | SurgeryRecord>(records: T[]): T[] {
+    if (!records || records.length === 0) return [];
+
+    const map = new Map<string, T>();
+
+    records.forEach(rec => {
+        const timeVal = (rec as any).start || rec.ngayBD;
+        const key = makeSurgeryDeduplicationKey(rec.patientId, timeVal, rec.tenKT);
+
+        if (!map.has(key)) {
+            map.set(key, { ...rec });
+        } else {
+            const existing = map.get(key)!;
+
+            // 1. Ưu tiên giữ thông tin Giúp việc
+            if (!existing.gv && rec.gv) {
+                existing.gv = rec.gv;
+            }
+
+            // 2. Ưu tiên giữ thông tin Giá / Mã tương đương
+            if (!existing.maTuongDuong && rec.maTuongDuong) {
+                existing.maTuongDuong = rec.maTuongDuong;
+            }
+            if ((existing.donGia === undefined || existing.donGia === 0) && rec.donGia) {
+                existing.donGia = rec.donGia;
+            }
+            if ((existing.thanhTien === undefined || existing.thanhTien === 0) && rec.thanhTien) {
+                existing.thanhTien = rec.thanhTien;
+            }
+            if (!existing.priceSource && (rec as any).priceSource) {
+                (existing as any).priceSource = (rec as any).priceSource;
+            }
+
+            // 3. Ưu tiên giữ thông tin Máy thực hiện
+            if (!existing.machine && rec.machine) {
+                existing.machine = rec.machine;
+                existing.machineCode = rec.machineCode;
+                existing.machineId = rec.machineId;
+            }
+
+            // 4. Ưu tiên firestorePath nếu có
+            if (!existing.firestorePath && rec.firestorePath) {
+                existing.firestorePath = rec.firestorePath;
+                existing.id = rec.id;
+            }
+        }
+    });
+
+    const deduplicated = Array.from(map.values());
+    // Đánh lại STT liên tục 1..N
+    deduplicated.forEach((r, idx) => {
+        r.stt = idx + 1;
+    });
+
+    return deduplicated;
+}
+
 export const reportService = {
     /**
      * Check for duplicate records without saving
@@ -97,7 +167,7 @@ export const reportService = {
 
             snapshot.forEach(docSnap => {
                 const data = docSnap.data() as PersistedSurgeryRecord;
-                const key = `${data.patientId}_${data.ngayBD}_${data.tenKT}`;
+                const key = makeSurgeryDeduplicationKey(data.patientId, data.ngayBD, data.tenKT);
                 existingRecords.set(key, { gv: data.gv || '' });
             });
 
@@ -106,8 +176,8 @@ export const reportService = {
             let updatableCount = 0;
 
             records.forEach(rec => {
-                const recDate = rec.start ? rec.start.toISOString() : '';
-                const key = `${rec.patientId}_${recDate}_${rec.tenKT}`;
+                const recDate = rec.start || rec.ngayBD;
+                const key = makeSurgeryDeduplicationKey(rec.patientId, recDate, rec.tenKT);
                 const existing = existingRecords.get(key);
 
                 if (!existing) {
@@ -173,7 +243,7 @@ export const reportService = {
 
                     snapshot.forEach(docSnap => {
                         const data = docSnap.data() as PersistedSurgeryRecord;
-                        const key = `${data.patientId}_${data.ngayBD}_${data.tenKT}`;
+                        const key = makeSurgeryDeduplicationKey(data.patientId, data.ngayBD, data.tenKT);
                         existingRecords.set(key, {
                             id: docSnap.id,
                             path: docSnap.ref.path,
@@ -185,8 +255,8 @@ export const reportService = {
 
                     // Process each record
                     records.forEach(rec => {
-                        const recDate = rec.start ? rec.start.toISOString() : '';
-                        const key = `${rec.patientId}_${recDate}_${rec.tenKT}`;
+                        const recDate = rec.start || rec.ngayBD;
+                        const key = makeSurgeryDeduplicationKey(rec.patientId, recDate, rec.tenKT);
                         const existing = existingRecords.get(key);
                         const newHasGv = rec.gv && rec.gv.trim() !== '';
 
@@ -196,9 +266,12 @@ export const reportService = {
 
                             if (newHasGv && !oldHasGv) {
                                 // Update case - new has gv, old doesn't (works for both DAILY and MONTHLY)
-                                recordsToUpdate.push({ path: existing.path, gv: rec.gv });
-                                updatedCount++;
-                                console.log(`Will update record ${key} with gv: ${rec.gv}`);
+                                if (existing.path) {
+                                    recordsToUpdate.push({ path: existing.path, gv: rec.gv });
+                                    updatedCount++;
+                                    console.log(`Will update record ${key} with gv: ${rec.gv}`);
+                                }
+                                existing.gv = rec.gv;
                             } else {
                                 // Skip case (new has no gv, or both have gv, or old already has gv)
                                 skippedCount++;
@@ -206,6 +279,12 @@ export const reportService = {
                         } else {
                             // New record - save for both DAILY and MONTHLY
                             recordsToSave.push(rec);
+                            // Cập nhật existingRecords để ngăn ca trùng ngay trong mảng records đầu vào
+                            existingRecords.set(key, {
+                                id: '',
+                                path: '',
+                                gv: rec.gv || ''
+                            });
                         }
                     });
 
@@ -282,7 +361,7 @@ export const reportService = {
     },
 
     /**
-     * Retrieve reports within a date range using Collection Group Query
+     * Retrieve reports within a date range using Collection Group Query and deduplicate records
      * @param dateFrom ISO Start Date (YYYY-MM-DD...)
      * @param dateTo ISO End Date (YYYY-MM-DD...)
      */
@@ -306,11 +385,138 @@ export const reportService = {
                 records.push(data);
             });
 
-            console.log(`Fetched ${records.length} records.`);
-            return records;
+            console.log(`Fetched ${records.length} records from Firestore. Running deduplication...`);
+            const cleanRecords = deduplicateRecords(records);
+            if (cleanRecords.length < records.length) {
+                console.log(`Deduplication removed ${records.length - cleanRecords.length} duplicate records.`);
+            }
+            return cleanRecords;
         } catch (error) {
             console.error("Error fetching reports:", error);
             throw error;
+        }
+    },
+
+    /**
+     * Đồng bộ thông tin giá (Mã tương đương, Đơn giá, Thành tiền) từ BC tháng sang BC hàng ngày
+     * Đối chiếu theo: Mã BN + Tên PTTT + Khoảng thời gian thực hiện (hoặc ngày thực hiện)
+     */
+    async syncPricingFromMonthly(
+        dailyRecords: SurgeryRecord[],
+        dateFrom: string,
+        dateTo: string
+    ): Promise<{ updatedCount: number }> {
+        try {
+            if (!dailyRecords || dailyRecords.length === 0) return { updatedCount: 0 };
+
+            // 1. Lấy tất cả bản ghi MONTHLY trong khoảng thời gian
+            const monthlyRecords = await this.getReports(dateFrom, dateTo, 'MONTHLY');
+            if (monthlyRecords.length === 0) return { updatedCount: 0 };
+
+            // 2. Lọc các bản ghi tháng có giá hoặc mã tương đương
+            const pricedMonthly = monthlyRecords.filter(m => 
+                (m.maTuongDuong && m.maTuongDuong.trim() !== '') || 
+                (m.donGia !== undefined && m.donGia > 0)
+            );
+
+            if (pricedMonthly.length === 0) return { updatedCount: 0 };
+
+            // 3. Xây dựng lookup map từ BC tháng
+            const priceMap = new Map<string, { maTuongDuong?: string; donGia?: number; thanhTien?: number; priceSource?: 'excel_dvkt' | 'catalog' }>();
+            const fallbackPriceMap = new Map<string, { maTuongDuong?: string; donGia?: number; thanhTien?: number; priceSource?: 'excel_dvkt' | 'catalog' }>();
+
+            pricedMonthly.forEach(m => {
+                const pId = (m.patientId || '').trim().toLowerCase();
+                const pName = (m.tenKT || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                const timeKey = (m.ngayBD || '').substring(0, 16);
+                const dateKey = (m.ngayBD || '').substring(0, 10);
+
+                const priceData: { maTuongDuong?: string; donGia?: number; thanhTien?: number; priceSource?: 'excel_dvkt' | 'catalog' } = {
+                    maTuongDuong: m.maTuongDuong,
+                    donGia: m.donGia,
+                    thanhTien: m.thanhTien,
+                    priceSource: (m.priceSource as any) || 'excel_dvkt'
+                };
+
+                priceMap.set(`${pId}__${timeKey}__${pName}`, priceData);
+                if (dateKey && !fallbackPriceMap.has(`${pId}__${dateKey}__${pName}`)) {
+                    fallbackPriceMap.set(`${pId}__${dateKey}__${pName}`, priceData);
+                }
+            });
+
+            // 4. Áp giá vào các ca trong dailyRecords
+            let updatedCount = 0;
+            const updatesToPersist: Array<{
+                firestorePath: string;
+                maTuongDuong?: string;
+                donGia?: number;
+                thanhTien?: number;
+                priceSource?: 'excel_dvkt' | 'catalog';
+            }> = [];
+
+            dailyRecords.forEach(d => {
+                const hasFullPrice = Boolean(d.maTuongDuong && d.donGia && d.donGia > 0);
+                if (hasFullPrice) return;
+
+                const pId = (d.patientId || '').trim().toLowerCase();
+                const pName = (d.tenKT || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                let timeKey = '';
+                let dateKey = '';
+                if (d.start instanceof Date && !isNaN(d.start.getTime())) {
+                    timeKey = d.start.toISOString().substring(0, 16);
+                    dateKey = d.start.toISOString().substring(0, 10);
+                } else if (d.ngayBD) {
+                    timeKey = d.ngayBD.substring(0, 16);
+                    dateKey = d.ngayBD.substring(0, 10);
+                }
+
+                let matched = priceMap.get(`${pId}__${timeKey}__${pName}`);
+                if (!matched && dateKey) {
+                    matched = fallbackPriceMap.get(`${pId}__${dateKey}__${pName}`);
+                }
+
+                if (matched) {
+                    let changed = false;
+                    if (!d.maTuongDuong && matched.maTuongDuong) {
+                        d.maTuongDuong = matched.maTuongDuong;
+                        changed = true;
+                    }
+                    if ((d.donGia === undefined || d.donGia === 0) && matched.donGia) {
+                        d.donGia = matched.donGia;
+                        d.thanhTien = Math.round((d.donGia || 0) * (d.soLuong || 1));
+                        changed = true;
+                    }
+                    if (changed) {
+                        d.priceSource = matched.priceSource || 'excel_dvkt';
+                        updatedCount++;
+
+                        if (d.firestorePath) {
+                            updatesToPersist.push({
+                                firestorePath: d.firestorePath,
+                                maTuongDuong: d.maTuongDuong,
+                                donGia: d.donGia,
+                                thanhTien: d.thanhTien,
+                                priceSource: d.priceSource,
+                            });
+                        }
+                    }
+                }
+            });
+
+            // 5. Lưu cập nhật giá vào Firestore cho các ca đã có path
+            if (updatesToPersist.length > 0) {
+                try {
+                    await this.batchUpdatePrices(updatesToPersist);
+                    console.log(`Đã đồng bộ và lưu giá vào Firestore cho ${updatesToPersist.length} ca mổ hàng ngày.`);
+                } catch (persistErr) {
+                    console.error('Lỗi khi lưu đồng bộ giá vào Firestore:', persistErr);
+                }
+            }
+
+            return { updatedCount };
+        } catch (error) {
+            console.error('Error syncing pricing from monthly reports:', error);
+            return { updatedCount: 0 };
         }
     },
 
@@ -992,6 +1198,33 @@ export const reportService = {
         } catch (error) {
             console.warn('Lỗi khi lấy danh mục năm/tháng từ Firestore, sử dụng danh mục mặc định:', error);
             return { years: defaultYears, monthsMap: defaultMonthsMap };
+        }
+    },
+
+    /**
+     * Cập nhật thông tin chi tiết một bản ghi ca mổ trên Firestore
+     * @param firestorePath Đường dẫn document trong Firestore (VD: reports/{reportId}/processed_records/{recordId})
+     * @param record Đối tượng SurgeryRecord đã chỉnh sửa
+     * @param type DAILY hoặc MONTHLY
+     */
+    async updateSingleRecord(
+        firestorePath: string,
+        record: SurgeryRecord,
+        type: 'DAILY' | 'MONTHLY'
+    ): Promise<void> {
+        try {
+            if (!firestorePath) throw new Error('firestorePath is missing');
+            const docRef = doc(db, firestorePath);
+            const persisted = toPersistedRecord(record, type);
+            // Loại bỏ các trường undefined để Firestore không báo lỗi
+            const cleanData = Object.fromEntries(
+                Object.entries(persisted).filter(([_, v]) => v !== undefined)
+            );
+            await updateDoc(docRef, cleanData);
+            console.log(`[reportService] Cập nhật bản ghi thành công tại: ${firestorePath}`);
+        } catch (error) {
+            console.error(`[reportService] Lỗi khi cập nhật bản ghi tại ${firestorePath}:`, error);
+            throw error;
         }
     }
 

@@ -13,6 +13,7 @@
  * - Full Excel export for all 3 tabs
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useConfig } from '../../contexts/ConfigContext';
 import {
   Plus, Trash2, X, Download,
   CheckCircle2, AlertTriangle, Pencil, Check,
@@ -80,25 +81,29 @@ const NumInput: React.FC<{
   value: number;
   onChange: (v: number) => void;
   className?: string;
-}> = ({ value, onChange, className = "" }) => {
+  disabled?: boolean;
+}> = ({ value, onChange, className = "", disabled }) => {
   const safeVal = value ?? 0;
   const [local, setLocal] = React.useState(safeVal.toString());
   React.useEffect(() => { setLocal((value ?? 0).toString()); }, [value]);
   return (
     <input
       type="text"
+      disabled={disabled}
       value={local === '' ? '' : Number(local).toLocaleString('en-US')}
       onChange={(e) => {
+        if (disabled) return;
         const v = e.target.value.replace(/,/g, '');
         if (/^\d*$/.test(v)) { onChange(Number(v)); setLocal(v); }
       }}
       onBlur={() => setLocal((value ?? 0).toString())}
-      className={className}
+      className={`${className} ${disabled ? 'bg-gray-100/70 text-gray-400 cursor-not-allowed' : ''}`}
     />
   );
 };
 
 export const LaborConfigManager: React.FC<Props> = () => {
+  const { isLocked } = useConfig();
   const [subTab, setSubTab] = useState<NormsSubTab>('allowance');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
@@ -195,6 +200,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Start Inline Edit ───────────────────────────────────────────────────
   const startEditAllowance = (item: LaborAllowanceItem) => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi chỉnh sửa.");
+      return;
+    }
     setEditingId(item.id);
     setEditingType('allowance');
     setEditChinh(item.chinh);
@@ -205,6 +214,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const startEditTime = (item: LaborTimeItem) => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi chỉnh sửa.");
+      return;
+    }
     setEditingId(item.id);
     setEditingType('time');
     setEditMin(item.min);
@@ -214,6 +227,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const startEditTable = (item: LaborTableItem) => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi chỉnh sửa.");
+      return;
+    }
     setEditingId(item.id);
     setEditingType('table');
     setEditLimit(item.limit);
@@ -228,6 +245,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Save Inline Edit ────────────────────────────────────────────────────
   const saveInlineEdit = async () => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa!");
+      return;
+    }
     if (!editingId || !editingType) return;
     if (!editFrom) {
       showToast('Vui lòng nhập ngày hiệu lực từ', 'error');
@@ -269,6 +290,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Open Add Milestone ──────────────────────────────────────────────────
   const openAddAllowance = (loai: string, currentItem?: LaborAllowanceItem) => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thêm mốc.");
+      return;
+    }
     setAddModal({
       type: 'allowance',
       key: loai,
@@ -282,6 +307,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const openAddTime = (loai: string, currentItem?: LaborTimeItem) => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thêm mốc.");
+      return;
+    }
     setAddModal({
       type: 'time',
       key: loai,
@@ -294,6 +323,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const openAddTable = (posKey: string, label: string, currentItem?: LaborTableItem) => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi thêm mốc.");
+      return;
+    }
     setAddModal({
       type: 'table',
       key: posKey,
@@ -304,6 +337,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
   };
 
   const saveAddMilestone = async () => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa!");
+      return;
+    }
     if (!addModal || !newEffectiveFrom) {
       showToast('Vui lòng nhập ngày hiệu lực từ', 'error');
       return;
@@ -347,6 +384,10 @@ export const LaborConfigManager: React.FC<Props> = () => {
 
   // ─── Execute Safe Delete ─────────────────────────────────────────────────
   const executeDelete = async () => {
+    if (isLocked) {
+      alert("Cấu hình đang bị khóa!");
+      return;
+    }
     if (!confirmDelete) return;
     setSaving(true);
     try {

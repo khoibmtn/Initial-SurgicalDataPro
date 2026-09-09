@@ -24,6 +24,7 @@ import {
 } from '../../services/requiredMachineService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { normalizeForMatch } from '../../services/servicePriceProcessor';
+import { useConfig } from '../../contexts/ConfigContext';
 
 interface Props {
   initialItems?: RequiredMachineItem[];
@@ -32,6 +33,7 @@ interface Props {
 type FilterStatus = 'all' | 'required' | 'optional' | 'active' | 'expired';
 
 export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) => {
+  const { isLocked } = useConfig();
   const [items, setItems] = useState<RequiredMachineItem[]>(initialItems || []);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -178,6 +180,10 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
 
   // Open modal for adding
   const handleOpenAdd = () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setEditingItem(null);
     setFormCode('');
     setFormName('');
@@ -191,6 +197,10 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
 
   // Open modal for editing
   const handleOpenEdit = (item: RequiredMachineItem) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setEditingItem(item);
     setFormCode(item.maTuongDuong || '');
     setFormName(item.tenDVKT || '');
@@ -205,6 +215,10 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
   // Save Add/Edit
   const handleSaveModal = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (!formCode.trim() && !formName.trim()) {
       showToast('Vui lòng nhập Mã tương đương hoặc Tên DVKT', 'error');
       return;
@@ -244,6 +258,10 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
 
   // Toggle isRequired inline
   const handleToggleRequired = async (item: RequiredMachineItem) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     const nextVal = !item.isRequired;
     try {
       await toggleRequiredMachineItem(item.id, nextVal);
@@ -259,6 +277,10 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
 
   // Delete handler
   const handleDeleteConfirm = async () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (!deleteConfirmItem) return;
     setIsDeleting(true);
     try {
@@ -285,6 +307,10 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
 
   // Excel Import
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -392,9 +418,9 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={isImporting}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-300 rounded-md hover:bg-slate-50 text-slate-700 disabled:opacity-50 transition-colors"
-              title="Nhập danh mục từ file Excel"
+              disabled={isImporting || isLocked}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border border-slate-300 rounded-md hover:bg-slate-50 text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title={isLocked ? "Cấu hình đang bị khóa" : "Nhập danh mục từ file Excel"}
             >
               {isImporting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -415,7 +441,9 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
 
             <button
               onClick={handleOpenAdd}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-sky-600 hover:bg-sky-700 text-white rounded-md shadow-sm transition-colors"
+              disabled={isLocked}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-sky-600 hover:bg-sky-700 text-white rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title={isLocked ? "Cấu hình đang bị khóa" : "Thêm DVKT mới"}
             >
               <Plus className="h-4 w-4" />
               Thêm DVKT
@@ -542,13 +570,14 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
                       <td className="py-2.5 px-3 text-center">
                         <button
                           type="button"
+                          disabled={isLocked}
                           onClick={() => handleToggleRequired(item)}
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all shadow-2xs border ${
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all shadow-2xs border disabled:opacity-50 disabled:cursor-not-allowed ${
                             item.isRequired
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                               : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
                           }`}
-                          title={item.isRequired ? 'Click để tắt bắt buộc' : 'Click để bật bắt buộc'}
+                          title={isLocked ? 'Cấu hình đang bị khóa' : (item.isRequired ? 'Click để tắt bắt buộc' : 'Click để bật bắt buộc')}
                         >
                           <span
                             className={`w-2 h-2 rounded-full transition-colors ${
@@ -563,16 +592,18 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
                       <td className="py-2.5 px-3 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
+                            disabled={isLocked}
                             onClick={() => handleOpenEdit(item)}
-                            className="p-1 rounded text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors"
-                            title="Sửa kỹ thuật"
+                            className="p-1 rounded text-slate-400 hover:text-sky-600 hover:bg-sky-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={isLocked ? "Cấu hình đang bị khóa" : "Sửa kỹ thuật"}
                           >
                             <Edit3 className="h-3.5 w-3.5" />
                           </button>
                           <button
+                            disabled={isLocked}
                             onClick={() => setDeleteConfirmItem(item)}
-                            className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            title="Xóa kỹ thuật"
+                            className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={isLocked ? "Cấu hình đang bị khóa" : "Xóa kỹ thuật"}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -815,8 +846,8 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-medium rounded-md shadow-sm disabled:opacity-50 transition-colors"
+                  disabled={submitting || isLocked}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-medium rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {editingItem ? 'Lưu thay đổi' : 'Thêm mới'}
@@ -859,8 +890,8 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
               <button
                 type="button"
                 onClick={handleDeleteConfirm}
-                disabled={isDeleting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium shadow-sm disabled:opacity-50 transition-colors"
+                disabled={isDeleting || isLocked}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isDeleting && <Loader2 className="h-3 w-3 animate-spin" />}
                 Xác nhận xóa

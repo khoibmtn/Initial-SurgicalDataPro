@@ -30,36 +30,7 @@ function validateListFileFormat(listData: any[][]): string | null {
 
 
 
-// ================= EXPORTED VALIDATION FUNCTIONS =================
-export interface FileValidationResult {
-  valid: boolean;
-  error?: string;
-  dateRangeText?: string;
-}
-
-export async function validateListFile(file: File): Promise<FileValidationResult> {
-  try {
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
-
-    const error = validateListFileFormat(data);
-    if (error) {
-      return { valid: false, error };
-    }
-
-    // Extract date range from A5
-    const dateRangeText = String(data?.[4]?.[0] ?? "").trim();
-
-    return { valid: true, dateRangeText };
-  } catch (e: any) {
-    return { valid: false, error: `Không thể đọc file: ${e.message}` };
-  }
-}
-
-
-
+// ───────────────── Helper: parse dd/mm/yyyy hh:mm → Date ─────────────────
 
 function parseVNDateTime(value: any): Date | null {
   if (!value) return null;
@@ -79,6 +50,105 @@ function parseVNDateTime(value: any): Date | null {
   }
 
   return new Date(y, m - 1, d, hh, mm, 0, 0);
+}
+
+// Kiểm tra ca mổ trùng lặp trong toàn bộ file Excel: cùng mã BN, cùng 1 PT, cùng khoảng thời gian BĐ/KT
+export function checkDuplicateSurgeriesInExcel(listData: any[][]): string | null {
+  const seenMap = new Map<string, { rowNumber: number; patientName: string; patientId: string; tenKT: string; timeRange: string }>();
+  const duplicateErrors: Array<{ firstRow: number; secondRow: number; patientName: string; patientId: string; tenKT: string; timeRange: string }> = [];
+
+  for (let i = 8; i < listData.length; i++) {
+    const row = listData[i] || [];
+    const rawStt = row[0];
+
+    // Detect end of data
+    if (rawStt === null || rawStt === undefined || String(rawStt).trim() === "") break;
+    const excelRow = i + 1; // 1-based line number in Excel file
+
+    const name = (row[1] ?? "").toString().trim();
+    const ngayBD = (row[6] ?? "").toString().trim();
+    const ngayKT = (row[7] ?? "").toString().trim();
+    const tenKT = (row[8] ?? "").toString().trim();
+    const maBN = (row[20] ?? "").toString().trim();
+
+    const cleanMaBN = maBN.trim().replace(/\s+/g, ' ').toLowerCase();
+    const cleanName = name.trim().replace(/\s+/g, ' ').toLowerCase();
+    const cleanTenKT = tenKT.trim().replace(/\s+/g, ' ').toLowerCase();
+
+    const startDate = parseVNDateTime(ngayBD);
+    const endDate = parseVNDateTime(ngayKT);
+    const cleanStart = startDate ? startDate.toISOString() : ngayBD.trim().replace(/\s+/g, ' ').toLowerCase();
+    const cleanEnd = endDate ? endDate.toISOString() : ngayKT.trim().replace(/\s+/g, ' ').toLowerCase();
+
+    // Bắt trùng khi: cùng mã BN (hoặc tên BN nếu thiếu mã), cùng tên PT, cùng khoảng thời gian BĐ/KT
+    const patientIdentifier = cleanMaBN || cleanName;
+    if (patientIdentifier && cleanTenKT && (cleanStart || cleanEnd)) {
+      const dupKey = `${patientIdentifier}___${cleanTenKT}___${cleanStart}___${cleanEnd}`;
+      if (seenMap.has(dupKey)) {
+        const prev = seenMap.get(dupKey)!;
+        duplicateErrors.push({
+          firstRow: prev.rowNumber,
+          secondRow: excelRow,
+          patientName: name || prev.patientName,
+          patientId: maBN || prev.patientId,
+          tenKT,
+          timeRange: `${ngayBD} - ${ngayKT}`
+        });
+      } else {
+        seenMap.set(dupKey, {
+          rowNumber: excelRow,
+          patientName: name,
+          patientId: maBN,
+          tenKT,
+          timeRange: `${ngayBD} - ${ngayKT}`
+        });
+      }
+    }
+  }
+
+  if (duplicateErrors.length > 0) {
+    const details = duplicateErrors.slice(0, 5).map(e => 
+      `• BN: ${e.patientName} (Mã BN: ${e.patientId}) - PT: "${e.tenKT}" (${e.timeRange}): Trùng giữa dòng ${e.firstRow} và dòng ${e.secondRow}`
+    ).join('\n');
+    const extraMsg = duplicateErrors.length > 5 ? `\n...và còn ${duplicateErrors.length - 5} trường hợp trùng khác.` : '';
+    return `Phát hiện ${duplicateErrors.length} ca mổ trùng lặp trong file Excel:\n${details}${extraMsg}\nVui lòng kiểm tra lại file Excel (hệ thống từ chối import khi phát hiện ca trùng).`;
+  }
+
+  return null;
+}
+
+// ================= EXPORTED VALIDATION FUNCTIONS =================
+export interface FileValidationResult {
+  valid: boolean;
+  error?: string;
+  dateRangeText?: string;
+}
+
+export async function validateListFile(file: File): Promise<FileValidationResult> {
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer);
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+
+    const error = validateListFileFormat(data);
+    if (error) {
+      return { valid: false, error };
+    }
+
+    // Kiểm tra ca mổ trùng ngay khi chọn file
+    const duplicateError = checkDuplicateSurgeriesInExcel(data);
+    if (duplicateError) {
+      return { valid: false, error: duplicateError };
+    }
+
+    // Extract date range from A5
+    const dateRangeText = String(data?.[4]?.[0] ?? "").trim();
+
+    return { valid: true, dateRangeText };
+  } catch (e: any) {
+    return { valid: false, error: `Không thể đọc file: ${e.message}` };
+  }
 }
 
 // yyyy-mm-dd từ Date
@@ -150,8 +220,13 @@ function processListData(
   listData: any[][],
   machineRegistry: MachineEntry[] = []
 ): SurgeryRecord[] {
-  const records: SurgeryRecord[] = [];
+  // Kiểm tra ca mổ trùng lặp ngay trong file Excel (cùng mã BN, cùng PT, cùng khoảng thời gian BĐ/KT)
+  const duplicateError = checkDuplicateSurgeriesInExcel(listData);
+  if (duplicateError) {
+    throw new Error(duplicateError);
+  }
 
+  const records: SurgeryRecord[] = [];
   let sttCounter = 1;
   for (let i = 8; i < listData.length; i++) {
     const row = listData[i] || [];
@@ -159,6 +234,7 @@ function processListData(
 
     // Detect end of data - still use first column but ignore value
     if (rawStt === null || rawStt === undefined || String(rawStt).trim() === "") break;
+    const excelRow = i + 1; // 1-based line number in Excel file
     const stt = sttCounter++;
 
     const name = (row[1] ?? "").toString().trim();
@@ -254,6 +330,7 @@ function processListData(
       start: startDate,
       end: endDate,
       key,
+      excelRowIndex: excelRow,
     });
   }
 
@@ -263,7 +340,159 @@ function processListData(
 
 // ────────────── 4. Hàm chính: đọc file, xử lý, tạo workbook ──────────────
 
-import { AppConfig } from "../contexts/ConfigContext";
+import { AppConfig, RoleFilterConfig } from "../contexts/ConfigContext";
+import { ImportFilterSummary, StaffMember } from "../types";
+
+function cleanStaffName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/^(bs\.?|th\.?s\.?|cki\.?|ckii\.?|pgs\.?|gs\.?)\s+/i, "")
+    .trim();
+}
+
+/**
+ * Lọc danh sách ca mổ dựa trên cấu hình Khoa/phòng được lấy vào báo cáo và 5 vị trí kíp mổ.
+ * Logic: Ca mổ được chấp nhận nếu có ít nhất 1 nhân sự ở vị trí được bật thuộc một trong các khoa được chọn (OR logic).
+ */
+export function filterSurgicalRecordsByDepartment(
+  records: SurgeryRecord[],
+  config: AppConfig
+): { filteredRecords: SurgeryRecord[]; filterSummary: ImportFilterSummary } {
+  const totalInFile = records.length;
+
+  // 1. Lấy danh sách các khoa được chọn lấy vào báo cáo (mặc định true nếu chưa có cấu hình)
+  const allowedDepts = new Set<string>();
+  (config.departments || []).forEach(dept => {
+    const detail = config.departmentDetails?.[dept];
+    const isIncluded = detail?.includeInReport ?? true;
+    if (isIncluded) {
+      const dClean = dept.trim();
+      allowedDepts.add(dClean.toLowerCase());
+      if (detail?.fullName) {
+        allowedDepts.add(detail.fullName.trim().toLowerCase());
+      }
+    }
+  });
+
+  // 2. Lấy cấu hình 5 vị trí kíp mổ được bật (mặc định bật cả 5 nếu chưa có cấu hình)
+  const roleFilters: RoleFilterConfig = config.reportRoleFilters || {
+    ptChinh: true,
+    ptPhu: true,
+    bsGM: true,
+    ktvGM: true,
+    tdc: true,
+  };
+
+  const activeRoles: Array<'ptChinh' | 'ptPhu' | 'bsGM' | 'ktvGM' | 'tdc'> = [];
+  if (roleFilters.ptChinh) activeRoles.push('ptChinh');
+  if (roleFilters.ptPhu) activeRoles.push('ptPhu');
+  if (roleFilters.bsGM) activeRoles.push('bsGM');
+  if (roleFilters.ktvGM) activeRoles.push('ktvGM');
+  if (roleFilters.tdc) activeRoles.push('tdc');
+
+  // Trường hợp tắt hết: Nếu không có khoa nào hoặc không có vị trí nào được bật -> Không import ca nào
+  if (allowedDepts.size === 0 || activeRoles.length === 0) {
+    return {
+      filteredRecords: [],
+      filterSummary: {
+        totalInFile,
+        importedCount: 0,
+        excludedCount: totalInFile,
+        missingStaffCount: 0,
+        unassignedStaffCount: 0,
+        unmatchedDeptCount: totalInFile,
+      }
+    };
+  }
+
+  // 3. Xây dựng bảng tra cứu nhân viên (theo tên đã chuẩn hóa)
+  const staffList = config.staffList || [];
+  const staffMap = new Map<string, StaffMember[]>();
+  staffList.forEach(s => {
+    if (!s.name) return;
+    const rawKey = s.name.trim().toLowerCase();
+    const cleanKey = cleanStaffName(s.name);
+    if (!staffMap.has(rawKey)) {
+      staffMap.set(rawKey, []);
+    }
+    staffMap.get(rawKey)!.push(s);
+
+    if (cleanKey !== rawKey) {
+      if (!staffMap.has(cleanKey)) {
+        staffMap.set(cleanKey, []);
+      }
+      staffMap.get(cleanKey)!.push(s);
+    }
+  });
+
+  const filteredRecords: SurgeryRecord[] = [];
+  let missingStaffCount = 0;
+  let unassignedStaffCount = 0;
+  let unmatchedDeptCount = 0;
+
+  records.forEach(rec => {
+    let hasMatchedRole = false;
+    let recordHasMissingStaff = false;
+    let recordHasUnassignedStaff = false;
+
+    for (const roleKey of activeRoles) {
+      const rawName = rec[roleKey];
+      if (!rawName || typeof rawName !== 'string' || !rawName.trim()) continue;
+      const nameLower = rawName.trim().toLowerCase();
+      const nameClean = cleanStaffName(rawName);
+
+      let matchingStaff = staffMap.get(nameLower);
+      if (!matchingStaff || matchingStaff.length === 0) {
+        matchingStaff = staffMap.get(nameClean) || [];
+      }
+
+      if (matchingStaff.length === 0) {
+        recordHasMissingStaff = true;
+      } else {
+        const depts = matchingStaff.map(s => s.department?.trim().toLowerCase()).filter(Boolean) as string[];
+        if (depts.length === 0) {
+          recordHasUnassignedStaff = true;
+        } else if (depts.some(d => allowedDepts.has(d))) {
+          hasMatchedRole = true;
+          break; // Đã thỏa mãn điều kiện khoa phòng (OR logic)
+        }
+      }
+    }
+
+    if (hasMatchedRole) {
+      filteredRecords.push(rec);
+    } else {
+      if (recordHasMissingStaff) {
+        missingStaffCount++;
+      } else if (recordHasUnassignedStaff) {
+        unassignedStaffCount++;
+      } else {
+        unmatchedDeptCount++;
+      }
+    }
+  });
+
+  // Đánh lại STT liên tục cho các bản ghi được nhận
+  filteredRecords.forEach((r, idx) => {
+    r.stt = idx + 1;
+  });
+
+  const importedCount = filteredRecords.length;
+  const excludedCount = totalInFile - importedCount;
+
+  return {
+    filteredRecords,
+    filterSummary: {
+      totalInFile,
+      importedCount,
+      excludedCount,
+      missingStaffCount,
+      unassignedStaffCount,
+      unmatchedDeptCount,
+    }
+  };
+}
 
 export async function processSurgicalFiles(
   surgicalListFile: File | null,
@@ -296,10 +525,43 @@ export async function processSurgicalFiles(
   const dateRangeText = listDateRange;
 
   // 2. Xử lý danh sách PT thành records chuẩn (mã máy lấy từ cột AB)
-  const records = processListData(listData, config.machineRegistry || []);
-  console.log("DEBUG records mẫu:", records.slice(0, 5));
+  const rawRecords = processListData(listData, config.machineRegistry || []);
+  console.log("DEBUG rawRecords mẫu:", rawRecords.slice(0, 5));
+
+  // 2.1. Lọc theo danh mục Khoa/Phòng và 5 vị trí kíp mổ cấu hình
+  const { filteredRecords, filterSummary } = filterSurgicalRecordsByDepartment(rawRecords, config);
+  console.log(`DEBUG Filter Summary: ${filterSummary.importedCount}/${filterSummary.totalInFile} ca hợp lệ (${filterSummary.excludedCount} bị loại).`);
+
+  if (filteredRecords.length === 0) {
+    return {
+      success: true,
+      message: "Không có ca mổ nào thỏa mãn điều kiện lọc khoa phòng / vị trí kíp mổ.",
+      wb: XLSX.utils.book_new(),
+      validRecords: [],
+      stats: {
+        totalSurgeries: 0,
+        totalDurationMinutes: 0,
+        staffConflicts: 0,
+        machineConflicts: 0,
+        missingMachines: 0,
+        lowPaymentCount: 0,
+        violateMinTimeCount: 0,
+        missingAssistantCount: 0,
+      },
+      paymentStats: {
+        totalAmount: 0,
+      },
+      staffConflicts: [],
+      machineConflicts: [],
+      missingMachines: [],
+      thanhToanData: { columns: [], rows: [] },
+      dateRangeText,
+      filterSummary,
+    };
+  }
 
   // 3. Phát hiện trùng & tạo báo cáo
-  const result = reprocessSurgicalRecords(records, config, dateRangeText);
+  const result = reprocessSurgicalRecords(filteredRecords, config, dateRangeText);
+  result.filterSummary = filterSummary;
   return result;
 }

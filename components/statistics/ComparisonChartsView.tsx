@@ -230,13 +230,15 @@ const ItemFilterDropdown: React.FC<ItemFilterDropdownProps> = ({
 
 // Dropdown chọn Phạm vi (Toàn viện hoặc Từng chuyên khoa)
 const ScopeSelect: React.FC<{
+  id?: string;
   scope: string;
   onChangeScope: (scope: string) => void;
   allSpecialties: SpecialtyMeta[];
   isDark?: boolean;
-}> = ({ scope, onChangeScope, allSpecialties, isDark = false }) => {
+}> = ({ id, scope, onChangeScope, allSpecialties, isDark = false }) => {
   return (
     <select
+      id={id}
       value={scope}
       onChange={e => onChangeScope(e.target.value)}
       className={`text-xs font-bold px-2.5 py-1 rounded-lg border cursor-pointer outline-none transition-all ${
@@ -281,6 +283,29 @@ export const ComparisonChartsView: React.FC<Props> = ({
   const [topImpactTab, setTopImpactTab] = useState<'both' | 'gainers' | 'losers'>('both');
   // Chế độ biểu thị Biểu đồ Tăng trưởng (Diverging Bar): 'percent' (%) | 'diff' (Con số thực tế)
   const [divergingMetric, setDivergingMetric] = useState<'percent' | 'diff'>('percent');
+  // Phạm vi của Biểu đồ Tăng trưởng: 'hospital' | mã chuyên khoa
+  const [divergingScope, setDivergingScope] = useState<'hospital' | string>('hospital');
+  // Chế độ xem khi chọn chuyên khoa: 'top' (Top 5 tăng + Top 5 giảm) | 'all' (Hiện đầy đủ)
+  const [divergingMode, setDivergingMode] = useState<'top' | 'all'>('top');
+  // Trạng thái bật/tắt ẩn những kỹ thuật có số chênh lệch = 0 trong Diverging Bar (mặc định BẬT: ẩn, lưu vào localStorage)
+  const [hideZeroDiverging, setHideZeroDiverging] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('diverging_hide_zero_diff');
+      return saved !== null ? saved === 'true' : true; // Mặc định BẬT: ẩn box giá trị 0
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleHideZeroDiverging = () => {
+    setHideZeroDiverging(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('diverging_hide_zero_diff', String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Phạm vi và bộ lọc của Biểu đồ Quy mô (Grouped Bar): 'hospital' | mã chuyên khoa
   const [groupedScope, setGroupedScope] = useState<'hospital' | string>('hospital');
@@ -379,26 +404,60 @@ export const ComparisonChartsView: React.FC<Props> = ({
     return () => ro.disconnect();
   }, [expandedChart, waterfallScope]);
 
+  // Nhãn kỳ so sánh được chọn
+  const compareLabel = compareTarget === 'prev'
+    ? (periodMeta?.prevLabel || 'Kỳ trước')
+    : (periodMeta?.samePeriodLabel || 'Cùng kỳ');
+
+  // Helper chuẩn hóa nhãn chu kỳ: 'T8/2026' -> 'tháng 8/2026'
+  const formatFriendlyPeriod = (label?: string) => {
+    if (!label) return '';
+    const clean = label.trim();
+    const matchT = clean.match(/^T0?(\d{1,2})\/(\d{4})$/i);
+    if (matchT) {
+      return `tháng ${parseInt(matchT[1], 10)}/${matchT[2]}`;
+    }
+    const matchSlash = clean.match(/^0?(\d{1,2})\/(\d{4})$/);
+    if (matchSlash) {
+      return `tháng ${parseInt(matchSlash[1], 10)}/${matchSlash[2]}`;
+    }
+    return clean;
+  };
+
+  const curPeriodText = formatFriendlyPeriod(periodMeta?.currentLabel) || 'kỳ này';
+  const prevPeriodText = formatFriendlyPeriod(periodMeta?.prevLabel) || 'kỳ trước';
+  const samePeriodText = formatFriendlyPeriod(periodMeta?.samePeriodLabel) || 'cùng kỳ năm trước';
+  const compTargetText = compareTarget === 'samePeriod'
+    ? `cùng kỳ ${samePeriodText}`
+    : prevPeriodText;
+  const metricText = metricMode === 'revenue' ? 'viện phí' : 'số ca';
+
   const getExpandedChartMeta = (type: ExpandedChartType) => {
     switch (type) {
-      case 'diverging':
+      case 'diverging': {
+        const spec = allSpecialtiesList.find(s => s.code === divergingScope);
         return {
-          title: 'Biến động Tăng trưởng Chuyên khoa',
-          subtitle: divergingMetric === 'percent'
-            ? `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Tỷ lệ %)`
-            : `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Số chênh lệch thực tế Δ)`,
-          badge: 'Diverging Bar',
+          title: divergingScope === 'hospital'
+            ? 'Biến động Tăng trưởng Chuyên khoa'
+            : `Biến động Tăng trưởng Kỹ thuật — ${spec?.name || ''}`,
+          subtitle: `So sánh ${metricText} ${curPeriodText} với ${compTargetText} (Biểu thị theo ${
+            divergingMetric === 'percent'
+              ? 'Tỷ lệ %'
+              : metricMode === 'revenue'
+              ? 'Số chênh lệch thực tế Δ VNĐ'
+              : 'Số chênh lệch thực tế Δ ca'
+          })`,
+          badge: divergingScope === 'hospital' ? 'Diverging Bar (Toàn viện)' : 'Diverging Bar (DVKT)',
           color: 'bg-emerald-500',
         };
+      }
       case 'grouped': {
         const spec = allSpecialtiesList.find(s => s.code === groupedScope);
         return {
           title: groupedScope === 'hospital'
             ? 'Quy mô Tuyệt đối theo Chuyên khoa'
             : `Quy mô Kỹ thuật - ${spec?.name || ''}`,
-          subtitle: groupedScope === 'hospital'
-            ? `So sánh tổng ${metricMode === 'revenue' ? 'viện phí' : 'số ca'} qua 3 kỳ đối chiếu toàn viện`
-            : `Chi tiết các DVKT thuộc chuyên khoa ${spec?.name || ''} qua 3 kỳ đối chiếu`,
+          subtitle: `So sánh quy mô ${metricText} giữa ${curPeriodText} với ${prevPeriodText}${hasSamePeriodData ? ` và cùng kỳ ${samePeriodText}` : ''} qua các kỳ đối chiếu`,
           badge: groupedScope === 'hospital' ? 'Grouped Bar (Toàn viện)' : 'Grouped Bar (DVKT)',
           color: 'bg-primary-600',
         };
@@ -409,9 +468,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
           title: waterfallScope === 'hospital'
             ? 'Cầu nối Đóng góp Biến động (Waterfall Bridge)'
             : `Cầu nối Biến động Kỹ thuật - ${spec?.name || ''}`,
-          subtitle: waterfallScope === 'hospital'
-            ? `Bóc tách mức tăng/giảm từ ${compareLabel} đến ${periodMeta?.currentLabel || 'Kỳ này'} do từng chuyên khoa`
-            : `Bóc tách mức tăng/giảm của các DVKT thuộc chuyên khoa ${spec?.name || ''}`,
+          subtitle: `So sánh ${metricText} ${curPeriodText} với ${compTargetText} — Bóc tách mức tăng/giảm do từng ${waterfallScope === 'hospital' ? 'chuyên khoa' : 'kỹ thuật'}`,
           badge: waterfallScope === 'hospital' ? 'Waterfall (Toàn viện)' : 'Waterfall (DVKT)',
           color: 'bg-indigo-600',
         };
@@ -419,14 +476,14 @@ export const ComparisonChartsView: React.FC<Props> = ({
       case 'revPerCase':
         return {
           title: 'Viện phí Bình quân trên 1 Ca phẫu thuật (Doanh thu / Ca)',
-          subtitle: 'Đánh giá độ phức tạp kỹ thuật và giá trị bình quân ca mổ theo chuyên khoa so với toàn viện',
+          subtitle: `Đánh giá viện phí bình quân trên 1 ca (${curPeriodText}) theo chuyên khoa so với toàn viện`,
           badge: 'Avg Revenue per Case',
           color: 'bg-amber-500',
         };
       case 'loai':
         return {
           title: 'Cơ cấu Loại Phẫu thuật & Thủ thuật',
-          subtitle: 'Phân bổ theo độ phức tạp chuyên môn: Loại Đặc biệt (PĐB), Loại 1, Loại 2, Loại 3 và Thủ thuật',
+          subtitle: `Phân bổ ${loaiViewMode === 'revenue' ? 'viện phí' : 'số ca'} theo độ phức tạp chuyên môn (${curPeriodText})`,
           badge: 'Stacked Bar',
           color: 'bg-cyan-600',
         };
@@ -436,9 +493,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
           title: timelineScope === 'hospital'
             ? 'Xu hướng Diễn biến theo Thời gian (Timeline)'
             : `Xu hướng Diễn biến - ${spec?.name || ''}`,
-          subtitle: timelineScope === 'hospital'
-            ? (periodMode === 'range' ? 'Đường xu hướng qua các tháng trong khoảng thời gian đã chọn' : 'Đường xu hướng diễn biến của chu kỳ phân tích')
-            : `Đường diễn biến xu hướng của chuyên khoa ${spec?.name || ''} qua các tháng`,
+          subtitle: `Đường diễn biến xu hướng ${metricText} qua các tháng (${curPeriodText})`,
           badge: timelineScope === 'hospital' ? 'Timeline (Toàn viện)' : 'Timeline (Chuyên khoa)',
           color: 'bg-blue-600',
         };
@@ -449,7 +504,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
           title: topImpactScope === 'hospital'
             ? 'Xếp hạng Tác động Kỹ thuật (Toàn viện)'
             : `Xếp hạng Tác động Kỹ thuật — ${spec?.name || ''}`,
-          subtitle: `Top 10 phẫu thuật/thủ thuật tăng trưởng mạnh nhất và giảm sâu nhất trong kỳ (${periodMeta?.currentLabel || ''} vs ${compareLabel})`,
+          subtitle: `Top 10 kỹ thuật biến động ${metricText} mạnh nhất: So sánh ${curPeriodText} với ${compTargetText}`,
           badge: topImpactScope === 'hospital' ? 'Impact Ranking (Toàn viện)' : `Impact (${spec?.shortName || spec?.name || ''})`,
           color: 'bg-rose-500',
         };
@@ -459,19 +514,56 @@ export const ComparisonChartsView: React.FC<Props> = ({
     }
   };
 
-  // Nhãn kỳ so sánh được chọn
-  const compareLabel = compareTarget === 'prev'
-    ? (periodMeta?.prevLabel || 'Kỳ trước')
-    : (periodMeta?.samePeriodLabel || 'Cùng kỳ');
-
-  // 1. DỮ LIỆU DIVERGING BAR (Thanh đối xứng Tăng/Giảm theo Chuyên khoa)
+  // 1. DỮ LIỆU DIVERGING BAR (Thanh đối xứng Tăng/Giảm theo Chuyên khoa hoặc DVKT)
   const divergingData = useMemo(() => {
-    return groups
-      .map(g => {
-        const curVal = metricMode === 'revenue' ? g.totalCurrentRevenue : g.totalCurrent;
+    if (divergingScope === 'hospital') {
+      return groups
+        .map(g => {
+          const curVal = metricMode === 'revenue' ? g.totalCurrentRevenue : g.totalCurrent;
+          const compVal = compareTarget === 'prev'
+            ? (metricMode === 'revenue' ? g.totalPrevRevenue : g.totalPrev)
+            : (metricMode === 'revenue' ? g.totalSamePeriodRevenue : g.totalSamePeriod);
+
+          const diff = curVal - compVal;
+          let pct = 0;
+          if (compVal > 0) {
+            pct = ((curVal - compVal) / compVal) * 100;
+          } else if (curVal > 0) {
+            pct = 100; // Mới phát sinh
+          }
+
+          return {
+            code: g.specialty.code,
+            name: g.specialty.name,
+            shortName: g.specialty.shortName,
+            maTuongDuong: undefined as string | undefined,
+            curVal,
+            compVal,
+            diff,
+            pct: Number(pct.toFixed(1)),
+            isPositive: diff >= 0,
+          };
+        })
+        .filter(item => item.curVal > 0 || item.compVal > 0)
+        .sort((a, b) => {
+          if (divergingMetric === 'diff') {
+            return b.diff - a.diff;
+          }
+          return b.pct - a.pct;
+        });
+    }
+
+    // Khi chọn chuyên khoa cụ thể: bóc tách DVKT thuộc chuyên khoa đó
+    const selectedGroup = groups.find(g => g.specialty.code === divergingScope);
+    if (!selectedGroup) return [];
+
+    const isRev = metricMode === 'revenue';
+    const rawItems = selectedGroup.rows
+      .map(r => {
+        const curVal = isRev ? r.currentRevenue : r.currentCount;
         const compVal = compareTarget === 'prev'
-          ? (metricMode === 'revenue' ? g.totalPrevRevenue : g.totalPrev)
-          : (metricMode === 'revenue' ? g.totalSamePeriodRevenue : g.totalSamePeriod);
+          ? (isRev ? r.prevRevenue : r.prevCount)
+          : (isRev ? r.samePeriodRevenue : r.samePeriodCount);
 
         const diff = curVal - compVal;
         let pct = 0;
@@ -482,9 +574,10 @@ export const ComparisonChartsView: React.FC<Props> = ({
         }
 
         return {
-          code: g.specialty.code,
-          name: g.specialty.name,
-          shortName: g.specialty.shortName,
+          code: `${r.tenKT}:::${r.maTuongDuong || ''}`,
+          name: r.tenKT,
+          shortName: r.tenKT,
+          maTuongDuong: r.maTuongDuong,
           curVal,
           compVal,
           diff,
@@ -492,14 +585,41 @@ export const ComparisonChartsView: React.FC<Props> = ({
           isPositive: diff >= 0,
         };
       })
-      .filter(item => item.curVal > 0 || item.compVal > 0)
-      .sort((a, b) => {
+      .filter(item => item.curVal > 0 || item.compVal > 0);
+
+    if (divergingMode === 'all') {
+      const filteredItems = hideZeroDiverging
+        ? rawItems.filter(item => item.diff !== 0)
+        : rawItems;
+      return filteredItems.sort((a, b) => {
         if (divergingMetric === 'diff') {
           return b.diff - a.diff;
         }
         return b.pct - a.pct;
       });
-  }, [groups, metricMode, compareTarget, divergingMetric]);
+    }
+
+    // Chế độ 'top': Top 5 tăng mạnh nhất + Top 5 giảm sâu nhất
+    // 1. Gainers (diff > 0)
+    const gainers = rawItems
+      .filter(item => item.diff > 0)
+      .sort((a, b) => (divergingMetric === 'diff' ? b.diff - a.diff : b.pct - a.pct))
+      .slice(0, 5);
+
+    // 2. Losers (diff < 0)
+    const losers = rawItems
+      .filter(item => item.diff < 0)
+      .sort((a, b) => (divergingMetric === 'diff' ? a.diff - b.diff : a.pct - b.pct))
+      .slice(0, 5)
+      .sort((a, b) => (divergingMetric === 'diff' ? b.diff - a.diff : b.pct - a.pct));
+
+    // Nếu không có cả gainer lẫn loser (tất cả diff = 0), lấy tối đa 5 mục có phát sinh
+    if (gainers.length === 0 && losers.length === 0) {
+      return rawItems.slice(0, 5);
+    }
+
+    return [...gainers, ...losers];
+  }, [groups, divergingScope, divergingMode, hideZeroDiverging, metricMode, compareTarget, divergingMetric]);
 
   // 2. DỮ LIỆU GROUPED BAR (Toàn viện hoặc Từng Chuyên khoa)
   const groupedFilterList = useMemo(() => {
@@ -1246,13 +1366,15 @@ export const ComparisonChartsView: React.FC<Props> = ({
               <div className="flex items-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
                 <h3 className="font-bold text-gray-900 text-sm sm:text-base">
-                  Biến động Tăng trưởng Chuyên khoa
+                  {divergingScope === 'hospital'
+                    ? 'Biến động Tăng trưởng Chuyên khoa'
+                    : `Biến động Tăng trưởng Kỹ thuật — ${allSpecialtiesList.find(s => s.code === divergingScope)?.name || ''}`}
                 </h3>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
-                {divergingMetric === 'percent'
-                  ? `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Tỷ lệ %)`
-                  : `So sánh ${periodMeta?.currentLabel || 'Kỳ này'} với ${compareLabel} (Biểu thị theo Số chênh lệch thực tế Δ)`}
+                {`So sánh ${metricText} ${curPeriodText} với ${compTargetText} (Biểu thị theo ${
+                  divergingMetric === 'percent' ? 'Tỷ lệ %' : 'Số chênh lệch thực tế Δ'
+                })`}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -1283,7 +1405,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
               </div>
 
               <span className="hidden sm:inline-block text-[11px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                Diverging Bar
+                {divergingScope === 'hospital' ? 'Diverging Bar (Toàn viện)' : 'Diverging Bar (DVKT)'}
               </span>
               <button
                 type="button"
@@ -1296,73 +1418,134 @@ export const ComparisonChartsView: React.FC<Props> = ({
             </div>
           </div>
 
+          {/* Hàng 2: Toolbar bộ lọc riêng của card */}
+          <div className="flex flex-wrap items-center gap-2 mb-2.5 pb-0.5">
+            <ScopeSelect
+              id="diverging-scope-select"
+              scope={divergingScope}
+              onChangeScope={(newScope) => {
+                setDivergingScope(newScope);
+                setDivergingMode('top');
+              }}
+              allSpecialties={allSpecialtiesList}
+            />
+            {divergingScope !== 'hospital' && (
+              <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setDivergingMode('top')}
+                  className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                    divergingMode === 'top' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500 hover:text-gray-900'
+                  }`}
+                >
+                  Top 5 tăng/giảm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDivergingMode('all');
+                    setExpandedChart('diverging');
+                  }}
+                  className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                    divergingMode === 'all' ? 'bg-white text-gray-900 shadow-2xs font-bold' : 'text-gray-500 hover:text-gray-900'
+                  }`}
+                  title="Hiện đầy đủ toàn bộ danh mục kỹ thuật trong màn hình mở rộng"
+                >
+                  Hiện đầy đủ
+                </button>
+              </div>
+            )}
+            {divergingScope !== 'hospital' && divergingMode === 'all' && (
+              <button
+                type="button"
+                onClick={toggleHideZeroDiverging}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                  hideZeroDiverging
+                    ? 'bg-white text-blue-800 border-blue-300 shadow-xs'
+                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                }`}
+                title={hideZeroDiverging ? 'Đang bật ẩn các kỹ thuật có số chênh = 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả kỹ thuật. Bấm để ẩn kỹ thuật không đổi.'}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroDiverging ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>Ẩn box 0 ca</span>
+              </button>
+            )}
+          </div>
+
           {/* Body: Danh sách thanh đối xứng */}
-          <div className="flex-1 space-y-3.5 my-auto py-2">
-            {divergingData.map((item) => {
+          <div className="flex-1 space-y-1 py-0.5 max-h-[500px] overflow-y-auto pr-1">
+            {divergingData.length === 0 ? (
+              <div className="py-12 text-center text-xs text-gray-400">
+                Không có kỹ thuật nào phát sinh trong kỳ được chọn.
+              </div>
+            ) : divergingData.map((item) => {
               const maxAbsVal = divergingMetric === 'diff'
                 ? Math.max(...divergingData.map(d => Math.abs(d.diff)), 1)
                 : Math.max(...divergingData.map(d => Math.abs(d.pct)), 10);
               const curValDiff = divergingMetric === 'diff' ? Math.abs(item.diff) : Math.abs(item.pct);
               const barWidthPct = Math.min(Math.round((curValDiff / maxAbsVal) * 100), 100);
 
-              const formattedDiff = `${item.diff > 0 ? '+' : ''}${metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`}`;
-              const formattedPct = `${item.isPositive ? '+' : ''}${item.pct}%`;
-              const displayBadge = divergingMetric === 'diff'
-                ? `${formattedDiff} (${formattedPct})`
-                : `${formattedPct} (${formattedDiff})`;
-
-              const barInnerLabel = divergingMetric === 'diff' ? formattedDiff : formattedPct;
+              const curText = metricMode === 'revenue' ? fmtMoney(item.curVal) : `${fmtNum(item.curVal)} ca`;
+              const diffText = metricMode === 'revenue'
+                ? `${item.diff > 0 ? '+' : ''}${fmtMoney(item.diff)}`
+                : `${item.diff > 0 ? '+' : ''}${fmtNum(item.diff)} ca`;
+              const pctText = `${item.diff > 0 ? '+' : ''}${item.pct}%`;
+              const barInnerLabel = divergingMetric === 'diff' ? diffText : pctText;
 
               return (
-                <div key={item.code} className="group">
-                  <div className="flex flex-wrap items-center justify-between text-xs mb-1 gap-1">
-                    <span className="font-bold text-gray-800 flex items-center gap-1.5">
-                      <span>{item.name}</span>
-                    </span>
-                    <div className="flex flex-wrap items-center gap-2 font-bold text-xs">
-                      <span className="text-gray-500 font-medium">
-                        Kỳ này: <strong className="text-gray-900">{metricMode === 'revenue' ? fmtMoney(item.curVal) : `${fmtNum(item.curVal)} ca`}</strong>
-                      </span>
-                      <span className="text-gray-300 font-normal">|</span>
-                      <span className="text-gray-500 font-medium">
-                        {compareLabel}: <strong className="text-gray-700">{metricMode === 'revenue' ? fmtMoney(item.compVal) : `${fmtNum(item.compVal)} ca`}</strong>
-                      </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[11px] font-extrabold ${
-                        item.diff === 0
-                          ? 'bg-gray-100 text-gray-700 border border-gray-200'
-                          : item.isPositive
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : 'bg-rose-50 text-rose-700 border border-rose-200'
-                      }`}>
-                        {displayBadge}
-                      </span>
-                    </div>
+                <div
+                  key={item.code}
+                  className="group pt-0 pb-0.5"
+                  title={`${item.name}\nKỳ này: ${curText}\n${compareLabel}: ${metricMode === 'revenue' ? fmtMoney(item.compVal) : `${fmtNum(item.compVal)} ca`}\nChênh lệch: ${diffText} (${pctText})`}
+                >
+                  {/* Tên KT / Tên chuyên khoa: size nhỏ, không có mã tương đương */}
+                  <div className="text-[11px] font-semibold text-gray-700 truncate leading-none mb-0.5" title={item.name}>
+                    {item.name}
                   </div>
 
-                  {/* Diverging bar track (Trục giữa 0%) - Chiều cao h-7, thanh cột chuẩn Lieflat bo góc nhẹ */}
-                  <div className="grid grid-cols-2 gap-1.5 h-7 bg-gray-100 rounded-lg overflow-hidden p-0.5">
-                    {/* Cột Trái: Âm / Sụt giảm */}
-                    <div className="flex justify-end items-center h-full">
-                      {item.diff < 0 && (
-                        <div
-                          className="h-full bg-rose-500 rounded-md transition-all duration-500 group-hover:bg-rose-600 flex items-center justify-start px-2 text-[11px] font-extrabold text-white shadow-xs"
-                          style={{ width: `${Math.max(barWidthPct, 14)}%` }}
-                        >
-                          <span className="truncate">{barInnerLabel}</span>
-                        </div>
-                      )}
+                  {/* Ngang hàng với bar: Bar track + Right label */}
+                  <div className="flex items-center gap-2">
+                    {/* Diverging bar track (Trục giữa 50%) - Tăng chiều cao h-6, bo góc nhẹ */}
+                    <div className="flex-1 grid grid-cols-2 gap-1 h-6 bg-gray-100 rounded overflow-hidden p-0.5">
+                      {/* Cột Trái: Âm / Sụt giảm */}
+                      <div className="flex justify-end items-center h-full">
+                        {item.diff < 0 && (
+                          <div
+                            className="h-full bg-rose-500 rounded-xs transition-all duration-300 group-hover:bg-rose-600 flex items-center justify-start px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
+                            style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                          >
+                            <span className="truncate">{barInnerLabel}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Cột Phải: Dương / Tăng trưởng */}
+                      <div className="flex justify-start items-center h-full">
+                        {item.diff > 0 && (
+                          <div
+                            className="h-full bg-emerald-500 rounded-xs transition-all duration-300 group-hover:bg-emerald-600 flex items-center justify-end px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
+                            style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                          >
+                            <span className="truncate">{barInnerLabel}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Cột Phải: Dương / Tăng trưởng */}
-                    <div className="flex justify-start items-center h-full">
-                      {item.diff > 0 && (
-                        <div
-                          className="h-full bg-emerald-500 rounded-md transition-all duration-500 group-hover:bg-emerald-600 flex items-center justify-end px-2 text-[11px] font-extrabold text-white shadow-xs"
-                          style={{ width: `${Math.max(barWidthPct, 14)}%` }}
-                        >
-                          <span className="truncate">{barInnerLabel}</span>
-                        </div>
-                      )}
+                    {/* Label bên tay phải, ngang hàng với bar, sát bar giảm khoảng cách thừa */}
+                    <div className="shrink-0 text-right text-[11px] font-medium leading-none whitespace-nowrap min-w-[115px]">
+                      <span className="text-gray-800 font-semibold">{curText}</span>{' '}
+                      <span
+                        className={
+                          item.diff === 0
+                            ? 'text-gray-400'
+                            : item.diff > 0
+                            ? 'text-emerald-600 font-bold'
+                            : 'text-rose-600 font-bold'
+                        }
+                      >
+                        ({diffText}, {pctText})
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -2459,35 +2642,86 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                     {/* Diverging specific controls */}
                     {expandedChart === 'diverging' && (
-                      <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-100 border-gray-300'}`}>
-                        <button
-                          type="button"
-                          onClick={() => setDivergingMetric('percent')}
-                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                            divergingMetric === 'percent'
-                              ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
-                              : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                          }`}
-                        >
-                          Tỷ lệ %
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDivergingMetric('diff')}
-                          className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
-                            divergingMetric === 'diff'
-                              ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
-                              : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
-                          }`}
-                        >
-                          Số chênh lệch ({metricMode === 'revenue' ? 'VNĐ' : 'Số ca'})
-                        </button>
-                      </div>
+                      <>
+                        <ScopeSelect id="modal-diverging-scope-select" scope={divergingScope} onChangeScope={setDivergingScope} allSpecialties={allSpecialtiesList} isDark={modalTheme === 'dark'} />
+                        {divergingScope !== 'hospital' && (
+                          <div className={`flex items-center p-0.5 rounded-lg text-xs font-semibold ${modalTheme === 'dark' ? 'bg-[#303336]' : 'bg-gray-100'}`}>
+                            <button
+                              type="button"
+                              onClick={() => setDivergingMode('top')}
+                              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                                divergingMode === 'top'
+                                  ? (modalTheme === 'dark' ? 'bg-gray-700 text-white font-bold' : 'bg-white text-gray-900 shadow-2xs font-bold')
+                                  : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                              }`}
+                            >
+                              Top 5 tăng/giảm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDivergingMode('all')}
+                              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                                divergingMode === 'all'
+                                  ? (modalTheme === 'dark' ? 'bg-gray-700 text-white font-bold' : 'bg-white text-gray-900 shadow-2xs font-bold')
+                                  : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                              }`}
+                            >
+                              Hiện đầy đủ
+                            </button>
+                          </div>
+                        )}
+                        {divergingScope !== 'hospital' && divergingMode === 'all' && (
+                          <button
+                            type="button"
+                            onClick={toggleHideZeroDiverging}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold text-xs shadow-2xs cursor-pointer transition-all ${
+                              hideZeroDiverging
+                                ? (modalTheme === 'dark' ? 'bg-[#303336] text-blue-300 border-blue-500/50 shadow-xs' : 'bg-white text-blue-800 border-blue-300 shadow-xs')
+                                : (modalTheme === 'dark' ? 'bg-[#232528] text-gray-400 border-gray-700 hover:text-gray-200' : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700')
+                            }`}
+                            title={hideZeroDiverging ? 'Đang bật ẩn các kỹ thuật có số chênh = 0. Bấm để hiển thị lại.' : 'Đang hiện tất cả kỹ thuật. Bấm để ẩn kỹ thuật không đổi.'}
+                          >
+                            <span className={`w-2 h-2 rounded-full shrink-0 ${hideZeroDiverging ? 'bg-emerald-500 ring-2 ring-emerald-300/40' : 'bg-rose-500 ring-2 ring-rose-300/40'}`} />
+                            <span>Ẩn box 0 ca</span>
+                          </button>
+                        )}
+                        <div className={`flex items-center p-0.5 rounded-lg text-xs font-bold border ${modalTheme === 'dark' ? 'bg-[#303336] border-gray-600/50' : 'bg-gray-100 border-gray-300'}`}>
+                          <button
+                            type="button"
+                            onClick={() => setDivergingMetric('percent')}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              divergingMetric === 'percent'
+                                ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                                : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                            }`}
+                          >
+                            Tỷ lệ %
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDivergingMetric('diff')}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                              divergingMetric === 'diff'
+                                ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                                : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
+                            }`}
+                          >
+                            Số chênh lệch ({metricMode === 'revenue' ? 'VNĐ' : 'Số ca'})
+                          </button>
+                        </div>
+                      </>
                     )}
                   </div>
 
                   {/* Thông tin ngữ cảnh góc phải toolbar */}
                   <div className={`text-xs font-medium hidden sm:block ${modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                    {expandedChart === 'diverging' && (
+                      <span>
+                        {divergingScope === 'hospital'
+                          ? `Quy mô toàn viện (${groups.length} chuyên khoa)`
+                          : `Đang xem: ${allSpecialtiesList.find(s => s.code === divergingScope)?.name || divergingScope} (${divergingData.length} kỹ thuật)`}
+                      </span>
+                    )}
                     {expandedChart === 'waterfall' && (
                       <span>
                         {waterfallScope === 'hospital'
@@ -2510,74 +2744,100 @@ export const ComparisonChartsView: React.FC<Props> = ({
               <div className={`flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col transition-colors ${modalTheme === 'dark' ? 'bg-[#18191a]' : 'bg-gray-50/70'}`}>
                 {/* 1. Diverging Expanded */}
                 {expandedChart === 'diverging' && (
-                  <div className="max-w-4xl mx-auto w-full py-4 space-y-4">
-                    <div className={`rounded-2xl p-6 border shadow-lg space-y-4 transition-colors ${modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80' : 'bg-white border-gray-200 shadow-sm'}`}>
-                      {divergingData.map((item) => {
+                  <div className="max-w-4xl mx-auto w-full py-1 space-y-2">
+                    {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border transition-colors ${
+                      modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          So sánh {metricText} {curPeriodText} với {compTargetText}
+                        </span>
+                      </div>
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                        modalTheme === 'dark' ? 'bg-[#303336] text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        {divergingMetric === 'percent' ? 'Biểu thị theo Tỷ lệ %' : (metricMode === 'revenue' ? 'Số chênh lệch thực tế (VNĐ)' : 'Số chênh lệch thực tế (Số ca)')}
+                      </span>
+                    </div>
+
+                    <div className={`rounded-2xl p-3 sm:p-5 border shadow-lg space-y-0.5 transition-colors ${modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80' : 'bg-white border-gray-200 shadow-sm'}`}>
+                      {divergingData.length === 0 ? (
+                        <div className={`py-16 text-center text-sm ${modalTheme === 'dark' ? 'text-gray-500' : 'text-gray-400'}`}>
+                          Không có kỹ thuật nào phát sinh trong kỳ được chọn.
+                        </div>
+                      ) : divergingData.map((item) => {
                         const maxAbsVal = divergingMetric === 'diff'
                           ? Math.max(...divergingData.map(d => Math.abs(d.diff)), 1)
                           : Math.max(...divergingData.map(d => Math.abs(d.pct)), 10);
                         const curValDiff = divergingMetric === 'diff' ? Math.abs(item.diff) : Math.abs(item.pct);
                         const barWidthPct = Math.min(Math.round((curValDiff / maxAbsVal) * 100), 100);
 
-                        const formattedDiff = `${item.diff > 0 ? '+' : ''}${metricMode === 'revenue' ? fmtMoney(item.diff) : `${item.diff} ca`}`;
-                        const formattedPct = `${item.isPositive ? '+' : ''}${item.pct}%`;
-                        const displayBadge = divergingMetric === 'diff'
-                          ? `${formattedDiff} (${formattedPct})`
-                          : `${formattedPct} (${formattedDiff})`;
-
-                        const barInnerLabel = divergingMetric === 'diff' ? formattedDiff : formattedPct;
+                        const curText = metricMode === 'revenue' ? fmtMoney(item.curVal) : `${fmtNum(item.curVal)} ca`;
+                        const diffText = metricMode === 'revenue'
+                          ? `${item.diff > 0 ? '+' : ''}${fmtMoney(item.diff)}`
+                          : `${item.diff > 0 ? '+' : ''}${fmtNum(item.diff)} ca`;
+                        const pctText = `${item.diff > 0 ? '+' : ''}${item.pct}%`;
+                        const barInnerLabel = divergingMetric === 'diff' ? diffText : pctText;
 
                         return (
-                          <div key={item.code} className={`p-3 rounded-xl transition-colors ${modalTheme === 'dark' ? 'hover:bg-[#282a2d]' : 'hover:bg-gray-50'}`}>
-                            <div className="flex flex-wrap items-center justify-between text-sm mb-2 gap-2">
-                              <span className={`font-bold flex items-center gap-2 text-base ${modalTheme === 'dark' ? 'text-gray-100' : 'text-gray-900'}`}>
-                                <span>{item.name}</span>
-                              </span>
-                              <div className="flex flex-wrap items-center gap-3 font-semibold text-xs sm:text-sm">
-                                <span className={modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
-                                  Kỳ này: <strong className={modalTheme === 'dark' ? 'text-white' : 'text-gray-900'}>{metricMode === 'revenue' ? fmtMoney(item.curVal) : `${fmtNum(item.curVal)} ca`}</strong>
-                                </span>
-                                <span className={modalTheme === 'dark' ? 'text-gray-600' : 'text-gray-300'}>|</span>
-                                <span className={modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
-                                  {compareLabel}: <strong className={modalTheme === 'dark' ? 'text-gray-300' : 'text-gray-800'}>{metricMode === 'revenue' ? fmtMoney(item.compVal) : `${fmtNum(item.compVal)} ca`}</strong>
-                                </span>
-                                <span className={`px-2.5 py-0.5 rounded-lg text-xs font-extrabold ${
-                                  item.diff === 0
-                                    ? (modalTheme === 'dark' ? 'bg-gray-800 text-gray-400 border border-gray-700' : 'bg-gray-100 text-gray-700 border border-gray-300')
-                                    : item.isPositive
-                                    ? (modalTheme === 'dark' ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-700' : 'bg-emerald-100 text-emerald-800 border border-emerald-300')
-                                    : (modalTheme === 'dark' ? 'bg-rose-950/80 text-rose-300 border border-rose-700' : 'bg-rose-100 text-rose-800 border border-rose-300')
-                                }`}>
-                                  {displayBadge}
-                                </span>
-                              </div>
+                          <div
+                            key={item.code}
+                            className={`px-1.5 pt-0 pb-0.5 rounded transition-colors group ${
+                              modalTheme === 'dark' ? 'hover:bg-[#282a2d]' : 'hover:bg-gray-50'
+                            }`}
+                            title={`${item.name}\nKỳ này: ${curText}\n${compareLabel}: ${metricMode === 'revenue' ? fmtMoney(item.compVal) : `${fmtNum(item.compVal)} ca`}\nChênh lệch: ${diffText} (${pctText})`}
+                          >
+                            <div className={`text-xs font-semibold truncate leading-none mb-0.5 ${modalTheme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
+                              {item.name}
                             </div>
 
-                            {/* Diverging bar track - Chuẩn thanh biểu đồ cao h-8, bo góc nhẹ rounded-lg */}
-                            <div className={`grid grid-cols-2 gap-2 h-8 rounded-lg overflow-hidden p-1 border ${modalTheme === 'dark' ? 'bg-[#151617] border-gray-700/60' : 'bg-gray-100 border-gray-200'}`}>
-                              <div className="flex justify-end items-center">
-                                {item.diff < 0 && (
-                                  <div
-                                    className="h-full bg-rose-500 rounded-md transition-all duration-500 group-hover:bg-rose-400 flex items-center justify-end px-2 shadow-2xs"
-                                    style={{ width: `${Math.max(barWidthPct, 10)}%` }}
-                                  >
-                                    <span className="text-[11px] font-bold text-white whitespace-nowrap">
-                                      {barInnerLabel}
-                                    </span>
-                                  </div>
-                                )}
+                            <div className="flex items-center gap-2">
+                              {/* Diverging bar track - Tăng chiều cao h-6 bo góc nhẹ */}
+                              <div className={`flex-1 grid grid-cols-2 gap-1 h-6 rounded overflow-hidden p-0.5 border ${modalTheme === 'dark' ? 'bg-[#151617] border-gray-700/60' : 'bg-gray-100 border-gray-200'}`}>
+                                <div className="flex justify-end items-center h-full">
+                                  {item.diff < 0 && (
+                                    <div
+                                      className="h-full bg-rose-500 rounded-xs transition-all duration-300 group-hover:bg-rose-400 flex items-center justify-start px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
+                                      style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                                    >
+                                      <span className="truncate">{barInnerLabel}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex justify-start items-center h-full">
+                                  {item.diff > 0 && (
+                                    <div
+                                      className="h-full bg-emerald-500 rounded-xs transition-all duration-300 group-hover:bg-emerald-400 flex items-center justify-end px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
+                                      style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                                    >
+                                      <span className="truncate">{barInnerLabel}</span>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                              <div className="flex justify-start items-center">
-                                {item.diff > 0 && (
-                                  <div
-                                    className="h-full bg-emerald-500 rounded-md transition-all duration-500 group-hover:bg-emerald-400 flex items-center justify-start px-2 shadow-2xs"
-                                    style={{ width: `${Math.max(barWidthPct, 10)}%` }}
-                                  >
-                                    <span className="text-[11px] font-bold text-white whitespace-nowrap">
-                                      {barInnerLabel}
-                                    </span>
-                                  </div>
-                                )}
+
+                              {/* Inline right label */}
+                              <div className="shrink-0 text-right text-xs font-medium leading-none whitespace-nowrap min-w-[125px]">
+                                <span className={modalTheme === 'dark' ? 'text-gray-100 font-semibold' : 'text-gray-800 font-semibold'}>
+                                  {curText}
+                                </span>{' '}
+                                <span
+                                  className={
+                                    item.diff === 0
+                                      ? 'text-gray-400'
+                                      : item.diff > 0
+                                      ? modalTheme === 'dark'
+                                        ? 'text-emerald-400 font-bold'
+                                        : 'text-emerald-600 font-bold'
+                                      : modalTheme === 'dark'
+                                      ? 'text-rose-400 font-bold'
+                                      : 'text-rose-600 font-bold'
+                                  }
+                                >
+                                  ({diffText}, {pctText})
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -2589,7 +2849,24 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                 {/* 2. Grouped Expanded */}
                 {expandedChart === 'grouped' && (
-                  <div className="w-full flex-1 min-h-[500px] overflow-y-auto pr-2">
+                  <div className="w-full flex-1 min-h-[500px] overflow-y-auto pr-2 flex flex-col">
+                    {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border mb-3 shrink-0 transition-colors ${
+                      modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full bg-primary-500 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          So sánh quy mô {metricText} giữa {curPeriodText} với {prevPeriodText}{hasSamePeriodData ? ` và cùng kỳ ${samePeriodText}` : ''}
+                        </span>
+                      </div>
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                        modalTheme === 'dark' ? 'bg-[#303336] text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        Đối chiếu quy mô 3 kỳ
+                      </span>
+                    </div>
+
                     <ResponsiveContainer width="100%" height={Math.max(520, groupedBarData.length * 52)}>
                       <BarChart
                         data={groupedBarData}
@@ -2667,7 +2944,24 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                 {/* 3. Waterfall Expanded */}
                 {expandedChart === 'waterfall' && (
-                  <div ref={waterfallModalRef} className="w-full flex-1 min-h-[500px] overflow-x-auto sm:overflow-x-hidden pb-4">
+                  <div ref={waterfallModalRef} className="w-full flex-1 min-h-[500px] overflow-x-auto sm:overflow-x-hidden pb-4 flex flex-col">
+                    {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border mb-3 shrink-0 transition-colors ${
+                      modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          So sánh {metricText} {curPeriodText} với {compTargetText} — Bóc tách mức tăng/giảm
+                        </span>
+                      </div>
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                        modalTheme === 'dark' ? 'bg-[#303336] text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        Cầu nối biến động
+                      </span>
+                    </div>
+
                     <div className="w-full h-[580px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={waterfallData} margin={{ top: 35, right: 20, left: 20, bottom: 105 }}>
@@ -2738,7 +3032,24 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                 {/* 4. RevPerCase Expanded */}
                 {expandedChart === 'revPerCase' && (
-                  <div className="w-full flex-1 min-h-[500px]">
+                  <div className="w-full flex-1 min-h-[500px] flex flex-col">
+                    {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border mb-3 shrink-0 transition-colors ${
+                      modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          Viện phí bình quân trên 1 ca ({curPeriodText}) theo chuyên khoa so với toàn viện
+                        </span>
+                      </div>
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                        modalTheme === 'dark' ? 'bg-[#303336] text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        Doanh thu bình quân / Ca mổ
+                      </span>
+                    </div>
+
                     <ResponsiveContainer width="100%" height={520}>
                       <BarChart data={revPerCaseData.list} margin={{ top: 30, right: 40, left: 40, bottom: 40 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={modalTheme === 'dark' ? '#334155' : '#e2e8f0'} />
@@ -2813,6 +3124,23 @@ export const ComparisonChartsView: React.FC<Props> = ({
                 {/* 5. Loai Expanded */}
                 {expandedChart === 'loai' && (
                   <div className="w-full flex-1 flex flex-col justify-between min-h-[500px]">
+                    {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border mb-3 shrink-0 transition-colors ${
+                      modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          Cơ cấu {loaiViewMode === 'revenue' ? 'viện phí' : 'số ca'} theo loại phẫu thuật/thủ thuật ({curPeriodText})
+                        </span>
+                      </div>
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                        modalTheme === 'dark' ? 'bg-[#303336] text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        Phân bổ độ phức tạp chuyên môn
+                      </span>
+                    </div>
+
                     <div className="flex-1 w-full min-h-[440px]">
                       <ResponsiveContainer width="100%" height={480}>
                         <BarChart data={loaiChartData} margin={{ top: 30, right: 40, left: 40, bottom: 40 }}>
@@ -2887,7 +3215,24 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                 {/* 6. Timeline Expanded */}
                 {expandedChart === 'timeline' && (
-                  <div className="w-full flex-1 min-h-[500px]">
+                  <div className="w-full flex-1 min-h-[500px] flex flex-col">
+                    {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border mb-3 shrink-0 transition-colors ${
+                      modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          Diễn biến xu hướng {metricText} qua các tháng ({curPeriodText})
+                        </span>
+                      </div>
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                        modalTheme === 'dark' ? 'bg-[#303336] text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        Timeline đa chu kỳ
+                      </span>
+                    </div>
+
                     {timelineChartData.length > 0 ? (
                       <ResponsiveContainer width="100%" height={520}>
                         <LineChart data={timelineChartData} margin={{ top: 30, right: 40, left: 40, bottom: 30 }}>
@@ -2975,7 +3320,24 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                 {/* 7. Top Impact Expanded */}
                 {expandedChart === 'topImpact' && (
-                  <div className="w-full flex-1 max-w-6xl mx-auto py-2">
+                  <div className="w-full flex-1 max-w-6xl mx-auto py-2 flex flex-col">
+                    {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
+                    <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border mb-4 shrink-0 transition-colors ${
+                      modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
+                    }`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          Top kỹ thuật biến động {metricText}: So sánh {curPeriodText} với {compTargetText}
+                        </span>
+                      </div>
+                      <span className={`text-[11px] px-2.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                        modalTheme === 'dark' ? 'bg-[#303336] text-gray-400 border border-gray-600/50' : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        Top 10 Tăng & Giảm đột phá
+                      </span>
+                    </div>
+
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {/* Cột 1: TOP 10 TĂNG TRƯỞNG MẠNH NHẤT */}
                       {(topImpactTab === 'both' || topImpactTab === 'gainers') && (

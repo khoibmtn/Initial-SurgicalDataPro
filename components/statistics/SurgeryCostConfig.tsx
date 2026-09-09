@@ -16,6 +16,7 @@ import {
   duplicateCostItem,
   exportCostItemsExcel,
 } from '../../services/surgeryCostService';
+import { useConfig } from '../../contexts/ConfigContext';
 import { InstantTooltip } from './SurgeryNamePriceConfig';
 
 interface Props {
@@ -39,6 +40,7 @@ const parseThousands = (val: string): number => {
 const fmtMoney = (n: number) => (n > 0 ? n.toLocaleString('vi-VN') + ' ₫' : '—');
 
 export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
+  const { isLocked } = useConfig();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -88,6 +90,10 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
 
   // --- Inline Edit ---
   const startEdit = (item: SurgeryCostItem) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setEditingId(item.id);
     setEditMedicStr(item.medicCost > 0 ? formatThousands(item.medicCost) : '');
     setEditVtthStr(item.vtthCost > 0 ? formatThousands(item.vtthCost) : '');
@@ -104,6 +110,10 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
   };
 
   const saveEdit = async () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (!editingId) return;
     const medic = parseThousands(editMedicStr);
     const vtth = parseThousands(editVtthStr);
@@ -144,6 +154,10 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
 
   // --- Delete ---
   const handleDelete = async (id: string) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (!window.confirm('Xóa mục này khỏi danh mục chi phí? Logic hiệu lực sẽ được tự động điều chỉnh.')) return;
     try {
       await deleteCostItem(id, costItems);
@@ -155,6 +169,10 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
 
   // --- Duplicate ---
   const startDuplicate = (item: SurgeryCostItem) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setDupItem(item);
     setDupDate(new Date().toISOString().slice(0, 10));
     setDupMedicStr(item.medicCost > 0 ? formatThousands(item.medicCost) : '');
@@ -162,6 +180,10 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
   };
 
   const confirmDuplicate = async () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (!dupItem || !dupDate) return;
     const medic = parseThousands(dupMedicStr);
     const vtth = parseThousands(dupVtthStr);
@@ -256,8 +278,8 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
               </button>
               <button
                 onClick={confirmDuplicate}
-                disabled={saving || !dupDate}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-lg disabled:opacity-50"
+                disabled={saving || !dupDate || isLocked}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? 'Đang tạo...' : 'Tạo mới'}
               </button>
@@ -360,9 +382,10 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                       {isEditing ? (
                         <input
                           type="date"
+                          disabled={isLocked}
                           value={editCostFrom}
                           onChange={e => setEditCostFrom(e.target.value)}
-                          className="w-28 px-1.5 py-0.5 text-xs text-center border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none"
+                          className="w-28 px-1.5 py-0.5 text-xs text-center border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none disabled:bg-gray-100"
                         />
                       ) : (
                         item.costEffectiveFrom || item.effectiveFrom || '—'
@@ -373,12 +396,13 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                         <div className="flex items-center justify-center gap-1">
                           <input
                             type="date"
+                            disabled={isLocked}
                             value={editCostTo}
                             onChange={e => setEditCostTo(e.target.value)}
                             placeholder="Hiện tại"
-                            className="w-28 px-1.5 py-0.5 text-xs text-center border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none"
+                            className="w-28 px-1.5 py-0.5 text-xs text-center border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none disabled:bg-gray-100"
                           />
-                          {editCostTo && (
+                          {editCostTo && !isLocked && (
                             <button
                               type="button"
                               onClick={() => setEditCostTo('')}
@@ -403,13 +427,14 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                       {isEditing ? (
                         <input
                           type="text"
+                          disabled={isLocked}
                           value={editMedicStr}
                           placeholder="0"
                           onChange={e => {
                             const digits = e.target.value.replace(/\D/g, '');
                             setEditMedicStr(digits ? Number(digits).toLocaleString('vi-VN') : '');
                           }}
-                          className="w-24 px-1.5 py-0.5 text-xs text-right border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none font-medium"
+                          className="w-24 px-1.5 py-0.5 text-xs text-right border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none font-medium disabled:bg-gray-100"
                           autoFocus
                         />
                       ) : (
@@ -424,13 +449,14 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                       {isEditing ? (
                         <input
                           type="text"
+                          disabled={isLocked}
                           value={editVtthStr}
                           placeholder="0"
                           onChange={e => {
                             const digits = e.target.value.replace(/\D/g, '');
                             setEditVtthStr(digits ? Number(digits).toLocaleString('vi-VN') : '');
                           }}
-                          className="w-24 px-1.5 py-0.5 text-xs text-right border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none font-medium"
+                          className="w-24 px-1.5 py-0.5 text-xs text-right border border-primary-300 rounded bg-primary-50 focus:ring-1 focus:ring-primary-500 outline-none font-medium disabled:bg-gray-100"
                         />
                       ) : (
                         <span className={item.vtthCost > 0 ? 'text-gray-800 font-medium' : 'text-gray-300'}>
@@ -445,7 +471,7 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                         {isEditing ? (
                           <>
                             <InstantTooltip content="Lưu thay đổi">
-                              <button onClick={saveEdit} disabled={saving} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Save className="h-3.5 w-3.5" /></button>
+                              <button onClick={saveEdit} disabled={saving || isLocked} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded disabled:opacity-50 disabled:cursor-not-allowed"><Save className="h-3.5 w-3.5" /></button>
                             </InstantTooltip>
                             <InstantTooltip content="Hủy chỉnh sửa">
                               <button onClick={cancelEdit} className="p-1 text-gray-400 hover:bg-gray-100 rounded"><X className="h-3.5 w-3.5" /></button>
@@ -453,14 +479,14 @@ export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
                           </>
                         ) : (
                           <>
-                            <InstantTooltip content="Sửa chi phí thuốc/VTTH và hiệu lực chi phí">
-                              <button onClick={() => startEdit(item)} className="p-1 text-primary-600 hover:bg-primary-50 rounded"><Edit3 className="h-3.5 w-3.5" /></button>
+                            <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Sửa chi phí thuốc/VTTH và hiệu lực chi phí"}>
+                              <button disabled={isLocked} onClick={() => startEdit(item)} className="p-1 text-primary-600 hover:bg-primary-50 rounded disabled:opacity-40 disabled:cursor-not-allowed"><Edit3 className="h-3.5 w-3.5" /></button>
                             </InstantTooltip>
-                            <InstantTooltip content="Tạo phiên bản mới (clone với hiệu lực mới, tự đóng hiệu lực cũ)">
-                              <button onClick={() => startDuplicate(item)} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Copy className="h-3.5 w-3.5" /></button>
+                            <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Tạo phiên bản mới (clone với hiệu lực mới, tự đóng hiệu lực cũ)"}>
+                              <button disabled={isLocked} onClick={() => startDuplicate(item)} className="p-1 text-blue-600 hover:bg-blue-50 rounded disabled:opacity-40 disabled:cursor-not-allowed"><Copy className="h-3.5 w-3.5" /></button>
                             </InstantTooltip>
-                            <InstantTooltip content="Xóa khỏi DM chi phí (tự điều chỉnh khoảng hiệu lực)">
-                              <button onClick={() => handleDelete(item.id)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 className="h-3.5 w-3.5" /></button>
+                            <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Xóa khỏi DM chi phí (tự điều chỉnh khoảng hiệu lực)"}>
+                              <button disabled={isLocked} onClick={() => handleDelete(item.id)} className="p-1 text-red-500 hover:bg-red-50 rounded disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 className="h-3.5 w-3.5" /></button>
                             </InstantTooltip>
                           </>
                         )}

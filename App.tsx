@@ -74,16 +74,31 @@ import { format, parse, isValid } from 'date-fns';
 import { auth } from './lib/firebase';
 import { getTimeRuleForRecord, getAllowanceForRecord } from './services/laborConfigService';
 
+// --- Helper: Vietnamese Tone Stripping ---
+const removeVietnameseTones = (str: string): string => {
+  return (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+};
+
 // --- Helper: Sequential Search Logic ---
 const matchSearchQuery = (row: any, query: string, searchableCols: Record<string, boolean> | undefined, columns: ColumnDef<any>[], timeRules?: any, timeItemsList?: any) => {
   if (!query) return true;
-  const words = query.trim().split(/\s+/).filter(Boolean);
+  const rawQuery = query.trim();
+  const words = rawQuery.split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
 
   const regexStr = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+  const wordsNoTones = words.map(w => removeVietnameseTones(w));
+  const regexStrNoTones = wordsNoTones.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+
   let regex: RegExp;
+  let regexNoTones: RegExp;
   try {
     regex = new RegExp(regexStr, 'i');
+    regexNoTones = new RegExp(regexStrNoTones, 'i');
   } catch (e) {
     return true;
   }
@@ -109,7 +124,8 @@ const matchSearchQuery = (row: any, query: string, searchableCols: Record<string
       value = String(row[col.key] || '');
     }
 
-    return regex.test(value);
+    if (!value) return false;
+    return regex.test(value) || regexNoTones.test(removeVietnameseTones(value));
   });
 };
 
@@ -215,7 +231,7 @@ const ToastContainer = ({ toasts, removeToast }: { toasts: ToastItem[], removeTo
               <p className={`font-semibold text-sm ${titleColor}`}>
                 {titleText}
               </p>
-              <div className="text-sm text-gray-700 mt-0.5">{toast.message}</div>
+              <div className="text-sm text-gray-700 mt-0.5 whitespace-pre-line break-words">{toast.message}</div>
             </div>
             <button onClick={() => removeToast(toast.id)} className="text-gray-400 hover:text-gray-600 shrink-0 mt-0.5">
               <X className="h-4 w-4" />
@@ -273,7 +289,7 @@ const TableBody = ({
 
     return (
       <tr
-        key={row.key || row.id || idx}
+        key={`${row.key || row.id || 'row'}_${globalIndex}_${row.patientId || ''}`}
         className={`border-b border-gray-200 group hover:bg-primary-100 transition-colors ${onRowDoubleClick ? 'cursor-pointer' : ''} ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-primary-200' : ''}`}
         onClick={() => {
           if (enableSelection && onSelect) {
@@ -577,9 +593,16 @@ const DynamicTable = <T extends Record<string, any>>({
 
   const visibleColumnsList = columns.filter(c => visibleCols[c.key]);
 
-  const totalPages = Math.ceil(data.length / rowsPerPage);
-  const startIndex = (currentPage - 1) * rowsPerPage;
+  const totalPages = Math.max(1, Math.ceil(data.length / rowsPerPage));
+  const safePage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safePage - 1) * rowsPerPage;
   const currentData = data.slice(startIndex, startIndex + rowsPerPage);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -1092,6 +1115,7 @@ const DynamicTable = <T extends Record<string, any>>({
             enableSelection={enableSelection}
             selectedIds={selectedIds}
             onSelect={onSelect}
+            onRowDoubleClick={onRowDoubleClick}
             rowStyle={rowStyle}
             customRowRender={customRowRender}
             density={density}
@@ -1655,7 +1679,8 @@ const InnerApp: React.FC = () => {
     const res = await validateListFile(f);
 
     if (!res.valid) {
-      addToast(res.error || "File không hợp lệ", 'error');
+      addToast(res.error || "File không hợp lệ", 'error', 14000);
+      updateReportState(currentType, { listFile: null, listDateRange: "" }, 'upload');
       return;
     }
 
@@ -1831,6 +1856,31 @@ const InnerApp: React.FC = () => {
         addToast(`Đã tự động điền ${autoFillMsg.join(' và ')} từ BC hàng ngày.`, 'success');
       }
 
+      // Thông báo chi tiết kết quả lọc theo Khoa/phòng & Vị trí kíp mổ lấy vào báo cáo
+      if (res.filterSummary) {
+        const { totalInFile, importedCount, excludedCount, missingStaffCount, unassignedStaffCount } = res.filterSummary;
+        if (importedCount === 0) {
+          addToast(
+            `Không có ca mổ nào được import! (Toàn bộ ${totalInFile} ca bị loại bỏ do không thỏa mãn cấu hình khoa/phòng hoặc vị trí lấy vào báo cáo).`,
+            'error',
+            12000
+          );
+        } else if (excludedCount > 0) {
+          const detailParts: string[] = [];
+          if (missingStaffCount > 0) detailParts.push(`${missingStaffCount} ca nhân viên đối soát không có trong danh mục`);
+          if (unassignedStaffCount > 0) detailParts.push(`${unassignedStaffCount} ca nhân viên có tên nhưng chưa xếp khoa`);
+          const detailStr = detailParts.length > 0 ? ` (trong đó có ${detailParts.join(', ')})` : '';
+
+          addToast(
+            `Đã import ${importedCount}/${totalInFile} ca mổ. Đã loại bỏ ${excludedCount} ca không thuộc khoa/vị trí cấu hình${detailStr}.`,
+            'info',
+            10000
+          );
+        } else {
+          addToast(`Đã import toàn bộ ${importedCount} ca mổ từ file Excel.`, 'success', 5000);
+        }
+      }
+
       // Thống kê và hiển thị thông báo áp giá cho Báo cáo tháng / Minh Lộ
       if (type === 'monthly' && res.validRecords) {
         const totalCount = res.validRecords.length;
@@ -1874,8 +1924,10 @@ const InnerApp: React.FC = () => {
 
     } catch (error: any) {
       console.error(error);
-      addToast(error.message || "Có lỗi xử lý", 'error');
+      addToast(error.message || "Có lỗi xử lý", 'error', 14000);
       updateReportState(type, {
+        listFile: null,
+        listDateRange: '',
         stats: null,
         result: null,
         isProcessing: false
@@ -2306,6 +2358,10 @@ const InnerApp: React.FC = () => {
 
   const [listPage, setListPage] = useState(1);
 
+  useEffect(() => {
+    setListPage(1);
+  }, [currentReport.searchTerms.list, emptyFilterCol]);
+
   const handleSaveAssistant = async (val: string) => {
     const cleanVal = val ? val.trim() : '';
     console.log(`[SaveAssistant] Called with Value: "${val}" (Clean: "${cleanVal}")`);
@@ -2491,8 +2547,11 @@ const InnerApp: React.FC = () => {
     }
   };
 
-  const handleRowDoubleClick = (row: SurgeryRecord) => {
-    if (activeTab === 'monthly' && (currentReport.activeTable || 'list') === 'list') {
+  const handleRowDoubleClick = (row: any) => {
+    if (!row) return;
+    if (row.rec1) {
+      setEditingRecord(row.rec1);
+    } else {
       setEditingRecord(row);
     }
   };
@@ -2506,17 +2565,18 @@ const InnerApp: React.FC = () => {
     const newRecords = [...currentReport.result.validRecords];
     newRecords[index] = updatedRecord;
 
-    // Lưu Firestore nếu bản ghi đã có path
+    // Lưu Firestore tức thì nếu bản ghi đã có path
     const path = (updatedRecord as any).firestorePath;
     if (path) {
       try {
-        const docRef = doc(firestore, path);
-        await updateDoc(docRef, { ...updatedRecord });
+        const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
+        await reportService.updateSingleRecord(path, updatedRecord, type);
       } catch (err) {
         console.error('[SurgeryEdit] Update firestore failed:', err);
       }
     }
 
+    // Tự động tính toán lại toàn diện: cảnh báo trùng NV, trùng máy, thiếu máy, thiếu GV, thanh toán PTTT
     const newResultPartial = recalculateResultFromRecords(newRecords, config);
     updateCurrentReport({
       result: {
@@ -2564,39 +2624,56 @@ const InnerApp: React.FC = () => {
         onSelect={handleRowSelect}
         onSelectAll={handleSelectAll}
         onDelete={handleDeleteSelected}
-        onEditRecord={activeTab === 'monthly' ? handleOpenEditModal : undefined}
-        onRowDoubleClick={activeTab === 'monthly' ? handleRowDoubleClick : undefined}
+        onEditRecord={handleOpenEditModal}
+        onRowDoubleClick={handleRowDoubleClick}
         currentPage={listPage}
         onPageChange={setListPage}
         onSaveAssistant={handleSaveAssistant}
         extraSearchContent={
-          <div className="relative ml-2">
-            <button
-              type="button"
-              onClick={() => setShowEmptyFilterMenu(prev => !prev)}
-              className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-all select-none whitespace-nowrap ${
-                emptyFilterCol
-                  ? 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100'
-                  : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
-              {emptyFilterCol
-                ? <>Lọc ô trống: <span className="font-bold text-red-800">{columnsList.find(c => c.key === emptyFilterCol)?.label || emptyFilterCol}</span></>
-                : 'Lọc ô trống'
-              }
-              {emptyFilterCol && (
-                <span
-                  onClick={(e) => { e.stopPropagation(); setEmptyFilterCol(null); setShowEmptyFilterMenu(false); }}
-                  className="ml-1 text-red-400 hover:text-red-700 cursor-pointer"
-                  title="Bỏ lọc"
-                >✕</span>
-              )}
-            </button>
+          <div className="relative ml-2 flex items-center">
+            <div className="inline-flex rounded-lg shadow-sm border border-gray-300 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setEmptyFilterCol(prev => prev === 'gv' ? null : 'gv')}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 transition-all select-none whitespace-nowrap ${
+                  emptyFilterCol
+                    ? 'bg-red-50 text-red-700 hover:bg-red-100 font-semibold'
+                    : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+                title={emptyFilterCol ? "Nhấp để bỏ lọc ô trống" : "Nhấp để lọc nhanh các ca chưa có Giúp việc"}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
+                {emptyFilterCol ? (
+                  <>
+                    <span>Lọc trống: <strong className="text-red-800">{columnsList.find(c => c.key === emptyFilterCol)?.label || emptyFilterCol}</strong></span>
+                    <span
+                      onClick={(e) => { e.stopPropagation(); setEmptyFilterCol(null); }}
+                      className="ml-1 text-red-400 hover:text-red-700 cursor-pointer"
+                      title="Bỏ lọc"
+                    >✕</span>
+                  </>
+                ) : (
+                  'Lọc GV trống'
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowEmptyFilterMenu(prev => !prev)}
+                className={`px-1.5 py-1.5 border-l border-gray-200 transition-colors ${
+                  emptyFilterCol ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-white text-gray-500 hover:bg-gray-50'
+                }`}
+                title="Chọn cột khác để lọc ô trống"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              </button>
+            </div>
             {showEmptyFilterMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowEmptyFilterMenu(false)} />
-                <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-xl py-1 min-w-[200px] max-h-[320px] overflow-y-auto">
+                <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-xl py-1 min-w-[210px] max-h-[320px] overflow-y-auto">
+                  <div className="px-3 py-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                    Chọn cột cần lọc trống
+                  </div>
                   {columnsList.filter(c => c.key !== 'stt').map(col => (
                     <button
                       key={col.key}
@@ -2628,13 +2705,13 @@ const InnerApp: React.FC = () => {
     }
     if (currentReport.activeTable === 'staff') {
       const staffRowStyle = (r: StaffConflict) => r.violationType === 'max2' ? 'text-red-600 font-bold bg-red-50' : '';
-      return <DynamicTable data={filteredStaff} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={currentReport.searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} />;
+      return <DynamicTable data={filteredStaff} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={currentReport.searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} onRowDoubleClick={handleRowDoubleClick} />;
     }
     if (currentReport.activeTable === 'machine') {
-      return <DynamicTable data={filteredMachine} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={currentReport.searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} />;
+      return <DynamicTable data={filteredMachine} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={currentReport.searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} onRowDoubleClick={handleRowDoubleClick} />;
     }
     if (currentReport.activeTable === 'missing') {
-      return <DynamicTable data={filteredMissing} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={currentReport.searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} />;
+      return <DynamicTable data={filteredMissing} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={currentReport.searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} onRowDoubleClick={handleRowDoubleClick} />;
     }
     if (currentReport.activeTable === 'payment') {
       if (!paymentDataPrepared) return null;
@@ -3379,6 +3456,17 @@ const InnerApp: React.FC = () => {
         thanhTien: r.thanhTien,
       }));
 
+      // Với BC hàng ngày: tự động kiểm tra mã BN, tên PTTT, khoảng thời gian ở BC tháng để lấy Mã tương đương, Đơn giá, Thành tiền
+      let syncedPriceCount = 0;
+      if (type === 'DAILY' && convertedRecords.length > 0) {
+        try {
+          const syncRes = await reportService.syncPricingFromMonthly(convertedRecords, isoFrom, isoTo);
+          syncedPriceCount = syncRes.updatedCount;
+        } catch (syncErr) {
+          console.warn('Lỗi khi đồng bộ giá từ BC tháng sang BC hàng ngày:', syncErr);
+        }
+      }
+
       const queryRangeText = `Từ ngày ${formatDateForDisplay(effDateFrom, effTimeFrom)} đến ngày ${formatDateForDisplay(effDateTo, effTimeTo)}`;
       const res = await reprocessSurgicalRecords(convertedRecords, config, queryRangeText);
 
@@ -3485,9 +3573,14 @@ const InnerApp: React.FC = () => {
           isProcessing: false,
           dataSource: 'STORAGE',
           queryDateRangeText: `Từ ngày ${formatDateForDisplay(getState(currentType, 'storage').dateFrom, getState(currentType, 'storage').timeFrom)} đến ngày ${formatDateForDisplay(getState(currentType, 'storage').dateTo, getState(currentType, 'storage').timeTo)}`,
-          selectedRecordIds: [] // Reset selection
+          selectedRecordIds: []
         }, 'storage');
-        addToast(`Đã tải ${persistedRecords.length} bản ghi thành công.`, 'success');
+
+        let loadSuccessMsg = `Đã tải ${persistedRecords.length} bản ghi thành công.`;
+        if (syncedPriceCount > 0) {
+          loadSuccessMsg += ` Tự động lấy giá (Mã tương đương, Đơn giá, Thành tiền) cho ${syncedPriceCount} ca từ Báo cáo tháng.`;
+        }
+        addToast(loadSuccessMsg, 'success');
       } else {
         addToast(res.message, 'error');
       }

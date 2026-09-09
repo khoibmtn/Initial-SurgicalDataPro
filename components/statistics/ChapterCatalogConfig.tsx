@@ -10,6 +10,7 @@ import {
   Loader2, FileSpreadsheet, BookOpen,
 } from 'lucide-react';
 import { ChapterCatalog } from '../../types';
+import { useConfig } from '../../contexts/ConfigContext';
 import {
   createChapter,
   updateChapter,
@@ -39,6 +40,7 @@ const EMPTY_ROW: EditRow = {
 const DEFAULT_PAGE_SIZE = 30;
 
 export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
+  const { isLocked } = useConfig();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -91,6 +93,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
 
   // --- CRUD ---
   const handleStartEdit = (c: ChapterCatalog) => {
+    if (isLocked) return;
     setEditingId(c.id);
     setEditRow({
       ma_chuong: c.ma_chuong,
@@ -100,6 +103,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
   };
 
   const handleStartAdd = () => {
+    if (isLocked) return;
     setShowAddForm(true);
     setEditingId(null);
     setEditRow(EMPTY_ROW);
@@ -112,6 +116,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
   };
 
   const handleSave = async () => {
+    if (isLocked) return;
     if (!editRow.ma_chuong.trim()) {
       showToast('Vui lòng nhập mã chương', 'error');
       return;
@@ -144,6 +149,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
   };
 
   const handleDelete = async (c: ChapterCatalog) => {
+    if (isLocked) return;
     if (!window.confirm(`Xóa chương "${c.ma_chuong} - ${c.ten_chuong}"?`)) return;
     try {
       await deleteChapter(c.id);
@@ -155,6 +161,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
 
   // --- Selection ---
   const toggleSelect = (id: string) => {
+    if (isLocked) return;
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -163,6 +170,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
   };
 
   const toggleSelectAll = () => {
+    if (isLocked) return;
     if (selectedIds.size === filtered.length) {
       setSelectedIds(new Set());
     } else {
@@ -171,6 +179,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
   };
 
   const handleBulkDelete = async () => {
+    if (isLocked) return;
     if (selectedIds.size === 0) return;
     if (!window.confirm(`Xóa ${selectedIds.size} bản ghi đã chọn?`)) return;
     setSaving(true);
@@ -187,6 +196,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
 
   // --- Seed ---
   const handleSeed = async () => {
+    if (isLocked) return;
     if (!window.confirm('Nạp danh sách 28 chương mặc định (bỏ qua các mã đã tồn tại)?')) return;
     setSeeding(true);
     try {
@@ -201,6 +211,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
 
   // --- Excel Import ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLocked) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -265,8 +276,9 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleSeed}
-            disabled={seeding}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+            disabled={seeding || isLocked}
+            title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : undefined}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
             {seeding ? 'Đang nạp...' : 'Nạp mặc định'}
@@ -286,20 +298,33 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
             <Download className="h-3.5 w-3.5" />
             Xuất Excel
           </button>
-          <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors">
-            <Upload className="h-3.5 w-3.5" />
-            Import Excel
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={handleFileUpload}
-            />
-          </label>
+          {isLocked ? (
+            <button
+              disabled
+              title="Cấu hình đang khóa (Chỉ xem)"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-200 rounded-lg text-gray-400 bg-gray-100 cursor-not-allowed"
+            >
+              <Upload className="h-3.5 w-3.5 text-gray-400" />
+              Import Excel
+            </button>
+          ) : (
+            <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors">
+              <Upload className="h-3.5 w-3.5" />
+              Import Excel
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                className="hidden"
+                onChange={handleFileUpload}
+              />
+            </label>
+          )}
           <button
             onClick={handleStartAdd}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors"
+            disabled={isLocked}
+            title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : undefined}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
             Thêm mới
@@ -307,8 +332,9 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
           {selectedIds.size > 0 && (
             <button
               onClick={handleBulkDelete}
-              disabled={saving}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              disabled={saving || isLocked}
+              title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : undefined}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Xóa {selectedIds.size} đã chọn
@@ -386,9 +412,10 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
                   <th className="px-2 py-2 text-center w-8">
                     <input
                       type="checkbox"
+                      disabled={isLocked}
                       checked={filtered.length > 0 && selectedIds.size === filtered.length}
                       onChange={toggleSelectAll}
-                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </th>
                   <th className="px-3 py-2 text-center text-gray-500 font-semibold w-10">#</th>
@@ -416,27 +443,29 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
                     return (
                       <tr key={c.id} className="bg-blue-50 border-b border-blue-100">
                         <td className="px-2 py-2 text-center">
-                          <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
+                          <input type="checkbox" disabled={isLocked} checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" />
                         </td>
                         <td className="px-3 py-2 text-center text-gray-400 text-[10px]">{rowNum}</td>
                         <td className="px-3 py-1">
                           <input
+                            disabled={isLocked}
                             value={editRow.ma_chuong}
                             onChange={e => setEditRow(r => ({ ...r, ma_chuong: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <input
+                            disabled={isLocked}
                             value={editRow.ten_chuong}
                             onChange={e => setEditRow(r => ({ ...r, ten_chuong: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={handleSave} disabled={saving}
-                              className="p-1 rounded hover:bg-blue-200 text-blue-600 disabled:opacity-50">
+                            <button onClick={handleSave} disabled={saving || isLocked}
+                              className="p-1 rounded hover:bg-blue-200 text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
                               <Save className="h-3.5 w-3.5" />
                             </button>
                             <button onClick={handleCancel}
@@ -455,7 +484,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
                       className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                     >
                       <td className="px-2 py-2 text-center">
-                        <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
+                        <input type="checkbox" disabled={isLocked} checked={selectedIds.has(c.id)} onChange={() => toggleSelect(c.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" />
                       </td>
                       <td className="px-3 py-2 text-center text-gray-400 text-[10px]">{rowNum}</td>
                       <td className="px-3 py-2 text-gray-800 font-bold text-[11px] font-mono">
@@ -468,15 +497,17 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
                         <div className="flex items-center justify-center gap-0.5">
                           <button
                             onClick={() => handleStartEdit(c)}
-                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
-                            title="Sửa"
+                            disabled={isLocked}
+                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={isLocked ? "Đang khóa cấu hình" : "Sửa"}
                           >
                             <Edit3 className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => handleDelete(c)}
-                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
-                            title="Xóa"
+                            disabled={isLocked}
+                            className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={isLocked ? "Đang khóa cấu hình" : "Xóa"}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>

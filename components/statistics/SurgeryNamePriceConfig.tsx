@@ -29,6 +29,7 @@ import {
 } from '../../services/surgeryNamePriceService';
 import { toggleCostItem, getCostRefPriceIds } from '../../services/surgeryCostService';
 import { reportService } from '../../services/reportService';
+import { useConfig } from '../../contexts/ConfigContext';
 import { RefillModal } from './RefillModal';
 import { MissingCatalogModal } from './MissingCatalogModal';
 
@@ -147,6 +148,7 @@ export const InstantTooltip: React.FC<{ content: string; children: React.ReactNo
 );
 
 export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, costItems, profiles = [] }) => {
+  const { isLocked } = useConfig();
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -320,6 +322,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
 
   // --- CRUD ---
   const handleStartEdit = (p: SurgeryNamePrice) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setEditingId(p.id);
     setEditRow({
       tenKT: p.tenKT,
@@ -332,6 +338,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   };
 
   const handleStartAdd = () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setShowAddForm(true);
     setEditingId(null);
     setEditRow(EMPTY_ROW);
@@ -344,6 +354,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   };
 
   const handleSave = async () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (!editRow.tenKT.trim()) {
       showToast('Vui lòng nhập tên kỹ thuật', 'error');
       return;
@@ -384,6 +398,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   };
 
   const handleDelete = async (p: SurgeryNamePrice) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (!window.confirm(`Xóa "${p.tenKT}" (${fmtMoney(p.price)})?`)) return;
     try {
       await deleteSurgeryNamePrice(p.id);
@@ -395,6 +413,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
 
   // --- Selection ---
   const toggleSelect = (id: string) => {
+    if (isLocked) return;
     setSelectedIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -403,6 +422,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   };
 
   const toggleSelectAll = () => {
+    if (isLocked) return;
     if (selectedIds.size === filtered.length) {
       setSelectedIds(new Set());
     } else {
@@ -411,6 +431,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   };
 
   const handleBulkDelete = async () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     if (selectedIds.size === 0) return;
     if (!window.confirm(`Xóa ${selectedIds.size} bản ghi đã chọn?`)) return;
     setSaving(true);
@@ -427,6 +451,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
 
   // --- Quét DM thiếu (không tự ý thêm, hiển thị modal đề xuất để user duyệt) ---
   const handleScanMissing = async () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setSeeding(true);
     setSeedProgress('Đang quét CSDL...');
     try {
@@ -446,6 +474,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   };
 
   const handleConfirmMissing = async (selected: MissingCatalogCandidate[]) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setIsAddingMissing(true);
     try {
       const added = await applyMissingCatalogCandidates(selected);
@@ -460,6 +492,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
 
   // --- Refill from Excel Sourced Records ---
   const handleStartExcelRefill = async () => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setIsRefilling(true);
     setRefillProgress('Đang quét dữ liệu Firestore...');
     try {
@@ -492,6 +528,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   };
 
   const handleConfirmRefill = async (selected: RefillCandidateItem[]) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     setIsRefilling(true);
     setRefillProgress('Đang cập nhật Danh mục giá...');
     try {
@@ -539,6 +579,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
 
   // --- Excel Import ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isLocked) {
+      showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -610,11 +654,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Quét DM thiếu (phát hiện ca chưa có giá, hiển thị đề xuất để user duyệt) */}
-          <InstantTooltip content="Quét toàn bộ ca PT trên hệ thống để phát hiện các kỹ thuật chưa có trong DM giá. Hiển thị danh sách đề xuất để bạn xem lại và tick chọn trước khi thêm.">
+          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Quét toàn bộ ca PT trên hệ thống để phát hiện các kỹ thuật chưa có trong DM giá. Hiển thị danh sách đề xuất để bạn xem lại và tick chọn trước khi thêm."}>
             <button
               onClick={handleScanMissing}
-              disabled={seeding}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+              disabled={seeding || isLocked}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scan className="h-3.5 w-3.5" />}
               {seeding ? seedProgress || 'Đang quét...' : 'Quét DM thiếu'}
@@ -643,9 +687,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                   <button onClick={() => { exportSurgeryNamePrices(surgeryNamePrices); setShowExcelMenu(false); }} disabled={surgeryNamePrices.length === 0} className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50" title="Xuất toàn bộ danh mục giá ra file Excel">
                     <Download className="h-3.5 w-3.5 text-gray-400" /> Xuất Excel
                   </button>
-                  <label className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center gap-2 cursor-pointer" title="Import danh mục giá từ file Excel (.xlsx)">
+                  <label className={`w-full text-left px-3 py-2 text-xs flex items-center gap-2 ${
+                    isLocked ? 'text-gray-400 cursor-not-allowed opacity-50' : 'hover:bg-gray-50 cursor-pointer'
+                  }`} title={isLocked ? "Cấu hình đang bị khóa" : "Import danh mục giá từ file Excel (.xlsx)"}>
                     <Upload className="h-3.5 w-3.5 text-blue-500" /> Import Excel
-                    <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { handleFileUpload(e); setShowExcelMenu(false); }} />
+                    <input ref={fileInputRef} disabled={isLocked} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { handleFileUpload(e); setShowExcelMenu(false); }} />
                   </label>
                 </div>
               </>
@@ -653,11 +699,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </div>
 
           {/* Refill từ file Excel */}
-          <InstantTooltip content="Quét các ca đã import từ file Excel DVKT để đối chiếu và cập nhật giá trong DM. Sau đó tự động áp giá cho các ca chưa có giá.">
+          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Quét các ca đã import từ file Excel DVKT để đối chiếu và cập nhật giá trong DM. Sau đó tự động áp giá cho các ca chưa có giá."}>
             <button
               onClick={handleStartExcelRefill}
-              disabled={isRefilling}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 transition-colors shadow-sm"
+              disabled={isRefilling || isLocked}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
             >
               {isRefilling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-600" />}
               {isRefilling ? refillProgress || 'Đang quét...' : 'Refill từ Excel'}
@@ -665,10 +711,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </InstantTooltip>
 
           {/* Thêm mới */}
-          <InstantTooltip content="Thêm thủ công 1 kỹ thuật mới vào danh mục giá">
+          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Thêm thủ công 1 kỹ thuật mới vào danh mục giá"}>
             <button
               onClick={handleStartAdd}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 transition-colors"
+              disabled={isLocked}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-primary-700 text-white rounded-lg hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               Thêm mới
@@ -676,11 +723,11 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </InstantTooltip>
 
           {selectedIds.size > 0 && (
-            <InstantTooltip content="Xóa tất cả các mục đã chọn khỏi danh mục giá">
+            <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Xóa tất cả các mục đã chọn khỏi danh mục giá"}>
               <button
                 onClick={handleBulkDelete}
-                disabled={saving}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                disabled={saving || isLocked}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Xóa {selectedIds.size}
@@ -954,8 +1001,8 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={handleSave} disabled={saving}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 text-white rounded-lg text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 transition-colors">
+            <button onClick={handleSave} disabled={saving || isLocked}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 text-white rounded-lg text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               <Save className="h-3.5 w-3.5" />
               {saving ? 'Đang lưu...' : 'Thêm'}
             </button>
@@ -987,9 +1034,10 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                   <th className="px-2 py-2 text-center w-8">
                     <input
                       type="checkbox"
+                      disabled={isLocked}
                       checked={filtered.length > 0 && selectedIds.size === filtered.length}
                       onChange={toggleSelectAll}
-                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                     />
                   </th>
                   <th className="px-3 py-2 text-left text-gray-500 font-semibold w-28">Mã TĐ</th>
@@ -1028,51 +1076,56 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                     return (
                       <tr key={p.id} className="bg-blue-50 border-b border-blue-100">
                         <td className="px-2 py-2 text-center">
-                          <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
+                          <input type="checkbox" disabled={isLocked} checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" />
                         </td>
                         <td className="px-3 py-1">
                           <input
+                            disabled={isLocked}
                             value={editRow.maTuongDuong}
                             onChange={e => setEditRow(r => ({ ...r, maTuongDuong: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                             placeholder="Mã TĐ"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <input
+                            disabled={isLocked}
                             value={editRow.tenKT}
                             onChange={e => setEditRow(r => ({ ...r, tenKT: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <input
                             type="number" min="0"
+                            disabled={isLocked}
                             value={editRow.price}
                             onChange={e => setEditRow(r => ({ ...r, price: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs text-right focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-blue-300 rounded px-2 py-1 text-xs text-right focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <input
                             type="date"
+                            disabled={isLocked}
                             value={editRow.effectiveFrom}
                             onChange={e => setEditRow(r => ({ ...r, effectiveFrom: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-1 py-1 text-[11px] focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-blue-300 rounded px-1 py-1 text-[11px] focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <input
                             type="date"
+                            disabled={isLocked}
                             value={editRow.effectiveTo}
                             onChange={e => setEditRow(r => ({ ...r, effectiveTo: e.target.value }))}
-                            className="w-full border border-blue-300 rounded px-1 py-1 text-[11px] focus:ring-2 focus:ring-blue-500"
+                            className="w-full border border-blue-300 rounded px-1 py-1 text-[11px] focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
                         <td className="px-3 py-1">
                           <div className="flex items-center justify-center gap-1">
-                            <button onClick={handleSave} disabled={saving}
-                              className="p-1 rounded hover:bg-blue-200 text-blue-600 disabled:opacity-50">
+                            <button onClick={handleSave} disabled={saving || isLocked}
+                              className="p-1 rounded hover:bg-blue-200 text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed">
                               <Save className="h-3.5 w-3.5" />
                             </button>
                             <button onClick={handleCancel}
@@ -1093,7 +1146,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                       }`}
                     >
                       <td className="px-2 py-2 text-center">
-                        <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer" />
+                        <input type="checkbox" disabled={isLocked} checked={selectedIds.has(p.id)} onChange={() => toggleSelect(p.id)} className="rounded border-gray-300 text-primary-600 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed" />
                       </td>
                       <td className="px-3 py-2 text-gray-500 text-[11px] font-mono">
                         {p.maTuongDuong || <span className="text-gray-300">—</span>}
@@ -1113,9 +1166,14 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                         )}
                       </td>
                       <td className="px-2 py-2 text-center">
-                        <InstantTooltip content={isInCost ? 'Đã có trong DM Chi phí. Bấm để tắt.' : 'Chưa có trong DM Chi phí. Bấm để bật.'}>
+                        <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : (isInCost ? 'Đã có trong DM Chi phí. Bấm để tắt.' : 'Chưa có trong DM Chi phí. Bấm để bật.')}>
                           <button
+                            disabled={isLocked}
                             onClick={async () => {
+                              if (isLocked) {
+                                showToast('Cấu hình đang bị khóa. Vui lòng mở khóa trước!', 'error');
+                                return;
+                              }
                               try {
                                 await toggleCostItem(p, !isInCost, costItems);
                                 showToast(isInCost ? 'Đã xóa khỏi DM chi phí' : 'Đã thêm vào DM chi phí');
@@ -1123,7 +1181,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                                 showToast(err.message || 'Lỗi toggle', 'error');
                               }
                             }}
-                            className={`p-0.5 rounded transition-colors ${
+                            className={`p-0.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                               isInCost ? 'text-emerald-600 hover:text-emerald-800' : 'text-gray-300 hover:text-gray-500'
                             }`}
                           >
@@ -1133,18 +1191,20 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-center gap-0.5">
-                          <InstantTooltip content="Sửa mục này">
+                          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Sửa mục này"}>
                             <button
+                              disabled={isLocked}
                               onClick={() => handleStartEdit(p)}
-                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors"
+                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-primary-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               <Edit3 className="h-3.5 w-3.5" />
                             </button>
                           </InstantTooltip>
-                          <InstantTooltip content="Xóa mục này">
+                          <InstantTooltip content={isLocked ? "Cấu hình đang bị khóa" : "Xóa mục này"}>
                             <button
+                              disabled={isLocked}
                               onClick={() => handleDelete(p)}
-                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors"
+                              className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
