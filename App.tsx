@@ -85,58 +85,8 @@ import { StorageQueryBar } from './components/surgery/StorageQueryBar';
 import { UploadFileBar } from './components/surgery/UploadFileBar';
 import { buildColumnsList, buildColumnsMissing, buildColumnsStaff, buildColumnsMachine } from './components/surgery/surgeryColumns';
 import { SurgeryTableViewRouter } from './components/surgery/SurgeryTableViewRouter';
-interface ReportState {
-  result: ProcessingResult | null;
-  stats: ProcessedStats | null;
-  isProcessing: boolean;
-  listFile: File | null;
-  activeTable: 'list' | 'staff' | 'machine' | 'missing' | 'payment' | 'duty' | 'overtime' | null;
-  selectedRecordIds: string[]; // IDs of selected records (for 'list' table)
-  searchTerms: {
-    list: string;
-    staff: string;
-    machine: string;
-    missing: string;
-    payment: string;
-    duty?: string;
-    overtime?: string;
-  };
-  // UI State for Date Range Pickers (Independent per tab)
-  dateFrom: string;
-  timeFrom: string;
-  dateTo: string;
-  timeTo: string;
-  // File Meta (Legacy Strings from Validator)
-  listDateRange: string;
-  dataSource: 'EXCEL' | 'STORAGE' | null;
-  queryDateRangeText?: string;
-  hasAutoFilledData?: boolean; // Track if auto-fill succeeded for enabling save button
-}
-
-const initialReportState: ReportState = {
-  result: null,
-  stats: null,
-  isProcessing: false,
-  listFile: null,
-  activeTable: null,
-  selectedRecordIds: [],
-  searchTerms: {
-    list: '',
-    staff: '',
-    machine: '',
-    missing: '',
-    payment: '',
-    duty: '',
-    overtime: ''
-  },
-  dateFrom: format(new Date(), 'yyyy-MM-dd'),
-  timeFrom: '00:00',
-  dateTo: format(new Date(), 'yyyy-MM-dd'),
-  timeTo: '23:59',
-  listDateRange: "",
-  dataSource: null,
-  hasAutoFilledData: false
-};
+import { ReportState, DataTabType } from './types/reportState';
+import { useReportStateManager } from './hooks/useReportStateManager';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
@@ -152,12 +102,7 @@ const InnerApp: React.FC = () => {
     }
   }, [activeTab]);
 
-  type DataTabType = 'storage' | 'upload' | 'price_service';
-  // Per-page data source tab (independent for daily vs monthly)
-  const [activeDataTabs, setActiveDataTabs] = useState<Record<string, DataTabType>>({
-    daily: 'storage',
-    monthly: 'storage'
-  });
+
   const [cachedServiceGroups, setCachedServiceGroups] = useState<PatientServicePriceGroup[]>([]);
   const [namePrices, setNamePrices] = useState<SurgeryNamePrice[]>([]);
 
@@ -174,143 +119,43 @@ const InnerApp: React.FC = () => {
     return window.innerWidth <= 1280;
   });
 
-  // 4 Independent states: report type × data source
-  const [dailyStorageState, setDailyStorageState] = useState<ReportState>(initialReportState);
-  const [dailyUploadState, setDailyUploadState] = useState<ReportState>(initialReportState);
+  const {
+    dailyStorageState,
+    setDailyStorageState,
+    dailyUploadState,
+    setDailyUploadState,
+    monthlyStorageState,
+    setMonthlyStorageState,
+    monthlyUploadState,
+    setMonthlyUploadState,
+    monthlyTimeMode,
+    setMonthlyTimeMode,
+    selectedMonthlyYear,
+    setSelectedMonthlyYear,
+    selectedMonthlyMonth,
+    setSelectedMonthlyMonth,
+    availableMonthlyYears,
+    availableMonthlyMonthsMap,
+    handleMonthlyYearChange,
+    handleMonthlyMonthChange,
+    handleMonthlyTimeModeChange,
+    applyMonthlyDateRange,
+    activeDataTabs,
+    setActiveDataTabs,
+    activeDataTab,
+    setActiveDataTab,
+    currentType,
+    currentReport,
+    getState,
+    getStateSetter,
+    updateReportState,
+    updateCurrentReport,
+    showMonthlyFullPriceNotice,
+    setShowMonthlyFullPriceNotice,
+  } = useReportStateManager({ activeTab });
 
-  // Chế độ chọn thời gian trong Báo cáo tháng: 'month' (Tháng) hoặc 'range' (Khoảng thời gian)
-  const [monthlyTimeMode, setMonthlyTimeMode] = useState<'month' | 'range'>('month');
-
-  // Tính năm và tháng mặc định: Năm hiện tại, Tháng = tháng hiện tại - 1 (nếu tháng 1 thì lùi về tháng 12 năm trước)
-  const [selectedMonthlyYear, setSelectedMonthlyYear] = useState<number>(() => {
-    const now = new Date();
-    const curMonth = now.getMonth() + 1;
-    return curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
-  });
-  const [selectedMonthlyMonth, setSelectedMonthlyMonth] = useState<number>(() => {
-    const curMonth = new Date().getMonth() + 1;
-    return curMonth === 1 ? 12 : curMonth - 1;
-  });
-
-  // Danh mục năm và tháng có dữ liệu thực tế từ Firestore
-  const [availableMonthlyYears, setAvailableMonthlyYears] = useState<number[]>([2023, 2024, 2025, 2026]);
-  const [availableMonthlyMonthsMap, setAvailableMonthlyMonthsMap] = useState<Record<number, number[]>>({
-    2023: [5, 6, 7, 8, 9, 10, 11, 12],
-    2024: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    2025: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    2026: [1, 2, 3, 4, 5, 6, 7, 8],
-  });
-
-  const [monthlyStorageState, setMonthlyStorageState] = useState<ReportState>(() => {
-    const now = new Date();
-    const curMonth = now.getMonth() + 1;
-    const defYear = curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
-    const defMonth = curMonth === 1 ? 12 : curMonth - 1;
-    const mStr = String(defMonth).padStart(2, '0');
-    const lastDay = new Date(defYear, defMonth, 0).getDate();
-    return {
-      ...initialReportState,
-      dateFrom: `${defYear}-${mStr}-01`,
-      timeFrom: '00:00',
-      dateTo: `${defYear}-${mStr}-${String(lastDay).padStart(2, '0')}`,
-      timeTo: '23:59',
-    };
-  });
-  const [monthlyUploadState, setMonthlyUploadState] = useState<ReportState>(initialReportState);
-
-  // Tải danh mục năm & tháng có dữ liệu từ Firestore
-  useEffect(() => {
-    reportService.getAvailableMonthlyYearsAndMonths().then(({ years, monthsMap }) => {
-      if (years && years.length > 0) {
-        setAvailableMonthlyYears(years);
-        setAvailableMonthlyMonthsMap(monthsMap);
-      }
-    }).catch(err => {
-      console.warn("Lỗi tải danh mục năm/tháng cho báo cáo tháng:", err);
-    });
-  }, []);
-
-  const applyMonthlyDateRange = (year: number, month: number) => {
-    const mStr = String(month).padStart(2, '0');
-    const lastDay = new Date(year, month, 0).getDate();
-    const dateFrom = `${year}-${mStr}-01`;
-    const dateTo = `${year}-${mStr}-${String(lastDay).padStart(2, '0')}`;
-    setMonthlyStorageState(prev => ({
-      ...prev,
-      dateFrom,
-      timeFrom: '00:00',
-      dateTo,
-      timeTo: '23:59'
-    }));
-  };
-
-  const handleMonthlyYearChange = (newYear: number) => {
-    setSelectedMonthlyYear(newYear);
-    const monthsForYear = availableMonthlyMonthsMap[newYear] || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    let newMonth = selectedMonthlyMonth;
-    if (!monthsForYear.includes(newMonth)) {
-      newMonth = monthsForYear[monthsForYear.length - 1];
-      setSelectedMonthlyMonth(newMonth);
-    }
-    applyMonthlyDateRange(newYear, newMonth);
-  };
-
-  const handleMonthlyMonthChange = (newMonth: number) => {
-    setSelectedMonthlyMonth(newMonth);
-    applyMonthlyDateRange(selectedMonthlyYear, newMonth);
-  };
-
-  const handleMonthlyTimeModeChange = (mode: 'month' | 'range') => {
-    setMonthlyTimeMode(mode);
-    if (mode === 'month') {
-      applyMonthlyDateRange(selectedMonthlyYear, selectedMonthlyMonth);
-    }
-  };
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
   const [saveConfirm, setSaveConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
-  const [showMonthlyFullPriceNotice, setShowMonthlyFullPriceNotice] = useState<boolean>(true);
-
-  const currentType = (activeTab === 'monthly') ? 'monthly' : 'daily';
-  const activeDataTab = activeDataTabs[currentType] || 'storage';
-  const setActiveDataTab = (v: DataTabType) => {
-    setActiveDataTabs(prev => ({ ...prev, [currentType]: v }));
-  };
-
-  // Resolve state setter by type + source
-  const getStateSetter = (type: 'daily' | 'monthly', source: 'storage' | 'upload') => {
-    if (type === 'daily') return source === 'storage' ? setDailyStorageState : setDailyUploadState;
-    return source === 'storage' ? setMonthlyStorageState : setMonthlyUploadState;
-  };
-  const getState = (type: 'daily' | 'monthly', source: 'storage' | 'upload') => {
-    if (type === 'daily') return source === 'storage' ? dailyStorageState : dailyUploadState;
-    return source === 'storage' ? monthlyStorageState : monthlyUploadState;
-  };
-
-  const currentReport = useMemo(() => {
-    const tab = activeDataTab === 'price_service' ? 'storage' : activeDataTab;
-    return getState(currentType, tab as 'storage' | 'upload');
-  }, [currentType, activeDataTab, dailyStorageState, dailyUploadState, monthlyStorageState, monthlyUploadState]);
-
-  // Tự động ẩn thông báo áp giá đầy đủ ở báo cáo tháng sau 5 giây để tiết kiệm không gian
-  useEffect(() => {
-    if (currentType === 'monthly' && currentReport.result?.surgeries?.length) {
-      setShowMonthlyFullPriceNotice(true);
-      const timer = setTimeout(() => {
-        setShowMonthlyFullPriceNotice(false);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [currentReport.result?.surgeries?.length, currentReport.queryDateRangeText, currentType]);
-
-  const updateReportState = (type: 'daily' | 'monthly', patch: Partial<ReportState>, source?: 'storage' | 'upload') => {
-    const resolvedSource = source ?? (activeDataTabs[type] || 'storage');
-    const setter = getStateSetter(type, resolvedSource);
-    setter(prev => ({ ...prev, ...patch }));
-  };
-
-  const updateCurrentReport = (updates: Partial<ReportState>) => {
-    updateReportState(currentType, updates, activeDataTab);
-  };
 
   // ── Lịch trực & Ngoài giờ (Shared State across Daily & Monthly) ──
   const {
