@@ -32,7 +32,7 @@ function validateListFileFormat(listData: any[][]): string | null {
 
 // ───────────────── Helper: parse dd/mm/yyyy hh:mm → Date ─────────────────
 
-function parseVNDateTime(value: any): Date | null {
+export function parseVNDateTime(value: any): Date | null {
   if (!value) return null;
   const s = String(value).trim();
   // dạng dd/mm/yyyy hh:mm
@@ -173,7 +173,7 @@ function isOverlap(
 
 // (Đã chuyển SurgeryRecord và StaffRole sang types.ts)
 
-function determineLoaiPT(row: any[]): string {
+export function determineLoaiPT(row: any[]): string {
   const j = row[9];
   const k = row[10];
   const l = row[11];
@@ -185,7 +185,7 @@ function determineLoaiPT(row: any[]): string {
   return "";
 }
 
-function determineLoaiTT(row: any[]): string {
+export function determineLoaiTT(row: any[]): string {
   const n = row[13];
   const o = row[14];
   const p = row[15];
@@ -199,7 +199,7 @@ function determineLoaiTT(row: any[]): string {
   return "";
 }
 
-function determineLoaiPTTT(row: any[]): string {
+export function determineLoaiPTTT(row: any[]): string {
   // Cột phẫu thuật (J→M)
   const loaiPT_raw = determineLoaiPT(row);
   if (loaiPT_raw) {

@@ -19,7 +19,7 @@ const NAME_PRICES_PATH = 'surgery_name_prices';
  * Normalize any stored date format → consistent yyyy-mm-dd.
  * Handles: yyyymmdd (string or number), yyyy-mm-dd, empty/null.
  */
-function normalizeStoredDate(raw: any): string {
+export function normalizeStoredDate(raw: any): string {
   if (raw == null || raw === '') return '';
   const s = String(raw).trim();
   // Already yyyy-mm-dd
@@ -34,7 +34,7 @@ function normalizeStoredDate(raw: any): string {
 }
 
 /** Convert ISO UTC string or VN date string → local yyyy-mm-dd (Vietnam timezone) */
-function toLocalDateKey(isoString: string): string {
+export function toLocalDateKey(isoString: string): string {
   if (!isoString) return '';
   const s = String(isoString).trim();
   // If already yyyy-mm-dd, return as-is
@@ -778,7 +778,7 @@ export async function migrateDateFormats(): Promise<{ fixed: number; total: numb
  * - Tên chứa "[gây tê]"
  * - Mã tương đương kết thúc bằng "_GT"
  */
-function isCatalogItemGayTe(item: SurgeryNamePrice): boolean {
+export function isCatalogItemGayTe(item: SurgeryNamePrice): boolean {
   const name = (item.tenKT || '').toLowerCase();
   const mtd = (item.maTuongDuong || '').trim().toUpperCase();
   return name.includes('[gây tê]') || name.includes('(gây tê)') || mtd.endsWith('_GT');
@@ -788,7 +788,7 @@ function isCatalogItemGayTe(item: SurgeryNamePrice): boolean {
  * Kiểm tra xem 1 record Excel có phải là ca gây tê hay không.
  * Dựa trên mã tương đương kết thúc bằng "_GT"
  */
-function isRecordGayTe(maTuongDuong: string): boolean {
+export function isRecordGayTe(maTuongDuong: string): boolean {
   return (maTuongDuong || '').trim().toUpperCase().endsWith('_GT');
 }
 
@@ -841,7 +841,7 @@ export function findCatalogItemByMaTuongDuong(
 /**
  * Tìm TẤT CẢ catalog items (cả gây tê và gây mê) cho 1 baseMTD tại 1 ngày
  */
-function findAllCatalogItemsForMTD(
+export function findAllCatalogItemsForMTD(
   baseMTD: string,
   dateStr: string,
   catalog: SurgeryNamePrice[]
