@@ -83,6 +83,8 @@ import { ConfirmDialog } from './components/common/ConfirmDialog';
 import { buildPrintConfig } from './components/surgery/printConfigBuilder';
 import { ReportActionBar } from './components/surgery/ReportActionBar';
 import { HospitalStatCards } from './components/surgery/HospitalStatCards';
+import { StorageQueryBar } from './components/surgery/StorageQueryBar';
+import { UploadFileBar } from './components/surgery/UploadFileBar';
 interface ReportState {
   result: ProcessingResult | null;
   stats: ProcessedStats | null;
@@ -2377,220 +2379,39 @@ const InnerApp: React.FC = () => {
             {/* ── Data Source Containers (all mounted, CSS display toggle) ── */}
             {/* STORAGE container */}
             <div style={{ display: activeDataTab === 'storage' ? 'block' : 'none' }}>
-              <div className="px-4 pt-2 pb-1">
-                {currentType === 'monthly' ? (
-                  /* ── GIAO DIỆN BÁO CÁO THÁNG ── */
-                  <div className="flex items-center gap-3 flex-wrap">
-                    {/* 1. Box Lấy số liệu theo */}
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Lấy số liệu theo:</label>
-                      <select
-                        value={monthlyTimeMode}
-                        onChange={(e) => handleMonthlyTimeModeChange(e.target.value as 'month' | 'range')}
-                        className="px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 outline-none shadow-xs cursor-pointer"
-                      >
-                        <option value="month">Tháng</option>
-                        <option value="range">Khoảng thời gian</option>
-                      </select>
-                    </div>
-
-                    {monthlyTimeMode === 'month' ? (
-                      <>
-                        {/* 2. Box Năm */}
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Năm:</label>
-                          <select
-                            value={selectedMonthlyYear}
-                            onChange={(e) => handleMonthlyYearChange(Number(e.target.value))}
-                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 outline-none shadow-xs cursor-pointer min-w-[85px]"
-                          >
-                            {availableMonthlyYears.map(y => (
-                              <option key={y} value={y}>Năm {y}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* 3. Box Tháng */}
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Tháng:</label>
-                          <select
-                            value={selectedMonthlyMonth}
-                            onChange={(e) => handleMonthlyMonthChange(Number(e.target.value))}
-                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-xs font-bold text-gray-800 focus:ring-2 focus:ring-primary-500 outline-none shadow-xs cursor-pointer min-w-[95px]"
-                          >
-                            {(availableMonthlyMonthsMap[selectedMonthlyYear] || [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]).map(m => (
-                              <option key={m} value={m}>Tháng {String(m).padStart(2, '0')}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Nút Lấy dữ liệu (ở chế độ Tháng chỉ có nút này, KHÔNG có nút Dữ liệu trực) */}
-                        <button
-                          onClick={handleGetReport}
-                          className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white transition-colors shadow-sm cursor-pointer"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Lấy dữ liệu
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {/* Chế độ Khoảng thời gian: hiển thị đầy đủ Từ/Đến, Lấy dữ liệu và Dữ liệu trực */}
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Từ:</label>
-                          <input
-                            type="date"
-                            value={getState(currentType, 'storage').dateFrom}
-                            onChange={(e) => updateReportState(currentType, { dateFrom: e.target.value }, 'storage')}
-                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
-                          />
-                          <input
-                            type="text"
-                            placeholder="HH:mm"
-                            value={getState(currentType, 'storage').timeFrom}
-                            onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeFrom: val }, 'storage'))}
-                            maxLength={5}
-                            className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Đến:</label>
-                          <input
-                            type="date"
-                            value={getState(currentType, 'storage').dateTo}
-                            onChange={(e) => updateReportState(currentType, { dateTo: e.target.value }, 'storage')}
-                            className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
-                          />
-                          <input
-                            type="text"
-                            placeholder="HH:mm"
-                            value={getState(currentType, 'storage').timeTo}
-                            onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeTo: val }, 'storage'))}
-                            maxLength={5}
-                            className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
-                          />
-                        </div>
-                        <button
-                          onClick={handleGetReport}
-                          className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white transition-colors shadow-sm cursor-pointer"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Lấy dữ liệu
-                        </button>
-                        <button
-                          onClick={handleAutoFill24hShift}
-                          className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-white text-primary-700 border border-primary-200 hover:bg-primary-50 transition-colors cursor-pointer"
-                        >
-                          <Zap className="h-3.5 w-3.5" />
-                          Dữ liệu trực
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  /* ── GIAO DIỆN BÁO CÁO HÀNG NGÀY (GIỮ NGUYÊN) ── */
-                  <div className="flex items-end gap-3 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Từ:</label>
-                      <input
-                        type="date"
-                        value={getState(currentType, 'storage').dateFrom}
-                        onChange={(e) => updateReportState(currentType, { dateFrom: e.target.value }, 'storage')}
-                        className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="HH:mm"
-                        value={getState(currentType, 'storage').timeFrom}
-                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeFrom: val }, 'storage'))}
-                        maxLength={5}
-                        className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs font-semibold text-gray-500 whitespace-nowrap">Đến:</label>
-                      <input
-                        type="date"
-                        value={getState(currentType, 'storage').dateTo}
-                        onChange={(e) => updateReportState(currentType, { dateTo: e.target.value }, 'storage')}
-                        className="px-2.5 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none"
-                      />
-                      <input
-                        type="text"
-                        placeholder="HH:mm"
-                        value={getState(currentType, 'storage').timeTo}
-                        onChange={(e) => handleTimeChange(e.target.value, (val) => updateReportState(currentType, { timeTo: val }, 'storage'))}
-                        maxLength={5}
-                        className="w-16 px-2 py-1.5 bg-amber-50 border border-amber-300 rounded-lg text-sm text-center text-gray-700 focus:ring-2 focus:ring-primary-500 outline-none placeholder:text-gray-400"
-                      />
-                    </div>
-                    <button
-                      onClick={handleGetReport}
-                      className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-primary-700 hover:bg-primary-800 text-white transition-colors shadow-sm"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Lấy dữ liệu
-                    </button>
-                    <button
-                      onClick={handleAutoFill24hShift}
-                      className="px-4 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-white text-primary-700 border border-primary-200 hover:bg-primary-50 transition-colors"
-                    >
-                      <Zap className="h-3.5 w-3.5" />
-                      Dữ liệu trực
-                    </button>
-                  </div>
-                )}
-              </div>
+              <StorageQueryBar
+                currentType={currentType}
+                monthlyTimeMode={monthlyTimeMode}
+                onMonthlyTimeModeChange={handleMonthlyTimeModeChange}
+                selectedMonthlyYear={selectedMonthlyYear}
+                onMonthlyYearChange={handleMonthlyYearChange}
+                availableMonthlyYears={availableMonthlyYears}
+                selectedMonthlyMonth={selectedMonthlyMonth}
+                onMonthlyMonthChange={handleMonthlyMonthChange}
+                availableMonthlyMonthsMap={availableMonthlyMonthsMap}
+                dateFrom={getState(currentType, 'storage').dateFrom}
+                onDateFromChange={(val) => updateReportState(currentType, { dateFrom: val }, 'storage')}
+                dateTo={getState(currentType, 'storage').dateTo}
+                onDateToChange={(val) => updateReportState(currentType, { dateTo: val }, 'storage')}
+                timeFrom={getState(currentType, 'storage').timeFrom}
+                onTimeFromChange={(val) => updateReportState(currentType, { timeFrom: val }, 'storage')}
+                timeTo={getState(currentType, 'storage').timeTo}
+                onTimeToChange={(val) => updateReportState(currentType, { timeTo: val }, 'storage')}
+                onGetReport={handleGetReport}
+                onAutoFill24hShift={handleAutoFill24hShift}
+                handleTimeChange={handleTimeChange}
+              />
             </div>
 
             {/* UPLOAD (Minh Lộ) container */}
             <div style={{ display: activeDataTab === 'upload' ? 'block' : 'none' }}>
-              <div className="px-4 pt-3 pb-2">
-                <div className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors ${getState(currentType, 'upload').listFile ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}>
-                  {/* File info + drop zone (left, expanded) */}
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${getState(currentType, 'upload').listFile ? 'bg-amber-500 text-white' : 'bg-primary-700 text-white'}`}>
-                      <FileText className="h-4 w-4" />
-                    </div>
-                    <span className="font-bold text-gray-800 text-sm shrink-0">Danh sách PT</span>
-                    <div className="flex-1 min-w-0 h-10">
-                      <FileUpload label="" file={getState(currentType, 'upload').listFile} onFileSelect={handleListFileSelect} accept=".xlsx, .xls" compact={true} />
-                    </div>
-                  </div>
-                  {/* Action buttons (right) */}
-                  <div className="flex gap-2 shrink-0">
-                    {getState(currentType, 'upload').isProcessing ? (
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary-50 border border-primary-200 text-primary-700 font-bold text-xs animate-pulse">
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                        Đang xử lý...
-                      </div>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleProcess(currentType)}
-                          disabled={!getState(currentType, 'upload').listFile}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors ${getState(currentType, 'upload').listFile
-                            ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            }`}
-                        >
-                          <Zap className="h-3.5 w-3.5" />
-                          Xử lý
-                        </button>
-                        {getState(currentType, 'upload').listFile && (
-                          <button
-                            onClick={() => handleResetUpload(currentType)}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg font-bold text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            Hủy
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <UploadFileBar
+                listFile={getState(currentType, 'upload').listFile}
+                isProcessing={getState(currentType, 'upload').isProcessing}
+                onFileSelect={handleListFileSelect}
+                onProcess={() => handleProcess(currentType)}
+                onReset={() => handleResetUpload(currentType)}
+              />
             </div>
 
             {/* PRICE SERVICE (Thống kê giá DVKT) container */}
