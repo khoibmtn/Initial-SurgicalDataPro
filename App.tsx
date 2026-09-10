@@ -1333,6 +1333,7 @@ const InnerApp: React.FC = () => {
   };
   const [deleteConfirm, setDeleteConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
   const [saveConfirm, setSaveConfirm] = useState<{ show: boolean; message: string; onConfirm: (() => void) | null }>({ show: false, message: '', onConfirm: null });
+  const [showMonthlyFullPriceNotice, setShowMonthlyFullPriceNotice] = useState<boolean>(true);
 
   const currentType = (activeTab === 'monthly') ? 'monthly' : 'daily';
   const activeDataTab = activeDataTabs[currentType] || 'storage';
@@ -1354,6 +1355,17 @@ const InnerApp: React.FC = () => {
     const tab = activeDataTab === 'price_service' ? 'storage' : activeDataTab;
     return getState(currentType, tab as 'storage' | 'upload');
   }, [currentType, activeDataTab, dailyStorageState, dailyUploadState, monthlyStorageState, monthlyUploadState]);
+
+  // Tự động ẩn thông báo áp giá đầy đủ ở báo cáo tháng sau 5 giây để tiết kiệm không gian
+  useEffect(() => {
+    if (currentType === 'monthly' && currentReport.result?.surgeries?.length) {
+      setShowMonthlyFullPriceNotice(true);
+      const timer = setTimeout(() => {
+        setShowMonthlyFullPriceNotice(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [currentReport.result?.surgeries?.length, currentReport.queryDateRangeText, currentType]);
 
   const updateReportState = (type: 'daily' | 'monthly', patch: Partial<ReportState>, source?: 'storage' | 'upload') => {
     const resolvedSource = source ?? (activeDataTabs[type] || 'storage');
@@ -3913,7 +3925,7 @@ const InnerApp: React.FC = () => {
             {/* ── Data Source Containers (all mounted, CSS display toggle) ── */}
             {/* STORAGE container */}
             <div style={{ display: activeDataTab === 'storage' ? 'block' : 'none' }}>
-              <div className="px-4 pt-3 pb-2">
+              <div className="px-4 pt-2 pb-1">
                 {currentType === 'monthly' ? (
                   /* ── GIAO DIỆN BÁO CÁO THÁNG ── */
                   <div className="flex items-center gap-3 flex-wrap">
@@ -4233,20 +4245,29 @@ const InnerApp: React.FC = () => {
                     );
                   }
 
+                  if (!showMonthlyFullPriceNotice) return null;
+
                   return (
-                    <div className="mx-4 mt-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-2 text-emerald-900 shadow-xs">
+                    <div className="mx-4 mt-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between gap-2 text-emerald-900 shadow-xs animate-fade-in transition-all">
                       <div className="flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                         <span className="text-xs font-medium">
                           Đã có {priced}/{total} trường hợp có giá áp dụng (Đầy đủ 100%).
                         </span>
                       </div>
+                      <button
+                        onClick={() => setShowMonthlyFullPriceNotice(false)}
+                        className="text-emerald-700 hover:text-emerald-900 p-0.5 rounded cursor-pointer transition-colors"
+                        title="Đóng thông báo"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   );
                 })()}
 
                 {/* ── Date range + Action Buttons Row ── */}
-                <div className="flex items-center justify-between gap-2 px-4 mt-3">
+                <div className="flex items-center justify-between gap-2 px-4 mt-1.5">
                   {/* Date range text (left) */}
                   <p className="text-xs text-gray-500 font-medium">
                     {(currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
@@ -4340,7 +4361,7 @@ const InnerApp: React.FC = () => {
                 </div>
 
                 {/* ── Stat Cards (HospotalStat-VT style) ── */}
-                <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5 px-4 mt-2">
+                <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 px-4 mt-1.5">
                   {[
                     { label: 'TỔNG PT/TT', value: derivedStats.totalSurgeries, icon: <Activity className="stat-card-icon" />, bgFrom: '#eff6ff', border: '#dbeafe', labelColor: '#2563eb', iconColor: '#60a5fa', valueColor: '#1e3a5f' },
                     { label: 'TT <100%', value: derivedStats.lowPaymentCount || 0, icon: <CreditCard className="stat-card-icon" />, bgFrom: '#f8fafc', border: '#e2e8f0', labelColor: '#64748b', iconColor: '#94a3b8', valueColor: '#334155' },
@@ -4371,11 +4392,12 @@ const InnerApp: React.FC = () => {
                 </div>
 
                   {/* ── Internal Sub-Tabs (TabLine + persistent containers) ── */}
-                  <div className="flex flex-col mt-4">
-                    <div className="px-4">
+                  <div className="flex flex-col mt-1.5">
+                    <div className="border-t border-blue-200/80 border-b-2 border-blue-300 bg-blue-50/75 px-4 min-h-[44px] flex items-center overflow-x-auto overflow-y-hidden">
                       <TabLine
                         value={currentReport.activeTable || 'list'}
                         onChange={(v) => setActiveTable(v as any)}
+                        size="sm"
                         options={[
                           { value: 'list', label: 'DS Phẫu thuật', icon: ListChecks, badge: ptCount > 0 || ttCount > 0 ? `${ptCount} PT${ttCount > 0 ? ` ${ttCount} TT` : ''}` : '0' },
                           { value: 'staff', label: 'Trùng NV', icon: Users, badge: currentReport.stats?.staffConflicts ?? 0, badgeColor: (currentReport.stats?.staffConflicts ?? 0) > 0 ? 'bg-red-100 text-red-700' : undefined },
@@ -4385,13 +4407,11 @@ const InnerApp: React.FC = () => {
                           { value: 'duty', label: 'Lịch trực', icon: CalendarDays, badge: currentReportDutyDateCount || 0 },
                           { value: 'overtime', label: 'Ngoài giờ', icon: Clock, badge: currentReportOvertimeCount || 0, badgeColor: currentReportOvertimeCount > 0 ? 'bg-amber-100 text-amber-800' : undefined },
                         ]}
-                        size="sm"
-                        bordered
                       />
                     </div>
 
                     {/* All table containers always mounted, toggled via CSS */}
-                    <div className="w-full bg-white px-4 py-3 flex-1 min-h-0" key={currentReport.activeTable}>
+                    <div className="w-full bg-white px-4 py-1.5 flex-1 min-h-0" key={currentReport.activeTable}>
                       {(currentReport.listFile || currentReport.dataSource === 'STORAGE') && renderTableContent()}
                     </div>
                   </div>

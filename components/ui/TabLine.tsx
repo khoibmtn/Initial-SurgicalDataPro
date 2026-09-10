@@ -15,6 +15,7 @@ interface TabLineProps {
   size?: 'sm' | 'md';
   className?: string;
   bordered?: boolean;
+  variant?: 'line' | 'card';
 }
 
 export const TabLine: React.FC<TabLineProps> = ({
@@ -24,6 +25,7 @@ export const TabLine: React.FC<TabLineProps> = ({
   size = 'md',
   className = '',
   bordered = false,
+  variant = 'line',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -56,12 +58,12 @@ export const TabLine: React.FC<TabLineProps> = ({
             onClick={() => onChange(opt.value)}
           >
             <span className="flex items-center gap-1.5">
-              {Icon && <Icon className={`h-4 w-4 ${isActive ? 'text-[#1a73e8]' : 'text-[#5f6368]'} transition-colors`} />}
+              {Icon && <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-[#5f6368]'} transition-colors`} />}
               {opt.label}
             </span>
             {opt.badge !== undefined && opt.badge !== null && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-1.5 ${isActive
-                ? 'bg-blue-100 text-blue-700'
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-1.5 transition-colors ${isActive
+                ? 'bg-white text-[#1a73e8] shadow-xs'
                 : (opt.badgeColor || 'bg-gray-100 text-gray-500')
               }`}>
                 {opt.badge}

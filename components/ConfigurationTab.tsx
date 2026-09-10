@@ -280,6 +280,8 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
 
     const [searchQuery, setSearchQuery] = useState("");
+    const [staffFilterPosition, setStaffFilterPosition] = useState("");
+    const [staffFilterDepartment, setStaffFilterDepartment] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
 
@@ -311,9 +313,25 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [backfillResult, setBackfillResult] = useState<{ totalScanned: number; matched: number; alreadyFilled: number; noMachine: number; unmatched: number; updated: number; unmatchedNames: { name: string; count: number }[] } | null>(null);
 
     // These hooks MUST be before any early return to satisfy Rules of Hooks
-    useEffect(() => { setCurrentPage(1); }, [searchQuery]);
+    useEffect(() => { setCurrentPage(1); }, [searchQuery, staffFilterPosition, staffFilterDepartment]);
     useEffect(() => { setMachineCurrentPage(1); }, [machineSearchQuery]);
     useEffect(() => { setRegCurrentPage(1); }, [regSearchQuery]);
+
+    const availableStaffPositions = useMemo(() => {
+        const standard = ['BS PT', 'BS GMHS', 'Phụ'];
+        const fromList = (config.staffList || [])
+            .map(s => s.position)
+            .filter(Boolean) as string[];
+        return Array.from(new Set([...standard, ...fromList]));
+    }, [config.staffList]);
+
+    const availableStaffDepartments = useMemo(() => {
+        const fromConfig = config.departments || [];
+        const fromList = (config.staffList || [])
+            .map(s => s.department)
+            .filter(Boolean) as string[];
+        return Array.from(new Set([...fromConfig, ...fromList])).sort();
+    }, [config.departments, config.staffList]);
 
     const filteredRegistryMemo = useMemo(() => {
         const reg = config.machineRegistry || [];
@@ -708,17 +726,25 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
     const getFilteredStaff = () => {
         const staffList = config.staffList || [];
-        if (!searchQuery.trim()) return staffList;
-
-        const words = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-
         return staffList.filter(s => {
-            const combinedText = `${s.name} ${s.position} ${s.taxId} ${s.department}`.toLowerCase();
-            let lastIdx = -1;
-            for (const word of words) {
-                const idx = combinedText.indexOf(word, lastIdx + 1);
-                if (idx === -1) return false;
-                lastIdx = idx;
+            // Filter by Position
+            if (staffFilterPosition && s.position !== staffFilterPosition) {
+                return false;
+            }
+            // Filter by Department
+            if (staffFilterDepartment && s.department !== staffFilterDepartment) {
+                return false;
+            }
+            // Filter by Search Query
+            if (searchQuery.trim()) {
+                const words = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+                const combinedText = `${s.name || ''} ${s.position || ''} ${s.taxId || ''} ${s.department || ''}`.toLowerCase();
+                let lastIdx = -1;
+                for (const word of words) {
+                    const idx = combinedText.indexOf(word, lastIdx + 1);
+                    if (idx === -1) return false;
+                    lastIdx = idx;
+                }
             }
             return true;
         });
@@ -746,17 +772,21 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
         }
 
         // 2. Filter list for "Next" navigation
-        const currentFiltered = searchQuery.trim() ? currentList.filter(s => {
-            const combinedText = `${s.name} ${s.position} ${s.taxId} ${s.department}`.toLowerCase();
-            const words = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-            let lastIdx = -1;
-            for (const word of words) {
-                const idx = combinedText.indexOf(word, lastIdx + 1);
-                if (idx === -1) return false;
-                lastIdx = idx;
+        const currentFiltered = currentList.filter(s => {
+            if (staffFilterPosition && s.position !== staffFilterPosition) return false;
+            if (staffFilterDepartment && s.department !== staffFilterDepartment) return false;
+            if (searchQuery.trim()) {
+                const combinedText = `${s.name || ''} ${s.position || ''} ${s.taxId || ''} ${s.department || ''}`.toLowerCase();
+                const words = searchQuery.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+                let lastIdx = -1;
+                for (const word of words) {
+                    const idx = combinedText.indexOf(word, lastIdx + 1);
+                    if (idx === -1) return false;
+                    lastIdx = idx;
+                }
             }
             return true;
-        }) : currentList;
+        });
 
         // 3. Find next index
         let nextIdx = 0;
@@ -2416,19 +2446,98 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                     </div>
                                 </div>
 
-                                {/* Search bar above table */}
-                                <div className="relative w-full md:w-72">
-                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
-                                    <input
-                                        type="text"
-                                        value={searchQuery}
-                                        onChange={(e) => {
-                                            setSearchQuery(e.target.value);
-                                            setCurrentPage(1);
-                                        }}
-                                        placeholder="Tìm theo tên, vị trí, khoa, MST..."
-                                        className="w-full pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none"
-                                    />
+                                {/* Search bar and Filters above table */}
+                                <div className="flex flex-wrap items-center justify-between gap-2.5">
+                                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+                                        {/* Search bar */}
+                                        <div className="relative flex-1 min-w-[200px] max-w-xs">
+                                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                                            <input
+                                                type="text"
+                                                value={searchQuery}
+                                                onChange={(e) => {
+                                                    setSearchQuery(e.target.value);
+                                                    setCurrentPage(1);
+                                                }}
+                                                placeholder="Tìm theo tên, vị trí, khoa, MST..."
+                                                className="w-full pl-8 pr-7 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[34px]"
+                                            />
+                                            {searchQuery && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setSearchQuery(""); setCurrentPage(1); }}
+                                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
+                                                    title="Xóa tìm kiếm"
+                                                >
+                                                    <X className="h-3.5 w-3.5" />
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Filter: Vị trí */}
+                                        <div className="w-36 min-w-[120px]">
+                                            <select
+                                                value={staffFilterPosition}
+                                                onChange={(e) => {
+                                                    setStaffFilterPosition(e.target.value);
+                                                    setCurrentPage(1);
+                                                }}
+                                                className={`w-full px-2.5 py-1.5 border rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[34px] font-medium transition-colors ${
+                                                    staffFilterPosition ? 'border-blue-400 text-blue-700 bg-blue-50/30' : 'border-gray-200 text-gray-700'
+                                                }`}
+                                            >
+                                                <option value="">-- Tất cả vị trí --</option>
+                                                {availableStaffPositions.map(pos => (
+                                                    <option key={pos} value={pos}>{pos === 'Phụ' ? 'Phụ (KTV/DDC/GV)' : pos}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Filter: Khoa / Phòng */}
+                                        <div className="w-48 min-w-[140px]">
+                                            <select
+                                                value={staffFilterDepartment}
+                                                onChange={(e) => {
+                                                    setStaffFilterDepartment(e.target.value);
+                                                    setCurrentPage(1);
+                                                }}
+                                                className={`w-full px-2.5 py-1.5 border rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[34px] font-medium transition-colors ${
+                                                    staffFilterDepartment ? 'border-blue-400 text-blue-700 bg-blue-50/30' : 'border-gray-200 text-gray-700'
+                                                }`}
+                                            >
+                                                <option value="">-- Tất cả khoa/phòng --</option>
+                                                {availableStaffDepartments.map(dept => (
+                                                    <option key={dept} value={dept}>{dept}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        {/* Reset Filter Button */}
+                                        {(searchQuery || staffFilterPosition || staffFilterDepartment) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSearchQuery("");
+                                                    setStaffFilterPosition("");
+                                                    setStaffFilterDepartment("");
+                                                    setCurrentPage(1);
+                                                }}
+                                                className="px-2.5 py-1 text-xs text-gray-500 hover:text-red-600 hover:bg-red-50 border border-dashed border-gray-300 hover:border-red-300 rounded-lg transition-colors flex items-center gap-1 h-[34px] cursor-pointer"
+                                                title="Xóa tất cả bộ lọc"
+                                            >
+                                                <X className="h-3 w-3" />
+                                                <span>Xóa lọc</span>
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Counter badge */}
+                                    <div className="text-xs text-gray-500 font-medium shrink-0">
+                                        Hiển thị <span className="font-bold text-gray-800">{filteredStaffList.length}</span>
+                                        {filteredStaffList.length !== (config.staffList || []).length && (
+                                            <span> / {(config.staffList || []).length}</span>
+                                        )} nhân sự
+                                    </div>
                                 </div>
 
                                 {/* Staff Table */}
@@ -2448,7 +2557,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                                             {paginatedStaff.length === 0 ? (
                                                 <tr>
                                                     <td colSpan={6} className="px-4 py-10 text-center text-gray-400 italic text-sm">
-                                                        {searchQuery ? "Không tìm thấy nhân viên nào phù hợp." : "Chưa có nhân viên nào trong danh sách. Hãy thêm mới hoặc import từ file Excel."}
+                                                        {searchQuery || staffFilterPosition || staffFilterDepartment ? "Không tìm thấy nhân viên nào phù hợp với bộ lọc." : "Chưa có nhân viên nào trong danh sách. Hãy thêm mới hoặc import từ file Excel."}
                                                     </td>
                                                 </tr>
                                             ) : (

@@ -15,6 +15,9 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
+  Eye,
+  EyeOff,
+  Check,
 } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
 
@@ -54,45 +57,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { isLocked, unlockConfig, lockConfig, changePassword } = useConfig();
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
-  const [unlockPwd, setUnlockPwd] = useState('');
-  const [oldPwd, setOldPwd] = useState('');
+  const [currentPwd, setCurrentPwd] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
   const [authMsg, setAuthMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const resetModalFields = () => {
+    setCurrentPwd('');
+    setIsChangingPassword(false);
+    setNewPwd('');
+    setConfirmPwd('');
+    setShowCurrentPwd(false);
+    setShowNewPwd(false);
+    setAuthMsg(null);
+  };
 
   const handleUnlock = () => {
     setAuthMsg(null);
-    if (!unlockPwd) {
-      setAuthMsg({ type: 'error', text: 'Vui lòng nhập mật khẩu!' });
+    if (!currentPwd) {
+      setAuthMsg({ type: 'error', text: 'Vui lòng nhập mật khẩu hiện tại!' });
       return;
     }
-    const res = unlockConfig(unlockPwd);
+    const res = unlockConfig(currentPwd);
     if (res.success) {
       setAuthMsg({ type: 'success', text: 'Mở khóa cấu hình thành công!' });
-      setUnlockPwd('');
+      setCurrentPwd('');
     } else {
       setAuthMsg({ type: 'error', text: res.error || 'Mật khẩu không chính xác!' });
     }
   };
 
-  const handleChangePassword = () => {
+  const handleSaveNewPassword = () => {
     setAuthMsg(null);
-    if (!oldPwd || !newPwd || !confirmPwd) {
-      setAuthMsg({ type: 'error', text: 'Vui lòng điền đầy đủ các trường mật khẩu!' });
+    if (!currentPwd) {
+      setAuthMsg({ type: 'error', text: 'Vui lòng nhập mật khẩu hiện tại!' });
+      return;
+    }
+    if (!newPwd || !confirmPwd) {
+      setAuthMsg({ type: 'error', text: 'Vui lòng điền mật khẩu mới và xác nhận!' });
+      return;
+    }
+    if (newPwd.length < 4) {
+      setAuthMsg({ type: 'error', text: 'Mật khẩu mới phải có tối thiểu 4 ký tự!' });
       return;
     }
     if (newPwd !== confirmPwd) {
       setAuthMsg({ type: 'error', text: 'Mật khẩu mới và xác nhận mật khẩu không khớp!' });
       return;
     }
-    const res = changePassword(oldPwd, newPwd);
+    const res = changePassword(currentPwd, newPwd);
     if (res.success) {
       setAuthMsg({ type: 'success', text: 'Đổi mật khẩu thành công! Mật khẩu mới đã được lưu.' });
-      setOldPwd('');
-      setNewPwd('');
-      setConfirmPwd('');
+      resetModalFields();
     } else {
-      setAuthMsg({ type: 'error', text: res.error || 'Đổi mật khẩu thất bại!' });
+      setAuthMsg({ type: 'error', text: res.error || 'Đổi mật khẩu thất bại! Vui lòng kiểm tra lại mật khẩu hiện tại.' });
     }
   };
 
@@ -142,8 +163,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Navigation list */}
-        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+        {/* Navigation items */}
+        <nav className="flex-1 py-2.5 px-2 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.key;
@@ -151,58 +172,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 key={item.key}
                 onClick={() => onTabChange(item.key)}
-                title={collapsed ? item.label : undefined}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium transition-all ${
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                   isActive
-                    ? 'bg-primary-50 text-primary-700 border-l-[3px] border-primary-600 pl-[9px]'
+                    ? 'bg-primary-50 text-primary-700 font-bold shadow-xs'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                } ${collapsed ? 'justify-center px-0' : ''}`}
+                } ${collapsed ? 'justify-center px-2' : ''}`}
+                title={collapsed ? item.label : undefined}
               >
-                <Icon
-                  className={`h-[18px] w-[18px] shrink-0 ${
-                    isActive ? 'text-primary-600' : 'text-gray-400'
-                  }`}
-                />
+                <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-primary-600' : 'text-gray-400'}`} />
                 {!collapsed && <span className="truncate">{item.label}</span>}
               </button>
             );
           })}
         </nav>
 
-        {/* Footer: account + toggle + user */}
-        <div className="border-t border-gray-100 p-2 space-y-1.5 shrink-0">
+        {/* Footer controls */}
+        <div className="p-2 border-t border-gray-100 space-y-1">
           {/* Nút Tài khoản & Bảo mật (Khóa/Mở khóa, Đổi mật khẩu) ngay trên nút Thu gọn */}
           <button
             onClick={() => {
-              setAuthMsg(null);
               setIsAccountModalOpen(true);
+              resetModalFields();
             }}
-            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
               isLocked
-                ? 'text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200'
-                : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
-            } ${collapsed ? 'justify-center px-0' : ''}`}
+                ? 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+            } ${collapsed ? 'justify-center px-1' : ''}`}
             title={collapsed ? `Tài khoản & Bảo mật (${isLocked ? 'Cấu hình: Khóa' : 'Cấu hình: Mở'})` : undefined}
           >
-            <div className="relative shrink-0 flex items-center justify-center">
-              <User className="h-4 w-4" />
-              <span
-                className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white ${
-                  isLocked ? 'bg-amber-500' : 'bg-emerald-500'
-                }`}
-              />
-            </div>
+            <Shield className="h-3.5 w-3.5 shrink-0" />
             {!collapsed && (
-              <div className="flex-1 flex items-center justify-between min-w-0">
-                <span className="truncate text-[11px] font-semibold">Tài khoản</span>
-                <span
-                  className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider flex items-center gap-0.5 ${
-                    isLocked
-                      ? 'bg-amber-200/70 text-amber-800'
-                      : 'bg-emerald-200/70 text-emerald-800'
-                  }`}
-                >
-                  {isLocked ? <Lock className="w-2.5 h-2.5 inline" /> : <Unlock className="w-2.5 h-2.5 inline" />}
+              <div className="flex-1 min-w-0 flex items-center justify-between text-left">
+                <span className="truncate">Tài khoản</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full uppercase shrink-0">
                   {isLocked ? 'Khóa' : 'Mở'}
                 </span>
               </div>
@@ -212,20 +215,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Collapse toggle */}
           <button
             onClick={onToggle}
-            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-xs text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
-            title={collapsed ? 'Mở rộng' : 'Thu gọn'}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-colors"
+            title={collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
           >
             {collapsed ? (
-              <PanelLeft className="h-4 w-4" />
+              <PanelLeft className="h-3.5 w-3.5 mx-auto" />
             ) : (
               <>
-                <PanelLeftClose className="h-4 w-4" />
-                <span>Thu gọn</span>
+                <PanelLeftClose className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">Thu gọn</span>
               </>
             )}
           </button>
 
-          {/* User info + sync status */}
+          {/* User badge */}
           {(userName || syncStatus) && (
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md bg-gray-50 ${collapsed ? 'justify-center px-1' : ''}`}>
               <span className={`h-2 w-2 rounded-full shrink-0 ${syncColors[syncStatus]}`} title={syncLabels[syncStatus]} />
@@ -240,143 +243,183 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </aside>
 
-      {/* Account & Security Modal */}
+      {/* Account & Security Modal - Giao diện tinh gọn */}
       {isAccountModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden animate-scale-up">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-sm overflow-hidden animate-scale-up">
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/80">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-primary-100 text-primary-700 rounded-xl">
-                  <Shield className="w-5 h-5" />
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50/80">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-primary-100 text-primary-700 rounded-lg">
+                  <Shield className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">Tài khoản & Bảo mật</h3>
-                  <p className="text-xs text-gray-500">Quản lý quyền cấu hình và đổi mật khẩu</p>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-bold text-gray-900">Tài khoản & Bảo mật</h3>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        isLocked
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      }`}
+                    >
+                      {isLocked ? <Lock className="w-2.5 h-2.5" /> : <Unlock className="w-2.5 h-2.5" />}
+                      {isLocked ? 'Đang khóa' : 'Đã mở'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-500">Quản lý quyền cấu hình và đổi mật khẩu</p>
                 </div>
               </div>
               <button
                 onClick={() => {
                   setIsAccountModalOpen(false);
-                  setUnlockPwd('');
-                  setOldPwd('');
-                  setNewPwd('');
-                  setConfirmPwd('');
-                  setAuthMsg(null);
+                  resetModalFields();
                 }}
-                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 space-y-5 max-h-[80vh] overflow-y-auto">
-              {/* Section 1: Quyền cấu hình */}
-              <div className="rounded-xl border border-gray-200 p-4 bg-gray-50/50 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">Trạng thái cấu hình</span>
-                  <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                      isLocked
-                        ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                    }`}
+            <div className="p-4 space-y-3 max-h-[80vh] overflow-y-auto">
+              {/* 1 box nhập mật khẩu hiện tại */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Mật khẩu hiện tại
+                </label>
+                <div className="relative">
+                  <input
+                    type={showCurrentPwd ? 'text' : 'password'}
+                    placeholder="Nhập mật khẩu hiện tại..."
+                    value={currentPwd}
+                    onChange={(e) => setCurrentPwd(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !isChangingPassword && isLocked) {
+                        handleUnlock();
+                      }
+                    }}
+                    className="w-full pl-3 pr-9 py-2 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPwd(!showCurrentPwd)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    tabIndex={-1}
+                    title={showCurrentPwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   >
-                    {isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                    {isLocked ? 'Đang khóa (Chỉ xem)' : 'Đã mở khóa'}
-                  </span>
+                    {showCurrentPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
+              </div>
 
-                <p className="text-xs text-gray-600 leading-relaxed">
-                  {isLocked
-                    ? 'Cấu hình đang được khóa để ngăn chỉnh sửa. Nhập mật khẩu để mở khóa trong phiên làm việc hiện tại.'
-                    : 'Cấu hình đang mở. Bạn có thể thêm, sửa, xóa các thiết lập. Khóa lại bất kỳ lúc nào để bảo vệ dữ liệu.'}
-                </p>
-
+              {/* Bên dưới có 2 nút: Mở khóa và Đổi mật khẩu */}
+              <div className="flex gap-2 pt-0.5">
                 {isLocked ? (
-                  <div className="flex gap-2 pt-1">
-                    <input
-                      type="password"
-                      placeholder="Nhập mật khẩu"
-                      value={unlockPwd}
-                      onChange={(e) => setUnlockPwd(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleUnlock()}
-                      className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
-                    />
-                    <button
-                      onClick={handleUnlock}
-                      className="px-3.5 py-1.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs"
-                    >
-                      Mở khóa
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleUnlock}
+                    className="flex-1 py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Unlock className="w-3.5 h-3.5" />
+                    Mở khóa
+                  </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => {
                       lockConfig();
                       setAuthMsg({ type: 'success', text: 'Đã khóa cấu hình thành công!' });
                     }}
-                    className="w-full py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                    className="flex-1 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    Khóa cấu hình ngay
+                    Khóa cấu hình
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsChangingPassword(!isChangingPassword);
+                    setAuthMsg(null);
+                  }}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors shadow-xs flex items-center justify-center gap-1.5 cursor-pointer border ${
+                    isChangingPassword
+                      ? 'bg-blue-50 text-blue-700 border-blue-300'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                  {isChangingPassword ? 'Hủy đổi MK' : 'Đổi mật khẩu'}
+                </button>
               </div>
 
-              {/* Section 2: Đổi mật khẩu */}
-              <div className="rounded-xl border border-gray-200 p-4 bg-white space-y-3 shadow-xs">
-                <div className="flex items-center gap-2 pb-1 border-b border-gray-100">
-                  <KeyRound className="w-4 h-4 text-primary-600" />
-                  <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">Đổi mật khẩu cấu hình</h4>
-                </div>
+              {/* Khi bấm Đổi mật khẩu mới hiện 2 box nhập mật khẩu mới và nút Lưu mật khẩu mới */}
+              {isChangingPassword && (
+                <div className="space-y-2.5 pt-3 border-t border-gray-200 animate-fade-in bg-blue-50/40 p-3 rounded-xl border border-blue-100">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-gray-800 mb-0.5">
+                    <KeyRound className="w-3.5 h-3.5 text-blue-600" />
+                    Thiết lập mật khẩu mới
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Mật khẩu mới (tối thiểu 4 ký tự)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showNewPwd ? 'text' : 'password'}
+                        placeholder="Nhập mật khẩu mới..."
+                        value={newPwd}
+                        onChange={(e) => setNewPwd(e.target.value)}
+                        className="w-full pl-3 pr-9 py-1.5 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowNewPwd(!showNewPwd)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                        tabIndex={-1}
+                        title={showNewPwd ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      >
+                        {showNewPwd ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
 
-                <div className="space-y-2.5 pt-1">
                   <div>
-                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">Mật khẩu hiện tại</label>
+                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">
+                      Xác nhận mật khẩu mới
+                    </label>
                     <input
-                      type="password"
-                      placeholder="Nhập mật khẩu hiện tại"
-                      value={oldPwd}
-                      onChange={(e) => setOldPwd(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">Mật khẩu mới (tối thiểu 4 ký tự)</label>
-                    <input
-                      type="password"
-                      placeholder="Nhập mật khẩu mới"
-                      value={newPwd}
-                      onChange={(e) => setNewPwd(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-gray-700 mb-1">Xác nhận mật khẩu mới</label>
-                    <input
-                      type="password"
-                      placeholder="Nhập lại mật khẩu mới"
+                      type={showNewPwd ? 'text' : 'password'}
+                      placeholder="Nhập lại mật khẩu mới..."
                       value={confirmPwd}
                       onChange={(e) => setConfirmPwd(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleSaveNewPassword();
+                        }
+                      }}
+                      className="w-full px-3 py-1.5 text-xs rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
                     />
                   </div>
 
                   <button
-                    onClick={handleChangePassword}
-                    className="w-full mt-2 py-2 bg-gray-900 hover:bg-black text-white text-xs font-semibold rounded-lg transition-colors shadow-xs"
+                    type="button"
+                    onClick={handleSaveNewPassword}
+                    className="w-full py-2 bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                   >
+                    <Check className="w-3.5 h-3.5" />
                     Lưu mật khẩu mới
                   </button>
                 </div>
-              </div>
+              )}
 
               {/* Alert message */}
               {authMsg && (
                 <div
-                  className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                  className={`p-2.5 rounded-lg text-xs flex items-center gap-2 animate-fade-in ${
                     authMsg.type === 'error'
                       ? 'bg-red-50 text-red-700 border border-red-200'
                       : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -393,17 +436,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
+            <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 flex justify-end">
               <button
+                type="button"
                 onClick={() => {
                   setIsAccountModalOpen(false);
-                  setUnlockPwd('');
-                  setOldPwd('');
-                  setNewPwd('');
-                  setConfirmPwd('');
-                  setAuthMsg(null);
+                  resetModalFields();
                 }}
-                className="px-4 py-1.5 text-xs font-semibold text-gray-700 hover:text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors shadow-xs"
+                className="px-4 py-1.5 text-xs font-semibold text-gray-700 hover:text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors shadow-xs cursor-pointer"
               >
                 Đóng
               </button>

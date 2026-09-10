@@ -456,70 +456,70 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
   return (
     <div className="flex flex-col h-full bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4 pb-2">
-        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 px-3 pt-2 pb-1.5">
+        <div className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-gray-500 flex items-center gap-1">
+            <div className="text-[10px] font-medium text-gray-500 flex items-center gap-1">
               <span>Tổng số lượt ngoài giờ</span>
               {isFiltered && <span className="text-blue-600 font-semibold">(Đã lọc)</span>}
             </div>
-            <div className="text-lg font-extrabold text-[#003366] mt-0.5">
+            <div className="text-sm font-black text-[#003366] mt-0.5">
               {stats.totalRows} lượt
               {isFiltered && (
-                <span className="text-xs font-normal text-gray-400 ml-1.5">
+                <span className="text-[10px] font-normal text-gray-400 ml-1">
                   / {overtimeRows.length} gốc
                 </span>
               )}
             </div>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-            <Layers className="w-5 h-5" />
+          <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Layers className="w-3.5 h-3.5" />
           </div>
         </div>
 
-        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+        <div className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-gray-500">Tổng thời gian ngoài giờ</div>
-            <div className="text-lg font-extrabold text-amber-700 font-mono mt-0.5">{stats.totalDurationText}</div>
+            <div className="text-[10px] font-medium text-gray-500">Tổng thời gian ngoài giờ</div>
+            <div className="text-sm font-black text-amber-700 font-mono mt-0.5">{stats.totalDurationText}</div>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-            <Clock className="w-5 h-5" />
+          <div className="w-7 h-7 rounded-md bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 font-bold">
+            <Clock className="w-3.5 h-3.5" />
           </div>
         </div>
 
-        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+        <div className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-gray-500">Kíp tăng cường</div>
-            <div className="text-lg font-extrabold text-teal-700 mt-0.5">{stats.countTangCuong} lượt</div>
+            <div className="text-[10px] font-medium text-gray-500">Kíp tăng cường</div>
+            <div className="text-sm font-black text-teal-700 mt-0.5">{stats.countTangCuong} lượt</div>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center font-bold">
-            <UserPlus className="w-5 h-5" />
+          <div className="w-7 h-7 rounded-md bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 font-bold">
+            <UserPlus className="w-3.5 h-3.5" />
           </div>
         </div>
 
-        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+        <div className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 shadow-xs flex items-center justify-between">
           <div>
-            <div className="text-[11px] font-medium text-gray-500">Kíp mổ phiên</div>
-            <div className="text-lg font-extrabold text-blue-700 mt-0.5">{stats.countPhien} lượt</div>
+            <div className="text-[10px] font-medium text-gray-500">Kíp mổ phiên</div>
+            <div className="text-sm font-black text-blue-700 mt-0.5">{stats.countPhien} lượt</div>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-            <Briefcase className="w-5 h-5" />
+          <div className="w-7 h-7 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 font-bold">
+            <Briefcase className="w-3.5 h-3.5" />
           </div>
         </div>
 
-        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between col-span-2 sm:col-span-1">
+        <div className="bg-white px-2.5 py-1.5 rounded-lg border border-gray-200 shadow-xs flex items-center justify-between col-span-2 sm:col-span-1">
           <div>
-            <div className="text-[11px] font-medium text-gray-500">Kíp trực (kéo dài sau 07h)</div>
-            <div className="text-lg font-extrabold text-orange-700 mt-0.5">{stats.countTruc} lượt</div>
+            <div className="text-[10px] font-medium text-gray-500">Kíp trực (kéo dài sau 07h)</div>
+            <div className="text-sm font-black text-orange-700 mt-0.5">{stats.countTruc} lượt</div>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center font-bold">
-            <Sparkles className="w-5 h-5" />
+          <div className="w-7 h-7 rounded-md bg-orange-50 text-orange-600 flex items-center justify-center shrink-0 font-bold">
+            <Sparkles className="w-3.5 h-3.5" />
           </div>
         </div>
       </div>
 
       {/* ── Toolbar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 border-b border-gray-200 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-200 bg-white">
         <div className="flex flex-wrap items-center gap-2">
           {/* Nút Cấu hình ngoài giờ (trước box tìm kiếm) */}
           <div className="relative" ref={configDropdownRef}>
@@ -764,7 +764,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       </div>
 
       {/* ── Table Container ── */}
-      <div className="flex-1 overflow-auto max-h-[calc(100vh-320px)] border-b border-gray-100">
+      <div className="flex-1 overflow-auto max-h-[calc(100vh-270px)] border-b border-gray-100">
         <table className="w-max min-w-full text-xs border-separate border-spacing-0">
           <colgroup>
             <col style={{ width: 45, minWidth: 45, maxWidth: 45 }} />
@@ -1000,7 +1000,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       </div>
 
       {/* ── Footer Pagination ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-600">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-1.5 bg-gray-50 border-t border-gray-200 text-xs text-gray-600">
         <div className="flex items-center gap-2">
           <span>
             Hiển thị <strong>{filteredRows.length > 0 ? (currentPage - 1) * rowsPerPage + 1 : 0}</strong> -{' '}
