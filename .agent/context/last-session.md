@@ -1,7 +1,8 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian tạo:** 09/09/2026 21:50 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `temp-09-09-2026-21h47`  
+> **Thời gian tạo:** 10/09/2026 12:40 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-10-09-2026-12h35`  
+> **Commit chính (main):** `7478688` (Đã push lên `origin/main` và tự động deploy Vercel)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`
@@ -10,68 +11,97 @@
 
 ## 📌 1. Các Tính Năng & Sửa Lỗi Đã Triển Khai Trong Phiên
 
-### 1.1. Vô Hiệu Hóa Toàn Diện Nút/Control Khi Khóa Trang Cấu Hình (`isLocked`)
-- **Vấn đề trước đây:**
-  - Dù đang ở trạng thái Khóa (`isLocked = true`), một số nút Sửa (Pencil) khi bấm vẫn mở popup/modal rồi tắt chớp nhoáng (flash popup).
-  - Nút Xóa (Trash2) hoặc nút Thêm (+) ở một số tab vẫn hiển thị hộp thoại xác nhận xóa (`confirm`) hoặc thông báo `alert(...)`.
-  - Ô "Tên Bệnh viện" và 12 ô khung giờ làm việc (Mùa hè, Mùa đông) tại subtab `Hành chính / Hành chính` vẫn có thể focus và chỉnh sửa giá trị.
-- **Giải pháp xử lý:**
-  - **`components/config/LaborConfigManager.tsx`:**
-    - Loại bỏ toàn bộ lệnh `alert(...)` chớp tắt khi `isLocked`.
-    - Thêm guard `if (isLocked) return;` vào đầu các hàm `handleOpenEdit`, `saveAddMilestone`, `executeDelete`.
-    - Vô hiệu hóa triệt để tất cả các nút Thêm (+), Sửa (Pencil), Xóa (Trash2), Thêm mốc fallback ở cả 3 tab (Phụ cấp PTTT, Định mức thời gian, Định mức bàn mổ) cho cả hàng dữ liệu hiện hành và hàng lịch sử đã hết hạn: `disabled={isLocked}`, class `pointer-events-none cursor-not-allowed opacity-40 text-gray-300`.
-  - **`components/ConfigurationTab.tsx`:**
-    - **Ô "Tên Bệnh viện":** Thiết lập `disabled={isLocked}`, `readOnly={isLocked}`, `tabIndex={isLocked ? -1 : undefined}`, class `pointer-events-none select-none cursor-not-allowed bg-gray-100 text-gray-400`, và guard `onChange`.
-    - **12 ô khung giờ làm việc Mùa hè & Mùa đông:** Container bọc ngoài được thêm `pointer-events-none select-none opacity-80`. Toàn bộ 12 thẻ `<input>` đều có `disabled={isLocked}`, `readOnly={isLocked}`, `tabIndex={isLocked ? -1 : undefined}`, class `pointer-events-none select-none cursor-not-allowed bg-gray-100 text-gray-400`, và guard chặn sự kiện `onChange`/`onBlur` bằng `if (isLocked) return;`.
-    - **Subtab Mã máy (`registry`):** Form thêm/sửa, nút Thêm, nút Toggle sử dụng và nút Xóa trong bảng đều được vô hiệu hóa hoàn toàn (`disabled={isLocked}`, `pointer-events-none select-none opacity-40`).
-    - **Subtab Khoa, phòng (`departments`):**
-      - Form Thêm: inputs `disabled/readOnly`, nút Thêm bỏ lệnh `alert(...)`, thêm `disabled={isLocked}`, `disabled:pointer-events-none`.
-      - Bảng danh sách: Nút Toggle lấy vào báo cáo, nút Di chuyển lên (ArrowUp), Di chuyển xuống (ArrowDown), Sửa (Pencil), Xóa (Trash2) đều loại bỏ `alert(...)`, thêm `disabled={isLocked}`, `pointer-events-none opacity-40 cursor-not-allowed`.
-      - 5 thẻ "Cấu hình vị trí kíp mổ lấy vào báo cáo": Thêm guard `if (isLocked) return;`, loại bỏ lệnh `alert(...)`, thêm class `pointer-events-none cursor-not-allowed opacity-60`.
-    - **Subtab Nhân viên y tế (`staff-list`):**
-      - Form thêm/sửa nhân sự: Bọc container với `pointer-events-none select-none opacity-80` khi `isLocked`. Các nút Thêm, Lưu, Kế tiếp, Hủy bỏ đều có `disabled={isLocked}`, `disabled:pointer-events-none`.
-      - Bảng nhân sự: Click vào dòng bị vô hiệu hóa (`cursor-default pointer-events-none`), nút Xóa (Trash2) có `disabled={isLocked}`, `pointer-events-none opacity-40 cursor-not-allowed`.
-  - **`components/statistics/SurgeryNamePriceConfig.tsx` & `SurgeryCostConfig.tsx`:**
-    - Nút "Quét DM thiếu", "Thêm mới", "Refill từ Excel", "Xóa đã chọn" trên toolbar đều có `disabled={isLocked}`, `disabled:pointer-events-none`.
-    - Nút Toggle DM Chi phí, Sửa, Xóa trong từng hàng dữ liệu đều có `disabled:pointer-events-none` và guard chặn trực tiếp không bật confirm/toast lỗi.
-
-### 1.2. Bỏ Banner Thông Báo Chế Độ Chỉ Xem
-- **Yêu cầu:** Người dùng thấy banner màu hổ phách "Chế độ Chỉ xem (Đang khóa)... [Mở khóa chỉnh sửa]" là không cần thiết và chiếm diện tích.
-- **Giải pháp:** Xóa bỏ hoàn toàn khối render banner hổ phách trong `components/ConfigurationTab.tsx`. Trạng thái khóa vẫn được hiển thị rõ ràng và tinh tế qua nút Toggle Khóa/Mở khóa ở góc trên.
-
-### 1.3. Khắc Phục Lỗi Tooltip Chui Dưới Frame Tiêu Đề Subtab Tại DM Giá DVKT & DM Chi Phí
-- **Nguyên nhân:**
-  - Header toolbar của subtab nằm ngay sát dưới thanh tiêu đề các subtab cố định (`z-10`, có tràn overflow).
-  - `<InstantTooltip>` mặc định có hướng hiển thị `position="top"` (`bottom-full mb-2`), khiến tooltip mọc ngược lên trên, chui vào phía dưới hoặc bị che khuất bởi thanh header các subtab.
+### 1.1. Vô Hiệu Hóa Toàn Diện Nút "Khôi Phục Mặc Định" Khi Đang Khóa (`isLocked`)
+- **Vấn đề:** Khi cấu hình đang khóa, nút "Khôi phục mặc định" vẫn cho phép người dùng click và thực hiện reset cấu hình.
 - **Giải pháp:**
-  - Cập nhật prop `position="bottom"` cho tất cả các `<InstantTooltip>` trên toolbar:
-    - Nút "Quét DM thiếu", "Excel", "Refill từ Excel", "Thêm mới", "Xóa [n] mục", "Bộ lọc", "Xuất Excel".
-  - Với `position="bottom"` (`top-full mt-2`), tooltip chúc xuống phía dưới nút một cách thoáng đãng, hiển thị trọn vẹn 100% nội dung và không còn bất kỳ va chạm hay che khuất nào.
+  - Trong `components/ConfigurationTab.tsx`, tất cả nút "Khôi phục mặc định" tại các tab và subtab đều được gắn:
+    `disabled={isLocked}`, class `disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none`.
+  - Bổ sung guard `if (isLocked) return;` vào tất cả các hàm xử lý reset mặc định để ngăn chặn tuyệt đối can thiệp dữ liệu khi chưa mở khóa.
 
-### 1.4. Tách Riêng & Mở Rộng Box Nhập Giờ:Phút Tại Modal Chỉnh Sửa Ca Phẫu Thuật (Edit Case)
-- **Vấn đề trước đây:**
-  - Trong modal "Chỉnh sửa thông tin phẫu thuật" (mục *2. THỜI GIAN THỰC HIỆN & PHÂN LOẠI*), box nhập ngày và giờ:phút bị gộp chung vào một container có viền ngoài.
-  - Box giờ phút bị ép kích thước `w-12` (chỉ 48px), cộng với 2 icon Lucide (`Calendar`, `Clock`) bên trong khiến chuỗi `HH:mm` (như `08:00`, `07:30`) bị tràn và trình duyệt cắt cụt chỉ còn thấy phần giờ và dấu hai chấm (`08:`), không quan sát được số phút.
-- **Giải pháp xử lý:**
-  - **`components/surgery/SurgeryEditModal.tsx` (`DateTimeField`):**
-    - Tách container gộp thành 2 box nhập liệu độc lập đặt cạnh nhau với `gap-2` (giống như giao diện các ô lọc khoảng thời gian ở thanh công cụ chính):
-      - **Box Ngày (`input[type="date"]`):** `flex-1 min-w-0 px-2.5 py-1.5 h-[34px] bg-white border rounded-lg text-xs font-medium text-gray-800 shadow-sm focus:ring-2 outline-none cursor-pointer`. Bỏ icon `Calendar` thừa bên trái vì trình duyệt đã tích hợp sẵn biểu tượng calendar picker.
-      - **Box Giờ:Phút (`input[type="text"]`):** Tăng kích thước chiều rộng từ `w-12` (48px) lên `w-20` (80px, `shrink-0`), `h-[34px]`, căn giữa `text-center font-mono`, viền độc lập `rounded-lg shadow-sm`. Bỏ icon `Clock` thừa.
-    - Áp dụng đồng bộ cho cả 3 trường thời gian: "Thời gian bắt đầu", "Thời gian kết thúc", "Thời gian chỉ định".
-    - Giữ nguyên cơ chế cảnh báo lỗi logic thời gian (`hasError ? 'border-red-400 text-red-600' : ...`), tự động format ký tự số và phím ESC hoàn tác.
+### 1.2. Chuẩn Hóa Cột Ghi Chú Thành "Kíp Phẫu Thuật" & Phân Loại "Kíp Tăng Cường"
+- **Yêu cầu chuyên môn:**
+  - Đổi tiêu đề cột "Ghi chú" tại bảng Ngoài giờ thành **"Kíp phẫu thuật"**.
+  - Đối với các ca mổ phiên nhưng bắt đầu sau 17h00 đến trước giờ hành chính hôm sau: Trên thực tế đây không còn là kíp mổ phiên mà là kíp tăng cường hoặc thường trú lên mổ ngoài giờ. Nếu ghi "Kíp mổ phiên" sẽ gây nhầm lẫn chuyên môn.
+- **Giải pháp:**
+  - Cập nhật logic phân loại ca ngoài giờ trong `components/overtime/OvertimeTab.tsx`:
+    - Nếu ca mổ bắt đầu từ 17:00 đến 07:00 sáng hôm sau (hoặc giờ bắt đầu hành chính hôm sau): Phân loại là **"Kíp tăng cường"** (badge xanh lá mạ `bg-emerald-50 text-emerald-700 border-emerald-200`).
+    - Các ca mổ phiên diễn ra trong giờ hành chính vẫn giữ nhãn **"Kíp mổ phiên"**.
+  - Các thống kê KPI và bộ lọc kíp mổ ngoài giờ được cập nhật hiển thị đồng bộ cho cả "Kíp tăng cường" và "Kíp mổ phiên".
+
+### 1.3. Tối Ưu Hóa Giao Diện Cho Màn Hình Full HD & Thanh Cuộn Bảng
+- **Vấn đề:** Trên màn hình Full HD (1920x1080) và màn hình compact, thanh cuộn ngang của các bảng dữ liệu quá mờ (màu xám nhạt trên nền trắng) khiến người dùng không nhận diện được thanh trượt cuộn chuột. Tiêu đề và các thẻ thống kê KPI quá cao làm thu hẹp không gian bảng.
+- **Giải pháp:**
+  - **Tiêu đề & Khoảng cách:** Giảm kích thước tiêu đề "Báo cáo hàng ngày", "Báo cáo tháng" và khoảng cách đệm phía trên thanh tab.
+  - **KPI Cards:** Giảm chiều cao padding của các stat cards trong cả Daily report, Monthly report và Overtime subtab.
+  - **Thanh cuộn ngang tương phản cao:** Trong `index.css`, thanh cuộn ngang bảng được cấu hình màu đặc (không opacity):
+    - Con trượt (thumb): Màu xám đậm `#334155` với viền `2px solid #1e293b`.
+    - Rãnh cuộn (track): Nền xám nhạt `#e2e8f0` với đường viền `#94a3b8`.
+    - Đảm bảo hiển thị sắc nét 100% trên mọi loại màn hình từ Full HD đến 2K/4K.
+
+### 1.4. Tự Động Ẩn Banner Áp Giá Đầy Đủ Ở Báo Cáo Tháng
+- **Vấn đề:** Banner xanh lá "Đã có 144/144 trường hợp có giá áp dụng (Đầy đủ 100%)." chiếm nhiều diện tích hiển thị.
+- **Giải pháp:**
+  - Bổ sung state `showMonthlyFullPriceNotice` và `useEffect` hẹn giờ 5 giây.
+  - Khi người dùng tải dữ liệu tháng, banner sẽ hiển thị trong 5 giây để thông báo rồi tự động ẩn đi để tiết kiệm không gian.
+  - Bổ sung nút đóng `X` thủ công nếu người dùng muốn đóng ngay lập tức.
+
+### 1.5. Khắc Phục Hiện Tượng Thanh Cuộn Dọc Trên Khung Subtab
+- **Vấn đề:** Khung chứa các subtab (DS Phẫu thuật, Trùng NV, Trùng máy, ...) xuất hiện thanh cuộn dọc (scroll thumb đen ở mép phải) do chênh lệch chiều cao vài pixel giữa các tab items và container.
+- **Giải pháp:**
+  - Container subtab trong `App.tsx` được cấu hình: `min-h-[44px] flex items-center overflow-x-auto overflow-y-hidden`.
+  - Trong `index.css`: `.tab-line { overflow-x-auto; overflow-y-hidden; }`.
+  - Triệt tiêu hoàn toàn thanh cuộn dọc ngoài ý muốn.
+
+### 1.6. Tái Thiết Kế Giao Diện Modal "Tài Khoản & Bảo Mật" Tinh Gọn
+- **Vấn đề:** Modal trước đây có 2 khối card riêng biệt, lặp lại 2 ô nhập mật khẩu hiện tại, giao diện cồng kềnh.
+- **Giải pháp (`components/ui/Sidebar.tsx`):**
+  - **Header:** Đưa thẳng badge trạng thái `[ Đang khóa ]` / `[ Đã mở ]` lên cạnh tiêu đề modal.
+  - **Body tinh gọn:**
+    - **1 ô nhập duy nhất:** "Mật khẩu hiện tại" kèm nút ẩn/hiện mật khẩu (biểu tượng mắt) và `autoFocus`.
+    - **2 nút hành động bên dưới:**
+      - `[ Mở khóa ]` (hoặc `[ Khóa cấu hình ]` khi đã mở).
+      - `[ Đổi mật khẩu ]` (toggle đóng/mở ngăn đổi mật khẩu).
+    - Hỗ trợ phím tắt `Enter` tại ô mật khẩu hiện tại để mở khóa tức thì.
+  - **Ngăn Đổi Mật Khẩu (Drawer):** Khi bấm `[ Đổi mật khẩu ]`, khung thiết lập bung mở gọn gàng:
+    - Ô "Mật khẩu mới (tối thiểu 4 ký tự)" (có nút mắt ẩn/hiện).
+    - Ô "Xác nhận mật khẩu mới" (hỗ trợ phím `Enter` để lưu nhanh).
+    - Nút `[ Lưu mật khẩu mới ]` màu xanh chủ đạo nổi bật.
+    - Nút phía trên tự động chuyển thành `[ Hủy đổi MK ]` để thu gọn lại bất cứ lúc nào.
+
+### 1.7. Bổ Sung Bộ Lọc Vị Trí & Khoa / Phòng Trong Danh Mục Nhân Viên Y Tế
+- **Yêu cầu:** Bổ sung bộ lọc theo vị trí mổ và khoa/phòng cạnh thanh tìm kiếm nhân sự trong `ConfigurationTab.tsx`.
+- **Giải pháp (`components/ConfigurationTab.tsx`):**
+  - Bổ sung 2 state: `staffFilterPosition` và `staffFilterDepartment`.
+  - **Dropdown Vị trí:** Tự động tổng hợp đầy đủ từ danh sách nhân viên (`-- Tất cả vị trí --`, `BS PT`, `BS GMHS`, `Phụ (KTV/DDC/GV)`...).
+  - **Dropdown Khoa / Phòng:** Tự động tổng hợp từ `config.departments` và danh sách nhân viên (`-- Tất cả khoa/phòng --`, Ngoại TH, CTCH, Sản, TMH...).
+  - **Tìm kiếm đa tầng:** Kết hợp đồng thời lọc từ khóa tìm kiếm (tên, MST, vị trí, khoa) với 2 bộ lọc dropdown.
+  - **Nút "Xóa lọc":** Tự động xuất hiện khi có bất kỳ điều kiện lọc nào đang kích hoạt.
+  - **Hiển thị số lượng:** Góc phải hiển thị `Hiển thị X / Y nhân sự`.
+  - **Tự động chuyển trang:** Reset về trang 1 khi thay đổi điều kiện lọc.
+
+### 1.8. Đổi Màu Nền Active Tab Nổi Bật Sắc Nét (Solid Google Blue `#1a73e8`)
+- **Vấn đề:** Màu nền trắng của active tab trên thanh bar xanh nhạt (`bg-blue-50/75`) bị chìm và thiếu tương phản.
+- **Giải pháp:**
+  - **`index.css`:** Cập nhật `.tab-line-item[data-active="true"]`:
+    - `background: #1a73e8;` (Xanh nguyên khối Google Blue).
+    - `color: #ffffff; font-weight: 700;`
+    - `box-shadow: 0 2px 5px rgba(26, 115, 232, 0.35);`
+    - Viền chân đậm bên dưới: `background: #0d47a1; height: 3.5px;`.
+  - **`components/ui/TabLine.tsx`:**
+    - Icon khi active: Chuyển sang `text-white`.
+    - Badge khi active: Nền trắng chữ xanh `bg-white text-[#1a73e8] shadow-xs font-bold`.
+  - Áp dụng đồng bộ cho tất cả các thanh tab dùng `TabLine` (báo cáo hàng ngày, báo cáo tháng, cấu hình...).
 
 ---
 
 ## 🚀 2. Trạng Thái Triển Khai & Kiểm Thử
+
 - **Build Production:** `npm run build` chạy thành công 100% không lỗi (Vite v6.4.1 - 0 lỗi TypeScript).
 - **Kiểm thử trực quan E2E qua Browser Subagent:**
-  - Banner vàng chỉ xem đã biến mất hoàn toàn.
-  - Ô "Tên Bệnh viện" và 12 ô nhập khung giờ làm việc tại tab Hành chính bị làm mờ, không thể click hay edit.
-  - Các nút Sửa, Thêm, Xóa tại tab "Định mức bàn mổ" / "Phụ cấp PTTT" / "Thời gian" đều bị vô hiệu hóa mờ đi, click vào không có phản hồi và không xuất hiện popup/modal chớp tắt nào.
-  - Hover chuột lên "Quét DM thiếu", "Thêm mới" tại subtab DM Giá DVKT hiển thị tooltip trôi xuống phía dưới rõ ràng, không bị cấn hay chui dưới frame tiêu đề subtab.
-  - Subtab Khoa phòng & Nhân viên y tế: form nhập và các nút hành động bảng đều vô hiệu hóa hoàn toàn khi trang đang khóa.
-  - **Modal Chỉnh sửa ca phẫu thuật:** Cả 3 trường thời gian (Bắt đầu, Kết thúc, Chỉ định) hiển thị thành 2 box riêng biệt với chiều rộng `w-20` (80px) căn giữa, hiển thị đầy đủ cả giờ và phút (VD: `07:30`, `08:30`, `07:26`), độ cao `h-[34px]` đồng bộ tuyệt đối.
+  - Đã kiểm tra active tab `DS Phẫu thuật` hiển thị nền xanh đậm rực rỡ, chữ trắng, badge trắng chữ xanh, nổi bật hoàn toàn trên thanh bar xanh nhạt.
+  - Modal "Tài khoản & Bảo mật" đã được test ở cả 2 trạng thái (thu gọn 1 ô và mở rộng đổi mật khẩu), đóng mở trơn tru.
+  - Bộ lọc Nhân viên y tế đã được test: lọc theo vị trí `BS PT`, lọc theo khoa phòng, tìm kiếm kết hợp, nút xóa lọc hoạt động chính xác và tức thì.
 - **Trạng thái Git & Production:**
-  - Nhánh `main`: Đã đồng bộ mã nguồn mới nhất và push lên GitHub origin.
-  - Vercel: Đã deploy thành công lên Production (`https://initial-surgical-data-pro.vercel.app`).
-  - Nhánh làm việc hiện tại: `temp-09-09-2026-21h47`.
+  - Nhánh `main`: Đã gộp toàn bộ thay đổi qua commit `7478688` và push lên GitHub origin.
+  - Vercel: Đã tự động trigger deploy lên Production.
+  - Nhánh làm việc hiện tại: `temp-10-09-2026-12h35`.
