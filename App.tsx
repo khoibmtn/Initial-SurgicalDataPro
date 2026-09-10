@@ -81,6 +81,8 @@ import { matchSearchQuery, removeVietnameseTones } from './utils/tableSearchUtil
 import { PaymentTableView, getPaymentColumns as buildPaymentColumns } from './components/surgery/PaymentTableView';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
 import { buildPrintConfig } from './components/surgery/printConfigBuilder';
+import { ReportActionBar } from './components/surgery/ReportActionBar';
+import { HospitalStatCards } from './components/surgery/HospitalStatCards';
 interface ReportState {
   result: ProcessingResult | null;
   stats: ProcessedStats | null;
@@ -919,20 +921,6 @@ const InnerApp: React.FC = () => {
     executeDownload();
   };
 
-  // --- Excel Dropdown ---
-  const [isExcelDropdownOpen, setIsExcelDropdownOpen] = useState(false);
-  const excelDropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (excelDropdownRef.current && !excelDropdownRef.current.contains(event.target as Node)) {
-        setIsExcelDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const executeDownloadFormatted = async () => {
     if (!currentReport.result?.validRecords) {
       addToast('Chưa có dữ liệu để tải xuống.', 'error');
@@ -1705,20 +1693,9 @@ const InnerApp: React.FC = () => {
   // --- Print Handling ---
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printConfig, setPrintConfig] = useState<any>(null);
-  const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
-  const printDropdownRef = useRef<HTMLDivElement>(null);
   const overtimePrintHandlerRef = useRef<(() => void) | null>(null);
   const [printOrientation, setPrintOrientation] = useState<'portrait' | 'landscape'>('landscape');
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (printDropdownRef.current && !printDropdownRef.current.contains(event.target as Node)) {
-        setIsPrintDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const handlePrintClick = async (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
     setPrintOrientation(orientation);
@@ -2742,129 +2719,29 @@ const InnerApp: React.FC = () => {
                 })()}
 
                 {/* ── Date range + Action Buttons Row ── */}
-                <div className="flex items-center justify-between gap-2 px-4 mt-1.5">
-                  {/* Date range text (left) */}
-                  <p className="text-xs text-gray-500 font-medium">
-                    {(currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
+                <ReportActionBar
+                  dateRangeText={
+                    (currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
                       ? currentReport.queryDateRangeText
-                      : currentReport.result?.dateRangeText || ''}
-                  </p>
-                  {/* Action buttons (right) */}
-                  <div className="flex items-center gap-2 shrink-0">
-                  {/* Print Dropdown */}
-                  <div className="relative" ref={printDropdownRef}>
-                    <button
-                      onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm"
-                    >
-                      <Printer className="h-3.5 w-3.5" /> In
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {isPrintDropdownOpen && (
-                      <div className="fb-dropdown top-full right-0 mt-1 w-52">
-                        {currentReport.activeTable === 'overtime' && (
-                          <>
-                            <button
-                              onClick={() => {
-                                setIsPrintDropdownOpen(false);
-                                if (overtimePrintHandlerRef.current) {
-                                  overtimePrintHandlerRef.current();
-                                }
-                              }}
-                              className="fb-dropdown-item font-semibold text-primary-700"
-                            >
-                              <FileText className="text-primary-600" />
-                              <span>Giấy báo ngoài giờ</span>
-                            </button>
-                            <div className="fb-dropdown-divider" />
-                          </>
-                        )}
-                        <button onClick={async () => { await handlePrintClick('list', 'landscape'); setIsPrintDropdownOpen(false); }} className="fb-dropdown-item">
-                          <FileText />
-                          <span>Danh sách PT — A4 ngang</span>
-                        </button>
-                        <div className="fb-dropdown-divider" />
-                        <button onClick={() => { handlePrintClick('payment', 'portrait'); setIsPrintDropdownOpen(false); }} className="fb-dropdown-item">
-                          <CreditCard />
-                          <span>Thanh toán — A4 dọc</span>
-                        </button>
-                        <button onClick={() => { handlePrintClick('payment', 'landscape'); setIsPrintDropdownOpen(false); }} className="fb-dropdown-item">
-                          <CreditCard />
-                          <span>Thanh toán — A4 ngang</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {/* Excel Download Dropdown */}
-                  <div className="relative" ref={excelDropdownRef}>
-                    <button
-                      onClick={() => setIsExcelDropdownOpen(!isExcelDropdownOpen)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 bg-accent-600 text-white font-semibold rounded-lg text-[11px] hover:bg-accent-700 transition-colors shadow-sm"
-                    >
-                      <Download className="h-3.5 w-3.5" /> Excel
-                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {isExcelDropdownOpen && (
-                      <div className="fb-dropdown top-full right-0 mt-1 w-48">
-                        <button onClick={() => { handleDownload(); setIsExcelDropdownOpen(false); }} className="fb-dropdown-item">
-                          <FileSpreadsheet />
-                          <span>Không định dạng</span>
-                        </button>
-                        <div className="fb-dropdown-divider" />
-                        <button onClick={() => { handleDownloadFormatted(); setIsExcelDropdownOpen(false); }} className="fb-dropdown-item">
-                          <FileText />
-                          <span>Có định dạng</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {/* Save Data */}
-                  <button
-                    onClick={handleSaveData}
-                    disabled={isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm ${(isSaving || (currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)) ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    title={currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData ? 'Chức năng này chỉ khả dụng khi có dữ liệu mới hoặc cập nhật' : 'Lưu dữ liệu vào hệ thống'}
-                  >
-                    {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                    {isSaving ? 'Lưu...' : 'Lưu'}
-                  </button>
-                  </div>
-                </div>
+                      : currentReport.result?.dateRangeText || ''
+                  }
+                  activeTable={currentReport.activeTable}
+                  onPrint={(type, orientation) => handlePrintClick(type, orientation)}
+                  onOvertimePrint={() => overtimePrintHandlerRef.current?.()}
+                  onDownloadExcel={handleDownload}
+                  onDownloadFormattedExcel={handleDownloadFormatted}
+                  onSaveData={handleSaveData}
+                  isSaving={isSaving}
+                  canSave={!isSaving && !(currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData)}
+                  saveTooltip={
+                    currentReport.dataSource === 'STORAGE' && !currentReport.hasAutoFilledData
+                      ? 'Chức năng này chỉ khả dụng khi có dữ liệu mới hoặc cập nhật'
+                      : 'Lưu dữ liệu vào hệ thống'
+                  }
+                />
 
-                {/* ── Stat Cards (HospotalStat-VT style) ── */}
-                <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2 px-4 mt-1.5">
-                  {[
-                    { label: 'TỔNG PT/TT', value: derivedStats.totalSurgeries, icon: <Activity className="stat-card-icon" />, bgFrom: '#eff6ff', border: '#dbeafe', labelColor: '#2563eb', iconColor: '#60a5fa', valueColor: '#1e3a5f' },
-                    { label: 'TT <100%', value: derivedStats.lowPaymentCount || 0, icon: <CreditCard className="stat-card-icon" />, bgFrom: '#f8fafc', border: '#e2e8f0', labelColor: '#64748b', iconColor: '#94a3b8', valueColor: '#334155' },
-                    { label: 'TRÙNG NV', value: derivedStats.staffConflicts, icon: <Users className="stat-card-icon" />, bgFrom: derivedStats.staffConflicts > 0 ? '#fef2f2' : '#f0fdf4', border: derivedStats.staffConflicts > 0 ? '#fecaca' : '#bbf7d0', labelColor: derivedStats.staffConflicts > 0 ? '#dc2626' : '#16a34a', iconColor: derivedStats.staffConflicts > 0 ? '#f87171' : '#4ade80', valueColor: derivedStats.staffConflicts > 0 ? '#7f1d1d' : '#14532d' },
-                    { label: 'TRÙNG MÁY', value: derivedStats.machineConflicts, icon: <Cpu className="stat-card-icon" />, bgFrom: derivedStats.machineConflicts > 0 ? '#fffbeb' : '#f0fdf4', border: derivedStats.machineConflicts > 0 ? '#fde68a' : '#bbf7d0', labelColor: derivedStats.machineConflicts > 0 ? '#d97706' : '#16a34a', iconColor: derivedStats.machineConflicts > 0 ? '#fbbf24' : '#4ade80', valueColor: derivedStats.machineConflicts > 0 ? '#78350f' : '#14532d' },
-                    { label: 'THIẾU MÁY', value: derivedStats.missingMachines, icon: <AlertTriangle className="stat-card-icon" />, bgFrom: derivedStats.missingMachines > 0 ? '#fff7ed' : '#f0fdf4', border: derivedStats.missingMachines > 0 ? '#fed7aa' : '#bbf7d0', labelColor: derivedStats.missingMachines > 0 ? '#ea580c' : '#16a34a', iconColor: derivedStats.missingMachines > 0 ? '#fb923c' : '#4ade80', valueColor: derivedStats.missingMachines > 0 ? '#7c2d12' : '#14532d' },
-                    { label: 'CHƯA GV', value: derivedStats.missingAssistantCount, icon: <Users className="stat-card-icon" />, bgFrom: derivedStats.missingAssistantCount > 0 ? '#fef2f2' : '#f0fdf4', border: derivedStats.missingAssistantCount > 0 ? '#fecaca' : '#bbf7d0', labelColor: derivedStats.missingAssistantCount > 0 ? '#dc2626' : '#16a34a', iconColor: derivedStats.missingAssistantCount > 0 ? '#f87171' : '#4ade80', valueColor: derivedStats.missingAssistantCount > 0 ? '#7f1d1d' : '#14532d' },
-                    { label: 'LỖI TG', value: derivedStats.violateMinTimeCount, icon: <Clock className="stat-card-icon" />, bgFrom: derivedStats.violateMinTimeCount > 0 ? '#fef2f2' : '#f0fdf4', border: derivedStats.violateMinTimeCount > 0 ? '#fecaca' : '#bbf7d0', labelColor: derivedStats.violateMinTimeCount > 0 ? '#dc2626' : '#16a34a', iconColor: derivedStats.violateMinTimeCount > 0 ? '#f87171' : '#4ade80', valueColor: derivedStats.violateMinTimeCount > 0 ? '#7f1d1d' : '#14532d' },
-                  ].map((card, i) => (
-                    <div
-                      key={i}
-                      className="stat-card"
-                      style={{
-                        '--stat-bg-from': card.bgFrom,
-                        '--stat-border': card.border,
-                        '--stat-label': card.labelColor,
-                        '--stat-icon': card.iconColor,
-                        '--stat-value': card.valueColor,
-                      } as React.CSSProperties}
-                    >
-                      <div className="stat-card-header">
-                        <span className="stat-card-label">{card.label}</span>
-                        {card.icon}
-                      </div>
-                      <span className="stat-card-value">{typeof card.value === 'number' ? card.value.toLocaleString('vi-VN') : card.value}</span>
-                    </div>
-                  ))}
-                </div>
+                {/* ── Stat Cards (HospitalStat-VT style) ── */}
+                <HospitalStatCards stats={derivedStats} />
 
                   {/* ── Internal Sub-Tabs (TabLine + persistent containers) ── */}
                   <div className="flex flex-col mt-1.5">
