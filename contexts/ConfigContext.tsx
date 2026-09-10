@@ -487,7 +487,6 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const resetConfig = () => {
         if (isLocked) {
-            alert("Cấu hình đang bị khóa! Vui lòng mở khóa trước khi khôi phục cài đặt gốc.");
             return;
         }
         if (confirm("Bạn có chắc chắn muốn khôi phục cài đặt gốc? Hành động này sẽ cập nhật cấu hình trên server!")) {

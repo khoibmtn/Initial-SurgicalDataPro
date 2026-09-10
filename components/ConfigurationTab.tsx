@@ -2556,8 +2556,18 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
             <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center">
                 <button
-                    onClick={resetConfig}
-                    className="text-red-600 text-sm hover:underline flex items-center gap-1 font-medium"
+                    type="button"
+                    onClick={() => {
+                        if (isLocked) return;
+                        resetConfig();
+                    }}
+                    disabled={isLocked}
+                    title={isLocked ? "Cấu hình đang bị khóa (Chỉ xem)" : "Khôi phục cấu hình về cài đặt gốc"}
+                    className={`text-sm flex items-center gap-1 font-medium transition-colors ${
+                        isLocked
+                            ? 'text-gray-400 opacity-40 cursor-not-allowed pointer-events-none select-none no-underline'
+                            : 'text-red-600 hover:text-red-700 hover:underline cursor-pointer'
+                    }`}
                 >
                     <RefreshCw className="h-4 w-4" /> Khôi phục mặc định
                 </button>

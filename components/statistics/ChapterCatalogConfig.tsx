@@ -278,7 +278,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
             onClick={handleSeed}
             disabled={seeding || isLocked}
             title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : undefined}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
           >
             {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
             {seeding ? 'Đang nạp...' : 'Nạp mặc định'}

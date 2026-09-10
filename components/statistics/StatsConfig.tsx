@@ -34,6 +34,7 @@ import { ChapterCatalogConfig } from './ChapterCatalogConfig';
 import { ProfileConfig } from './ProfileConfig';
 import { SurgeryCostConfig } from './SurgeryCostConfig';
 import { subscribeToCostItems } from '../../services/surgeryCostService';
+import { useConfig } from '../../contexts/ConfigContext';
 import {
   getComparisonThresholdConfig,
   saveComparisonThresholdConfig,
@@ -94,6 +95,7 @@ function toFormState(v: SurgeryPriceVersion): FormState {
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
 export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices, chapters, profiles }) => {
+  const { isLocked } = useConfig();
   const [configSubTab, setConfigSubTab] = useState<ConfigSubTab>(() => {
     const saved = localStorage.getItem(SUB_TAB_KEY);
     if (saved === 'profile' || saved === 'comparison-threshold') return saved;
@@ -151,6 +153,7 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   }, []);
 
   const handleRestoreDefaults = () => {
+    if (isLocked) return;
     if (window.confirm('Bạn có muốn khôi phục danh mục 14 kỹ thuật chuẩn đã phân loại?')) {
       const restored = restoreDefaultOverrides();
       setOverridesList(restored);
@@ -504,8 +507,17 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
             <div className="pt-2 flex items-center justify-between">
               <button
                 type="button"
-                onClick={() => setThresholdForm({ alertThreshold: 10, positiveThreshold: 5 })}
-                className="text-xs text-gray-500 hover:text-gray-700 underline cursor-pointer"
+                onClick={() => {
+                  if (isLocked) return;
+                  setThresholdForm({ alertThreshold: 10, positiveThreshold: 5 });
+                }}
+                disabled={isLocked}
+                title={isLocked ? "Cấu hình đang bị khóa (Chỉ xem)" : undefined}
+                className={`text-xs ${
+                  isLocked
+                    ? 'text-gray-400 opacity-40 cursor-not-allowed pointer-events-none select-none no-underline'
+                    : 'text-gray-500 hover:text-gray-700 underline cursor-pointer'
+                }`}
               >
                 Khôi phục mặc định (10% & 5%)
               </button>
@@ -513,8 +525,13 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
               <button
                 type="button"
                 onClick={handleSaveThreshold}
-                disabled={thresholdSaving}
-                className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-primary-700 hover:bg-primary-800 text-white font-bold text-xs shadow-sm transition-all active:scale-95 cursor-pointer"
+                disabled={thresholdSaving || isLocked}
+                title={isLocked ? "Cấu hình đang bị khóa (Chỉ xem)" : undefined}
+                className={`flex items-center gap-1.5 px-5 py-2 rounded-lg font-bold text-xs shadow-sm transition-all ${
+                  isLocked
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none opacity-60'
+                    : 'bg-primary-700 hover:bg-primary-800 text-white active:scale-95 cursor-pointer'
+                }`}
               >
                 <Save className="h-4 w-4" />
                 <span>{thresholdSaving ? 'Đang lưu...' : 'Lưu cấu hình ngưỡng'}</span>
@@ -701,8 +718,13 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
                 <button
                   type="button"
                   onClick={handleRestoreDefaults}
-                  className="px-2.5 py-1 text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-md font-semibold transition-colors flex items-center gap-1 cursor-pointer"
-                  title="Khôi phục danh mục 14 kỹ thuật chuyển nhóm chuẩn"
+                  disabled={isLocked}
+                  title={isLocked ? "Cấu hình đang bị khóa (Chỉ xem)" : "Khôi phục danh mục 14 kỹ thuật chuyển nhóm chuẩn"}
+                  className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors flex items-center gap-1 ${
+                    isLocked
+                      ? 'bg-gray-100 text-gray-400 border border-gray-200 opacity-40 cursor-not-allowed pointer-events-none select-none'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 cursor-pointer'
+                  }`}
                 >
                   <RotateCcw className="h-3 w-3 text-amber-600" />
                   <span>Khôi phục 14 mục chuẩn</span>
@@ -761,12 +783,18 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
                             <button
                               type="button"
                               onClick={() => {
+                                if (isLocked) return;
                                 removeSpecialtyOverride(tenKT);
                                 setOverridesList(getSpecialtyOverrides());
                                 showToast(`Đã xóa gán thủ công cho "${tenKT}"`);
                               }}
-                              className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                              title="Khôi phục phân loại tự động"
+                              disabled={isLocked}
+                              title={isLocked ? "Cấu hình đang bị khóa (Chỉ xem)" : "Khôi phục phân loại tự động"}
+                              className={`p-1 rounded transition-colors ${
+                                isLocked
+                                  ? 'text-gray-300 opacity-40 cursor-not-allowed pointer-events-none select-none'
+                                  : 'text-red-500 hover:text-red-700 hover:bg-red-50 cursor-pointer'
+                              }`}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
