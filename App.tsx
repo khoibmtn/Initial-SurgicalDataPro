@@ -79,6 +79,8 @@ import { ToastContainer, ToastItem, ToastType } from './components/common/ToastC
 import { formatDate, parseDateString } from './utils/dateUtils';
 import { matchSearchQuery, removeVietnameseTones } from './utils/tableSearchUtils';
 import { PaymentTableView, getPaymentColumns as buildPaymentColumns } from './components/surgery/PaymentTableView';
+import { ConfirmDialog } from './components/common/ConfirmDialog';
+import { buildPrintConfig } from './components/surgery/printConfigBuilder';
 interface ReportState {
   result: ProcessingResult | null;
   stats: ProcessedStats | null;
@@ -1735,271 +1737,25 @@ const InnerApp: React.FC = () => {
   };
 
   const executePrintLogic = (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => {
-    if (type === 'list') {
-      // Prepare List Print
-      const listPrintConfig: any = {
-        type: 'list',
-        title: 'DANH SÁCH PHẪU THUẬT',
-        dateRange: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
-        data: currentReport.result?.validRecords || [],
-        columns: columnsList.filter(c => visibleCols['list']?.[c.key] !== false),
-        reportTab: activeTab as 'daily' | 'monthly',
-        // For monthly: signature date = endDate + 1 day (parsed from dateRangeText)
-        ...(activeTab === 'monthly' ? (() => {
-          const drt = currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '';
-          const m = drt.match(/đến ngày (\d{2})\/(\d{2})\/(\d{4})/);
-          if (m) {
-            const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
-            d.setDate(d.getDate() + 1);
-            return { signatureDate: d };
-          }
-          return {};
-        })() : {}),
-      };
-      // Add stats for daily report only
-      if (activeTab === 'daily') {
-        listPrintConfig.dailyStats = {
-          ptCount,
-          ttCount,
-          lowPaymentCount: derivedStats.lowPaymentCount || 0,
-          staffConflicts: derivedStats.staffConflicts,
-          machineConflicts: derivedStats.machineConflicts,
-          missingMachines: derivedStats.missingMachines,
-          missingAssistantCount: derivedStats.missingAssistantCount,
-          violateMinTimeCount: derivedStats.violateMinTimeCount,
-        };
-      }
+    const configObj = buildPrintConfig({
+      type,
+      reportTab: activeTab as 'daily' | 'monthly',
+      dateRangeText: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
+      validRecords: currentReport.result?.validRecords || [],
+      columnsList,
+      listVisibleCols: visibleCols['list'],
+      paymentVisibleCols: visibleCols['payment'],
+      derivedStats,
+      ptCount,
+      ttCount,
+      paymentDataPrepared,
+      paymentCols: getPaymentColumns(),
+      config,
+    });
 
-      // Add surgery type statistics for monthly list print
-      if (activeTab === 'monthly') {
-        const typeLabels: Record<string, string> = {
-          PĐB: "Phẫu thuật đặc biệt",
-          P1: "Phẫu thuật loại 1",
-          P2: "Phẫu thuật loại 2",
-          P3: "Phẫu thuật loại 3",
-          TĐB: "Thủ thuật đặc biệt",
-          T1: "Thủ thuật loại 1",
-          T2: "Thủ thuật loại 2",
-          T3: "Thủ thuật loại 3",
-          TKPL: "Thủ thuật Khác/KPL",
-        };
-        const typeOrder = ["PĐB", "P1", "P2", "P3", "TĐB", "T1", "T2", "T3", "TKPL"];
-
-        const surgeryCounts: Record<string, number> = {};
-        currentReport.result?.validRecords?.forEach(record => {
-          const loai = record.loaiPTTT;
-          if (loai) {
-            surgeryCounts[loai] = (surgeryCounts[loai] || 0) + (record.soLuong || 1);
-          }
-        });
-
-        const totalPT = Object.entries(surgeryCounts)
-          .filter(([loai]) => loai.startsWith('P'))
-          .reduce((s, [, c]) => s + c, 0);
-        const totalTT = Object.entries(surgeryCounts)
-          .filter(([loai]) => loai.startsWith('T'))
-          .reduce((s, [, c]) => s + c, 0);
-
-        const ListSurgeryStatsBlock = (
-          <div className="flex flex-col gap-0.5 mt-2">
-            {totalPT > 0 && <div className="font-bold underline">Tổng số phẫu thuật: {Number.isInteger(totalPT) ? totalPT : totalPT.toFixed(2)} ca</div>}
-            {totalTT > 0 && <div className="font-bold underline">Tổng số thủ thuật: {Number.isInteger(totalTT) ? totalTT : totalTT.toFixed(2)} ca</div>}
-            {Object.entries(surgeryCounts)
-              .filter(([_, count]) => count > 0)
-              .sort((a, b) => {
-                const indA = typeOrder.indexOf(a[0]);
-                const indB = typeOrder.indexOf(b[0]);
-                return (indA === -1 ? 99 : indA) - (indB === -1 ? 99 : indB);
-              })
-              .map(([loai, count]) => (
-                <div key={loai}>
-                  {typeLabels[loai] || loai}: {Number.isInteger(count) ? count : count.toFixed(2)} ca
-                </div>
-              ))}
-          </div>
-        );
-
-        listPrintConfig.paymentStatsBlock = ListSurgeryStatsBlock;
-      }
-
-      setPrintConfig(listPrintConfig);
+    if (configObj) {
+      setPrintConfig(configObj);
       setIsPrintOpen(true);
-    } else if (type === 'payment' && paymentDataPrepared) {
-      // Prepare Payment Print - Need to reconstruct headers
-      const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentDataPrepared;
-      const currentVisible = visibleCols['payment'] || {};
-      const isVisible = (key: string) => currentVisible[key] !== false;
-      const paymentCols = getPaymentColumns().filter(c => isVisible(c.key));
-
-      // Re-create the custom Header components for Print (needs to be passed as node or reconstructed in PrintPreview)
-      // Since PrintPreview accepts 'customThead', we will construct it here basically identical to table render
-      const PrintThead = (
-        <thead className="text-xs text-black border-b border-black">
-          {/* Row 1: Group Headers */}
-          <tr className="border-b border-black">
-            {isVisible('stt') && <th rowSpan={2} className="px-1 py-1 border-r border-black w-[30px] text-center align-middle font-bold text-[10px]">STT</th>}
-            {isVisible('department') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px] col-dept">Khoa</th>}
-            {isVisible('taxId') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px] col-tax">Mã số thuế</th>}
-            {isVisible('name') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[11px] col-name">Họ tên</th>}
-            {groups.map(grp => {
-              const visibleSubCols = grp.subCols.filter(role => isVisible(`val_${grp.name}-${role}`));
-              if (visibleSubCols.length === 0) return null;
-              return (
-                <th key={grp.name} colSpan={visibleSubCols.length} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px]">{grp.label}</th>
-              );
-            })}
-            {isVisible('total_qty') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-center align-middle text-[10px] col-numeric">Tổng số</th>}
-            {isVisible('total_amount') && <th rowSpan={2} className="px-1 py-1 border border-black font-bold text-right align-middle text-[10px] col-total">Thành tiền</th>}
-          </tr>
-          <tr>
-            {groups.flatMap(grp => grp.subCols.map(role => {
-              const colKey = `val_${grp.name}-${role}`;
-              if (!isVisible(colKey)) return null;
-              return (
-                <th key={colKey} className="px-1 py-0.5 border border-black font-bold text-center align-middle text-[9px] col-numeric">{role}</th>
-              );
-            }))}
-          </tr>
-        </thead>
-      );
-
-      const ExtraFooter = (
-        <tr className="font-bold text-xs border-t border-black">
-          <td className="px-1 py-1 text-center border border-black"></td>
-          <td className="px-1 py-1 border border-black bg-gray-50/50"></td>
-          <td className="px-1 py-1 border border-black bg-gray-50/50"></td>
-          <td className="px-1 py-1 text-right border border-black">TỔNG CỘNG</td>
-          <td className="px-2 py-2 text-center border border-black"></td> {/* Empty for STT if we added it manually in column map... wait, STT is separate td in PrintPreview */}
-          {/* Actually STT is separate. The columns map starts from name. */}
-          {/* Let's adjust footer to match columns map size */}
-          {/* Payment Cols: [Name, ...Vals, TotalQty, TotalAmt] */}
-          {/* We need an empty cell for Name, then values... */}
-
-          {/* Correction: The PrintPreview renders: STT Column (always), then mapped Columns. */}
-          {/* So Footer needs: 1 cell (STT) + 1 cell (Name) + ... */}
-
-          {/* Wait, my manual footer construction below needs to align with mapped columns */}
-          {/* PrintPreview loop: STT, then Col 1, Col 2... */}
-          {/* Footer: */}
-          <td className="border border-black px-2 py-2 text-right pointer-events-none opacity-0"></td>
-          {/* Use carefully constructed footer */}
-        </tr>
-      );
-
-      // Let's rely on passing props to PrintPreview to render special rows if needed, OR just pass data & columns.
-      // For Payment, we passed `customThead`. Components inside `PrintPreview` will use it.
-
-      // Re-create Extra Footer for Print
-      const PrintFooter = (
-        <tr className="font-bold text-xs">
-          <td className="px-1 py-1 border border-black text-center col-stt">{/*STT*/}</td>
-          {isVisible('department') && <td className="px-1 py-1 border border-black col-dept"></td>}
-          {isVisible('taxId') && <td className="px-1 py-1 border border-black col-tax"></td>}
-          {isVisible('name') && <td className="px-1 py-1 text-right border border-black col-name text-[11px]">TỔNG CỘNG</td>}
-          {cols.map(col => {
-            if (!isVisible(`val_${col}`)) return null;
-            return <td key={col} className="px-1 py-1 border border-black text-right col-numeric">{columnTotals[col] > 0 ? columnTotals[col] : '-'}</td>
-          })}
-          {isVisible('total_qty') && <td className="px-1 py-1 border border-black text-center col-numeric">{footerTotals.total_qty}</td>}
-          {isVisible('total_amount') && <td className="px-1 py-1 border border-black text-right col-total">{footerTotals.total_amount_val.toLocaleString('en-US')}</td>}
-        </tr>
-      );
-
-      // Re-create Unit Price Header Row
-      const PrintExtraHeader = (
-        <tr className="font-bold text-xs text-center italic">
-          <td className="px-1 py-0.5 border border-black col-stt"></td>
-          {isVisible('department') && <td className="px-1 py-0.5 border border-black col-dept"></td>}
-          {isVisible('taxId') && <td className="px-1 py-0.5 border border-black col-tax"></td>}
-          {isVisible('name') && <td className="px-1 py-0.5 border border-black text-right opacity-0 text-[10px] col-name">Đơn giá</td>}
-          {cols.map(col => {
-            if (!isVisible(`val_${col}`)) return null;
-            const [loai, role] = col.split('-');
-            let configRole: any = "Giúp việc";
-            if (role === "Chính") configRole = "Chính";
-            else if (role === "Phụ") configRole = "Phụ";
-            else if (role === "Giúp việc") configRole = "Giúp việc";
-            const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
-            return <td key={col} className="px-1 py-0.5 border border-black text-right text-[10px] col-numeric">{price.toLocaleString('en-US')}</td>
-          })}
-          {isVisible('total_qty') && <td className="px-1 py-0.5 border border-black text-[10px] col-numeric"></td>}
-          {isVisible('total_amount') && <td className="px-1 py-0.5 border border-black text-[10px] col-total"></td>}
-        </tr>
-      );
-
-      // Calculate Payment Stats
-      const surgeryCountsByType: Record<string, number> = {};
-      currentReport.result?.validRecords?.forEach(record => {
-        const loai = record.loaiPTTT;
-        if (loai) {
-          surgeryCountsByType[loai] = (surgeryCountsByType[loai] || 0) + (record.soLuong || 1);
-        }
-      });
-
-      const typeLabels: Record<string, string> = {
-        PĐB: "Phẫu thuật đặc biệt",
-        P1: "Phẫu thuật loại 1",
-        P2: "Phẫu thuật loại 2",
-        P3: "Phẫu thuật loại 3",
-        TĐB: "Thủ thuật đặc biệt",
-        T1: "Thủ thuật loại 1",
-        T2: "Thủ thuật loại 2",
-        T3: "Thủ thuật loại 3",
-        TKPL: "Thủ thuật Khác/KPL",
-      };
-
-      const totalPT_pay = Object.entries(surgeryCountsByType)
-        .filter(([loai]) => loai.startsWith('P'))
-        .reduce((s, [, c]) => s + c, 0);
-      const totalTT_pay = Object.entries(surgeryCountsByType)
-        .filter(([loai]) => loai.startsWith('T'))
-        .reduce((s, [, c]) => s + c, 0);
-
-      const PrintPaymentStats = (
-        <div className="flex flex-col gap-0.5 mt-2">
-          {totalPT_pay > 0 && <div className="font-bold underline">Tổng số phẫu thuật: {Number.isInteger(totalPT_pay) ? totalPT_pay : totalPT_pay.toFixed(2)} ca</div>}
-          {totalTT_pay > 0 && <div className="font-bold underline">Tổng số thủ thuật: {Number.isInteger(totalTT_pay) ? totalTT_pay : totalTT_pay.toFixed(2)} ca</div>}
-          {Object.entries(surgeryCountsByType)
-            .filter(([_, count]) => count > 0)
-            .sort((a, b) => {
-              // sort to match PDB -> P1 -> P2 -> P3 -> TDB -> T1 -> T2 -> T3 etc
-              const order = ["PĐB", "P1", "P2", "P3", "TĐB", "T1", "T2", "T3", "TKPL"];
-              const indA = order.indexOf(a[0]);
-              const indB = order.indexOf(b[0]);
-              return (indA === -1 ? 99 : indA) - (indB === -1 ? 99 : indB);
-            })
-            .map(([loai, count]) => (
-              <div key={loai}>
-                {typeLabels[loai] || loai}: {Number.isInteger(count) ? count : count.toFixed(2)} ca
-              </div>
-            ))}
-        </div>
-      );
-
-      setPrintConfig({
-        type: 'payment',
-        title: 'BẢNG THANH TOÁN PHẪU THUẬT, THỦ THUẬT',
-        dateRange: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
-        data: enrichedRows,
-        columns: paymentCols,
-        customThead: PrintThead,
-        extraFooterRow: PrintFooter,
-        extraHeaderRow: PrintExtraHeader,
-        paymentStatsBlock: PrintPaymentStats,
-        // For monthly: signature date = endDate + 1 day (parsed from dateRangeText)
-        ...(activeTab === 'monthly' ? (() => {
-          const drt = currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '';
-          const m = drt.match(/đến ngày (\d{2})\/(\d{2})\/(\d{4})/);
-          if (m) {
-            const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
-            d.setDate(d.getDate() + 1);
-            return { signatureDate: d };
-          }
-          return {};
-        })() : {}),
-      });
-      setIsPrintOpen(true);
-
     } else {
       addToast("Vui lòng chọn 'Danh sách PT' hoặc 'Bảng kê thanh toán' để in.", 'error');
     }
@@ -2581,66 +2337,28 @@ const InnerApp: React.FC = () => {
       <CommandPalette commands={commandItems} isOpen={cmdPaletteOpen} onClose={() => setCmdPaletteOpen(false)} />
 
       {/* Delete Confirm Modal */}
-      {deleteConfirm.show && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="bg-red-50 border-b border-red-100 px-6 py-4 flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-xl">
-                <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-              </div>
-              <h3 className="font-bold text-lg text-red-900">Xác nhận xóa dữ liệu</h3>
-            </div>
-            <div className="px-6 py-5">
-              <div className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{deleteConfirm.message}</div>
-            </div>
-            <div className="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
-              <button
-                onClick={() => setDeleteConfirm({ show: false, message: '', onConfirm: null })}
-                className="px-5 py-2.5 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-sm"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                onClick={() => deleteConfirm.onConfirm?.()}
-                className="px-5 py-2.5 text-sm font-bold text-white bg-red-600 rounded-xl hover:bg-red-700 transition-all shadow-sm"
-              >
-                Xác nhận xóa
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={deleteConfirm.show}
+        title="Xác nhận xóa dữ liệu"
+        message={deleteConfirm.message}
+        confirmLabel="Xác nhận xóa"
+        cancelLabel="Hủy bỏ"
+        variant="danger"
+        onConfirm={() => deleteConfirm.onConfirm?.()}
+        onCancel={() => setDeleteConfirm({ show: false, message: '', onConfirm: null })}
+      />
 
       {/* Save Confirm Modal (for duplicate detection) */}
-      {saveConfirm.show && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="bg-blue-50 border-b border-blue-100 px-6 py-4 flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-xl">
-                <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-              </div>
-              <h3 className="font-bold text-lg text-blue-900">Xác nhận lưu dữ liệu</h3>
-            </div>
-            <div className="px-6 py-5">
-              <div className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{saveConfirm.message}</div>
-            </div>
-            <div className="px-6 py-4 bg-gray-50 border-t flex justify-end gap-3">
-              <button
-                onClick={() => setSaveConfirm({ show: false, message: '', onConfirm: null })}
-                className="px-5 py-2.5 text-sm font-bold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-all shadow-sm"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                onClick={() => saveConfirm.onConfirm?.()}
-                className="px-5 py-2.5 text-sm font-bold text-white bg-primary-700 rounded-xl hover:bg-primary-800 transition-all shadow-sm"
-              >
-                Tiếp tục lưu
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={saveConfirm.show}
+        title="Xác nhận lưu dữ liệu"
+        message={saveConfirm.message}
+        confirmLabel="Tiếp tục lưu"
+        cancelLabel="Hủy bỏ"
+        variant="info"
+        onConfirm={() => saveConfirm.onConfirm?.()}
+        onCancel={() => setSaveConfirm({ show: false, message: '', onConfirm: null })}
+      />
 
       {/* Sidebar Navigation */}
       <Sidebar
