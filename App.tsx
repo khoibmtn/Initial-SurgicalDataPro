@@ -87,6 +87,8 @@ import { buildColumnsList, buildColumnsMissing, buildColumnsStaff, buildColumnsM
 import { SurgeryTableViewRouter } from './components/surgery/SurgeryTableViewRouter';
 import { ReportState, DataTabType } from './types/reportState';
 import { useReportStateManager } from './hooks/useReportStateManager';
+import { useReportTableSettings } from './hooks/useReportTableSettings';
+import { useToast } from './hooks/useToast';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
@@ -283,86 +285,18 @@ const InnerApp: React.FC = () => {
   };
 
   // Per-Report UI settings from Config (with fallbacks to global or defaults)
-  const reportConfig = config.uiSettings?.perReport?.[currentType];
-  const rowsPerPage = reportConfig?.rowsPerPage || config.uiSettings?.rowsPerPage || 20;
-  const dateFormat = reportConfig?.dateFormat || config.uiSettings?.dateFormat || 'dd/mm/yyyy hh:mm';
-  const visibleCols = reportConfig?.visibleColumns || config.uiSettings?.visibleColumns || {};
-  const searchableCols = reportConfig?.searchableColumns || config.uiSettings?.searchableColumns || {};
+  const {
+    rowsPerPage,
+    dateFormat,
+    visibleCols,
+    searchableCols,
+    updateRowsPerPage,
+    updateDateFormat,
+    updateVisibleCols,
+    updateSearchableCols,
+  } = useReportTableSettings({ config, updateConfig, currentType });
 
-  const updateRowsPerPage = (n: number) => {
-    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
-    updateConfig({
-      uiSettings: {
-        ...currentUISettings,
-        perReport: {
-          ...currentUISettings.perReport,
-          [currentType]: {
-            ...(currentUISettings.perReport?.[currentType] as any),
-            rowsPerPage: n
-          }
-        }
-      }
-    });
-  };
-
-  const updateDateFormat = (f: string) => {
-    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
-    updateConfig({
-      uiSettings: {
-        ...currentUISettings,
-        perReport: {
-          ...currentUISettings.perReport,
-          [currentType]: {
-            ...(currentUISettings.perReport?.[currentType] as any),
-            dateFormat: f
-          }
-        }
-      }
-    });
-  };
-
-  const updateVisibleCols = (table: string, cols: Record<string, boolean>) => {
-    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
-    const currentReportUI = currentUISettings.perReport?.[currentType] || { rowsPerPage, dateFormat, visibleColumns: {}, searchableColumns: {} };
-    updateConfig({
-      uiSettings: {
-        ...currentUISettings,
-        perReport: {
-          ...currentUISettings.perReport,
-          [currentType]: {
-            ...currentReportUI,
-            visibleColumns: { ...(currentReportUI.visibleColumns || {}), [table]: cols }
-          }
-        }
-      }
-    });
-  };
-
-  const updateSearchableCols = (table: string, cols: Record<string, boolean>) => {
-    const currentUISettings = config.uiSettings || DEFAULT_CONFIG.uiSettings;
-    const currentReportUI = currentUISettings.perReport?.[currentType] || { rowsPerPage, dateFormat, visibleColumns: {}, searchableColumns: {} };
-    updateConfig({
-      uiSettings: {
-        ...currentUISettings,
-        perReport: {
-          ...currentUISettings.perReport,
-          [currentType]: {
-            ...currentReportUI,
-            searchableColumns: { ...(currentReportUI.searchableColumns || {}), [table]: cols }
-          }
-        }
-      }
-    });
-  };
-
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const addToast = (message: React.ReactNode, type: ToastType = 'success', duration = 6000) => {
-    const id = crypto.randomUUID();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => removeToast(id), duration);
-  };
-  const removeToast = (id: string) => { setToasts(prev => prev.filter(t => t.id !== id)); };
+  const { toasts, addToast, removeToast } = useToast();
 
   // Validate File
   const checkFile = (f: File) => {
