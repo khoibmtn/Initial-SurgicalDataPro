@@ -75,28 +75,24 @@ import { getTimeRuleForRecord, getAllowanceForRecord } from './services/laborCon
 import { ColumnDef } from './components/common/DynamicTable';
 import { ToastContainer, ToastItem, ToastType } from './components/common/ToastContainer';
 import { formatDate, parseDateString } from './utils/dateUtils';
-import { matchSearchQuery, removeVietnameseTones } from './utils/tableSearchUtils';
-import { getPaymentColumns as buildPaymentColumns } from './components/surgery/PaymentTableView';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
 import { buildPrintConfig } from './components/surgery/printConfigBuilder';
 import { ReportActionBar } from './components/surgery/ReportActionBar';
 import { HospitalStatCards } from './components/surgery/HospitalStatCards';
 import { StorageQueryBar } from './components/surgery/StorageQueryBar';
 import { UploadFileBar } from './components/surgery/UploadFileBar';
-import { buildColumnsList, buildColumnsMissing, buildColumnsStaff, buildColumnsMachine } from './components/surgery/surgeryColumns';
 import { SurgeryTableViewRouter } from './components/surgery/SurgeryTableViewRouter';
 import { ReportState, DataTabType } from './types/reportState';
 import { useReportStateManager } from './hooks/useReportStateManager';
 import { useReportTableSettings } from './hooks/useReportTableSettings';
 import { useToast } from './hooks/useToast';
+import { useSurgeryTableData } from './hooks/useSurgeryTableData';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
 
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
   const [hasVisitedStats, setHasVisitedStats] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<SurgeryRecord | null>(null);
-  const [lastActiveRecordId, setLastActiveRecordId] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeTab === 'statistics') {
@@ -253,38 +249,7 @@ const InnerApp: React.FC = () => {
     });
   };
 
-  const handleRowSelect = (id: string, selected: boolean) => {
-    const currentIds = currentReport.selectedRecordIds || [];
-    console.log(`[handleRowSelect] Toggling ID: "${id}" to ${selected}. Current IDs:`, currentIds);
-    let newIds;
-    if (selected) {
-      newIds = [...currentIds, id];
-      setLastActiveRecordId(id);
-    } else {
-      newIds = currentIds.filter(selectedId => selectedId !== id);
-      if (lastActiveRecordId === id) {
-        setLastActiveRecordId(newIds.length > 0 ? newIds[newIds.length - 1] : null);
-      }
-    }
-    console.log(`[handleRowSelect] New IDs:`, newIds);
-    updateCurrentReport({ selectedRecordIds: newIds });
-  };
 
-  const handleSelectAll = (selected: boolean) => {
-    const records = currentReport.result?.validRecords || [];
-    if (selected) {
-      // Filter out records without keys/ids if any (shouldn't happen based on processor)
-      // Support both key (Excel) and id (Storage)
-      const allIds = records.map(r => r.key || r.id).filter(k => k) as string[];
-      console.log(`[handleSelectAll] Selecting ${allIds.length} records`);
-      updateCurrentReport({ selectedRecordIds: allIds });
-    } else {
-      console.log(`[handleSelectAll] Deselecting all`);
-      updateCurrentReport({ selectedRecordIds: [] });
-    }
-  };
-
-  // Per-Report UI settings from Config (with fallbacks to global or defaults)
   const {
     rowsPerPage,
     dateFormat,
@@ -297,6 +262,48 @@ const InnerApp: React.FC = () => {
   } = useReportTableSettings({ config, updateConfig, currentType });
 
   const { toasts, addToast, removeToast } = useToast();
+
+  const {
+    editingRecord,
+    setEditingRecord,
+    ptCount,
+    ttCount,
+    derivedStats,
+    paymentDataPrepared,
+    columnsList,
+    columnsMissing,
+    columnsStaff,
+    columnsMachine,
+    listSearchableCols,
+    emptyFilterCol,
+    setEmptyFilterCol,
+    showEmptyFilterMenu,
+    setShowEmptyFilterMenu,
+    filteredList,
+    filteredStaff,
+    filteredMachine,
+    filteredMissing,
+    listPage,
+    setListPage,
+    handleRowSelect,
+    handleSelectAll,
+    handleOpenEditModal,
+    handleRowDoubleClick,
+    handleSaveEditedRecord,
+    handleSaveAssistant,
+    updateSearchTerm,
+    setActiveTable,
+  } = useSurgeryTableData({
+    config,
+    dateFormat,
+    rowsPerPage,
+    visibleCols,
+    searchableCols,
+    currentReport,
+    updateCurrentReport,
+    currentType,
+    addToast,
+  });
 
   // Validate File
   const checkFile = (f: File) => {
@@ -697,397 +704,7 @@ const InnerApp: React.FC = () => {
     return `${d}/${m}/${y} ${timeStr}`;
   };
 
-  const dynamicViolateMinTimeCount = useMemo(() => {
-    if (!currentReport.result?.validRecords) return 0;
-    return currentReport.result.validRecords.filter(r => {
-      const minTime = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min;
-      return minTime && r.timeMinutes < minTime;
-    }).length;
-  }, [currentReport.result?.validRecords, config.timeRules, config.timeItemsList]);
 
-  // Split PT/TT counts for Tab UI
-  const { ptCount, ttCount } = useMemo(() => {
-    if (!currentReport.result?.validRecords) return { ptCount: 0, ttCount: 0 };
-    return {
-      ptCount: currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length,
-      ttCount: currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length
-    };
-  }, [currentReport.result?.validRecords]);
-
-  // Calculate Missing Assistant Count
-  const missingAssistantCount = useMemo(() => {
-    if (!currentReport.result?.validRecords) return 0;
-    return currentReport.result.validRecords.filter(r => !r.gv || r.gv.trim() === '').length;
-  }, [currentReport.result?.validRecords]);
-
-  // Combined stats from result and dynamic calculation
-  const derivedStats = useMemo(() => {
-    if (!currentReport.result?.stats) return {
-      totalSurgeries: 0,
-      totalDurationMinutes: 0,
-      staffConflicts: 0,
-      machineConflicts: 0,
-      missingMachines: 0,
-      lowPaymentCount: 0,
-      violateMinTimeCount: 0,
-      missingAssistantCount: 0
-    };
-
-    return {
-      ...currentReport.result.stats,
-      violateMinTimeCount: dynamicViolateMinTimeCount,
-      missingAssistantCount: missingAssistantCount
-    };
-  }, [currentReport.result?.stats, dynamicViolateMinTimeCount, missingAssistantCount]);
-
-  // -- Memoized Payment Data for Reuse in Print --
-  const paymentDataPrepared = useMemo(() => {
-    if (!currentReport.result?.paymentData?.rows || !config) return null;
-
-    const rawRows = currentReport.result.paymentData.rows;
-    const cols = currentReport.result.paymentData.columns;
-
-    const GROUP_MAP: Record<string, string> = {
-      "PĐB": "Phẫu thuật ĐB", "P1": "Phẫu thuật loại 1", "P2": "Phẫu thuật loại 2", "P3": "Phẫu thuật loại 3",
-      "TĐB": "Thủ thuật ĐB", "T1": "Thủ thuật loại 1", "T2": "Thủ thuật loại 2", "T3": "Thủ thuật loại 3", "TKPL": "Thủ thuật KPL"
-    };
-
-    // Calculate Groups
-    const groups: { name: string, label: string, subCols: string[] }[] = [];
-    let currentGroup = "";
-    cols.forEach(col => {
-      const [loai, role] = col.split('-');
-      if (loai !== currentGroup) {
-        groups.push({ name: loai, label: GROUP_MAP[loai] || loai, subCols: [role] });
-        currentGroup = loai;
-      } else {
-        groups[groups.length - 1].subCols.push(role);
-      }
-    });
-
-    const enrichedRows = rawRows.map((row, idx) => {
-      let rowTotalQty = 0;
-      let rowTotalAmount = 0;
-      Object.keys(row.values).forEach(colKey => {
-        const qty = row.values[colKey] || 0;
-        if (qty > 0) {
-          rowTotalQty += qty;
-          const [loai, role] = colKey.split('-');
-          let configRole: any = "Giúp việc";
-          if (role === "Chính") configRole = "Chính";
-          else if (role === "Phụ") configRole = "Phụ";
-          else if (role === "Giúp việc") configRole = "Giúp việc";
-          const price = config.priceConfig[loai] ? (config.priceConfig[loai][configRole] || 0) : 0;
-          rowTotalAmount += qty * price;
-        }
-      });
-      return { ...row, stt: idx + 1, total_qty: rowTotalQty, total_amount: rowTotalAmount.toLocaleString('en-US') };
-    });
-
-    // Calculate Totals
-    const footerTotals: Record<string, number> = { total_qty: 0, total_amount_val: 0 };
-    const columnTotals: Record<string, number> = {};
-    enrichedRows.forEach(row => {
-      footerTotals.total_qty += row.total_qty;
-      footerTotals.total_amount_val += Number(row.total_amount.replace(/,/g, ''));
-      Object.keys(row.values).forEach(colKey => {
-        columnTotals[colKey] = (columnTotals[colKey] || 0) + (row.values[colKey] || 0);
-      });
-    });
-
-    return { enrichedRows, groups, cols, footerTotals, columnTotals };
-  }, [currentReport.result?.paymentData, config]);
-
-  const columnsList = useMemo<ColumnDef<SurgeryRecord>[]>(() => buildColumnsList(dateFormat, config), [config.timeRules, dateFormat]);
-  const columnsMissing = useMemo<ColumnDef<SurgeryRecord>[]>(() => buildColumnsMissing(columnsList), [columnsList]);
-  const columnsStaff = useMemo<ColumnDef<StaffConflict>[]>(() => buildColumnsStaff(dateFormat), [dateFormat]);
-  const columnsMachine = useMemo<ColumnDef<MachineConflict>[]>(() => buildColumnsMachine(dateFormat), [dateFormat]);
-
-  const getPaymentColumns = (): ColumnDef<any>[] => {
-    return buildPaymentColumns(currentReport.result?.paymentData?.columns);
-  };
-
-  // Add missing helpers
-  const updateSearchTerm = (key: keyof typeof initialReportState.searchTerms, val: string) => {
-    updateCurrentReport({ searchTerms: { ...currentReport.searchTerms, [key]: val } });
-    if (key === 'list') setListPage(1);
-  };
-  const setActiveTable = (table: ReportState['activeTable']) => updateCurrentReport({ activeTable: table });
-
-  // --- Data FIltering Memos (Moved to Top Level Scope for handleSaveAssistant) ---
-  const listSearchableCols = useMemo(() => searchableCols['list'] || {
-    patientId: true, patientName: true, ngayBD: true, tenKT: true,
-    loaiPTTT: true, ptChinh: true, ptPhu: true, bsGM: true,
-    ktvGM: true, tdc: true, gv: true, reason: true
-  }, [searchableCols]);
-
-  const [emptyFilterCol, setEmptyFilterCol] = useState<string | null>(null);
-  const [showEmptyFilterMenu, setShowEmptyFilterMenu] = useState(false);
-
-  const filteredList = useMemo(() => {
-    let list = (currentReport.result?.validRecords || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.list, listSearchableCols, columnsList, config.timeRules, config.timeItemsList));
-    if (emptyFilterCol) {
-      list = list.filter(r => {
-        const val = (r as any)[emptyFilterCol];
-        if (val === undefined || val === null) return true;
-        if (typeof val === 'string') {
-          const cleaned = val.trim().replace(/[\u00A0\u200B]/g, '');
-          return cleaned === '' || cleaned === '-';
-        }
-        if (typeof val === 'number') return val === 0;
-        return !val;
-      });
-    }
-    return list;
-  }, [currentReport.result?.validRecords, currentReport.searchTerms.list, config.timeRules, listSearchableCols, emptyFilterCol]);
-
-  const filteredStaff = useMemo(() => {
-    return (currentReport.result?.staffConflicts || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.staff, undefined, columnsStaff));
-  }, [currentReport.result?.staffConflicts, currentReport.searchTerms.staff]);
-
-  const filteredMachine = useMemo(() => {
-    return (currentReport.result?.machineConflicts || []).filter(r => matchSearchQuery(r, currentReport.searchTerms.machine, undefined, columnsMachine));
-  }, [currentReport.result?.machineConflicts, currentReport.searchTerms.machine]);
-
-  const filteredMissing = useMemo(() => {
-    const rawData = currentReport.result?.missingRecords || [];
-    return rawData.filter(r => matchSearchQuery(r, currentReport.searchTerms.missing, undefined, columnsMissing));
-  }, [currentReport.result?.missingRecords, currentReport.searchTerms.missing]);
-
-  const [listPage, setListPage] = useState(1);
-
-  useEffect(() => {
-    setListPage(1);
-  }, [currentReport.searchTerms.list, emptyFilterCol]);
-
-  const handleSaveAssistant = async (val: string) => {
-    const cleanVal = val ? val.trim() : '';
-    console.log(`[SaveAssistant] Called with Value: "${val}" (Clean: "${cleanVal}")`);
-    console.log(`[SaveAssistant] Config Staff List Size: ${(config.staffList || []).length}`);
-
-    // 0. Strict Validation (Server-side like check)
-    // If value is not empty, it MUST match a valid staff member with an assistant role
-    if (cleanVal !== '') {
-      const validRoles = ["Phụ", "GV", "TDC", "KTV GM", "KTV", "Tit DC", "Tít DC"];
-
-      const exactMatch = (config.staffList || []).find(s => s.name === cleanVal);
-      if (exactMatch) {
-        console.log(`[SaveAssistant] Found staff "${cleanVal}" with position: "${exactMatch.position}"`);
-      } else {
-        console.log(`[SaveAssistant] Staff "${cleanVal}" NOT found in list.`);
-      }
-
-      const isValidStaff = exactMatch && (
-        validRoles.includes(exactMatch.position) ||
-        exactMatch.position === "Phụ" ||
-        exactMatch.name.includes("(Phụ)")
-      );
-
-      console.log(`[SaveAssistant] Validation check result: ${isValidStaff ? 'PASS' : 'FAIL'}`);
-
-      if (!isValidStaff) {
-        let msg = `Tên "${cleanVal}" không có trong danh sách nhân viên.`;
-        if (exactMatch) {
-          msg = `Nhân viên "${cleanVal}" (chức vụ: ${exactMatch.position}) không được phép làm Giúp việc.`;
-        }
-        addToast(msg, 'error');
-        return; // BLOCK SAVE
-      }
-    } else {
-      console.log(`[SaveAssistant] Value is empty, clearing field.`);
-    }
-
-    if (!currentReport.result?.validRecords) return;
-    const { selectedRecordIds } = currentReport;
-    if (!selectedRecordIds || selectedRecordIds.length === 0) return;
-
-    // Use current visible list for navigation context
-    const workingList = (currentReport.activeTable === 'list') ? filteredList : currentReport.result.validRecords;
-    console.log(`[SaveAssistant] Working List Length: ${workingList.length}`);
-
-    const updatedIds: string[] = [];
-
-    // Phase 1: Update Data (Source of Truth)
-    const isStorage = currentReport.dataSource === 'STORAGE';
-    const batchUpdates: Promise<any>[] = [];
-
-    // We iterate the MAIN records to ensure we update everything selected
-    console.log(`[SaveAssistant] Selected IDs:`, selectedRecordIds);
-    if (!selectedRecordIds || selectedRecordIds.length === 0) return; // Verify explicitly again
-
-    currentReport.result.validRecords.forEach(r => {
-      // Robust check: dynamic table might use ID or Key depending on data source
-      const isSelected = (r.id && selectedRecordIds.includes(r.id)) || (r.key && selectedRecordIds.includes(r.key));
-
-      if (isSelected) {
-        const rId = r.id || r.key || '';
-        r.gv = cleanVal;
-        updatedIds.push(rId);
-
-        // Lưu trực tiếp vào DB nếu bản ghi đã từng được lưu (có firestorePath)
-        const path = (r as any).firestorePath;
-        if (path) {
-          console.log(`[SaveAssistant] Updating ${r.id || r.key} at path: ${path} with Value: ${cleanVal}`);
-          const docRef = doc(firestore, path);
-          batchUpdates.push(
-            updateDoc(docRef, { gv: cleanVal })
-              .then(() => console.log(`[SaveAssistant] Success: ${path}`))
-              .catch(err => console.error(`[SaveAssistant] Failed: ${path}`, err))
-          );
-        } else if (isStorage && r.id) {
-          // Fallback legacy
-          const legacyPath = `uploaded_surgeries/${r.id}`;
-          const docRef = doc(firestore, legacyPath);
-          batchUpdates.push(
-            updateDoc(docRef, { gv: cleanVal })
-              .then(() => console.log(`[SaveAssistant] Success: ${legacyPath}`))
-              .catch(err => console.error(`[SaveAssistant] Failed: ${legacyPath}`, err))
-          );
-        }
-      }
-    });
-
-    // Prepare state updates
-    const stateUpdates: Partial<ReportState> = {};
-
-    if (updatedIds.length > 0) {
-      if (batchUpdates.length > 0) {
-        try {
-          await Promise.all(batchUpdates);
-          // Toast managed by caller or we can show it here
-          addToast(`Đã lưu ${updatedIds.length} bản ghi vào hệ thống.`, 'success');
-        } catch (e) {
-          console.error("Save failed", e);
-          addToast("Lỗi khi lưu dữ liệu vào hệ thống.", 'error');
-        }
-      } else if (currentReport.dataSource === 'EXCEL') {
-        addToast(`Đã cập nhật ${updatedIds.length} bản ghi (Chưa lưu vào CSDL)`, 'success');
-      }
-
-      // Phase 2: Recalculate Result (In-Memory)
-      const newResultPartial = recalculateResultFromRecords(currentReport.result.validRecords, config);
-      stateUpdates.result = { ...currentReport.result, ...newResultPartial };
-    }
-
-    // Phase 3: Smart Navigation (Find next empty GV in VISIBLE list)
-    let lastSelectedIndex = -1;
-    for (let i = workingList.length - 1; i >= 0; i--) {
-      const r = workingList[i];
-      const isSelected = (r.id && selectedRecordIds.includes(r.id)) || (r.key && selectedRecordIds.includes(r.key));
-      if (isSelected) {
-        lastSelectedIndex = i;
-        break;
-      }
-    }
-
-    console.log(`[AutoJump] Last Selected Index: ${lastSelectedIndex}`);
-
-    if (lastSelectedIndex !== -1) {
-      let nextIndex = -1;
-      // Search forward
-      for (let i = lastSelectedIndex + 1; i < workingList.length; i++) {
-        const r = workingList[i];
-        if (!r.gv || r.gv.trim() === '') {
-          nextIndex = i;
-          break;
-        }
-      }
-
-      console.log(`[AutoJump] Forward search found: ${nextIndex}`);
-
-      // Loop back
-      if (nextIndex === -1) {
-        for (let i = 0; i <= lastSelectedIndex; i++) {
-          const r = workingList[i];
-          if (!r.gv || r.gv.trim() === '') {
-            nextIndex = i;
-            break;
-          }
-        }
-        console.log(`[AutoJump] Loop-back search found: ${nextIndex}`);
-      }
-
-      if (nextIndex !== -1) {
-        const nextRecord = workingList[nextIndex];
-        // FIX: Must match DynamicTable precedence (key > id) to ensure consistent selection/deselection
-        const newId = nextRecord.key || nextRecord.id || '';
-        console.log(`[AutoJump] Moving selection to index ${nextIndex} (ID: ${newId})`);
-
-        stateUpdates.selectedRecordIds = [newId];
-
-        // Switch page
-        const targetPage = Math.ceil((nextIndex + 1) / rowsPerPage);
-        console.log(`[AutoJump] Target page: ${targetPage}, Current page: ${listPage}`);
-        if (targetPage !== listPage) {
-          console.log(`[AutoJump] Switching page to ${targetPage}`);
-          setListPage(targetPage);
-        }
-      } else {
-        console.log(`[AutoJump] No empty records found.`);
-        stateUpdates.selectedRecordIds = [];
-      }
-    }
-
-    // Apply all updates atomically
-    if (Object.keys(stateUpdates).length > 0) {
-      updateCurrentReport(stateUpdates);
-    }
-  };
-
-  const handleOpenEditModal = () => {
-    const recs = currentReport.result?.validRecords || [];
-    const targetId = (lastActiveRecordId && currentReport.selectedRecordIds.includes(lastActiveRecordId))
-      ? lastActiveRecordId
-      : currentReport.selectedRecordIds[0];
-    const rec = recs.find(r => (r.key || r.id) === targetId);
-    if (rec) {
-      setEditingRecord(rec);
-    }
-  };
-
-  const handleRowDoubleClick = (row: any) => {
-    if (!row) return;
-    if (row.rec1) {
-      setEditingRecord(row.rec1);
-    } else {
-      setEditingRecord(row);
-    }
-  };
-
-  const handleSaveEditedRecord = async (updatedRecord: SurgeryRecord) => {
-    if (!currentReport.result?.validRecords) return;
-    const targetId = updatedRecord.id || updatedRecord.key;
-    const index = currentReport.result.validRecords.findIndex(r => (r.id || r.key) === targetId);
-    if (index === -1) return;
-
-    const newRecords = [...currentReport.result.validRecords];
-    newRecords[index] = updatedRecord;
-
-    // Lưu Firestore tức thì nếu bản ghi đã có path
-    const path = (updatedRecord as any).firestorePath;
-    if (path) {
-      try {
-        const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
-        await reportService.updateSingleRecord(path, updatedRecord, type);
-      } catch (err) {
-        console.error('[SurgeryEdit] Update firestore failed:', err);
-      }
-    }
-
-    // Tự động tính toán lại toàn diện: cảnh báo trùng NV, trùng máy, thiếu máy, thiếu GV, thanh toán PTTT
-    const newResultPartial = recalculateResultFromRecords(newRecords, config);
-    updateCurrentReport({
-      result: {
-        ...currentReport.result,
-        validRecords: newRecords,
-        ...newResultPartial,
-      },
-      hasAutoFilledData: true,
-    });
-
-    addToast(`Đã lưu thay đổi thông tin của bệnh nhân ${updatedRecord.patientName}.`, 'success');
-    setEditingRecord(null);
-  };
 
 
   // --- Print Handling ---
