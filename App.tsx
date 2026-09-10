@@ -18,8 +18,6 @@ import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, Machine
 import { FileUpload } from './components/FileUpload';
 import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
 import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem, ErrorBoundary } from './components/ui';
-import { DutyScheduleTab } from './components/duty/DutyScheduleTab';
-import { OvertimeTab } from './components/overtime/OvertimeTab';
 import { PageCombobox } from './components/common/PageCombobox';
 import { dutyScheduleService, getDutyDateKey, formatDateKey, DUTY_SCHEDULE_CHANGE_EVENT } from './services/dutyScheduleService';
 import { getScheduleForDate, calculateOvertimeRows } from './services/overtimeCalculationService';
@@ -74,11 +72,11 @@ import { format, parse, isValid } from 'date-fns';
 import { auth } from './lib/firebase';
 import { getTimeRuleForRecord, getAllowanceForRecord } from './services/laborConfigService';
 
-import { ColumnDef, DynamicTable, TableDensity } from './components/common/DynamicTable';
+import { ColumnDef } from './components/common/DynamicTable';
 import { ToastContainer, ToastItem, ToastType } from './components/common/ToastContainer';
 import { formatDate, parseDateString } from './utils/dateUtils';
 import { matchSearchQuery, removeVietnameseTones } from './utils/tableSearchUtils';
-import { PaymentTableView, getPaymentColumns as buildPaymentColumns } from './components/surgery/PaymentTableView';
+import { getPaymentColumns as buildPaymentColumns } from './components/surgery/PaymentTableView';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
 import { buildPrintConfig } from './components/surgery/printConfigBuilder';
 import { ReportActionBar } from './components/surgery/ReportActionBar';
@@ -86,6 +84,7 @@ import { HospitalStatCards } from './components/surgery/HospitalStatCards';
 import { StorageQueryBar } from './components/surgery/StorageQueryBar';
 import { UploadFileBar } from './components/surgery/UploadFileBar';
 import { buildColumnsList, buildColumnsMissing, buildColumnsStaff, buildColumnsMachine } from './components/surgery/surgeryColumns';
+import { SurgeryTableViewRouter } from './components/surgery/SurgeryTableViewRouter';
 interface ReportState {
   result: ProcessingResult | null;
   stats: ProcessedStats | null;
@@ -1399,188 +1398,6 @@ const InnerApp: React.FC = () => {
     setEditingRecord(null);
   };
 
-  const renderTableContent = () => {
-    if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
-
-    if (currentReport.activeTable === 'list') {
-      const rowStyle = (r: SurgeryRecord) => {
-        const min = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min;
-        return (min && r.timeMinutes < min) ? 'bg-yellow-50 text-red-600 font-medium' : '';
-      };
-      const ptCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('P')).length;
-      const ttCount = currentReport.result.validRecords.filter(r => r.loaiPTTT?.startsWith('T')).length;
-      const countLabel = `${ptCount} ca PT, ${ttCount} ca TT`;
-      return <DynamicTable
-        data={filteredList}
-        columns={columnsList}
-        tableName="Danh sách phẫu thuật"
-        dateFormat={dateFormat}
-        onDateFormatChange={updateDateFormat}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={updateRowsPerPage}
-        defaultVisibleCols={visibleCols['list']}
-        onVisibleColsChange={(cols) => updateVisibleCols('list', cols)}
-        rowStyle={rowStyle}
-        rowCountLabel={countLabel}
-        searchTerm={currentReport.searchTerms.list}
-        onSearchChange={(val) => updateSearchTerm('list', val)}
-        searchableCols={listSearchableCols}
-        onSearchableColsChange={(cols) => updateSearchableCols('list', cols)}
-        showSearchSettings
-        enableSelection={true}
-        selectedIds={currentReport.selectedRecordIds}
-        onSelect={handleRowSelect}
-        onSelectAll={handleSelectAll}
-        onDelete={handleDeleteSelected}
-        onEditRecord={handleOpenEditModal}
-        onRowDoubleClick={handleRowDoubleClick}
-        currentPage={listPage}
-        onPageChange={setListPage}
-        onSaveAssistant={handleSaveAssistant}
-        extraSearchContent={
-          <div className="relative ml-2 flex items-center">
-            <div className="inline-flex rounded-lg shadow-sm border border-gray-300 overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setEmptyFilterCol(prev => prev === 'gv' ? null : 'gv')}
-                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 transition-all select-none whitespace-nowrap ${
-                  emptyFilterCol
-                    ? 'bg-red-50 text-red-700 hover:bg-red-100 font-semibold'
-                    : 'bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-                title={emptyFilterCol ? "Nhấp để bỏ lọc ô trống" : "Nhấp để lọc nhanh các ca chưa có Giúp việc"}
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>
-                {emptyFilterCol ? (
-                  <>
-                    <span>Lọc trống: <strong className="text-red-800">{columnsList.find(c => c.key === emptyFilterCol)?.label || emptyFilterCol}</strong></span>
-                    <span
-                      onClick={(e) => { e.stopPropagation(); setEmptyFilterCol(null); }}
-                      className="ml-1 text-red-400 hover:text-red-700 cursor-pointer"
-                      title="Bỏ lọc"
-                    >✕</span>
-                  </>
-                ) : (
-                  'Lọc GV trống'
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowEmptyFilterMenu(prev => !prev)}
-                className={`px-1.5 py-1.5 border-l border-gray-200 transition-colors ${
-                  emptyFilterCol ? 'bg-red-50 text-red-700 hover:bg-red-100' : 'bg-white text-gray-500 hover:bg-gray-50'
-                }`}
-                title="Chọn cột khác để lọc ô trống"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-              </button>
-            </div>
-            {showEmptyFilterMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowEmptyFilterMenu(false)} />
-                <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-xl py-1 min-w-[210px] max-h-[320px] overflow-y-auto">
-                  <div className="px-3 py-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
-                    Chọn cột cần lọc trống
-                  </div>
-                  {columnsList.filter(c => c.key !== 'stt').map(col => (
-                    <button
-                      key={col.key}
-                      type="button"
-                      onClick={() => {
-                        setEmptyFilterCol(prev => prev === col.key ? null : col.key);
-                        setShowEmptyFilterMenu(false);
-                      }}
-                      className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors ${
-                        emptyFilterCol === col.key
-                          ? 'bg-red-50 text-red-800 font-bold'
-                          : 'text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <span className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 ${
-                        emptyFilterCol === col.key ? 'bg-red-600 border-red-600' : 'border-gray-300'
-                      }`}>
-                        {emptyFilterCol === col.key && <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
-                      </span>
-                      {col.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        }
-      />;
-    }
-    if (currentReport.activeTable === 'staff') {
-      const staffRowStyle = (r: StaffConflict) => r.violationType === 'max2' ? 'text-red-600 font-bold bg-red-50' : '';
-      return <DynamicTable data={filteredStaff} columns={columnsStaff} tableName="Danh sách trùng giờ nhân viên" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['staff']} onVisibleColsChange={(cols) => updateVisibleCols('staff', cols)} rowStyle={staffRowStyle} searchTerm={currentReport.searchTerms.staff} onSearchChange={(val) => updateSearchTerm('staff', val)} onRowDoubleClick={handleRowDoubleClick} />;
-    }
-    if (currentReport.activeTable === 'machine') {
-      return <DynamicTable data={filteredMachine} columns={columnsMachine} tableName="Danh sách trùng máy thực hiện" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['machine']} onVisibleColsChange={(cols) => updateVisibleCols('machine', cols)} searchTerm={currentReport.searchTerms.machine} onSearchChange={(val) => updateSearchTerm('machine', val)} onRowDoubleClick={handleRowDoubleClick} />;
-    }
-    if (currentReport.activeTable === 'missing') {
-      return <DynamicTable data={filteredMissing} columns={columnsMissing} tableName="Danh sách thiếu mã máy" dateFormat={dateFormat} onDateFormatChange={updateDateFormat} rowsPerPage={rowsPerPage} onRowsPerPageChange={updateRowsPerPage} defaultVisibleCols={visibleCols['missing']} onVisibleColsChange={(cols) => updateVisibleCols('missing', cols)} searchTerm={currentReport.searchTerms.missing} onSearchChange={(val) => updateSearchTerm('missing', val)} onRowDoubleClick={handleRowDoubleClick} />;
-    }
-    if (currentReport.activeTable === 'payment') {
-      return (
-        <PaymentTableView
-          paymentDataPrepared={paymentDataPrepared}
-          searchTerm={currentReport.searchTerms.payment}
-          onSearchChange={(val) => updateSearchTerm('payment', val)}
-          visibleCols={visibleCols['payment']}
-          onVisibleColsChange={(cols) => updateVisibleCols('payment', cols)}
-          dateFormat={dateFormat}
-          onDateFormatChange={updateDateFormat}
-          rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={updateRowsPerPage}
-          config={config}
-        />
-      );
-    }
-
-    if (currentReport.activeTable === 'duty') {
-      return (
-        <DutyScheduleTab
-          records={currentReport.result.validRecords}
-          dutySchedules={dutySchedules}
-          onUpdateDutySchedule={handleUpdateDutySchedule}
-          config={config}
-          isSaving={isSavingDutySchedule}
-          dateRangeText={
-            (currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
-              ? currentReport.queryDateRangeText
-              : currentReport.result?.dateRangeText || currentReport.queryDateRangeText || currentReport.listDateRange || ''
-          }
-        />
-      );
-    }
-
-    if (currentReport.activeTable === 'overtime') {
-      return (
-        <OvertimeTab
-          records={currentReport.result.validRecords}
-          dutySchedules={dutySchedules}
-          config={config}
-          dateFormat={dateFormat}
-          onNavigateToDutyTab={() => setActiveTable('duty')}
-          reportDateRangeText={
-            (currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText)
-              ? currentReport.queryDateRangeText
-              : currentReport.result?.dateRangeText || currentReport.listDateRange || ''
-          }
-          onRegisterPrintHandler={(handler) => {
-            overtimePrintHandlerRef.current = handler;
-          }}
-          onTriggerPrint={(pConfig) => {
-            setPrintOrientation(pConfig.orientation || 'portrait');
-            setPrintConfig(pConfig);
-            setIsPrintOpen(true);
-          }}
-        />
-      );
-    }
-    return null;
-  };
 
   // --- Print Handling ---
   const [isPrintOpen, setIsPrintOpen] = useState(false);
@@ -2475,7 +2292,54 @@ const InnerApp: React.FC = () => {
 
                     {/* All table containers always mounted, toggled via CSS */}
                     <div className="w-full bg-white px-4 py-1.5 flex-1 min-h-0" key={currentReport.activeTable}>
-                      {(currentReport.listFile || currentReport.dataSource === 'STORAGE') && renderTableContent()}
+                      {(currentReport.listFile || currentReport.dataSource === 'STORAGE') && (
+                        <SurgeryTableViewRouter
+                          currentReport={currentReport}
+                          config={config}
+                          dateFormat={dateFormat}
+                          onDateFormatChange={updateDateFormat}
+                          rowsPerPage={rowsPerPage}
+                          onRowsPerPageChange={updateRowsPerPage}
+                          visibleCols={visibleCols}
+                          onVisibleColsChange={updateVisibleCols}
+                          onSearchChange={updateSearchTerm}
+                          listSearchableCols={listSearchableCols}
+                          onSearchableColsChange={updateSearchableCols}
+                          columnsList={columnsList}
+                          columnsStaff={columnsStaff}
+                          columnsMachine={columnsMachine}
+                          columnsMissing={columnsMissing}
+                          filteredList={filteredList}
+                          filteredStaff={filteredStaff}
+                          filteredMachine={filteredMachine}
+                          filteredMissing={filteredMissing}
+                          paymentDataPrepared={paymentDataPrepared}
+                          listPage={listPage}
+                          onListPageChange={setListPage}
+                          emptyFilterCol={emptyFilterCol}
+                          onEmptyFilterColChange={setEmptyFilterCol}
+                          showEmptyFilterMenu={showEmptyFilterMenu}
+                          onShowEmptyFilterMenuChange={setShowEmptyFilterMenu}
+                          onRowSelect={handleRowSelect}
+                          onSelectAll={handleSelectAll}
+                          onDeleteSelected={handleDeleteSelected}
+                          onOpenEditModal={handleOpenEditModal}
+                          onRowDoubleClick={handleRowDoubleClick}
+                          onSaveAssistant={handleSaveAssistant}
+                          dutySchedules={dutySchedules}
+                          onUpdateDutySchedule={handleUpdateDutySchedule}
+                          isSavingDutySchedule={isSavingDutySchedule}
+                          onNavigateToDutyTab={() => setActiveTable('duty')}
+                          onRegisterPrintHandler={(handler) => {
+                            overtimePrintHandlerRef.current = handler;
+                          }}
+                          onTriggerPrint={(pConfig) => {
+                            setPrintOrientation(pConfig.orientation || 'portrait');
+                            setPrintConfig(pConfig);
+                            setIsPrintOpen(true);
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
               </>
