@@ -1,83 +1,57 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { reprocessSurgicalRecords, recalculateResultFromRecords } from "./services/reprocess";
+import React, { useState, useEffect, useMemo } from 'react';
+import { reprocessSurgicalRecords } from './services/reprocess';
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
-import { ConfigProvider, useConfig, DEFAULT_CONFIG } from './contexts/ConfigContext';
+import { ConfigProvider, useConfig } from './contexts/ConfigContext';
 import { StatisticsTab } from './components/statistics/StatisticsTab';
 import { ServicePriceTab } from './components/ServicePriceTab';
 import { subscribeToSurgeryNamePrices } from './services/surgeryNamePriceService';
-// AI analysis removed — geminiService import no longer needed
-import { ProcessingResult, ProcessedStats, SurgeryRecord, StaffConflict, MachineConflict, PersistedSurgeryRecord, StaffMember, PatientServicePriceGroup, SurgeryNamePrice, DutyScheduleDateConfig, OvertimeRecordRow } from './types';
-import { FileUpload } from './components/FileUpload';
+import { PatientServicePriceGroup, SurgeryNamePrice } from './types';
 import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
-import { Sidebar, type TabKey, ContextToolbar, SegmentedControl, TabLine, KPIBar, CollapsiblePanel, EmptyState, WorkspaceSkeleton, CommandPalette, type CommandItem, ErrorBoundary } from './components/ui';
-import { PageCombobox } from './components/common/PageCombobox';
-import { dutyScheduleService } from './services/dutyScheduleService';
-import { useDutyScheduleState } from './hooks/useDutyScheduleState';
 import {
-  Activity,
+  Sidebar,
+  type TabKey,
+  ContextToolbar,
+  TabLine,
+  EmptyState,
+  WorkspaceSkeleton,
+  CommandPalette,
+  type CommandItem,
+  ErrorBoundary,
+} from './components/ui';
+import {
+  Database,
   AlertTriangle,
+  CheckCircle,
+  X,
+  Calendar,
+  Settings,
+  BarChart3,
+  Search,
+  Download,
+  Minimize2,
+  Rows3,
+  Maximize2,
+  ListChecks,
+  Users,
+  Cpu,
+  DollarSign,
   CalendarDays,
   Clock,
-  Cpu,
-  Database,
-  Download,
-  BarChart3,
-  Users,
-  Zap,
-  Loader2,
-  Settings,
-
-  LayoutDashboard,
-  CheckCircle,
-  AlertCircle,
-  X,
-  Sparkles,
-  ListChecks,
-  DollarSign,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Percent,
-  FileSpreadsheet,
-  Printer,
-  FileText,
-  CreditCard,
-  RefreshCw,
-  CheckCircle2,
-  Search,
-  Calendar,
-  UserMinus,
-  Trash2,
-  Save,
-  RotateCcw,
-  Eye,
-  EyeOff,
-  Rows3,
-  Rows4,
-  Command,
-  Maximize2,
-  Minimize2,
-  Pencil
 } from 'lucide-react';
-import { reportService } from './services/reportService';
-import { format, parse, isValid } from 'date-fns';
 import { auth } from './lib/firebase';
-import { getTimeRuleForRecord, getAllowanceForRecord } from './services/laborConfigService';
-
-import { ColumnDef } from './components/common/DynamicTable';
-import { ToastContainer, ToastItem, ToastType } from './components/common/ToastContainer';
-import { formatDate, parseDateString } from './utils/dateUtils';
+import { ToastContainer } from './components/common/ToastContainer';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
-import { buildPrintConfig } from './components/surgery/printConfigBuilder';
 import { ReportActionBar } from './components/surgery/ReportActionBar';
 import { HospitalStatCards } from './components/surgery/HospitalStatCards';
 import { StorageQueryBar } from './components/surgery/StorageQueryBar';
 import { UploadFileBar } from './components/surgery/UploadFileBar';
 import { SurgeryTableViewRouter } from './components/surgery/SurgeryTableViewRouter';
-import { ReportState, DataTabType } from './types/reportState';
+import { DataTabType } from './types/reportState';
 import { useReportStateManager } from './hooks/useReportStateManager';
+import { useDutyScheduleState } from './hooks/useDutyScheduleState';
 import { useReportTableSettings } from './hooks/useReportTableSettings';
+import { useToast } from './hooks/useToast';
 import { useSurgeryTableData } from './hooks/useSurgeryTableData';
 import { useReportPersistence } from './hooks/useReportPersistence';
 import { usePrintController } from './hooks/usePrintController';
