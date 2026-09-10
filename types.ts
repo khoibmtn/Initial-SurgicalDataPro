@@ -158,7 +158,7 @@ export interface OvertimeRecordRow {
   timeTo: string;   // HH:mm
   durationText: string; // e.g. "30ph", "1h20", "2h"
   durationMinutes: number;
-  ghiChu: 'Kíp mổ phiên' | 'Kíp trực';
+  ghiChu: 'Kíp mổ phiên' | 'Kíp tăng cường' | 'Kíp trực';
   originalRecord: SurgeryRecord;
 }
 

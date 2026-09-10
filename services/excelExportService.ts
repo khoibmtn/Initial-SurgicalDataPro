@@ -733,7 +733,7 @@ export async function exportOvertimeToExcel(
     { header: 'Ngoài giờ (từ)', key: 'timeFrom', width: 14 },
     { header: 'Ngoài giờ (đến)', key: 'timeTo', width: 14 },
     { header: 'TS giờ', key: 'durationText', width: 12 },
-    { header: 'Ghi chú', key: 'ghiChu', width: 16 },
+    { header: 'Kíp phẫu thuật', key: 'ghiChu', width: 16 },
   ];
 
   const totalCols = cols.length;

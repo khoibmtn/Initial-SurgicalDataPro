@@ -16,8 +16,8 @@ import {
   Settings,
   ChevronDown,
   ChevronRight,
-  Check,
   FileText,
+  UserPlus,
 } from 'lucide-react';
 import { SurgeryRecord, DutyScheduleDateConfig, OvertimeRecordRow } from '../../types';
 import { AppConfig } from '../../contexts/ConfigContext';
@@ -118,7 +118,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
   // 2. Bộ lọc & Phân trang
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterGhiChu, setFilterGhiChu] = useState<'ALL' | 'Kíp mổ phiên' | 'Kíp trực'>('ALL');
+  const [filterGhiChu, setFilterGhiChu] = useState<'ALL' | 'Kíp mổ phiên' | 'Kíp tăng cường' | 'Kíp trực'>('ALL');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
   const [selectedStaff, setSelectedStaff] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
@@ -277,6 +277,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
   // 9. Thống kê tổng quan (phản ánh theo bộ lọc hiện tại)
   const stats = useMemo(() => {
     let totalMinutes = 0;
+    let countTangCuong = 0;
     let countPhien = 0;
     let countTruc = 0;
 
@@ -284,6 +285,8 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       totalMinutes += r.durationMinutes || 0;
       if (r.ghiChu === 'Kíp trực') {
         countTruc++;
+      } else if (r.ghiChu === 'Kíp tăng cường') {
+        countTangCuong++;
       } else {
         countPhien++;
       }
@@ -293,6 +296,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
       totalRows: filteredRows.length,
       totalDurationText: formatOvertimeDuration(totalMinutes, durationFormat),
       totalMinutes,
+      countTangCuong,
       countPhien,
       countTruc,
     };
@@ -451,8 +455,8 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      {/* ── Metric Summary Cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 bg-gray-50/70 border-b border-gray-200">
+      {/* ── KPI Cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4 pb-2">
         <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
           <div>
             <div className="text-[11px] font-medium text-gray-500 flex items-center gap-1">
@@ -485,6 +489,16 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
 
         <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
           <div>
+            <div className="text-[11px] font-medium text-gray-500">Kíp tăng cường</div>
+            <div className="text-lg font-extrabold text-teal-700 mt-0.5">{stats.countTangCuong} lượt</div>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center font-bold">
+            <UserPlus className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+          <div>
             <div className="text-[11px] font-medium text-gray-500">Kíp mổ phiên</div>
             <div className="text-lg font-extrabold text-blue-700 mt-0.5">{stats.countPhien} lượt</div>
           </div>
@@ -493,7 +507,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
           </div>
         </div>
 
-        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
+        <div className="bg-white px-3.5 py-2.5 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between col-span-2 sm:col-span-1">
           <div>
             <div className="text-[11px] font-medium text-gray-500">Kíp trực (kéo dài sau 07h)</div>
             <div className="text-lg font-extrabold text-orange-700 mt-0.5">{stats.countTruc} lượt</div>
@@ -626,13 +640,14 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
             />
           </div>
 
-          {/* Lọc theo loại ghi chú */}
+          {/* Lọc theo loại kíp phẫu thuật */}
           <select
             value={filterGhiChu}
             onChange={(e) => setFilterGhiChu(e.target.value as any)}
-            className="px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-lg text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-lg text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
           >
-            <option value="ALL">Tất cả kíp mổ</option>
+            <option value="ALL">Tất cả kíp phẫu thuật</option>
+            <option value="Kíp tăng cường">Chỉ Kíp tăng cường</option>
             <option value="Kíp mổ phiên">Chỉ Kíp mổ phiên</option>
             <option value="Kíp trực">Chỉ Kíp trực</option>
           </select>
@@ -819,8 +834,8 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
               <th className="px-1.5 py-2.5 text-center font-semibold w-[70px] min-w-[70px] max-w-[70px] border-r border-b border-blue-900/60 bg-amber-700 text-amber-50">
                 TS giờ
               </th>
-              <th className="px-2 py-2.5 text-center font-semibold w-[110px] min-w-[100px] border-b border-blue-900/60">
-                Ghi chú
+              <th className="px-2 py-2.5 text-center font-semibold w-[120px] min-w-[110px] border-b border-blue-900/60">
+                Kíp phẫu thuật
               </th>
             </tr>
           </thead>
@@ -960,11 +975,15 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
                       {formatOvertimeDuration(row.durationMinutes || 0, durationFormat)}
                     </td>
 
-                    {/* Cột 16: Ghi chú */}
-                    <td className="px-2 py-1.5 text-center border-b border-gray-100 w-[110px] min-w-[100px] align-middle">
-                      {isTruc ? (
+                    {/* Cột 16: Kíp phẫu thuật */}
+                    <td className="px-2 py-1.5 text-center border-b border-gray-100 w-[120px] min-w-[110px] align-middle">
+                      {row.ghiChu === 'Kíp trực' ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-200">
                           Kíp trực
+                        </span>
+                      ) : row.ghiChu === 'Kíp tăng cường' ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 border border-teal-200">
+                          Kíp tăng cường
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">

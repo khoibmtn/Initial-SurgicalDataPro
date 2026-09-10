@@ -109,7 +109,7 @@ interface StaffRoleAssignment {
 
 interface SubIntervalStaffOvertime {
   staffMap: Partial<Record<'ptChinh' | 'ptPhu' | 'bsGM' | 'ktvGM' | 'tdc' | 'gv', string>>;
-  ghiChu: 'Kíp mổ phiên' | 'Kíp trực';
+  ghiChu: 'Kíp mổ phiên' | 'Kíp tăng cường' | 'Kíp trực';
   start: Date;
   end: Date;
 }
@@ -352,11 +352,26 @@ export function calculateOvertimeRows(
         }
       });
 
-      // Thêm nhóm Kíp mổ phiên nếu có người làm ngoài giờ
+      // Thêm nhóm Kíp mổ phiên / Kíp tăng cường nếu có người làm ngoài giờ
       if (Object.keys(regularOvertimeStaff).length > 0) {
+        // Kiểm tra giờ bắt đầu của ca mổ:
+        // Nếu ca mổ bắt đầu sau 17h cho đến trước giờ hành chính sáng hôm sau -> Kíp tăng cường
+        // Ngược lại (bắt đầu trong khung giờ ngày từ sáng đến 17h) -> Kíp mổ phiên
+        const rawStartSchedule = getScheduleForDate(rawStart, workingHours);
+        const [rsMorningH, rsMorningM] = (rawStartSchedule.morningFrom || '07:00').split(':').map(Number);
+        const rawMorningFromMin = (rsMorningH || 7) * 60 + (rsMorningM || 0);
+
+        const [rsAfternoonH, rsAfternoonM] = (rawStartSchedule.afternoonTo || '17:00').split(':').map(Number);
+        const rawAfternoonToMin = (rsAfternoonH || 17) * 60 + (rsAfternoonM || 0);
+
+        const rawStartMinutes = rawStart.getHours() * 60 + rawStart.getMinutes();
+        const isNightOrEarlyMorning = rawStartMinutes >= rawAfternoonToMin || rawStartMinutes < rawMorningFromMin;
+
+        const nonDutyGhiChu = isNightOrEarlyMorning ? 'Kíp tăng cường' : 'Kíp mổ phiên';
+
         subIntervals.push({
           staffMap: regularOvertimeStaff,
-          ghiChu: 'Kíp mổ phiên',
+          ghiChu: nonDutyGhiChu,
           start: subStart,
           end: subEnd,
         });
