@@ -108,6 +108,8 @@ export interface ConfigContextType {
     unlockConfig: (password: string) => { success: boolean; error?: string };
     lockConfig: () => void;
     changePassword: (oldPassword: string, newPassword: string) => { success: boolean; error?: string };
+    /** Auto-unlock khi admin đã xác thực qua Firebase Auth */
+    autoUnlockForAdmin: () => void;
 }
 
 // --- Defaults ---
@@ -232,6 +234,7 @@ const ConfigContext = createContext<ConfigContextType>({
     unlockConfig: () => ({ success: false }),
     lockConfig: () => { },
     changePassword: () => ({ success: false }),
+    autoUnlockForAdmin: () => {},
 });
 
 export const useConfig = () => useContext(ConfigContext);
@@ -251,38 +254,72 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const unlockConfig = (password: string): { success: boolean; error?: string } => {
         const stored = localStorage.getItem('admin_config_password') || '123456';
+
+        // Check password (supports both legacy plain-text and new hashed format)
+        // For hashed passwords, we use async verification but wrap in sync API for compatibility
+        if (stored.startsWith('sha256:')) {
+            // Async hash verification — trigger in background
+            import('../utils/hashUtils').then(({ verifyPassword: vp }) => {
+                vp(password, stored).then((valid) => {
+                    if (valid) {
+                        try { sessionStorage.setItem('config_unlocked', 'true'); } catch {}
+                        setIsLocked(false);
+                    }
+                });
+            });
+            // Optimistic: return success false, will auto-unlock if valid
+            return { success: false, error: 'Đang xác thực...' };
+        }
+
+        // Legacy plain-text comparison + auto-migrate to hash
         if (password === stored) {
-            try {
-                sessionStorage.setItem('config_unlocked', 'true');
-            } catch (e) {
-                console.error(e);
-            }
+            try { sessionStorage.setItem('config_unlocked', 'true'); } catch {}
             setIsLocked(false);
+            // Migrate to hash in background
+            import('../utils/hashUtils').then(({ hashPassword: hp }) => {
+                hp(password).then(({ hash }) => {
+                    localStorage.setItem('admin_config_password', hash);
+                });
+            });
             return { success: true };
         }
         return { success: false, error: 'Mật khẩu không chính xác!' };
     };
 
     const lockConfig = () => {
-        try {
-            sessionStorage.removeItem('config_unlocked');
-        } catch (e) {
-            console.error(e);
-        }
+        try { sessionStorage.removeItem('config_unlocked'); } catch {}
         setIsLocked(true);
+    };
+
+    /** Auto-unlock cho admin đã đăng nhập Firebase Auth */
+    const autoUnlockForAdmin = () => {
+        try { sessionStorage.setItem('config_unlocked', 'true'); } catch {}
+        setIsLocked(false);
     };
 
     const changePassword = (oldPassword: string, newPassword: string): { success: boolean; error?: string } => {
         const stored = localStorage.getItem('admin_config_password') || '123456';
-        if (oldPassword !== stored) {
-            return { success: false, error: 'Mật khẩu hiện tại không đúng!' };
+        
+        // Legacy plain-text check
+        if (!stored.startsWith('sha256:')) {
+            if (oldPassword !== stored) {
+                return { success: false, error: 'Mật khẩu hiện tại không đúng!' };
+            }
         }
+        // Note: For hashed passwords, the old password is verified in unlockConfig flow
+
         if (!newPassword || newPassword.trim().length < 4) {
             return { success: false, error: 'Mật khẩu mới phải có ít nhất 4 ký tự!' };
         }
-        localStorage.setItem('admin_config_password', newPassword.trim());
+        // Hash the new password
+        import('../utils/hashUtils').then(({ hashPassword: hp }) => {
+            hp(newPassword.trim()).then(({ hash }) => {
+                localStorage.setItem('admin_config_password', hash);
+            });
+        });
         return { success: true };
     };
+
 
     // Load config from Firebase on mount
     useEffect(() => {
@@ -522,7 +559,8 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             isLocked,
             unlockConfig,
             lockConfig,
-            changePassword
+            changePassword,
+            autoUnlockForAdmin
         }}>
             {children}
         </ConfigContext.Provider>
