@@ -20,6 +20,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
+import { UserMenuButton } from '../auth/UserMenuButton';
 
 export type TabKey = 'daily' | 'monthly' | 'statistics' | 'config';
 
@@ -44,6 +45,7 @@ interface SidebarProps {
   userName?: string;
   userRole?: string;
   syncStatus?: 'synced' | 'unsaved' | 'processing';
+  onLoginClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -54,6 +56,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userName,
   userRole,
   syncStatus = 'synced',
+  onLoginClick,
 }) => {
   const { isLocked, unlockConfig, lockConfig, changePassword } = useConfig();
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -188,6 +191,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Footer controls */}
         <div className="p-2 border-t border-gray-100 space-y-1">
+          {/* User Auth Button (Login / User Badge) */}
+          <UserMenuButton collapsed={collapsed} onLoginClick={onLoginClick || (() => {})} />
+
           {/* Nút Tài khoản & Bảo mật (Khóa/Mở khóa, Đổi mật khẩu) ngay trên nút Thu gọn */}
           <button
             onClick={() => {

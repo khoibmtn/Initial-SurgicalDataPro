@@ -48,12 +48,15 @@ import { usePrintController } from './hooks/usePrintController';
 import { useExcelProcessing } from './hooks/useExcelProcessing';
 import { useStorageQuery } from './hooks/useStorageQuery';
 import { useAppCommandPalette } from './hooks/useAppCommandPalette';
+import { AuthProvider } from './contexts/AuthContext';
+import { LoginModal } from './components/auth/LoginModal';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
 
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
   const [hasVisitedStats, setHasVisitedStats] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'statistics') {
@@ -317,7 +320,11 @@ const InnerApp: React.FC = () => {
         onToggle={() => setSidebarCollapsed(prev => !prev)}
         userName={auth.currentUser?.email?.split('@')[0]}
         syncStatus={isSaving ? 'processing' : currentReport.isProcessing ? 'processing' : currentReport.result && currentReport.hasAutoFilledData ? 'unsaved' : 'synced'}
+        onLoginClick={() => setShowLoginModal(true)}
       />
+
+      {/* Login/Register Modal */}
+      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
 
       {/* Main Content Area */}
       <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto animate-fade-in">
@@ -590,9 +597,11 @@ const InnerApp: React.FC = () => {
 }
 
 const App: React.FC = () => (
-  <ConfigProvider>
-    <InnerApp />
-  </ConfigProvider>
+  <AuthProvider>
+    <ConfigProvider>
+      <InnerApp />
+    </ConfigProvider>
+  </AuthProvider>
 );
 
 export default App;
