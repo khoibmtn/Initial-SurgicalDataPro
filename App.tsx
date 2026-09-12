@@ -50,6 +50,7 @@ import { useStorageQuery } from './hooks/useStorageQuery';
 import { useAppCommandPalette } from './hooks/useAppCommandPalette';
 import { AuthProvider } from './contexts/AuthContext';
 import { LoginModal } from './components/auth/LoginModal';
+import { AccountPanel } from './components/auth/AccountPanel';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
@@ -57,6 +58,7 @@ const InnerApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
   const [hasVisitedStats, setHasVisitedStats] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAccountPanel, setShowAccountPanel] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'statistics') {
@@ -321,10 +323,21 @@ const InnerApp: React.FC = () => {
         userName={auth.currentUser?.email?.split('@')[0]}
         syncStatus={isSaving ? 'processing' : currentReport.isProcessing ? 'processing' : currentReport.result && currentReport.hasAutoFilledData ? 'unsaved' : 'synced'}
         onLoginClick={() => setShowLoginModal(true)}
+        onAccountClick={() => setShowAccountPanel(true)}
       />
 
       {/* Login/Register Modal */}
       <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
+
+      {/* Account Panel Modal */}
+      <AccountPanel
+        isOpen={showAccountPanel}
+        onClose={() => setShowAccountPanel(false)}
+        onNavigateToUserManagement={() => {
+          setShowAccountPanel(false);
+          setActiveTab('config');
+        }}
+      />
 
       {/* Main Content Area */}
       <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto animate-fade-in">

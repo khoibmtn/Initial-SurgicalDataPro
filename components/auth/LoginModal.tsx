@@ -20,6 +20,9 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { RegisterForm } from './RegisterForm';
 
+/** Email admin cố định — không cần nhập */
+const ADMIN_EMAIL = 'khoibm.tn@gmail.com';
+
 type LoginMode = 'admin' | 'staff';
 type ViewMode = 'login' | 'register';
 
@@ -58,12 +61,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
     try {
       let result;
       if (loginMode === 'admin') {
-        if (!email.trim()) {
-          setMessage({ type: 'error', text: 'Vui lòng nhập email.' });
+        if (!password) {
+          setMessage({ type: 'error', text: 'Vui lòng nhập mật khẩu.' });
           setIsLoading(false);
           return;
         }
-        result = await login(email.trim(), password);
+        result = await login(ADMIN_EMAIL, password);
       } else {
         if (!nickname.trim()) {
           setMessage({ type: 'error', text: 'Vui lòng nhập nickname.' });
@@ -159,26 +162,39 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 </button>
               </div>
 
-              {/* Email / Nickname input */}
-              <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  {loginMode === 'admin' ? 'Email' : 'Nickname'}
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                    {loginMode === 'admin' ? <Mail className="w-4 h-4" /> : <User className="w-4 h-4" />}
+              {/* Admin: hiện info badge, không cần nhập email */}
+              {loginMode === 'admin' && (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-primary-50 border border-primary-100">
+                  <div className="p-1.5 bg-primary-100 text-primary-700 rounded-lg">
+                    <Shield className="w-4 h-4" />
                   </div>
-                  <input
-                    type={loginMode === 'admin' ? 'email' : 'text'}
-                    placeholder={loginMode === 'admin' ? 'admin@email.com' : 'nickname'}
-                    value={loginMode === 'admin' ? email : nickname}
-                    onChange={(e) => loginMode === 'admin' ? setEmail(e.target.value) : setNickname(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
-                    autoFocus
-                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-primary-800">Quản trị viên</p>
+                    <p className="text-[11px] text-primary-600 truncate">{ADMIN_EMAIL}</p>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Staff: nhập nickname */}
+              {loginMode === 'staff' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Nickname</label>
+                  <div className="relative">
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="nickname"
+                      value={nickname}
+                      onChange={(e) => setNickname(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      className="w-full pl-10 pr-4 py-2.5 text-sm rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Password input */}
               <div>

@@ -12,12 +12,14 @@ import {
   Shield,
   UserCircle,
   Clock,
+  Settings,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface UserMenuButtonProps {
   collapsed: boolean;
   onLoginClick: () => void;
+  onAccountClick?: () => void;
 }
 
 const ROLE_LABELS: Record<string, { label: string; color: string }> = {
@@ -27,8 +29,8 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
   guest: { label: 'Khách', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
 };
 
-export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLoginClick }) => {
-  const { user, isAuthenticated, isPendingApproval, currentRole, logout } = useAuth();
+export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLoginClick, onAccountClick }) => {
+  const { user, isLoading: authLoading, isAuthenticated, isPendingApproval, currentRole, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -49,6 +51,16 @@ export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLog
   };
 
   const roleInfo = ROLE_LABELS[currentRole] || ROLE_LABELS.guest;
+
+  // ── Đang tải auth state → ẩn nút ──
+  if (authLoading) {
+    return (
+      <div className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs text-gray-400 ${collapsed ? 'justify-center' : ''}`}>
+        <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-transparent rounded-full animate-spin shrink-0" />
+        {!collapsed && <span>Đang tải...</span>}
+      </div>
+    );
+  }
 
   // ── Chưa đăng nhập → Nút Đăng nhập ──
   if (!isAuthenticated && !isPendingApproval) {
@@ -122,9 +134,18 @@ export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLog
             <p className="text-xs font-semibold text-gray-800 truncate">{user?.displayName || user?.nickname}</p>
             <p className="text-[10px] text-gray-500 truncate">{user?.department}</p>
           </div>
+          {onAccountClick && (
+            <button
+              onClick={() => { setIsMenuOpen(false); onAccountClick(); }}
+              className="w-full px-3 py-2 text-xs text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Quản lý tài khoản
+            </button>
+          )}
           <button
             onClick={handleLogout}
-            className="w-full px-3 py-2 text-xs text-left text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors cursor-pointer"
+            className="w-full px-3 py-2 text-xs text-left text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors cursor-pointer border-t border-gray-100"
           >
             <LogOut className="w-3.5 h-3.5" />
             Đăng xuất

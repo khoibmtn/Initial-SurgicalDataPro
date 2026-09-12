@@ -46,6 +46,7 @@ interface SidebarProps {
   userRole?: string;
   syncStatus?: 'synced' | 'unsaved' | 'processing';
   onLoginClick?: () => void;
+  onAccountClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -57,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   userRole,
   syncStatus = 'synced',
   onLoginClick,
+  onAccountClick,
 }) => {
   const { isLocked, unlockConfig, lockConfig, changePassword } = useConfig();
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -192,7 +194,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Footer controls */}
         <div className="p-2 border-t border-gray-100 space-y-1">
           {/* User Auth Button (Login / User Badge) */}
-          <UserMenuButton collapsed={collapsed} onLoginClick={onLoginClick || (() => {})} />
+          <UserMenuButton collapsed={collapsed} onLoginClick={onLoginClick || (() => {})} onAccountClick={onAccountClick} />
 
           {/* Nút Tài khoản & Bảo mật (Khóa/Mở khóa, Đổi mật khẩu) ngay trên nút Thu gọn */}
           <button
