@@ -299,101 +299,224 @@ export const UserManagementPanel: React.FC = () => {
   );
 };
 
-// ─── Role Permissions Section ────────────────────────────────────────────────
+// ─── Role Permissions Matrix ─────────────────────────────────────────────────
 
-const ROLE_PERMISSIONS: {
-  role: string;
-  label: string;
-  icon: React.ElementType;
-  color: string;
-  bgColor: string;
-  permissions: string[];
-}[] = [
-  {
-    role: 'admin',
-    label: 'Quản trị viên (Admin)',
-    icon: Shield,
-    color: 'text-red-700',
-    bgColor: 'bg-red-50 border-red-200',
-    permissions: [
-      'Toàn quyền hệ thống',
-      'Cấu hình quyền trưởng khoa & nhân viên',
-      'Bật/tắt phê duyệt thành viên mới',
-      'Bật/tắt bắt buộc đăng nhập',
-      'Duyệt, khóa, mở khóa tài khoản',
-      'Thay đổi vai trò người dùng',
-      'Quản lý danh mục, định mức, cấu hình',
-      'Xuất/nhập dữ liệu Excel',
-      'Xem thống kê & báo cáo',
-    ],
-  },
-  {
-    role: 'head',
-    label: 'Trưởng khoa',
-    icon: Building2,
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-50 border-blue-200',
-    permissions: [
-      'Duyệt thành viên trong khoa',
-      'Khóa/mở khóa báo cáo (Phase 2)',
-      'Truy vết lịch sử thay đổi (Phase 2)',
-      'Điều chỉnh quyền nhân viên (trong phạm vi admin cho phép)',
-      'Xem thống kê & báo cáo của khoa',
-      'Xuất/nhập dữ liệu Excel',
-    ],
-  },
-  {
-    role: 'staff',
-    label: 'Nhân viên',
-    icon: UserCheck,
-    color: 'text-gray-700',
-    bgColor: 'bg-gray-50 border-gray-200',
-    permissions: [
-      'Thực hiện quyền được trưởng khoa giao',
-      'Nhập liệu báo cáo phẫu thuật',
-      'Xem thông tin cá nhân',
-      'Xuất dữ liệu (nếu được phép)',
-      'Xem thống kê (nếu được phép)',
-    ],
-  },
+/** Danh sách tất cả quyền trong hệ thống */
+const ALL_PERMISSIONS: { key: string; label: string; description: string; category: string }[] = [
+  // ── Dữ liệu & Báo cáo ──
+  { key: 'view_daily_report', label: 'Xem BC hàng ngày', description: 'Xem báo cáo phẫu thuật hàng ngày', category: 'Dữ liệu' },
+  { key: 'view_monthly_report', label: 'Xem BC tháng', description: 'Xem báo cáo tổng hợp theo tháng', category: 'Dữ liệu' },
+  { key: 'edit_report', label: 'Chỉnh sửa BC', description: 'Thêm, sửa, xóa bản ghi phẫu thuật', category: 'Dữ liệu' },
+  { key: 'import_excel', label: 'Nhập Excel', description: 'Import dữ liệu từ file Excel', category: 'Dữ liệu' },
+  { key: 'export_excel', label: 'Xuất Excel', description: 'Export dữ liệu ra file Excel', category: 'Dữ liệu' },
+  // ── Thống kê ──
+  { key: 'view_statistics', label: 'Xem thống kê', description: 'Xem trang thống kê tổng hợp', category: 'Thống kê' },
+  { key: 'view_cost_report', label: 'Xem chi phí', description: 'Xem báo cáo chi phí phẫu thuật', category: 'Thống kê' },
+  // ── Cấu hình ──
+  { key: 'manage_norms', label: 'Quản lý định mức', description: 'Thay đổi định mức phụ cấp, thời gian', category: 'Cấu hình' },
+  { key: 'manage_dmkt', label: 'Quản lý DMKT', description: 'Quản lý danh mục kỹ thuật, giá', category: 'Cấu hình' },
+  { key: 'manage_staff', label: 'Quản lý nhân viên', description: 'Danh sách nhân viên, khoa phòng', category: 'Cấu hình' },
+  // ── Quản trị ──
+  { key: 'approve_users', label: 'Duyệt thành viên', description: 'Phê duyệt/từ chối tài khoản mới', category: 'Quản trị' },
+  { key: 'manage_user_roles', label: 'Phân quyền', description: 'Thay đổi vai trò người dùng', category: 'Quản trị' },
+  { key: 'disable_users', label: 'Khóa tài khoản', description: 'Vô hiệu hóa tài khoản người dùng', category: 'Quản trị' },
+  { key: 'system_config', label: 'Cấu hình hệ thống', description: 'Bật/tắt phê duyệt, đăng nhập bắt buộc', category: 'Quản trị' },
 ];
 
+/** Quyền mặc định cho mỗi role */
+const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
+  head: [
+    'view_daily_report', 'view_monthly_report', 'edit_report',
+    'import_excel', 'export_excel',
+    'view_statistics', 'view_cost_report',
+    'manage_staff',
+    'approve_users',
+  ],
+  staff: [
+    'view_daily_report', 'view_monthly_report', 'edit_report',
+    'import_excel', 'export_excel',
+    'view_statistics',
+  ],
+};
+
+import { ref, onValue, set } from 'firebase/database';
+import { db } from '../../lib/firebase';
+
 const RolePermissionsSection: React.FC = () => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [headPerms, setHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.head);
+  const [staffPerms, setStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Load permissions from Firebase
+  useEffect(() => {
+    const permRef = ref(db, 'role_permissions');
+    const unsub = onValue(permRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        if (data.head) setHeadPerms(data.head);
+        if (data.staff) setStaffPerms(data.staff);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const togglePermission = async (role: 'head' | 'staff', permKey: string) => {
+    setIsSaving(true);
+    const currentPerms = role === 'head' ? [...headPerms] : [...staffPerms];
+    const idx = currentPerms.indexOf(permKey);
+
+    if (idx >= 0) {
+      currentPerms.splice(idx, 1);
+    } else {
+      currentPerms.push(permKey);
+    }
+
+    // If removing from head, also remove from staff
+    let updatedStaffPerms = role === 'staff' ? currentPerms : [...staffPerms];
+    if (role === 'head' && idx >= 0) {
+      updatedStaffPerms = staffPerms.filter(p => p !== permKey);
+    }
+
+    try {
+      await set(ref(db, 'role_permissions'), {
+        head: role === 'head' ? currentPerms : headPerms,
+        staff: updatedStaffPerms,
+      });
+    } catch (err) {
+      console.error('Failed to save permissions:', err);
+    }
+    setIsSaving(false);
+  };
+
+  // Group permissions by category
+  const categories = [...new Set(ALL_PERMISSIONS.map(p => p.category))];
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
-      >
+      {/* Header */}
+      <div className="px-3 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Shield className="w-3.5 h-3.5 text-gray-500" />
-          Chi tiết quyền theo vai trò
+          <Shield className="w-4 h-4 text-primary-600" />
+          <h4 className="text-xs font-bold text-gray-800">Bảng phân quyền</h4>
         </div>
-        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-      </button>
+        {isSaving && (
+          <span className="text-[10px] text-gray-400 flex items-center gap-1">
+            <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
+          </span>
+        )}
+      </div>
 
-      {isExpanded && (
-        <div className="p-3 border-t border-gray-100 grid gap-3 animate-fade-in md:grid-cols-3">
-          {ROLE_PERMISSIONS.map(({ role, label, icon: Icon, color, bgColor, permissions }) => (
-            <div key={role} className={`rounded-lg border p-3 ${bgColor}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <Icon className={`w-4 h-4 ${color}`} />
-                <h4 className={`text-xs font-bold ${color}`}>{label}</h4>
-              </div>
-              <ul className="space-y-1">
-                {permissions.map((perm, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-[11px] text-gray-600">
-                    <CheckCircle2 className={`w-3 h-3 mt-0.5 shrink-0 ${color} opacity-60`} />
-                    <span>{perm}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Matrix table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50/50">
+              <th className="text-left px-3 py-2 font-semibold text-gray-600 w-[45%]">Quyền</th>
+              <th className="text-center px-2 py-2 font-semibold w-[18%]">
+                <div className="flex items-center justify-center gap-1">
+                  <Shield className="w-3 h-3 text-red-600" />
+                  <span className="text-red-700">Admin</span>
+                </div>
+              </th>
+              <th className="text-center px-2 py-2 font-semibold w-[18%]">
+                <div className="flex items-center justify-center gap-1">
+                  <Building2 className="w-3 h-3 text-blue-600" />
+                  <span className="text-blue-700">Trưởng khoa</span>
+                </div>
+              </th>
+              <th className="text-center px-2 py-2 font-semibold w-[18%]">
+                <div className="flex items-center justify-center gap-1">
+                  <UserCheck className="w-3 h-3 text-gray-600" />
+                  <span className="text-gray-700">Nhân viên</span>
+                </div>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map((cat) => (
+              <React.Fragment key={cat}>
+                {/* Category header */}
+                <tr className="bg-gray-50/80">
+                  <td colSpan={4} className="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                    {cat}
+                  </td>
+                </tr>
+                {/* Permission rows */}
+                {ALL_PERMISSIONS.filter(p => p.category === cat).map((perm) => {
+                  const headHas = headPerms.includes(perm.key);
+                  const staffHas = staffPerms.includes(perm.key);
+
+                  return (
+                    <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                      <td className="px-3 py-2">
+                        <p className="font-medium text-gray-800">{perm.label}</p>
+                        <p className="text-[10px] text-gray-400">{perm.description}</p>
+                      </td>
+                      {/* Admin: always ON */}
+                      <td className="text-center px-2 py-2">
+                        <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100">
+                          <CheckCircle2 className="w-4 h-4 text-red-600" />
+                        </div>
+                      </td>
+                      {/* Head: toggleable */}
+                      <td className="text-center px-2 py-2">
+                        <button
+                          onClick={() => togglePermission('head', perm.key)}
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                            headHas
+                              ? 'bg-blue-100 hover:bg-blue-200'
+                              : 'bg-gray-100 hover:bg-gray-200'
+                          }`}
+                          title={headHas ? `Tắt '${perm.label}' cho Trưởng khoa` : `Bật '${perm.label}' cho Trưởng khoa`}
+                        >
+                          {headHas
+                            ? <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                            : <XCircle className="w-4 h-4 text-gray-300" />}
+                        </button>
+                      </td>
+                      {/* Staff: toggleable (but can't exceed head) */}
+                      <td className="text-center px-2 py-2">
+                        {headHas ? (
+                          <button
+                            onClick={() => togglePermission('staff', perm.key)}
+                            className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                              staffHas
+                                ? 'bg-emerald-100 hover:bg-emerald-200'
+                                : 'bg-gray-100 hover:bg-gray-200'
+                            }`}
+                            title={staffHas ? `Tắt '${perm.label}' cho Nhân viên` : `Bật '${perm.label}' cho Nhân viên`}
+                          >
+                            {staffHas
+                              ? <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              : <XCircle className="w-4 h-4 text-gray-300" />}
+                          </button>
+                        ) : (
+                          <div
+                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-50"
+                            title="Trưởng khoa không có quyền này → Nhân viên cũng không"
+                          >
+                            <XCircle className="w-4 h-4 text-gray-200" />
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Footer note */}
+      <div className="px-3 py-2 bg-amber-50 border-t border-amber-200 text-[10px] text-amber-700 flex items-start gap-1.5">
+        <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+        <span>
+          <strong>Lưu ý:</strong> Admin luôn có toàn quyền. Trưởng khoa có thể thu hẹp (nhưng không mở rộng) quyền của nhân viên trong phạm vi admin cho phép. 
+          Thay đổi tự động lưu.
+        </span>
+      </div>
     </div>
   );
 };
+
