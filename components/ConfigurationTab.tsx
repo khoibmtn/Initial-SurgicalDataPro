@@ -19,6 +19,8 @@ import { ChapterCatalogConfig } from './statistics/ChapterCatalogConfig';
 import { SurgeryCostConfig } from './statistics/SurgeryCostConfig';
 
 import { RequiredMachineCatalogConfig } from './config/RequiredMachineCatalogConfig';
+import { UserManagementPanel } from './auth/UserManagementPanel';
+import { useAuth } from '../contexts/AuthContext';
 
 // Helper component for formatted number input
 const NumberInput: React.FC<{
@@ -73,7 +75,8 @@ interface ConfigurationTabProps {
 export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate }) => {
     const { config, updateConfig, resetConfig, isLoaded, isLocked, unlockConfig, lockConfig } = useConfig();
     const staffList = config.staffList || [];
-    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff'>('norms');
+    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users'>('norms');
+    const { isAdmin } = useAuth();
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
     const [newMachineName, setNewMachineName] = useState("");
@@ -945,6 +948,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                   { value: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
                   { value: 'dmkt', label: 'DMKT', icon: Database },
                   { value: 'staff', label: 'Hành chính', icon: Users },
+                  ...(isAdmin ? [{ value: 'users', label: 'Người dùng', icon: Shield }] : []),
                 ]}
               />
             </ContextToolbar>
@@ -1048,6 +1052,12 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
             {/* Content area - only content scrolls */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
+
+                {activeSubTab === 'users' && isAdmin && (
+                    <div className="animate-fade-in">
+                        <UserManagementPanel />
+                    </div>
+                )}
 
                 {activeSubTab === 'norms' && (
                     <div className="animate-fade-in space-y-6">
