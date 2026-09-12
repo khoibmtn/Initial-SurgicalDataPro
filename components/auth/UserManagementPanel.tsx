@@ -18,6 +18,8 @@ import {
   RefreshCw,
   Building2,
 } from 'lucide-react';
+import { ref, onValue, set } from 'firebase/database';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import type { AppUser, UserRole } from '../../types/auth';
 import {
@@ -338,9 +340,6 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'view_statistics',
   ],
 };
-
-import { ref, onValue, set } from 'firebase/database';
-import { db } from '../../lib/firebase';
 
 const RolePermissionsSection: React.FC = () => {
   const [headPerms, setHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.head);
