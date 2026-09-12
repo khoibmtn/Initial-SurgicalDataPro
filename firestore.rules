@@ -1,14 +1,45 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Explicit Collection Group query for processed_records
-    match /{document=**} {
-      match /processed_records/{recordId} {
-        allow read, write: if true;
-      }
+    
+    // ── Helper functions ──────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
     }
-
-    // Standard hierarchy access
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && getUserData().role == 'admin';
+    }
+    
+    function isActiveUser() {
+      return isAuthenticated() && getUserData().status == 'active';
+    }
+    
+    // ── Users collection (KHÓA BẢO MẬT) ──────────────────────────────
+    match /users/{userId} {
+      // Ai cũng có thể đọc profile riêng; Admin đọc tất cả
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Đăng ký: tạo doc cho chính mình
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      // Sửa: chỉ admin hoặc chính mình (giới hạn fields)
+      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Xóa: chỉ admin
+      allow delete: if isAdmin();
+    }
+    
+    // ── Surgery data (GIỮ MỞ TẠM — Phase Guest-First) ────────────────
+    // Sẽ đóng khi admin bật "Bắt buộc đăng nhập"
+    
+    // Collection group query cho processed_records
+    match /{document=**}/processed_records/{recordId} {
+      allow read, write: if true;
+    }
+    
+    // Reports & nested processed_records
     match /reports/{reportId} {
       allow read, write: if true;
 
@@ -17,12 +48,12 @@ service cloud.firestore {
       }
     }
 
-    // Surgery profiles (global, all users)
+    // Surgery profiles
     match /surgery_profiles/{profileId} {
       allow read, write: if true;
     }
 
-    // Duty schedules (global schedule by date)
+    // Duty schedules
     match /duty_schedules/{dateKey} {
       allow read, write: if true;
     }
