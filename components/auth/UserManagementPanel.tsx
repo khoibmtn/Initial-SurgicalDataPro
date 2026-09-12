@@ -171,6 +171,9 @@ export const UserManagementPanel: React.FC = () => {
         </button>
       </div>
 
+      {/* Role Permissions Reference */}
+      <RolePermissionsSection />
+
       {/* Action message */}
       {actionMsg && (
         <div
@@ -290,6 +293,105 @@ export const UserManagementPanel: React.FC = () => {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Role Permissions Section ────────────────────────────────────────────────
+
+const ROLE_PERMISSIONS: {
+  role: string;
+  label: string;
+  icon: React.ElementType;
+  color: string;
+  bgColor: string;
+  permissions: string[];
+}[] = [
+  {
+    role: 'admin',
+    label: 'Quản trị viên (Admin)',
+    icon: Shield,
+    color: 'text-red-700',
+    bgColor: 'bg-red-50 border-red-200',
+    permissions: [
+      'Toàn quyền hệ thống',
+      'Cấu hình quyền trưởng khoa & nhân viên',
+      'Bật/tắt phê duyệt thành viên mới',
+      'Bật/tắt bắt buộc đăng nhập',
+      'Duyệt, khóa, mở khóa tài khoản',
+      'Thay đổi vai trò người dùng',
+      'Quản lý danh mục, định mức, cấu hình',
+      'Xuất/nhập dữ liệu Excel',
+      'Xem thống kê & báo cáo',
+    ],
+  },
+  {
+    role: 'head',
+    label: 'Trưởng khoa',
+    icon: Building2,
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50 border-blue-200',
+    permissions: [
+      'Duyệt thành viên trong khoa',
+      'Khóa/mở khóa báo cáo (Phase 2)',
+      'Truy vết lịch sử thay đổi (Phase 2)',
+      'Điều chỉnh quyền nhân viên (trong phạm vi admin cho phép)',
+      'Xem thống kê & báo cáo của khoa',
+      'Xuất/nhập dữ liệu Excel',
+    ],
+  },
+  {
+    role: 'staff',
+    label: 'Nhân viên',
+    icon: UserCheck,
+    color: 'text-gray-700',
+    bgColor: 'bg-gray-50 border-gray-200',
+    permissions: [
+      'Thực hiện quyền được trưởng khoa giao',
+      'Nhập liệu báo cáo phẫu thuật',
+      'Xem thông tin cá nhân',
+      'Xuất dữ liệu (nếu được phép)',
+      'Xem thống kê (nếu được phép)',
+    ],
+  },
+];
+
+const RolePermissionsSection: React.FC = () => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          <Shield className="w-3.5 h-3.5 text-gray-500" />
+          Chi tiết quyền theo vai trò
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isExpanded && (
+        <div className="p-3 border-t border-gray-100 grid gap-3 animate-fade-in md:grid-cols-3">
+          {ROLE_PERMISSIONS.map(({ role, label, icon: Icon, color, bgColor, permissions }) => (
+            <div key={role} className={`rounded-lg border p-3 ${bgColor}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <Icon className={`w-4 h-4 ${color}`} />
+                <h4 className={`text-xs font-bold ${color}`}>{label}</h4>
+              </div>
+              <ul className="space-y-1">
+                {permissions.map((perm, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-[11px] text-gray-600">
+                    <CheckCircle2 className={`w-3 h-3 mt-0.5 shrink-0 ${color} opacity-60`} />
+                    <span>{perm}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       )}
     </div>

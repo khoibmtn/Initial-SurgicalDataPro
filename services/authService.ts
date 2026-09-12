@@ -121,7 +121,7 @@ export async function registerWithNickname(
   try {
     const normalizedNickname = data.nickname.toLowerCase().trim();
     
-    // Validate nickname
+    // Validate nickname format
     if (normalizedNickname.length < 6) {
       return { success: false, error: 'Nickname phải có ít nhất 6 ký tự.' };
     }
@@ -130,17 +130,20 @@ export async function registerWithNickname(
       return { success: false, error: 'Nickname chỉ được chứa chữ thường, số, dấu chấm, gạch ngang và gạch dưới.' };
     }
     
-    // Check nickname unique
-    const isUnique = await isNicknameAvailable(normalizedNickname);
-    if (!isUnique) {
-      return { success: false, error: 'Nickname này đã được sử dụng. Vui lòng chọn nickname khác.' };
+    // Create Firebase Auth user first
+    // nickname → email is deterministic, so email-already-in-use = nickname taken
+    const email = nicknameToEmail(normalizedNickname);
+    let credential;
+    try {
+      credential = await createUserWithEmailAndPassword(auth, email, data.password);
+    } catch (authErr: any) {
+      if (authErr.code === 'auth/email-already-in-use') {
+        return { success: false, error: 'Nickname này đã được sử dụng. Vui lòng chọn nickname khác.' };
+      }
+      return { success: false, error: mapFirebaseError(authErr.code) };
     }
     
-    // Create Firebase Auth user
-    const email = nicknameToEmail(normalizedNickname);
-    const credential = await createUserWithEmailAndPassword(auth, email, data.password);
-    
-    // Create Firestore user doc
+    // Create Firestore user doc (now authenticated, so rules allow create)
     const status: UserStatus = requireApproval ? 'pending' : 'active';
     const newUser = await createUserDoc(credential.user.uid, {
       nickname: normalizedNickname,
