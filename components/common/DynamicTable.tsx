@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
 import { PageCombobox } from './PageCombobox';
+import { getRecordLockKey, subscribeToAllActiveRecordLocks } from '../../services/recordLockService';
+import { RecordEditingLock } from '../../types/recordLock';
 
 // --- Column Definition Interface ---
 export interface ColumnDef<T> {
@@ -59,6 +61,7 @@ export interface TableBodyProps {
   rowStyle?: (item: any) => string;
   customRowRender?: (row: any, index: number, allRows: any[]) => React.ReactNode;
   density: { cellPy: string; fontSize: string; rowHeight: number };
+  activeRecordLocks?: Record<string, RecordEditingLock>;
 }
 
 export const TableBody = ({
@@ -76,9 +79,13 @@ export const TableBody = ({
   rowStyle,
   customRowRender,
   density,
+  activeRecordLocks,
 }: TableBodyProps) => {
   const renderRow = (row: any, idx: number, globalIndex: number, allRows: any[]) => {
     if (customRowRender) return customRowRender(row, globalIndex, allRows);
+
+    const lockKey = getRecordLockKey(row);
+    const activeLock = activeRecordLocks ? activeRecordLocks[lockKey] : undefined;
 
     const customClass = rowStyle ? rowStyle(row) : '';
     const isFirstRowOverall = globalIndex === 0;
@@ -87,7 +94,7 @@ export const TableBody = ({
     return (
       <tr
         key={`${row.key || row.id || 'row'}_${globalIndex}_${row.patientId || ''}`}
-        className={`border-b border-gray-200 group hover:bg-primary-100 transition-colors ${onRowDoubleClick ? 'cursor-pointer' : ''} ${customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-primary-200' : ''}`}
+        className={`border-b border-gray-200 group hover:bg-primary-100 transition-colors ${onRowDoubleClick ? 'cursor-pointer' : ''} ${activeLock ? '!bg-amber-50/70 ring-1 ring-inset ring-amber-300' : (customClass ? customClass : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'))} ${enableSelection && (selectedIds.includes(row.key) || (row.id && selectedIds.includes(row.id))) ? '!bg-primary-200' : ''}`}
         onClick={() => {
           if (enableSelection && onSelect) {
             const rId = row.key || row.id;
@@ -113,7 +120,17 @@ export const TableBody = ({
         )}
         {visibleColumnsList.map(col => (
           <td key={col.key} className={`px-2 ${density.cellPy} border-r whitespace-normal break-words align-top ${deptBorderClass} ${col.width || 'max-w-[200px]'} ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} ${col.className || ''}`}>
-            {col.key === 'stt' ? (globalIndex + 1) : (col.render ? col.render(row) : (row[col.key] || '-'))}
+            {col.key === 'stt' ? (
+              <span className="inline-flex items-center justify-center gap-1">
+                {activeLock && (
+                  <span
+                    className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0"
+                    title={`Đang sửa bởi: ${activeLock.userName}${activeLock.userDepartment ? ` (${activeLock.userDepartment})` : ''}`}
+                  />
+                )}
+                {globalIndex + 1}
+              </span>
+            ) : (col.render ? col.render(row) : (row[col.key] || '-'))}
           </td>
         ))}
       </tr>
@@ -209,6 +226,13 @@ export const DynamicTable = <T extends Record<string, any>>({
   onPageChange: externalOnPageChange,
 }: DynamicTableProps<T>) => {
   const { config } = useConfig();
+  const [activeRecordLocks, setActiveRecordLocks] = useState<Record<string, RecordEditingLock>>({});
+
+  useEffect(() => {
+    const unsub = subscribeToAllActiveRecordLocks(setActiveRecordLocks);
+    return () => unsub();
+  }, []);
+
   const [visibleCols, setVisibleCols] = useState<Record<string, boolean>>({});
   const [isConfigDropdownOpen, setIsConfigDropdownOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
@@ -886,6 +910,7 @@ export const DynamicTable = <T extends Record<string, any>>({
             rowStyle={rowStyle}
             customRowRender={customRowRender}
             density={density}
+            activeRecordLocks={activeRecordLocks}
           />
         </table>
       </div>
