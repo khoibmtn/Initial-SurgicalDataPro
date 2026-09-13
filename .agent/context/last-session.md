@@ -1,133 +1,158 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 10/09/2026 12:56 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `temp-10-09-2026-12h35`  
-> **Commit chính (main):** `7478688` (Đã push lên `origin/main` và tự động deploy Vercel)  
+> **Thời gian cập nhật:** 13/09/2026 13:05 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `version2` (remote: `origin/version2`)  
+> **Commit mới nhất:** `0ffef58` (`feat(analytics): refactor OR analytics to hospital-wide capacity and peak concurrency model`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
+> **Local Dev Port:** `http://localhost:3002` (Vite dev server đang chạy nền)  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`  
-> **Tài liệu Kế hoạch Chiến lược mới:** [`new feature/surgical-pro-roadmap.md`](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/new%20feature/surgical-pro-roadmap.md) & [`new feature/implementation_plan.md`](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/new%20feature/implementation_plan.md)
+> **Trạng thái Test:** `250 / 250 tests PASS` (17 test suites)  
+> **Tài liệu Kế hoạch:** [implementation_plan.md](file:///Users/buiminhkhoi/.gemini/antigravity-ide/brain/f443151a-e45d-4851-a746-575eac49efce/implementation_plan.md) & [walkthrough.md](file:///Users/buiminhkhoi/.gemini/antigravity-ide/brain/f443151a-e45d-4851-a746-575eac49efce/walkthrough.md)
 
 ---
 
-## 📌 1. Các Tính Năng & Giao Diện Đã Triển Khai Hoàn Tất Trong Phiên
+## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành Trong Phiên
 
-### 1.1. Vô Hiệu Hóa Toàn Diện Nút "Khôi Phục Mặc Định" Khi Đang Khóa (`isLocked`)
-- **Vấn đề:** Khi cấu hình đang khóa, nút "Khôi phục mặc định" vẫn cho phép người dùng click và thực hiện reset cấu hình.
-- **Giải pháp:**
-  - Trong `components/ConfigurationTab.tsx`, tất cả nút "Khôi phục mặc định" tại các tab và subtab đều được gắn:
-    `disabled={isLocked}`, class `disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none`.
-  - Bổ sung guard `if (isLocked) return;` vào tất cả các hàm xử lý reset mặc định để ngăn chặn tuyệt đối can thiệp dữ liệu khi chưa mở khóa.
-
-### 1.2. Chuẩn Hóa Cột Ghi Chú Thành "Kíp Phẫu Thuật" & Phân Loại "Kíp Tăng Cường"
-- **Yêu cầu chuyên môn:**
-  - Đổi tiêu đề cột "Ghi chú" tại bảng Ngoài giờ thành **"Kíp phẫu thuật"**.
-  - Đối với các ca mổ phiên nhưng bắt đầu sau 17h00 đến trước giờ hành chính hôm sau: Trên thực tế đây là kíp tăng cường hoặc thường trú lên mổ ngoài giờ. Nếu ghi "Kíp mổ phiên" sẽ gây nhầm lẫn chuyên môn.
-- **Giải pháp:**
-  - Cập nhật logic phân loại ca ngoài giờ trong `components/overtime/OvertimeTab.tsx`:
-    - Nếu ca mổ bắt đầu từ 17:00 đến 07:00 sáng hôm sau (hoặc giờ bắt đầu hành chính hôm sau): Phân loại là **"Kíp tăng cường"** (badge xanh lá mạ `bg-emerald-50 text-emerald-700 border-emerald-200`).
-    - Các ca mổ phiên diễn ra trong giờ hành chính vẫn giữ nhãn **"Kíp mổ phiên"**.
-  - Các thống kê KPI và bộ lọc kíp mổ ngoài giờ được cập nhật hiển thị đồng bộ cho cả "Kíp tăng cường" và "Kíp mổ phiên".
-
-### 1.3. Tối Ưu Hóa Giao Diện Cho Màn Hình Full HD & Thanh Cuộn Bảng
-- **Vấn đề:** Trên màn hình Full HD (1920x1080) và màn hình compact, thanh cuộn ngang của các bảng dữ liệu quá mờ khiến người dùng không nhận diện được thanh trượt. Tiêu đề và các thẻ thống kê KPI quá cao làm thu hẹp không gian bảng.
-- **Giải pháp:**
-  - **Tiêu đề & Khoảng cách:** Giảm kích thước tiêu đề "Báo cáo hàng ngày", "Báo cáo tháng" và khoảng cách đệm phía trên thanh tab.
-  - **KPI Cards:** Giảm chiều cao padding của các stat cards trong cả Daily report, Monthly report và Overtime subtab.
-  - **Thanh cuộn ngang tương phản cao:** Trong `index.css`, thanh cuộn ngang bảng được cấu hình màu đặc (không opacity):
-    - Con trượt (thumb): Màu xám đậm `#334155` với viền `2px solid #1e293b`.
-    - Rãnh cuộn (track): Nền xám nhạt `#e2e8f0` với đường viền `#94a3b8`.
-    - Đảm bảo hiển thị sắc nét 100% trên mọi loại màn hình từ Full HD đến 2K/4K.
-
-### 1.4. Tự Động Ẩn Banner Áp Giá Đầy Đủ Ở Báo Cáo Tháng
-- **Vấn đề:** Banner xanh lá "Đã có 144/144 trường hợp có giá áp dụng (Đầy đủ 100%)." chiếm nhiều diện tích hiển thị.
-- **Giải pháp:**
-  - Bổ sung state `showMonthlyFullPriceNotice` và `useEffect` hẹn giờ 5 giây.
-  - Khi người dùng tải dữ liệu tháng, banner sẽ hiển thị trong 5 giây để thông báo rồi tự động ẩn đi để tiết kiệm không gian.
-  - Bổ sung nút đóng `X` thủ công nếu người dùng muốn đóng ngay lập tức.
-
-### 1.5. Khắc Phục Hiện Tượng Thanh Cuộn Dọc Trên Khung Subtab
-- **Vấn đề:** Khung chứa các subtab (DS Phẫu thuật, Trùng NV, Trùng máy, ...) xuất hiện thanh cuộn dọc (scroll thumb đen ở mép phải) do chênh lệch chiều cao vài pixel.
-- **Giải pháp:**
-  - Container subtab trong `App.tsx` được cấu hình: `min-h-[44px] flex items-center overflow-x-auto overflow-y-hidden`.
-  - Trong `index.css`: `.tab-line { overflow-x-auto; overflow-y-hidden; }`.
-  - Triệt tiêu hoàn toàn thanh cuộn dọc ngoài ý muốn.
-
-### 1.6. Tái Thiết Kế Giao Diện Modal "Tài Khoản & Bảo Mật" Tinh Gọn
-- **Vấn đề:** Modal trước đây có 2 khối card riêng biệt, lặp lại 2 ô nhập mật khẩu hiện tại, giao diện cồng kềnh.
-- **Giải pháp (`components/ui/Sidebar.tsx`):**
-  - **Header:** Đưa thẳng badge trạng thái `[ Đang khóa ]` / `[ Đã mở ]` lên cạnh tiêu đề modal.
-  - **Body tinh gọn:**
-    - **1 ô nhập duy nhất:** "Mật khẩu hiện tại" kèm nút ẩn/hiện mật khẩu (biểu tượng mắt) và `autoFocus`.
-    - **2 nút hành động bên dưới:**
-      - `[ Mở khóa ]` (hoặc `[ Khóa cấu hình ]` khi đã mở).
-      - `[ Đổi mật khẩu ]` (toggle đóng/mở ngăn đổi mật khẩu).
-    - Hỗ trợ phím tắt `Enter` tại ô mật khẩu hiện tại để mở khóa tức thì.
-  - **Ngăn Đổi Mật Khẩu (Drawer):** Khi bấm `[ Đổi mật khẩu ]`, khung thiết lập bung mở gọn gàng:
-    - Ô "Mật khẩu mới (tối thiểu 4 ký tự)" (có nút mắt ẩn/hiện).
-    - Ô "Xác nhận mật khẩu mới" (hỗ trợ phím `Enter` để lưu nhanh).
-    - Nút `[ Lưu mật khẩu mới ]` màu xanh chủ đạo nổi bật.
-    - Nút phía trên tự động chuyển thành `[ Hủy đổi MK ]` để thu gọn lại bất cứ lúc nào.
-
-### 1.7. Bổ Sung Bộ Lọc Vị Trí & Khoa / Phòng Trong Danh Mục Nhân Viên Y Tế
-- **Yêu cầu:** Bổ sung bộ lọc theo vị trí mổ và khoa/phòng cạnh thanh tìm kiếm nhân sự trong `ConfigurationTab.tsx`.
-- **Giải pháp (`components/ConfigurationTab.tsx`):**
-  - Bổ sung 2 state: `staffFilterPosition` và `staffFilterDepartment`.
-  - **Dropdown Vị trí:** Tự động tổng hợp đầy đủ từ danh sách nhân viên (`-- Tất cả vị trí --`, `BS PT`, `BS GMHS`, `Phụ (KTV/DDC/GV)`...).
-  - **Dropdown Khoa / Phòng:** Tự động tổng hợp từ `config.departments` và danh sách nhân viên (`-- Tất cả khoa/phòng --`, Ngoại TH, CTCH, Sản, TMH...).
-  - **Tìm kiếm đa tầng:** Kết hợp đồng thời lọc từ khóa tìm kiếm (tên, MST, vị trí, khoa) với 2 bộ lọc dropdown.
-  - **Nút "Xóa lọc":** Tự động xuất hiện khi có bất kỳ điều kiện lọc nào đang kích hoạt.
-  - **Hiển thị số lượng:** Góc phải hiển thị `Hiển thị X / Y nhân sự`.
-  - **Tự động chuyển trang:** Reset về trang 1 khi thay đổi điều kiện lọc.
-
-### 1.8. Đổi Màu Nền Active Tab Nổi Bật Sắc Nét (Solid Google Blue `#1a73e8`)
-- **Vấn đề:** Màu nền trắng của active tab trên thanh bar xanh nhạt (`bg-blue-50/75`) bị chìm và thiếu tương phản.
-- **Giải pháp:**
-  - **`index.css`:** Cập nhật `.tab-line-item[data-active="true"]`:
-    - `background: #1a73e8;` (Xanh nguyên khối Google Blue).
-    - `color: #ffffff; font-weight: 700;`
-    - `box-shadow: 0 2px 5px rgba(26, 115, 232, 0.35);`
-    - Viền chân đậm bên dưới: `background: #0d47a1; height: 3.5px;`.
-  - **`components/ui/TabLine.tsx`:**
-    - Icon khi active: Chuyển sang `text-white`.
-    - Badge khi active: Nền trắng chữ xanh `bg-white text-[#1a73e8] shadow-xs font-bold`.
-  - Áp dụng đồng bộ cho tất cả các thanh tab dùng `TabLine` (báo cáo hàng ngày, báo cáo tháng, cấu hình...).
+### 1.1. Loại Bỏ Mật Khẩu Thủ Công `123456` / `isLocked` Thừa Thãi
+- **Đánh giá an ninh**: Kiểm tra toàn diện hệ thống phân quyền RBAC đa cấp (Admin viện, Trưởng khoa, Bác sĩ/KTV).
+- **Kết luận**: Tính năng khóa bằng mật khẩu cứng `123456` đã hoàn toàn lỗi thời và gây phiền hà cho người dùng vì đã được bao phủ chặt chẽ bởi:
+  - RBAC đa cấp + Phân quyền chức năng theo vai trò.
+  - Trần quyền Trưởng khoa (Permission Ceiling).
+  - Khóa báo cáo tháng / ngày có xác thực tài khoản (`report_locks`).
+  - Khóa danh mục giá và hiệu lực danh mục (`catalog_locks`).
+- **Thực hiện**: Đã tháo bỏ modal mở khóa thủ công và các cờ `isLocked` dư thừa, trả lại trải nghiệm người dùng hiện đại, an toàn và liền mạch.
 
 ---
 
-## 🎯 2. Kế Hoạch Chiến Lược Nâng Cấp Tương Lai (Roadmap Summary)
-
-Chi tiết đầy đủ được lưu tại file [`new feature/surgical-pro-roadmap.md`](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/new%20feature/surgical-pro-roadmap.md).
-
-### 2.1. Đánh giá Codebase & Các điểm rủi ro:
-1. **Rủi ro Khẩn cấp (P0):**
-   - `firestore.rules` đang mở toàn quyền đọc/ghi công khai (`allow read, write: if true;`), cần đóng bảo mật RBAC để tuân thủ Nghị định 13/2023/NĐ-CP về dữ liệu cá nhân y tế.
-   - Mật khẩu quản trị lưu dạng plain-text tại `localStorage`, cần băm SHA-256 + Salt.
-2. **Nợ Kỹ thuật & Kiến trúc (P1):**
-   - "God Component" `App.tsx` (>4,460 dòng) cần được bóc tách theo Feature-Driven Architecture (`features/daily-report`, `features/monthly-report`, `features/configuration`, `hooks/useConflictDetection`).
-   - Chưa có bộ Unit Test tự động cho các thuật toán tài chính - phụ cấp và phát hiện trùng ca mổ. Cần cài đặt `Vitest`.
-   - Firestore lưu trữ lẻ từng bản ghi (`processed_records`), cần cơ chế Monthly Summaries để tối ưu chi phí và tốc độ tải dữ liệu lịch sử.
-
-### 2.2. Chức năng đề xuất bổ sung:
-- **Quản lý & Chống sai lệch:** Khóa kỳ dữ liệu tháng (Monthly Record Freezing) và Nhật ký kiểm toán (Audit Trail) truy vết ai sửa ca mổ nào, thay đổi những gì.
-- **Nghiệp vụ lâm sàng nâng cao:** Thiết lập ngưỡng kiêm nhiệm đa phòng cho Bác sĩ Gây mê hồi sức, kiểm soát ca mổ có thời lượng bất thường (outlier), quản lý danh mục trang thiết bị phòng mổ.
-- **Tiện ích người dùng:** Màn hình Staging Grid sửa lỗi trực tiếp trên bảng khi Import Excel, xuất báo cáo mẫu Bộ Y Tế & BHXH (Mẫu C73/C74), lưu bộ lọc nâng cao.
-
-### 2.3. Lộ trình 3 giai đoạn:
-- **Giai đoạn 1 (Tuần 1 - 3):** Nền tảng, Bảo mật & Kiểm thử (Đóng Firestore Rules, Modular hóa `App.tsx`, viết Vitest).
-- **Giai đoạn 2 (Tuần 4 - 7):** Quản trị & Hoàn thiện nghiệp vụ (Khóa sổ tháng, Audit Log, Staging Import, định mức kiêm nhiệm Gây mê).
-- **Giai đoạn 3 (Tuần 8+):** Phân tích thông minh & Tích hợp (Dashboard KPI phòng mổ, kết nối API HIS/EMR).
+### 1.2. Khóa Chỉnh Sửa Ca Mổ Theo Thời Gian Thực (Collaborative Record Lock - Mục 3.3.2)
+- **Mục tiêu**: Ngăn chặn tình trạng 2 bác sĩ/điều dưỡng mở sửa đồng thời một ca mổ dẫn đến ghi đè dữ liệu.
+- **Kiến trúc & Cơ chế hoạt động (`services/recordLockService.ts`)**:
+  - Dùng Firebase Realtime Database tại nhánh `record_editing_locks/{recordKey}`.
+  - Khóa sinh tự động theo định danh lâm sàng: `patientId + '_' + ngayBD + '_' + tenKT`.
+  - **Heartbeat 20 giây** + **Timeout 2 phút**: Tự động thu hồi khóa nếu trình duyệt bị tắt đột ngột hoặc mất mạng, kết hợp `onDisconnect().remove()` của Firebase.
+- **Trải nghiệm bảng dữ liệu (`components/common/DynamicTable.tsx`)**:
+  - Hàng ca mổ đang có người sửa được đánh dấu viền sáng màu hổ phách (`ring-amber-300`).
+  - Cột STT có chấm màu cam nhấp nháy (`animate-pulse`) kèm tooltip hiển thị tên và khoa của bác sĩ đang giữ khóa.
+- **Trải nghiệm Modal chỉnh sửa (`components/surgery/SurgeryEditModal.tsx`)**:
+  - Nếu ca mổ đang bị khóa bởi tài khoản khác: Modal tự động bật banner cảnh báo, gắn badge *"Đang sửa: [Tên Bác sĩ]"*, chuyển modal sang chế độ **Chỉ xem (Read-only)** và vô hiệu hóa nút Lưu để bảo vệ toàn vẹn dữ liệu.
+- **Kiểm thử**: `__tests__/recordEditingLock.test.ts` (10/10 tests PASS).
 
 ---
 
-## 🚀 3. Trạng Thái Triển Khai & Kiểm Thử
+### 1.3. Bảng Điều Khiển KPI Quản Trị Khối Phòng Mổ Cấp Bệnh Viện (OR Analytics Dashboard - Mục 3.2)
+- **Vị trí tích hợp**: Trang `StatisticsTab.tsx` bổ sung subtab **"Quản trị phòng mổ"** (Icon `Gauge`).
+- **Bộ chọn Nguồn số liệu Độc lập (Isolated Data Source Selector)**:
+  - Cho phép người dùng chuyển đổi linh hoạt giữa: **Tự động** (Ưu tiên BC tháng, fallback BC ngày), **BC Tháng**, **BC Ngày**.
+  - Bộ chọn và bộ lọc kỳ này được **cách ly cục bộ hoàn toàn**, không làm ảnh hưởng đến các subtab khác trong trang Thống kê.
 
-- **Build Production:** `npm run build` chạy thành công 100% không lỗi (Vite v6.4.1 - 0 lỗi TypeScript).
-- **Kiểm thử trực quan E2E qua Browser Subagent:**
-  - Đã kiểm tra active tab `DS Phẫu thuật` hiển thị nền xanh đậm rực rỡ, chữ trắng, badge trắng chữ xanh, nổi bật hoàn toàn trên thanh bar xanh nhạt.
-  - Modal "Tài khoản & Bảo mật" đã được test ở cả 2 trạng thái (thu gọn 1 ô và mở rộng đổi mật khẩu), đóng mở trơn tru.
-  - Bộ lọc Nhân viên y tế đã được test: lọc theo vị trí `BS PT`, lọc theo khoa phòng, tìm kiếm kết hợp, nút xóa lọc hoạt động chính xác và tức thì.
-- **Trạng thái Git & Production:**
-  - Nhánh `main`: Đã gộp toàn bộ thay đổi qua commit `7478688` và push lên GitHub origin.
-  - Vercel: Đã tự động trigger deploy lên Production.
-  - Nhánh làm việc hiện tại: `temp-10-09-2026-12h35`.
+#### 🏥 Điều chỉnh Chuẩn Thực Tế Lâm Sàng (Macro Capacity & Peak Concurrency)
+- **Phát hiện nghiệp vụ từ người dùng**:
+  - File Excel trích xuất từ phần mềm HIS của bệnh viện **hoàn toàn không có trường Bàn mổ / Phòng mổ vật lý**.
+  - Cột mã máy `machineCode` thực chất chỉ là mã thiết bị y tế (như C-Arm, dàn máy nội soi Karl Storz...) dùng chung cho nhiều bàn mổ khác nhau.
+  - Do đó, việc gom nhóm theo mã máy và tính Turnaround Time (TAT) theo máy là **sai lệch chuyên môn**.
+- **Giải pháp chuyển đổi mô hình Quản trị Năng lực & Phụ tải khối phòng mổ toàn viện**:
+  1. **Cấu hình Quy mô Bàn mổ**: Bổ sung cấu hình **"Tổng số bàn mổ hoạt động của viện"** ($N$ bàn, mặc định 6) trong tab *Cấu hình thống kê > Chỉ số KPI phòng mổ* (`KpiSettingsConfig.tsx`).
+  2. **Công suất Khối phòng mổ toàn viện (OR Capacity Utilization)**:
+     - Tính tổng thời gian khả dụng theo công thức: $N \text{ bàn} \times \text{Số ngày làm việc} \times \text{Số giờ chuẩn/ngày} \times 60 \text{ phút}$.
+     - Tính tỷ lệ sử dụng công suất thực tế so với định mức khả dụng.
+  3. **Thuật toán Sweep Line quét Đỉnh điểm Đồng thời (Peak Concurrency & Over-capacity Detection)**:
+     - Tự động quét giao thoa thời gian (`ngayBD` $\rightarrow$ `ngayKT`) của từng ca mổ.
+     - Sắp xếp sự kiện mốc thời gian: tại cùng thời điểm, ca mổ kết thúc (`-1`) ưu tiên xử lý trước ca bắt đầu (`+1`) để không cộng dồn thời điểm chuyển tiếp.
+     - Xác định chính xác **Số bàn mổ chạy đồng thời đỉnh điểm** toàn kỳ và theo từng ngày; phát hiện ngày bị vượt định mức ($> N$ bàn).
+  4. **Phân bố Phụ tải Phẫu thuật theo 24 Khung giờ (Hourly Load Distribution)**:
+     - Chia nhỏ và tích lũy phút mổ của các ca vào từng khung giờ (0h..23h).
+     - Biểu đồ cột 24 khung giờ giúp ban giám đốc nhận diện ngay khung giờ cao điểm (Peak Hours: 8h–11h, 14h–16h) và ca trực đêm ngoài giờ.
+  5. **Năng suất Phẫu thuật viên & Top kỹ thuật**:
+     - Thống kê chi tiết từng PTV: số ca, tổng phút mổ, thời gian TB/ca, ca ngoài giờ, ca cấp cứu, doanh thu, top kỹ thuật.
+     - Top kỹ thuật phẫu thuật thực hiện nhiều nhất.
+  6. **Cảnh báo Bất thường Lâm sàng**:
+     - Phát hiện ca mổ siêu ngắn (<15 phút), siêu dài (>8 giờ), thời gian âm, và ca mổ vượt trần chi phí vật tư dự kiến.
+  7. **Xuất Báo cáo Excel 6 Sheets (`exportOrAnalyticsToExcel`)**:
+     - Gồm: *Tổng quan Năng lực OR, Phụ tải 24h, Phụ tải theo ngày, Phẫu thuật viên, Top kỹ thuật, Cảnh báo bất thường*.
+- **Kiểm thử**: `__tests__/orAnalytics.test.ts` (7/7 tests PASS).
+
+---
+
+## 📐 2. Cấu Trúc Dữ Liệu & Schema Trọng Điểm
+
+### 2.1. KPI Types (`types/kpi.ts`)
+```typescript
+export interface KpiConfig {
+  totalOperatingRooms: number;        // Tổng số bàn mổ hoạt động của viện (mặc định 6)
+  standardHoursPerDay: number;        // Giờ mổ chuẩn/ngày (mặc định 8h)
+  operatingDaysPerMonth: number;      // Ngày làm việc chuẩn/tháng (mặc định 22)
+  minOutlierMinutes: number;          // Ngưỡng ca siêu ngắn (15p)
+  maxOutlierMinutes: number;          // Ngưỡng ca kéo dài bất thường (480p = 8h)
+  costOverrunThresholdAmount: number; // Ngưỡng chi phí báo động (50,000,000 đ)
+}
+
+export interface HospitalCapacityMetric {
+  totalOperatingRooms: number;
+  standardHoursPerDay: number;
+  operatingDays: number;
+  totalAvailableMinutes: number;
+  actualOperatingMinutes: number;
+  utilizationRate: number;            // %
+  status: 'low' | 'optimal' | 'high' | 'overloaded';
+  peakConcurrentSurgeries: number;    // Đỉnh điểm số ca chạy đồng thời
+  peakDate?: string;
+  peakTime?: string;
+}
+
+export interface HourlyLoadMetric {
+  hour: number;                       // 0..23
+  hourLabel: string;                  // "08:00 - 09:00"
+  activeSurgeries: number;
+  operatingMinutes: number;
+  maxConcurrentTables: number;
+  isPeak: boolean;
+  inHours: boolean;
+}
+
+export interface DailyPeakMetric {
+  date: string;                       // YYYY-MM-DD
+  dayOfWeek: string;                  // Thứ Hai, Thứ Ba...
+  totalCases: number;
+  totalMinutes: number;
+  peakConcurrentTables: number;       // Đỉnh điểm số ca mổ song song trong ngày
+  peakTime: string;                   // Thời điểm đạt đỉnh (VD: "10:15")
+  isOverCapacity: boolean;            // True nếu peak > totalOperatingRooms
+}
+```
+
+### 2.2. Collaborative Lock Schema (`types/index.ts` / `services/recordLockService.ts`)
+- RTDB Path: `record_editing_locks/{recordKey}`
+```typescript
+export interface RecordEditingLock {
+  recordKey: string;
+  lockedByUid: string;
+  lockedByName: string;
+  lockedByDepartment?: string;
+  lockedAt: number;      // Epoch ms
+  lastHeartbeat: number; // Heartbeat mỗi 20s
+}
+```
+
+---
+
+## 🚀 3. Trạng Thái Git & Kiểm Thử
+
+- **Nhánh hiện tại**: `version2`
+- **Tình trạng git**: Sạch sẽ, đã đồng bộ hoàn toàn với remote `origin/version2`.
+- **Lịch sử commit gần nhất**:
+  - `0ffef58`: `feat(analytics): refactor OR analytics to hospital-wide capacity and peak concurrency model`
+  - `544faf5`: `fix(ui): destructure pendingApprovalCount in Sidebar and export AppConfig/SurgeryConfig`
+  - `f1b9cb1`: `feat(analytics): add OR Analytics KPI dashboard and real-time collaborative record lock`
+- **Kết quả Kiểm thử**:
+  - `npx vitest run`: **17 test suites, 250 / 250 tests PASS (100%)**
+  - `npm run build`: Thành công trong 6.39 giây, không có cảnh báo TypeScript nào.
+  - **Quy tắc thiết kế**: Tuân thủ tuyệt đối **Purple Ban** (sử dụng tông blue, indigo, emerald, amber, slate, rose).
+
+---
+
+## 🎯 4. Các Bước Kế Tiếp Được Đề Xuất
+
+1. **Sẵn sàng Merge vào `main`**:
+   - Khi bạn yêu cầu, toàn bộ các tính năng hoàn chỉnh của `version2` (Khóa bản ghi realtime, KPI Năng lực khối phòng mổ toàn viện, Phụ tải 24 khung giờ, Sweep Line Concurrency) có thể được merge vào nhánh `main` để deploy tự động lên Vercel.
+2. **Mục 3.1 trong Roadmap**:
+   - Triển khai **Mẫu in quyết toán phụ cấp C73/C74 chuẩn Bộ Y Tế & BHXH** (tự động kết xuất bảng kê chi trả phẫu thuật - thủ thuật phục vụ phòng Kế toán - Tài chính).
