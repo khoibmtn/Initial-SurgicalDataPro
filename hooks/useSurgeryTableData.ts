@@ -23,6 +23,8 @@ import {
   buildColumnsMachine,
 } from '../components/surgery/surgeryColumns';
 import { getPaymentColumns as buildPaymentColumns } from '../components/surgery/PaymentTableView';
+import type { AppUser, UserRole } from '../types/auth';
+import { logAuditEvent, computeSurgeryRecordDiff } from '../services/auditLogService';
 
 export interface UseSurgeryTableDataOptions {
   config: SurgeryConfig;
@@ -35,6 +37,9 @@ export interface UseSurgeryTableDataOptions {
   currentType: 'daily' | 'monthly';
   addToast: (message: React.ReactNode, type?: ToastType, duration?: number) => void;
   isReportLocked?: boolean;
+  currentUser?: AppUser | null;
+  currentRole?: UserRole | 'guest';
+  currentPeriodKey?: string;
 }
 
 export function useSurgeryTableData({
@@ -48,6 +53,9 @@ export function useSurgeryTableData({
   currentType,
   addToast,
   isReportLocked = false,
+  currentUser,
+  currentRole,
+  currentPeriodKey,
 }: UseSurgeryTableDataOptions) {
   const [editingRecord, setEditingRecord] = useState<SurgeryRecord | null>(null);
   const [lastActiveRecordId, setLastActiveRecordId] = useState<string | null>(null);
@@ -346,6 +354,7 @@ export function useSurgeryTableData({
       const index = currentReport.result.validRecords.findIndex((r) => (r.id || r.key) === targetId);
       if (index === -1) return;
 
+      const oldRecord = currentReport.result.validRecords[index];
       const newRecords = [...currentReport.result.validRecords];
       newRecords[index] = updatedRecord;
 
@@ -371,10 +380,29 @@ export function useSurgeryTableData({
         hasAutoFilledData: true,
       });
 
+      // Ghi nhận Audit Log (Truy vết chi tiết các trường thay đổi)
+      const diffs = computeSurgeryRecordDiff(oldRecord, updatedRecord);
+      if (diffs.length > 0) {
+        logAuditEvent({
+          userId: currentUser?.uid || 'unknown',
+          userName: currentUser?.name || currentUser?.email || 'Người dùng',
+          userRole: (currentRole as UserRole) || 'staff',
+          userDepartment: currentUser?.department,
+          action: 'RECORD_EDIT',
+          targetType: 'surgery_record',
+          targetId: String(targetId),
+          targetLabel: `BN ${updatedRecord.patientName || ''} (${updatedRecord.patientId || ''})`,
+          periodKey: currentPeriodKey,
+          department: (updatedRecord as any).department || currentUser?.department,
+          description: `Cập nhật ca mổ BN ${updatedRecord.patientName || ''} (${diffs.length} trường thay đổi)`,
+          diffs,
+        }).catch((e) => console.warn('[auditLog] Failed to log edit event:', e));
+      }
+
       addToast(`Đã lưu thay đổi thông tin của bệnh nhân ${updatedRecord.patientName}.`, 'success');
       setEditingRecord(null);
     },
-    [currentReport.result, currentType, config, updateCurrentReport, addToast, isReportLocked]
+    [currentReport.result, currentType, config, updateCurrentReport, addToast, isReportLocked, currentUser, currentRole, currentPeriodKey]
   );
 
   // Assistant auto fill & save
@@ -451,6 +479,22 @@ export function useSurgeryTableData({
           addToast(`Đã cập nhật ${updatedIds.length} bản ghi (Chưa lưu vào CSDL)`, 'success');
         }
 
+        // Ghi nhận Audit Log
+        logAuditEvent({
+          userId: currentUser?.uid || 'unknown',
+          userName: currentUser?.name || currentUser?.email || 'Người dùng',
+          userRole: (currentRole as UserRole) || 'staff',
+          userDepartment: currentUser?.department,
+          action: 'ASSISTANT_FILL',
+          targetType: 'surgery_record',
+          targetLabel: `${updatedIds.length} ca mổ`,
+          periodKey: currentPeriodKey,
+          department: currentUser?.department,
+          description: cleanVal
+            ? `Cập nhật Người giúp việc "${cleanVal}" cho ${updatedIds.length} ca mổ`
+            : `Xóa Người giúp việc của ${updatedIds.length} ca mổ`,
+        }).catch((e) => console.warn('[auditLog] Failed to log assistant fill:', e));
+
         const newResultPartial = recalculateResultFromRecords(currentReport.result.validRecords, config);
         stateUpdates.result = { ...currentReport.result, ...newResultPartial };
       }
@@ -487,8 +531,8 @@ export function useSurgeryTableData({
         }
 
         if (nextIndex !== -1) {
-          const nextRecord = workingList[nextIndex];
-          const newId = nextRecord.key || nextRecord.id || '';
+          const nextRec = workingList[nextIndex];
+          const newId = nextRec.id || nextRec.key || '';
           stateUpdates.selectedRecordIds = [newId];
 
           const targetPage = Math.ceil((nextIndex + 1) / rowsPerPage);
@@ -512,6 +556,10 @@ export function useSurgeryTableData({
       rowsPerPage,
       updateCurrentReport,
       addToast,
+      isReportLocked,
+      currentUser,
+      currentRole,
+      currentPeriodKey,
     ]
   );
 

@@ -53,8 +53,10 @@ import { LoginModal } from './components/auth/LoginModal';
 import { AccountPanel } from './components/auth/AccountPanel';
 import { ReportLockModal } from './components/surgery/ReportLockModal';
 import { ReportLockBanner } from './components/surgery/ReportLockBanner';
+import { AuditLogModal } from './components/audit/AuditLogModal';
 import type { ReportLock } from './types/reportLock';
 import type { UserRole } from './types/auth';
+import type { AuditLogEntry } from './types/auditLog';
 import {
   subscribeAllReportLocks,
   lockReport,
@@ -62,6 +64,7 @@ import {
   generateLockKey,
   isPeriodLocked,
 } from './services/reportLockService';
+import { subscribeAuditLogs, logAuditEvent } from './services/auditLogService';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
@@ -235,6 +238,17 @@ const InnerApp: React.FC = () => {
     return false;
   }, [activeLock, isAdmin, isHead, user?.department]);
 
+  // ── Truy vết chỉnh sửa (Audit Log) ──
+  const [allAuditLogs, setAllAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [showAuditLogModal, setShowAuditLogModal] = useState(false);
+
+  useEffect(() => {
+    const unsub = subscribeAuditLogs((logs) => {
+      setAllAuditLogs(logs || []);
+    });
+    return () => unsub();
+  }, []);
+
   const handleConfirmLock = async (note: string, selectedDept?: string) => {
     const res = await lockReport({
       periodType: currentType,
@@ -247,6 +261,19 @@ const InnerApp: React.FC = () => {
     });
     if (res.success) {
       addToast(`Đã khóa sổ báo cáo ${currentPeriodLabel} thành công!`, 'success');
+      logAuditEvent({
+        userId: user?.uid || 'unknown',
+        userName: user?.name || user?.email || 'Quản trị viên',
+        userRole: (currentRole as UserRole) || 'head',
+        userDepartment: user?.department,
+        action: 'REPORT_LOCK',
+        targetType: 'report',
+        targetId: res.lockKey,
+        targetLabel: `Báo cáo ${currentPeriodLabel}`,
+        periodKey: currentPeriodKey,
+        department: selectedDept || (isHead && !isAdmin ? user?.department : 'ALL'),
+        description: `Khóa sổ báo cáo ${currentPeriodLabel}${note ? ` với ghi chú: "${note}"` : ''}`,
+      }).catch((e) => console.warn('[auditLog] Failed to log lock:', e));
     } else {
       addToast(`Không thể khóa sổ: ${res.error || 'Lỗi không xác định'}`, 'error');
     }
@@ -261,6 +288,19 @@ const InnerApp: React.FC = () => {
     });
     if (res.success) {
       addToast(`Đã mở khóa báo cáo ${currentPeriodLabel} thành công!`, 'success');
+      logAuditEvent({
+        userId: user?.uid || 'unknown',
+        userName: user?.name || user?.email || 'Quản trị viên',
+        userRole: (currentRole as UserRole) || 'head',
+        userDepartment: user?.department,
+        action: 'REPORT_UNLOCK',
+        targetType: 'report',
+        targetId: activeLock.id,
+        targetLabel: `Báo cáo ${currentPeriodLabel}`,
+        periodKey: currentPeriodKey,
+        department: activeLock.department || 'ALL',
+        description: `Mở khóa sổ báo cáo ${currentPeriodLabel}`,
+      }).catch((e) => console.warn('[auditLog] Failed to log unlock:', e));
     } else {
       addToast(`Không thể mở khóa: ${res.error || 'Lỗi không xác định'}`, 'error');
     }
@@ -308,6 +348,9 @@ const InnerApp: React.FC = () => {
     currentType,
     addToast,
     isReportLocked,
+    currentUser: user,
+    currentRole,
+    currentPeriodKey,
   });
 
   const {
@@ -333,6 +376,9 @@ const InnerApp: React.FC = () => {
     paymentDataPrepared,
     addToast,
     isReportLocked,
+    currentUser: user,
+    currentRole,
+    currentPeriodKey,
   });
 
   const {
@@ -475,6 +521,17 @@ const InnerApp: React.FC = () => {
         onClose={() => setShowLockModal(false)}
         onConfirmLock={handleConfirmLock}
         onConfirmUnlock={handleConfirmUnlock}
+      />
+
+      {/* Audit Log (Nhật ký truy vết) Modal */}
+      <AuditLogModal
+        isOpen={showAuditLogModal}
+        onClose={() => setShowAuditLogModal(false)}
+        logs={allAuditLogs}
+        currentPeriodLabel={currentPeriodLabel}
+        department={user?.department}
+        departments={config.departments || []}
+        isAdmin={isAdmin}
       />
 
       {/* Main Content Area */}
@@ -655,6 +712,8 @@ const InnerApp: React.FC = () => {
                     setLockModalMode('unlock');
                     setShowLockModal(true);
                   }}
+                  onOpenAuditLog={() => setShowAuditLogModal(true)}
+                  auditLogCount={allAuditLogs.length}
                 />
 
                 {/* ── Stat Cards (HospitalStat-VT style) ── */}

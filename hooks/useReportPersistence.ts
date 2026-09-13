@@ -14,6 +14,8 @@ import { reportService } from '../services/reportService';
 import { dutyScheduleService } from '../services/dutyScheduleService';
 import { reprocessSurgicalRecords, recalculateResultFromRecords } from '../services/reprocess';
 import { exportFormattedFullExcel } from '../services/excelExportService';
+import type { AppUser, UserRole } from '../types/auth';
+import { logAuditEvent } from '../services/auditLogService';
 
 export interface UseReportPersistenceOptions {
   currentReport: ReportState;
@@ -27,6 +29,9 @@ export interface UseReportPersistenceOptions {
   paymentDataPrepared: any;
   addToast: (message: React.ReactNode, type?: ToastType, duration?: number) => void;
   isReportLocked?: boolean;
+  currentUser?: AppUser | null;
+  currentRole?: UserRole | 'guest';
+  currentPeriodKey?: string;
 }
 
 export function useReportPersistence({
@@ -41,6 +46,9 @@ export function useReportPersistence({
   paymentDataPrepared,
   addToast,
   isReportLocked = false,
+  currentUser,
+  currentRole,
+  currentPeriodKey,
 }: UseReportPersistenceOptions) {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -109,11 +117,25 @@ export function useReportPersistence({
           'success'
         );
       }
+
+      // Ghi nhận Audit Log
+      logAuditEvent({
+        userId: currentUser?.uid || 'unknown',
+        userName: currentUser?.name || currentUser?.email || 'Người dùng',
+        userRole: (currentRole as UserRole) || 'staff',
+        userDepartment: currentUser?.department,
+        action: 'RECORD_DELETE',
+        targetType: 'surgery_record',
+        targetLabel: `${recordsToDelete.length} ca mổ`,
+        periodKey: currentPeriodKey,
+        department: currentUser?.department,
+        description: `Xóa ${recordsToDelete.length} dòng dữ liệu (${currentReport.dataSource === 'STORAGE' ? 'CSDL Firestore' : 'Bảng tạm'})`,
+      }).catch((e) => console.warn('[auditLog] Failed to log delete event:', e));
     } catch (err: any) {
       console.error('Delete error:', err);
       addToast(`Xóa thất bại: ${err?.message || 'Lỗi không xác định'}`, 'error');
     }
-  }, [currentReport, config, updateCurrentReport, addToast]);
+  }, [currentReport, config, updateCurrentReport, addToast, currentUser, currentRole, currentPeriodKey]);
 
   const handleDeleteSelected = useCallback(() => {
     if (isReportLocked) {
@@ -197,6 +219,21 @@ export function useReportPersistence({
         addToast(msg, 'error');
       } else {
         addToast(msg, 'success');
+
+        // Ghi nhận Audit Log
+        logAuditEvent({
+          userId: currentUser?.uid || 'unknown',
+          userName: currentUser?.name || currentUser?.email || 'Người dùng',
+          userRole: (currentRole as UserRole) || 'staff',
+          userDepartment: currentUser?.department,
+          action: 'DATA_SAVE',
+          targetType: 'report',
+          targetLabel: `Báo cáo ${type === 'MONTHLY' ? 'Tháng' : 'Ngày'}`,
+          periodKey: currentPeriodKey,
+          department: currentUser?.department,
+          description: `Lưu dữ liệu báo cáo: ${msg}`,
+        }).catch((e) => console.warn('[auditLog] Failed to log save event:', e));
+
         // NẾU TỪ EXCEL LƯU THÀNH CÔNG, reload lại từ STORAGE để đảm bảo mọi record đều có ID và firestorePath chuẩn
         if (currentReport.dataSource === 'EXCEL') {
           const dateFrom = (currentReport as any).filters?.dateFrom;
@@ -235,7 +272,7 @@ export function useReportPersistence({
     } finally {
       setIsSaving(false);
     }
-  }, [currentReport, activeTab, dutySchedules, config, updateCurrentReport, addToast]);
+  }, [currentReport, activeTab, dutySchedules, config, updateCurrentReport, addToast, isReportLocked, currentUser, currentRole, currentPeriodKey]);
 
   const ensureDataSaved = useCallback(
     async (afterSave?: () => void): Promise<void> => {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2, Lock, Unlock } from 'lucide-react';
+import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2, Lock, Unlock, History } from 'lucide-react';
 
 export interface ReportActionBarProps {
   dateRangeText?: string;
@@ -17,6 +17,9 @@ export interface ReportActionBarProps {
   canManageLock?: boolean;
   onLockClick?: () => void;
   onUnlockClick?: () => void;
+  // Audit Log Props
+  onOpenAuditLog?: () => void;
+  auditLogCount?: number;
 }
 
 export const ReportActionBar: React.FC<ReportActionBarProps> = ({
@@ -34,6 +37,8 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
   canManageLock = false,
   onLockClick,
   onUnlockClick,
+  onOpenAuditLog,
+  auditLogCount,
 }) => {
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
   const [isExcelDropdownOpen, setIsExcelDropdownOpen] = useState(false);
@@ -165,6 +170,24 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
             </div>
           )}
         </div>
+
+        {/* Audit Log History Button */}
+        {onOpenAuditLog && (
+          <button
+            type="button"
+            onClick={onOpenAuditLog}
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-gray-100 text-gray-700 font-semibold rounded-lg text-[11px] border border-gray-300 transition-colors shadow-2xs cursor-pointer"
+            title="Xem nhật ký truy vết & kiểm toán số liệu kỳ này"
+          >
+            <History className="h-3.5 w-3.5 text-gray-600" />
+            <span>Nhật ký</span>
+            {auditLogCount !== undefined && auditLogCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-800 font-bold border border-blue-200">
+                {auditLogCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Report Lock Status & Actions */}
         {isReportLocked ? (
