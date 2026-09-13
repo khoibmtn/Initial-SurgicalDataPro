@@ -38,7 +38,7 @@ const ROLE_DISPLAY: Record<string, { label: string; icon: React.ElementType; col
 };
 
 export const AccountPanel: React.FC<AccountPanelProps> = ({ isOpen, onClose, onNavigateToUserManagement }) => {
-  const { user, currentRole, isAdmin } = useAuth();
+  const { user, currentRole, isAdmin, isHead } = useAuth();
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
@@ -155,16 +155,20 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({ isOpen, onClose, onN
             <InfoRow icon={Clock} label="Tham gia" value={formatDate(user.createdAt)} />
           </div>
 
-          {/* Admin: link to user management */}
-          {isAdmin && onNavigateToUserManagement && (
+          {/* Admin / Head: link to user management */}
+          {(isAdmin || isHead) && onNavigateToUserManagement && (
             <button
               onClick={() => { onClose(); onNavigateToUserManagement(); }}
               className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-primary-200 bg-primary-50 hover:bg-primary-100 text-primary-700 text-xs font-semibold transition-colors cursor-pointer"
             >
-              <Users className="w-4 h-4" />
+              {isAdmin ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
               <div className="text-left">
-                <p className="font-bold">Quản lý người dùng</p>
-                <p className="text-[10px] opacity-75">Duyệt, khóa, phân quyền tài khoản</p>
+                <p className="font-bold">{isAdmin ? 'Quản lý người dùng' : 'Quản lý nhân sự khoa'}</p>
+                <p className="text-[10px] opacity-75">
+                  {isAdmin
+                    ? 'Duyệt, khóa, phân quyền toàn hệ thống'
+                    : `Duyệt, khóa, phân quyền nhân viên khoa ${user.department || ''}`}
+                </p>
               </div>
             </button>
           )}

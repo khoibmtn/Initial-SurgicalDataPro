@@ -24,12 +24,20 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { AppUser, UserRole } from '../../types/auth';
 import {
   subscribeToAllUsers,
+  subscribeToDepartmentUsers,
   approveUser,
   disableUser,
   enableUser,
   changeUserRole,
   updateAuthConfig,
+  saveDepartmentStaffPermissions,
+  subscribeToDepartmentPermissions,
 } from '../../services/userManagementService';
+import {
+  ALL_PERMISSIONS,
+  DEFAULT_ROLE_PERMISSIONS,
+  resolveDepartmentStaffPermissions,
+} from '../../services/permissionService';
 
 const ROLE_OPTIONS: { value: UserRole; label: string; color: string }[] = [
   { value: 'admin', label: 'Admin', color: 'bg-red-100 text-red-700 border-red-200' },
@@ -44,20 +52,36 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 };
 
 export const UserManagementPanel: React.FC = () => {
-  const { user: currentUser, authConfig, isAdmin } = useAuth();
+  const { user: currentUser, authConfig, isAdmin, isHead } = useAuth();
   const [users, setUsers] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Subscribe to users list
+  // Subscribe to users list (Admin: all users; Head: users in own department)
   useEffect(() => {
-    if (!isAdmin) return;
-    const unsub = subscribeToAllUsers((data) => {
-      setUsers(data);
+    if (!isAdmin && !isHead) {
       setIsLoading(false);
-    });
-    return () => unsub();
-  }, [isAdmin]);
+      return;
+    }
+    setIsLoading(true);
+
+    if (isAdmin) {
+      const unsub = subscribeToAllUsers((data) => {
+        setUsers(data);
+        setIsLoading(false);
+      });
+      return () => unsub();
+    } else if (isHead && currentUser?.department) {
+      const unsub = subscribeToDepartmentUsers(currentUser.department, (data) => {
+        setUsers(data);
+        setIsLoading(false);
+      });
+      return () => unsub();
+    } else {
+      setUsers([]);
+      setIsLoading(false);
+    }
+  }, [isAdmin, isHead, currentUser?.department]);
 
   // Auto-clear messages
   useEffect(() => {
@@ -67,7 +91,7 @@ export const UserManagementPanel: React.FC = () => {
     }
   }, [actionMsg]);
 
-  if (!isAdmin) return null;
+  if (!isAdmin && !isHead) return null;
 
   const pendingCount = users.filter((u) => u.status === 'pending').length;
 
@@ -128,53 +152,62 @@ export const UserManagementPanel: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-primary-100 text-primary-700 rounded-lg">
-            <Users className="w-4 h-4" />
+          <div className={`p-1.5 rounded-lg ${isAdmin ? 'bg-primary-100 text-primary-700' : 'bg-blue-100 text-blue-700'}`}>
+            {isAdmin ? <Users className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-gray-900">Quản lý Người dùng</h3>
+            <h3 className="text-sm font-bold text-gray-900">
+              {isAdmin ? 'Quản lý Người dùng' : `Quản lý Nhân sự — Khoa ${currentUser?.department || 'Chưa phân khoa'}`}
+            </h3>
             <p className="text-[11px] text-gray-500">
-              {users.length} người dùng{pendingCount > 0 && ` · ${pendingCount} chờ duyệt`}
+              {users.length} {isAdmin ? 'người dùng' : `nhân sự khoa ${currentUser?.department || ''}`}
+              {pendingCount > 0 ? ` · ${pendingCount} chờ duyệt` : ' · Tất cả đã kích hoạt'}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Config toggles */}
-      <div className="grid grid-cols-2 gap-3">
-        <button
-          onClick={handleToggleApproval}
-          className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-            authConfig.requireApproval
-              ? 'bg-primary-50 border-primary-200 text-primary-700'
-              : 'bg-gray-50 border-gray-200 text-gray-600'
-          }`}
-        >
-          {authConfig.requireApproval ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-          <div className="text-left">
-            <p className="font-semibold">Phê duyệt thành viên</p>
-            <p className="text-[10px] opacity-75">{authConfig.requireApproval ? 'BẬT — Chờ duyệt' : 'TẮT — Tự kích hoạt'}</p>
-          </div>
-        </button>
+      {/* Config toggles (Admin only) */}
+      {isAdmin && (
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            onClick={handleToggleApproval}
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+              authConfig.requireApproval
+                ? 'bg-primary-50 border-primary-200 text-primary-700'
+                : 'bg-gray-50 border-gray-200 text-gray-600'
+            }`}
+          >
+            {authConfig.requireApproval ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+            <div className="text-left">
+              <p className="font-semibold">Phê duyệt thành viên</p>
+              <p className="text-[10px] opacity-75">{authConfig.requireApproval ? 'BẬT — Chờ duyệt' : 'TẮT — Tự kích hoạt'}</p>
+            </div>
+          </button>
 
-        <button
-          onClick={handleToggleRequireLogin}
-          className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
-            authConfig.requireLogin
-              ? 'bg-red-50 border-red-200 text-red-700'
-              : 'bg-gray-50 border-gray-200 text-gray-600'
-          }`}
-        >
-          {authConfig.requireLogin ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-          <div className="text-left">
-            <p className="font-semibold">Bắt buộc đăng nhập</p>
-            <p className="text-[10px] opacity-75">{authConfig.requireLogin ? 'BẬT — Chặn Guest' : 'TẮT — Guest dùng tự do'}</p>
-          </div>
-        </button>
-      </div>
+          <button
+            onClick={handleToggleRequireLogin}
+            className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+              authConfig.requireLogin
+                ? 'bg-red-50 border-red-200 text-red-700'
+                : 'bg-gray-50 border-gray-200 text-gray-600'
+            }`}
+          >
+            {authConfig.requireLogin ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+            <div className="text-left">
+              <p className="font-semibold">Bắt buộc đăng nhập</p>
+              <p className="text-[10px] opacity-75">{authConfig.requireLogin ? 'BẬT — Chặn Guest' : 'TẮT — Guest dùng tự do'}</p>
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Role Permissions Reference */}
-      <RolePermissionsSection />
+      <RolePermissionsSection
+        isAdmin={isAdmin}
+        isHead={isHead}
+        department={currentUser?.department || ''}
+      />
 
       {/* Action message */}
       {actionMsg && (
@@ -194,11 +227,11 @@ export const UserManagementPanel: React.FC = () => {
       {isLoading ? (
         <div className="flex items-center justify-center py-8 text-gray-400 gap-2 text-xs">
           <RefreshCw className="w-4 h-4 animate-spin" />
-          Đang tải danh sách người dùng...
+          Đang tải danh sách nhân sự...
         </div>
       ) : users.length === 0 ? (
         <div className="text-center py-8 text-gray-400 text-xs">
-          Chưa có người dùng nào đăng ký.
+          {isAdmin ? 'Chưa có người dùng nào đăng ký.' : `Chưa có nhân viên nào thuộc khoa ${currentUser?.department || ''}.`}
         </div>
       ) : (
         <div className="border border-gray-200 rounded-xl overflow-hidden">
@@ -241,7 +274,7 @@ export const UserManagementPanel: React.FC = () => {
                         }`}>
                           {ROLE_OPTIONS.find(r => r.value === u.role)?.label}
                         </span>
-                      ) : (
+                      ) : isAdmin ? (
                         <select
                           value={u.role}
                           onChange={(e) => handleRoleChange(u.uid, e.target.value as UserRole)}
@@ -251,6 +284,12 @@ export const UserManagementPanel: React.FC = () => {
                             <option key={opt.value} value={opt.value}>{opt.label}</option>
                           ))}
                         </select>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          ROLE_OPTIONS.find(r => r.value === u.role)?.color || 'bg-gray-100 text-gray-700 border-gray-200'
+                        }`}>
+                          {ROLE_OPTIONS.find(r => r.value === u.role)?.label}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-center">
@@ -303,50 +342,23 @@ export const UserManagementPanel: React.FC = () => {
 
 // ─── Role Permissions Matrix ─────────────────────────────────────────────────
 
-/** Danh sách tất cả quyền trong hệ thống */
-const ALL_PERMISSIONS: { key: string; label: string; description: string; category: string }[] = [
-  // ── Dữ liệu & Báo cáo ──
-  { key: 'view_daily_report', label: 'Xem BC hàng ngày', description: 'Xem báo cáo phẫu thuật hàng ngày', category: 'Dữ liệu' },
-  { key: 'view_monthly_report', label: 'Xem BC tháng', description: 'Xem báo cáo tổng hợp theo tháng', category: 'Dữ liệu' },
-  { key: 'edit_report', label: 'Chỉnh sửa BC', description: 'Thêm, sửa, xóa bản ghi phẫu thuật', category: 'Dữ liệu' },
-  { key: 'import_excel', label: 'Nhập Excel', description: 'Import dữ liệu từ file Excel', category: 'Dữ liệu' },
-  { key: 'export_excel', label: 'Xuất Excel', description: 'Export dữ liệu ra file Excel', category: 'Dữ liệu' },
-  // ── Thống kê ──
-  { key: 'view_statistics', label: 'Xem thống kê', description: 'Xem trang thống kê tổng hợp', category: 'Thống kê' },
-  { key: 'view_cost_report', label: 'Xem chi phí', description: 'Xem báo cáo chi phí phẫu thuật', category: 'Thống kê' },
-  // ── Cấu hình ──
-  { key: 'manage_norms', label: 'Quản lý định mức', description: 'Thay đổi định mức phụ cấp, thời gian', category: 'Cấu hình' },
-  { key: 'manage_dmkt', label: 'Quản lý DMKT', description: 'Quản lý danh mục kỹ thuật, giá', category: 'Cấu hình' },
-  { key: 'manage_staff', label: 'Quản lý nhân viên', description: 'Danh sách nhân viên, khoa phòng', category: 'Cấu hình' },
-  // ── Quản trị ──
-  { key: 'approve_users', label: 'Duyệt thành viên', description: 'Phê duyệt/từ chối tài khoản mới', category: 'Quản trị' },
-  { key: 'manage_user_roles', label: 'Phân quyền', description: 'Thay đổi vai trò người dùng', category: 'Quản trị' },
-  { key: 'disable_users', label: 'Khóa tài khoản', description: 'Vô hiệu hóa tài khoản người dùng', category: 'Quản trị' },
-  { key: 'system_config', label: 'Cấu hình hệ thống', description: 'Bật/tắt phê duyệt, đăng nhập bắt buộc', category: 'Quản trị' },
-];
+interface RolePermissionsSectionProps {
+  isAdmin: boolean;
+  isHead: boolean;
+  department?: string;
+}
 
-/** Quyền mặc định cho mỗi role */
-const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
-  head: [
-    'view_daily_report', 'view_monthly_report', 'edit_report',
-    'import_excel', 'export_excel',
-    'view_statistics', 'view_cost_report',
-    'manage_staff',
-    'approve_users',
-  ],
-  staff: [
-    'view_daily_report', 'view_monthly_report', 'edit_report',
-    'import_excel', 'export_excel',
-    'view_statistics',
-  ],
-};
-
-const RolePermissionsSection: React.FC = () => {
+const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
+  isAdmin,
+  isHead,
+  department = '',
+}) => {
   const [headPerms, setHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.head);
   const [staffPerms, setStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
+  const [deptStaffPerms, setDeptStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Load permissions from Firebase
+  // Load global role permissions from Firebase
   useEffect(() => {
     const permRef = ref(db, 'role_permissions');
     const unsub = onValue(permRef, (snapshot) => {
@@ -359,7 +371,23 @@ const RolePermissionsSection: React.FC = () => {
     return () => unsub();
   }, []);
 
-  const togglePermission = async (role: 'head' | 'staff', permKey: string) => {
+  // Load department-specific staff permissions (for Head)
+  useEffect(() => {
+    if (!department) return;
+    const unsub = subscribeToDepartmentPermissions(department, (customPerms) => {
+      if (customPerms !== null) {
+        // Enforce ceiling with current staffPerms
+        setDeptStaffPerms(resolveDepartmentStaffPermissions(staffPerms, customPerms));
+      } else {
+        // If no custom perms yet, default to staffPerms
+        setDeptStaffPerms([...staffPerms]);
+      }
+    });
+    return () => unsub();
+  }, [department, staffPerms]);
+
+  // Admin toggling global role permissions
+  const toggleGlobalPermission = async (role: 'head' | 'staff', permKey: string) => {
     setIsSaving(true);
     const currentPerms = role === 'head' ? [...headPerms] : [...staffPerms];
     const idx = currentPerms.indexOf(permKey);
@@ -373,7 +401,7 @@ const RolePermissionsSection: React.FC = () => {
     // If removing from head, also remove from staff
     let updatedStaffPerms = role === 'staff' ? currentPerms : [...staffPerms];
     if (role === 'head' && idx >= 0) {
-      updatedStaffPerms = staffPerms.filter(p => p !== permKey);
+      updatedStaffPerms = staffPerms.filter((p) => p !== permKey);
     }
 
     try {
@@ -387,16 +415,167 @@ const RolePermissionsSection: React.FC = () => {
     setIsSaving(false);
   };
 
-  // Group permissions by category
-  const categories = [...new Set(ALL_PERMISSIONS.map(p => p.category))];
+  // Head toggling staff permission for own department
+  const toggleDepartmentPermission = async (permKey: string) => {
+    if (!department || !staffPerms.includes(permKey)) return; // Cannot exceed admin ceiling!
+    setIsSaving(true);
 
+    const exists = deptStaffPerms.includes(permKey);
+    const nextPerms = exists
+      ? deptStaffPerms.filter((p) => p !== permKey)
+      : [...deptStaffPerms, permKey];
+
+    // Strictly enforce ceiling
+    const safePerms = resolveDepartmentStaffPermissions(staffPerms, nextPerms);
+    setDeptStaffPerms(safePerms);
+
+    try {
+      await saveDepartmentStaffPermissions(department, safePerms);
+    } catch (err) {
+      console.error('Failed to save department permissions:', err);
+    }
+    setIsSaving(false);
+  };
+
+  // Group permissions by category
+  const categories = [...new Set(ALL_PERMISSIONS.map((p) => p.category))];
+
+  // ─── Head Mode View (Scoped to department) ───────────────────────────────
+  if (isHead && !isAdmin) {
+    return (
+      <div className="border border-blue-200 bg-white rounded-xl overflow-hidden shadow-xs">
+        {/* Header */}
+        <div className="px-3 py-2.5 bg-blue-50/80 border-b border-blue-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-blue-700" />
+            <div>
+              <h4 className="text-xs font-bold text-gray-800">
+                Phân quyền Nhân viên — Khoa {department || 'Chưa gán khoa'}
+              </h4>
+              <p className="text-[10px] text-gray-500">
+                Điều chỉnh quyền nhân viên trong khoa dựa trên trần quyền do Admin quy định
+              </p>
+            </div>
+          </div>
+          {isSaving ? (
+            <span className="text-[10px] text-blue-600 flex items-center gap-1">
+              <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
+            </span>
+          ) : (
+            <span className="text-[10px] text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full font-semibold">
+              Khoa {department || '—'}
+            </span>
+          )}
+        </div>
+
+        {/* Matrix table for Head */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50/50">
+                <th className="text-left px-3 py-2 font-semibold text-gray-600 w-[50%]">Chức năng & Quyền hạn</th>
+                <th className="text-center px-2 py-2 font-semibold w-[25%]">
+                  <div className="flex items-center justify-center gap-1">
+                    <Shield className="w-3 h-3 text-red-600" />
+                    <span className="text-gray-700">Trần quyền Admin</span>
+                  </div>
+                </th>
+                <th className="text-center px-2 py-2 font-semibold w-[25%]">
+                  <div className="flex items-center justify-center gap-1">
+                    <UserCheck className="w-3 h-3 text-emerald-600" />
+                    <span className="text-emerald-700">Áp dụng cho Khoa</span>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {categories.map((cat) => (
+                <React.Fragment key={cat}>
+                  <tr className="bg-gray-50/80">
+                    <td colSpan={3} className="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                      {cat}
+                    </td>
+                  </tr>
+                  {ALL_PERMISSIONS.filter((p) => p.category === cat).map((perm) => {
+                    const isAllowedByAdmin = staffPerms.includes(perm.key);
+                    const isDeptActive = deptStaffPerms.includes(perm.key) && isAllowedByAdmin;
+
+                    return (
+                      <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                        <td className="px-3 py-2">
+                          <p className="font-medium text-gray-800">{perm.label}</p>
+                          <p className="text-[10px] text-gray-400">{perm.description}</p>
+                        </td>
+                        {/* Admin Ceiling Indicator */}
+                        <td className="text-center px-2 py-2">
+                          {isAllowedByAdmin ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              Được phép
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-400 border border-gray-200">
+                              <XCircle className="w-3 h-3 text-gray-400" />
+                              Chưa mở
+                            </span>
+                          )}
+                        </td>
+                        {/* Department Toggle */}
+                        <td className="text-center px-2 py-2">
+                          {isAllowedByAdmin ? (
+                            <button
+                              onClick={() => toggleDepartmentPermission(perm.key)}
+                              className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-all cursor-pointer ${
+                                isDeptActive
+                                  ? 'bg-emerald-100 hover:bg-emerald-200 ring-1 ring-emerald-300'
+                                  : 'bg-gray-100 hover:bg-gray-200'
+                              }`}
+                              title={isDeptActive ? `Thu hồi '${perm.label}' của nhân viên khoa` : `Cấp '${perm.label}' cho nhân viên khoa`}
+                            >
+                              {isDeptActive ? (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                              ) : (
+                                <XCircle className="w-4 h-4 text-gray-300" />
+                              )}
+                            </button>
+                          ) : (
+                            <div
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-50 cursor-not-allowed"
+                              title="Không thể cấp: Vượt quá trần quyền Admin cho phép"
+                            >
+                              <XCircle className="w-4 h-4 text-gray-200" />
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer note */}
+        <div className="px-3 py-2 bg-blue-50/50 border-t border-blue-200 text-[10px] text-blue-800 flex items-start gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
+          <span>
+            <strong>Nguyên tắc phân quyền:</strong> Trưởng khoa chỉ có thể bật/tắt các quyền trong phạm vi Admin đã cấp cho Nhân viên (Trần quyền). 
+            Không thể mở rộng ngoài trần quyền. Thay đổi được áp dụng tự động cho toàn bộ nhân viên khoa {department || ''}.
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Admin Mode View (Full 3-role matrix) ──────────────────────────────────
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       {/* Header */}
       <div className="px-3 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Shield className="w-4 h-4 text-primary-600" />
-          <h4 className="text-xs font-bold text-gray-800">Bảng phân quyền</h4>
+          <h4 className="text-xs font-bold text-gray-800">Bảng phân quyền hệ thống</h4>
         </div>
         {isSaving && (
           <span className="text-[10px] text-gray-400 flex items-center gap-1">
@@ -441,7 +620,7 @@ const RolePermissionsSection: React.FC = () => {
                   </td>
                 </tr>
                 {/* Permission rows */}
-                {ALL_PERMISSIONS.filter(p => p.category === cat).map((perm) => {
+                {ALL_PERMISSIONS.filter((p) => p.category === cat).map((perm) => {
                   const headHas = headPerms.includes(perm.key);
                   const staffHas = staffPerms.includes(perm.key);
 
@@ -460,7 +639,7 @@ const RolePermissionsSection: React.FC = () => {
                       {/* Head: toggleable */}
                       <td className="text-center px-2 py-2">
                         <button
-                          onClick={() => togglePermission('head', perm.key)}
+                          onClick={() => toggleGlobalPermission('head', perm.key)}
                           className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
                             headHas
                               ? 'bg-blue-100 hover:bg-blue-200'
@@ -477,7 +656,7 @@ const RolePermissionsSection: React.FC = () => {
                       <td className="text-center px-2 py-2">
                         {headHas ? (
                           <button
-                            onClick={() => togglePermission('staff', perm.key)}
+                            onClick={() => toggleGlobalPermission('staff', perm.key)}
                             className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
                               staffHas
                                 ? 'bg-emerald-100 hover:bg-emerald-200'
@@ -518,4 +697,5 @@ const RolePermissionsSection: React.FC = () => {
     </div>
   );
 };
+
 

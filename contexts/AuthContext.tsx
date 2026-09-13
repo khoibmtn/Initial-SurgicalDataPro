@@ -40,6 +40,10 @@ interface AuthContextValue extends AuthState {
   currentRole: AppUser['role'] | 'guest';
   /** Kiểm tra có phải admin không */
   isAdmin: boolean;
+  /** Kiểm tra có phải trưởng khoa không */
+  isHead: boolean;
+  /** Kiểm tra có phải admin hoặc trưởng khoa không */
+  isHeadOrAdmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -164,6 +168,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── Derived values ──
   const currentRole = authState.user?.role ?? 'guest';
   const isAdmin = currentRole === 'admin';
+  const isHead = currentRole === 'head';
+  const isHeadOrAdmin = isAdmin || isHead;
 
   const value: AuthContextValue = {
     ...authState,
@@ -174,6 +180,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     currentRole,
     isAdmin,
+    isHead,
+    isHeadOrAdmin,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

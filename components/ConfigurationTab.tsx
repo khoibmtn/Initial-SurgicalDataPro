@@ -76,7 +76,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const { config, updateConfig, resetConfig, isLoaded, isLocked, unlockConfig, lockConfig } = useConfig();
     const staffList = config.staffList || [];
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users'>('norms');
-    const { isAdmin } = useAuth();
+    const { isAdmin, isHead } = useAuth();
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
     const [newMachineName, setNewMachineName] = useState("");
@@ -948,7 +948,11 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                   { value: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
                   { value: 'dmkt', label: 'DMKT', icon: Database },
                   { value: 'staff', label: 'Hành chính', icon: Users },
-                  ...(isAdmin ? [{ value: 'users', label: 'Người dùng', icon: Shield }] : []),
+                  ...(isAdmin
+                    ? [{ value: 'users', label: 'Người dùng', icon: Shield }]
+                    : isHead
+                    ? [{ value: 'users', label: 'Quản lý khoa', icon: Building2 }]
+                    : []),
                 ]}
               />
             </ContextToolbar>
@@ -1053,7 +1057,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
             {/* Content area - only content scrolls */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
 
-                {activeSubTab === 'users' && isAdmin && (
+                {activeSubTab === 'users' && (isAdmin || isHead) && (
                     <div className="animate-fade-in">
                         <UserManagementPanel />
                     </div>

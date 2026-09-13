@@ -4,6 +4,7 @@
 import {
   collection,
   query,
+  where,
   getDocs,
   doc,
   updateDoc,
@@ -12,7 +13,7 @@ import {
   orderBy,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { ref, update } from 'firebase/database';
+import { ref, update, set, onValue } from 'firebase/database';
 import { firestore, db } from '../lib/firebase';
 import type { AppUser, UserRole, UserStatus, AuthConfig } from '../types/auth';
 import { Timestamp } from 'firebase/firestore';
@@ -121,3 +122,61 @@ export async function updateAuthConfig(config: Partial<AuthConfig>): Promise<{ s
     return { success: false, error: err.message };
   }
 }
+
+// ─── Subscribe to users in a specific department (realtime for Head) ────────
+export function subscribeToDepartmentUsers(
+  department: string,
+  callback: (users: AppUser[]) => void
+): Unsubscribe {
+  if (!department) {
+    callback([]);
+    return () => {};
+  }
+  const q = query(
+    collection(firestore, USERS_COLLECTION),
+    where('department', '==', department),
+    orderBy('createdAt', 'desc')
+  );
+  return onSnapshot(q, (snapshot) => {
+    const users = snapshot.docs.map((d) => docToAppUser(d.id, d.data()));
+    callback(users);
+  }, (err) => {
+    console.error('[userManagementService] subscribeToDepartmentUsers error:', err);
+    callback([]);
+  });
+}
+
+// ─── Department-specific Staff Permissions ──────────────────────────────────
+export async function saveDepartmentStaffPermissions(
+  department: string,
+  permissions: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const safeDeptKey = encodeURIComponent(department.trim()).replace(/\./g, '_');
+    const deptPermRef = ref(db, `department_permissions/${safeDeptKey}/staff`);
+    await set(deptPermRef, permissions);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+export function subscribeToDepartmentPermissions(
+  department: string,
+  callback: (permissions: string[] | null) => void
+): () => void {
+  if (!department) {
+    callback(null);
+    return () => {};
+  }
+  const safeDeptKey = encodeURIComponent(department.trim()).replace(/\./g, '_');
+  const deptPermRef = ref(db, `department_permissions/${safeDeptKey}/staff`);
+  return onValue(deptPermRef, (snapshot) => {
+    const data = snapshot.val();
+    callback(Array.isArray(data) ? data : null);
+  }, (err) => {
+    console.error('[userManagementService] subscribeToDepartmentPermissions error:', err);
+    callback(null);
+  });
+}
+

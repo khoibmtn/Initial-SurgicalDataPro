@@ -15,18 +15,35 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().role == 'admin';
     }
     
+    function isHead() {
+      return isAuthenticated() && getUserData().role == 'head';
+    }
+    
     function isActiveUser() {
       return isAuthenticated() && getUserData().status == 'active';
     }
     
     // ── Users collection (KHÓA BẢO MẬT) ──────────────────────────────
     match /users/{userId} {
-      // Ai cũng có thể đọc profile riêng; Admin đọc tất cả
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Ai cũng có thể đọc profile riêng; Admin đọc tất cả; Trưởng khoa đọc nhân viên khoa mình
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || 
+        isAdmin() || 
+        (isHead() && resource.data.department == getUserData().department)
+      );
       // Đăng ký: tạo doc cho chính mình
       allow create: if isAuthenticated() && request.auth.uid == userId;
-      // Sửa: chỉ admin hoặc chính mình (giới hạn fields)
-      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Sửa: admin, chính mình, hoặc Trưởng khoa sửa nhân viên cùng khoa (không được đổi role thành admin/head)
+      allow update: if isAuthenticated() && (
+        request.auth.uid == userId || 
+        isAdmin() || 
+        (
+          isHead() && 
+          resource.data.department == getUserData().department && 
+          resource.data.role == 'staff' && 
+          request.resource.data.role == 'staff'
+        )
+      );
       // Xóa: chỉ admin
       allow delete: if isAdmin();
     }
