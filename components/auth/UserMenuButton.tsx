@@ -48,6 +48,7 @@ export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLog
   const handleLogout = async () => {
     setIsMenuOpen(false);
     await logout();
+    onLoginClick();
   };
 
   const roleInfo = ROLE_LABELS[currentRole] || ROLE_LABELS.guest;

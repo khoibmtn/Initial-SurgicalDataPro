@@ -35,7 +35,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const { login, loginNickname } = useAuth();
 
   const [viewMode, setViewMode] = useState<ViewMode>('login');
-  const [loginMode, setLoginMode] = useState<LoginMode>('admin');
+  const [loginMode, setLoginMode] = useState<LoginMode>('staff');
 
   // Login form state
   const [email, setEmail] = useState('');
@@ -139,17 +139,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
               {/* Login mode tabs */}
               <div className="flex rounded-lg border border-gray-200 overflow-hidden">
                 <button
-                  onClick={() => { setLoginMode('admin'); setMessage(null); }}
-                  className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
-                    loginMode === 'admin'
-                      ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
-                      : 'text-gray-500 hover:bg-gray-50'
-                  }`}
-                >
-                  <Shield className="w-3.5 h-3.5" />
-                  Admin
-                </button>
-                <button
                   onClick={() => { setLoginMode('staff'); setMessage(null); }}
                   className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
                     loginMode === 'staff'
@@ -159,6 +148,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 >
                   <User className="w-3.5 h-3.5" />
                   Nhân viên
+                </button>
+                <button
+                  onClick={() => { setLoginMode('admin'); setMessage(null); }}
+                  className={`flex-1 py-2 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                    loginMode === 'admin'
+                      ? 'bg-primary-50 text-primary-700 border-b-2 border-primary-500'
+                      : 'text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  Admin
                 </button>
               </div>
 
