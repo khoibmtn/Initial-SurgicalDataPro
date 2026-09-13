@@ -41,6 +41,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     }, [initialSubTab]);
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
+    const [accountSubTab, setAccountSubTab] = useState<'accounts' | 'permissions'>('accounts');
 
     // Lock modal state
     const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
@@ -136,13 +137,13 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                   ...(isAdmin
                     ? [{
                         value: 'users',
-                        label: pendingApprovalCount > 0 ? `Người dùng (${pendingApprovalCount})` : 'Người dùng',
+                        label: pendingApprovalCount > 0 ? `Tài khoản (${pendingApprovalCount})` : 'Tài khoản',
                         icon: Shield,
                       }]
                     : isHead
                     ? [{
                         value: 'users',
-                        label: pendingApprovalCount > 0 ? `Quản lý khoa (${pendingApprovalCount})` : 'Quản lý khoa',
+                        label: pendingApprovalCount > 0 ? `Tài khoản (${pendingApprovalCount})` : 'Tài khoản',
                         icon: Building2,
                       }]
                     : []),
@@ -247,12 +248,37 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
               </div>
             )}
 
+            {/* Stationary Subtabs Bar for Tài khoản */}
+            {activeSubTab === 'users' && (
+              <div className="bg-white pt-4 shrink-0 z-10">
+                <div className="border-y border-blue-200/80 bg-blue-50/75 px-6">
+                  <TabLine
+                    value={accountSubTab}
+                    onChange={(v) => setAccountSubTab(v as any)}
+                    size="sm"
+                    options={[
+                      {
+                        value: 'accounts',
+                        label: pendingApprovalCount > 0 ? `Quản lý tài khoản (${pendingApprovalCount})` : 'Quản lý tài khoản',
+                        icon: Users,
+                      },
+                      {
+                        value: 'permissions',
+                        label: 'Cấu hình phân quyền',
+                        icon: Shield,
+                      },
+                    ]}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Content area - only content scrolls */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
 
                 {activeSubTab === 'users' && (isAdmin || isHead) && (
                     <div className="animate-fade-in">
-                        <UserManagementPanel />
+                        <UserManagementPanel activeSubTab={accountSubTab} onSubTabChange={setAccountSubTab} />
                     </div>
                 )}
 

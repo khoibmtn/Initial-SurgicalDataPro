@@ -405,13 +405,28 @@ const EditableCell: React.FC<EditableCellProps> = ({
 
 // ─── Main Panel ──────────────────────────────────────────────────────────────
 
-export const UserManagementPanel: React.FC = () => {
+export interface UserManagementPanelProps {
+  activeSubTab?: 'accounts' | 'permissions';
+  onSubTabChange?: (tab: 'accounts' | 'permissions') => void;
+}
+
+export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
+  activeSubTab: propSubTab,
+  onSubTabChange,
+}) => {
   const { user: currentUser, authConfig, isAdmin, isHead } = useAuth();
   const { config } = useConfig();
   const departments = config.departments || [];
   const [users, setUsers] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const [internalSubTab, setInternalSubTab] = useState<'accounts' | 'permissions'>('accounts');
+  const currentSubTab = propSubTab ?? internalSubTab;
+  const setSubTab = (tab: 'accounts' | 'permissions') => {
+    setInternalSubTab(tab);
+    onSubTabChange?.(tab);
+  };
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
@@ -843,8 +858,59 @@ export const UserManagementPanel: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      {/* ─── Hero Header & Metric Cards (Tasks 8.1 & 8.4) ─────────────────────── */}
-      {isHead && !isAdmin && currentUser?.department ? (
+      {/* Standalone fallback tabs (when rendered without parent TabLine) */}
+      {!propSubTab && (
+        <div className="flex items-center gap-2 border-b border-gray-200 pb-3">
+          <button
+            type="button"
+            onClick={() => setSubTab('accounts')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              currentSubTab === 'accounts'
+                ? 'bg-blue-600 text-white shadow-2xs'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200/80'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Quản lý tài khoản {pendingUsers.length > 0 && `(${pendingUsers.length})`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('permissions')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              currentSubTab === 'permissions'
+                ? 'bg-blue-600 text-white shadow-2xs'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200/80'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5" />
+            Cấu hình phân quyền
+          </button>
+        </div>
+      )}
+
+      {/* ─── Action Alert Toast ──────────────────────────────────────────────── */}
+      {actionMsg && (
+        <div
+          className={`p-3 rounded-xl text-xs flex items-center gap-2.5 animate-fade-in ${
+            actionMsg.type === 'error'
+              ? 'bg-red-50 text-red-700 border border-red-200'
+              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+          }`}
+        >
+          {actionMsg.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+          )}
+          <span className="font-medium">{actionMsg.text}</span>
+        </div>
+      )}
+
+      {/* ─── SUBTAB: QUẢN LÝ TÀI KHOẢN ───────────────────────────────────────── */}
+      {currentSubTab === 'accounts' && (
+        <div className="space-y-4 animate-in fade-in duration-150">
+          {/* ─── Hero Header & Metric Cards (Tasks 8.1 & 8.4) ─────────────────────── */}
+          {isHead && !isAdmin && currentUser?.department ? (
         <div className="bg-gradient-to-r from-blue-50/90 via-sky-50/50 to-white border border-blue-200 rounded-2xl p-4 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-blue-100">
             <div className="flex items-center gap-3">
@@ -1067,31 +1133,6 @@ export const UserManagementPanel: React.FC = () => {
         isAdmin={isAdmin}
       />
 
-      {/* ─── Role Permissions Matrix (Task 8.3) ──────────────────────────────── */}
-      <RolePermissionsSection
-        isAdmin={isAdmin}
-        isHead={isHead}
-        department={currentUser?.department || ''}
-      />
-
-      {/* ─── Action Alert Toast ──────────────────────────────────────────────── */}
-      {actionMsg && (
-        <div
-          className={`p-3 rounded-xl text-xs flex items-center gap-2.5 animate-fade-in ${
-            actionMsg.type === 'error'
-              ? 'bg-red-50 text-red-700 border border-red-200'
-              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-          }`}
-        >
-          {actionMsg.type === 'error' ? (
-            <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-          ) : (
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-          )}
-          <span className="font-medium">{actionMsg.text}</span>
-        </div>
-      )}
-
       {/* ─── Search & Status Filters Bar (Task 8.2) ──────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-xs space-y-3">
         <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
@@ -1228,6 +1269,19 @@ export const UserManagementPanel: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+        </div>
+      )}
+
+      {/* ─── SUBTAB: CẤU HÌNH PHÂN QUYỀN ────────────────────────────────────── */}
+      {currentSubTab === 'permissions' && (
+        <div className="space-y-4 animate-in fade-in duration-150">
+          <RolePermissionsSection
+            isAdmin={isAdmin}
+            isHead={isHead}
+            department={currentUser?.department || ''}
+          />
         </div>
       )}
 
