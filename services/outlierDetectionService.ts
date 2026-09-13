@@ -85,8 +85,14 @@ export function detectRecordOutlier(record: SurgeryRecord): ClinicalOutlierIssue
     };
   }
 
-  // 3. Ca phẫu thuật lớn (Đặc biệt hoặc Loại 1) diễn ra quá nhanh (< 15 phút)
-  if (duration < 15 && (normType === 'Đặc biệt' || normType === 'Loại 1')) {
+  // 3. Ca phẫu thuật lớn (Đặc biệt hoặc Loại 1 / PĐB / P1) diễn ra quá nhanh (< 15 phút)
+  if (
+    duration < 15 &&
+    (normType === 'Đặc biệt' ||
+      normType === 'Loại 1' ||
+      normType === 'PĐB' ||
+      normType === 'P1')
+  ) {
     return {
       recordKey: record.key || `${record.patientId}_${record.tenKT}_${record.ngayBD}`,
       stt: record.stt,

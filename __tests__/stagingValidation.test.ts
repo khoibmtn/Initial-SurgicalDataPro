@@ -54,6 +54,16 @@ describe('Staging Validation Service', () => {
       expect(normalizeSurgeryType('DB')).toBe('Đặc biệt');
       expect(normalizeSurgeryType('đặc biệt')).toBe('Đặc biệt');
       expect(normalizeSurgeryType('dac biet')).toBe('Đặc biệt');
+      // Hospital standard codes
+      expect(normalizeSurgeryType('P1')).toBe('P1');
+      expect(normalizeSurgeryType('P2')).toBe('P2');
+      expect(normalizeSurgeryType('P3')).toBe('P3');
+      expect(normalizeSurgeryType('PĐB')).toBe('PĐB');
+      expect(normalizeSurgeryType('T1')).toBe('T1');
+      expect(normalizeSurgeryType('T2')).toBe('T2');
+      expect(normalizeSurgeryType('T3')).toBe('T3');
+      expect(normalizeSurgeryType('TĐB')).toBe('TĐB');
+      expect(normalizeSurgeryType('TKPL')).toBe('TKPL');
       expect(normalizeSurgeryType('Khác')).toBeNull();
       expect(normalizeSurgeryType('')).toBeNull();
     });

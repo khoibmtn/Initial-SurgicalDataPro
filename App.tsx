@@ -207,6 +207,9 @@ const InnerApp: React.FC = () => {
   }, [currentType, monthlyTimeMode, selectedMonthlyYear, selectedMonthlyMonth, currentReport.dateFrom, currentReport.dateTo]);
 
   const activeLock = useMemo<ReportLock | null>(() => {
+    // Chỉ áp dụng khóa sổ cho Báo cáo tháng (Báo cáo ngày không áp dụng khóa sổ)
+    if (currentType !== 'monthly') return null;
+
     const globalKey = generateLockKey(currentType, currentPeriodKey, 'ALL');
     if (allLocks[globalKey]?.isLocked) {
       return allLocks[globalKey];
@@ -228,19 +231,25 @@ const InnerApp: React.FC = () => {
   }, [allLocks, currentType, currentPeriodKey, user?.department, isAdmin]);
 
   const isReportLocked = useMemo(() => {
+    // Chỉ áp dụng khóa sổ cho Báo cáo tháng
+    if (currentType !== 'monthly') return false;
     return isPeriodLocked(activeLock, currentRole, user?.department);
-  }, [activeLock, currentRole, user?.department]);
+  }, [activeLock, currentRole, user?.department, currentType]);
 
   const canManageLock = useMemo(() => {
+    // Chỉ áp dụng khóa sổ cho Báo cáo tháng
+    if (currentType !== 'monthly') return false;
     return isAdmin || (isHead && !!user?.department);
-  }, [isAdmin, isHead, user?.department]);
+  }, [isAdmin, isHead, user?.department, currentType]);
 
   const canUnlockCurrentReport = useMemo(() => {
+    // Chỉ áp dụng khóa sổ cho Báo cáo tháng
+    if (currentType !== 'monthly') return false;
     if (!activeLock || !activeLock.isLocked) return false;
     if (isAdmin) return true;
     if (isHead && user?.department && activeLock.department === user.department) return true;
     return false;
-  }, [activeLock, isAdmin, isHead, user?.department]);
+  }, [activeLock, isAdmin, isHead, user?.department, currentType]);
 
   // ── Truy vết chỉnh sửa (Audit Log) ──
   const [allAuditLogs, setAllAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -739,8 +748,8 @@ const InnerApp: React.FC = () => {
                   />
                 )}
 
-                {/* ── Report Lock Banner (khi kỳ báo cáo đã khóa sổ) ── */}
-                {activeLock?.isLocked && (
+                {/* ── Report Lock Banner (chỉ hiển thị cho Báo cáo tháng khi kỳ báo cáo đã khóa sổ) ── */}
+                {currentType === 'monthly' && activeLock?.isLocked && (
                   <ReportLockBanner
                     lock={activeLock}
                     periodLabel={currentPeriodLabel}

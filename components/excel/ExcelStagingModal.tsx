@@ -41,6 +41,40 @@ interface ExcelStagingModalProps {
 
 type FilterTab = 'all' | 'error' | 'warning' | 'valid';
 
+/**
+ * Định dạng ngày giờ hiển thị dạng dd/MM/yyyy HH:mm thân thiện
+ */
+function formatDisplayDateTime(val: any): string {
+  if (!val) return '-';
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return '-';
+    // Đã là dd/MM/yyyy HH:mm
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}(\s+\d{1,2}:\d{2})?$/.test(trimmed)) {
+      return trimmed;
+    }
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      const d = String(parsed.getDate()).padStart(2, '0');
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const y = parsed.getFullYear();
+      const hh = String(parsed.getHours()).padStart(2, '0');
+      const mm = String(parsed.getMinutes()).padStart(2, '0');
+      return `${d}/${m}/${y} ${hh}:${mm}`;
+    }
+    return trimmed;
+  }
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    const d = String(val.getDate()).padStart(2, '0');
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const y = val.getFullYear();
+    const hh = String(val.getHours()).padStart(2, '0');
+    const mm = String(val.getMinutes()).padStart(2, '0');
+    return `${d}/${m}/${y} ${hh}:${mm}`;
+  }
+  return String(val);
+}
+
 export const ExcelStagingModal: React.FC<ExcelStagingModalProps> = ({
   isOpen,
   onClose,
@@ -388,39 +422,62 @@ export const ExcelStagingModal: React.FC<ExcelStagingModalProps> = ({
                             Loại bỏ
                           </span>
                         ) : record._status === 'error' ? (
-                          <div className="group relative inline-block">
+                          <div className="group relative inline-flex flex-col items-center">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200 cursor-help">
-                              <XCircle className="w-3 h-3 text-rose-600" />
+                              <XCircle className="w-3 h-3 text-rose-600 shrink-0" />
                               Lỗi ({record._issues.filter((i) => i.severity === 'error').length})
                             </span>
+                            {record._issues.find((i) => i.severity === 'error') && (
+                              <span
+                                className="text-[9px] text-rose-700 font-medium truncate max-w-[85px] mt-0.5"
+                                title={`${record._issues.find((i) => i.severity === 'error')?.fieldLabel}: ${record._issues.find((i) => i.severity === 'error')?.message}`}
+                              >
+                                {record._issues.find((i) => i.severity === 'error')?.fieldLabel}
+                              </span>
+                            )}
                             {/* Tooltip */}
-                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-20 w-64 p-2 bg-slate-900 text-white text-[11px] rounded-lg shadow-xl text-left leading-tight pointer-events-none">
-                              <p className="font-bold text-rose-300 mb-1">Chi tiết lỗi:</p>
-                              <ul className="list-disc pl-3 space-y-0.5">
+                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-30 w-72 p-2.5 bg-slate-900 text-white text-[11px] rounded-xl shadow-xl text-left leading-tight pointer-events-none border border-slate-700">
+                              <p className="font-bold text-rose-300 mb-1 flex items-center gap-1">
+                                <XCircle className="w-3 h-3" /> Chi tiết lỗi:
+                              </p>
+                              <ul className="list-disc pl-3 space-y-1">
                                 {record._issues.map((issue, idx) => (
                                   <li
                                     key={idx}
-                                    className={issue.severity === 'error' ? 'text-rose-200' : 'text-amber-200'}
+                                    className={issue.severity === 'error' ? 'text-rose-100' : 'text-amber-100'}
                                   >
-                                    <strong>{issue.fieldLabel}:</strong> {issue.message}
+                                    <strong className={issue.severity === 'error' ? 'text-rose-300' : 'text-amber-300'}>
+                                      {issue.fieldLabel}:
+                                    </strong>{' '}
+                                    {issue.message}
                                   </li>
                                 ))}
                               </ul>
                             </div>
                           </div>
                         ) : record._status === 'warning' ? (
-                          <div className="group relative inline-block">
+                          <div className="group relative inline-flex flex-col items-center">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 cursor-help">
-                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
                               Lưu ý ({record._issues.length})
                             </span>
+                            {record._issues[0] && (
+                              <span
+                                className="text-[9px] text-amber-700 font-medium truncate max-w-[85px] mt-0.5"
+                                title={`${record._issues[0].fieldLabel}: ${record._issues[0].message}`}
+                              >
+                                {record._issues[0].fieldLabel}
+                              </span>
+                            )}
                             {/* Tooltip */}
-                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-20 w-64 p-2 bg-slate-900 text-white text-[11px] rounded-lg shadow-xl text-left leading-tight pointer-events-none">
-                              <p className="font-bold text-amber-300 mb-1">Cảnh báo:</p>
-                              <ul className="list-disc pl-3 space-y-0.5">
+                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-1 hidden group-hover:block z-30 w-72 p-2.5 bg-slate-900 text-white text-[11px] rounded-xl shadow-xl text-left leading-tight pointer-events-none border border-slate-700">
+                              <p className="font-bold text-amber-300 mb-1 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> Cảnh báo:
+                              </p>
+                              <ul className="list-disc pl-3 space-y-1">
                                 {record._issues.map((issue, idx) => (
-                                  <li key={idx} className="text-amber-200">
-                                    <strong>{issue.fieldLabel}:</strong> {issue.message}
+                                  <li key={idx} className="text-amber-100">
+                                    <strong className="text-amber-300">{issue.fieldLabel}:</strong> {issue.message}
                                   </li>
                                 ))}
                               </ul>
@@ -515,7 +572,7 @@ export const ExcelStagingModal: React.FC<ExcelStagingModalProps> = ({
                             className="w-full px-2 py-1 text-xs border border-blue-400 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                           />
                         ) : (
-                          record.ngayBD || '-'
+                          formatDisplayDateTime(record.ngayBD)
                         )}
                       </td>
 
@@ -530,7 +587,7 @@ export const ExcelStagingModal: React.FC<ExcelStagingModalProps> = ({
                             className="w-full px-2 py-1 text-xs border border-blue-400 rounded-md focus:outline-hidden focus:ring-1 focus:ring-blue-500"
                           />
                         ) : (
-                          record.ngayKT || '-'
+                          formatDisplayDateTime(record.ngayKT)
                         )}
                       </td>
 

@@ -14,6 +14,15 @@ import { parseVNDateTime } from './excelProcessor';
  * Danh sách các loại PTTT hợp lệ chuẩn y tế Việt Nam
  */
 export const VALID_SURGERY_TYPES = [
+  'PĐB',
+  'P1',
+  'P2',
+  'P3',
+  'TĐB',
+  'T1',
+  'T2',
+  'T3',
+  'TKPL',
   'Đặc biệt',
   'Loại 1',
   'Loại 2',
@@ -21,16 +30,26 @@ export const VALID_SURGERY_TYPES = [
 ] as const;
 
 /**
- * Chuẩn hóa tên loại PTTT
+ * Chuẩn hóa tên loại PTTT theo chuẩn bệnh viện và Bộ Y Tế
  */
 export function normalizeSurgeryType(rawType: string): string | null {
   if (!rawType) return null;
-  const s = rawType.trim().toLowerCase();
+  const raw = rawType.trim();
+  const upper = raw.toUpperCase();
 
-  if (s === 'đb' || s === 'db' || s.includes('đặc biệt') || s.includes('dac biet')) {
+  // 1. Khớp chính xác mã phân loại bệnh viện chuẩn: P1, P2, P3, PĐB, T1, T2, T3, TĐB, TKPL
+  const hospitalCodes = ['PĐB', 'P1', 'P2', 'P3', 'TĐB', 'T1', 'T2', 'T3', 'TKPL'];
+  if (hospitalCodes.includes(upper)) {
+    return upper;
+  }
+
+  const s = raw.toLowerCase();
+
+  // 2. Đặc biệt
+  if (s === 'đb' || s === 'db' || s === 'pdb' || s.includes('đặc biệt') || s.includes('dac biet')) {
     return 'Đặc biệt';
   }
-  // Check Loại 3 (III) first to avoid 'Loại I' substring match
+  // 3. Check Loại 3 (III) first to avoid 'Loại I' substring match
   if (
     s === '3' ||
     s === 'iii' ||
@@ -45,7 +64,7 @@ export function normalizeSurgeryType(rawType: string): string | null {
   ) {
     return 'Loại 3';
   }
-  // Check Loại 2 (II) second
+  // 4. Check Loại 2 (II) second
   if (
     s === '2' ||
     s === 'ii' ||
@@ -60,7 +79,7 @@ export function normalizeSurgeryType(rawType: string): string | null {
   ) {
     return 'Loại 2';
   }
-  // Check Loại 1 (I) last
+  // 5. Check Loại 1 (I) last
   if (
     s === '1' ||
     s === 'i' ||
@@ -185,8 +204,13 @@ export function validateSingleRecord(
     });
   }
 
-  // 6. Kiểm tra Kíp Gây Mê đối với ca mổ lớn (Đặc biệt hoặc Loại 1)
-  if (normType === 'Đặc biệt' || normType === 'Loại 1') {
+  // 6. Kiểm tra Kíp Gây Mê đối với ca mổ lớn (Đặc biệt hoặc Loại 1 / PĐB / P1)
+  if (
+    normType === 'Đặc biệt' ||
+    normType === 'Loại 1' ||
+    normType === 'PĐB' ||
+    normType === 'P1'
+  ) {
     const hasAnesthesia =
       (record.bsGM && record.bsGM.trim() !== '') ||
       (record.ktvGM && record.ktvGM.trim() !== '');
