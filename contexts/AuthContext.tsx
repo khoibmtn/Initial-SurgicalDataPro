@@ -14,6 +14,7 @@ import {
   subscribeToUserProfile,
 } from '../services/authService';
 import { subscribeToPendingUsers } from '../services/userManagementService';
+import { sendNotification } from '../services/notificationService';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
 
@@ -185,7 +186,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const register = useCallback(async (data: RegisterData): Promise<AuthResult> => {
-    return registerWithNickname(data, authConfig.requireApproval);
+    const res = await registerWithNickname(data, authConfig.requireApproval);
+    if (res.success && res.user && res.user.status === 'pending') {
+      sendNotification({
+        type: 'PENDING_USER',
+        title: 'Tài khoản mới chờ phê duyệt',
+        message: `${data.displayName || data.nickname} (${data.department ? `Khoa ${data.department}` : 'Toàn viện'}) vừa tạo tài khoản và đang chờ duyệt.`,
+        targetRole: 'head',
+        department: data.department || 'ALL',
+        actionTab: 'config',
+        actionSubTab: 'users',
+        createdBy: data.displayName || data.nickname,
+      }).catch((e) => console.warn('[notification] Failed to send pending user notif:', e));
+    }
+    return res;
   }, [authConfig.requireApproval]);
 
   const logout = useCallback(async (): Promise<void> => {

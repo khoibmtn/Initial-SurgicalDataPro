@@ -16,6 +16,7 @@ import { reprocessSurgicalRecords, recalculateResultFromRecords } from '../servi
 import { exportFormattedFullExcel } from '../services/excelExportService';
 import type { AppUser, UserRole } from '../types/auth';
 import { logAuditEvent } from '../services/auditLogService';
+import { sendNotification } from '../services/notificationService';
 
 export interface UseReportPersistenceOptions {
   currentReport: ReportState;
@@ -233,6 +234,16 @@ export function useReportPersistence({
           department: currentUser?.department,
           description: `Lưu dữ liệu báo cáo: ${msg}`,
         }).catch((e) => console.warn('[auditLog] Failed to log save event:', e));
+
+        sendNotification({
+          type: 'DATA_SAVED',
+          title: `Dữ liệu ${type === 'MONTHLY' ? 'Báo cáo tháng' : 'Báo cáo ngày'} đã lưu`,
+          message: `${currentUser?.name || currentUser?.email || 'Người dùng'} đã lưu dữ liệu thành công (${msg})`,
+          targetRole: 'all',
+          department: currentUser?.department || 'ALL',
+          actionTab: type === 'MONTHLY' ? 'monthly' : 'daily',
+          createdBy: currentUser?.name || currentUser?.email,
+        }).catch((e) => console.warn('[notification] Failed to send save notif:', e));
 
         // NẾU TỪ EXCEL LƯU THÀNH CÔNG, reload lại từ STORAGE để đảm bảo mọi record đều có ID và firestorePath chuẩn
         if (currentReport.dataSource === 'EXCEL') {

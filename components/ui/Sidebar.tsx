@@ -22,6 +22,13 @@ import {
 import { useConfig } from '../../contexts/ConfigContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserMenuButton } from '../auth/UserMenuButton';
+import { NotificationBell } from '../notifications/NotificationBell';
+import {
+  subscribeNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+} from '../../services/notificationService';
+import type { AppNotification } from '../../types/notification';
 
 export type TabKey = 'daily' | 'monthly' | 'statistics' | 'config';
 
@@ -62,7 +69,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAccountClick,
 }) => {
   const { isLocked, unlockConfig, lockConfig, changePassword } = useConfig();
-  const { pendingApprovalCount } = useAuth();
+  const { user, currentRole, pendingApprovalCount } = useAuth();
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [currentPwd, setCurrentPwd] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -71,6 +79,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showCurrentPwd, setShowCurrentPwd] = useState(false);
   const [showNewPwd, setShowNewPwd] = useState(false);
   const [authMsg, setAuthMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Subscribe to realtime notifications
+  useEffect(() => {
+    const unsubscribe = subscribeNotifications(
+      currentRole,
+      user?.department,
+      user?.uid,
+      (items) => {
+        setNotifications(items);
+      }
+    );
+    return () => unsubscribe();
+  }, [currentRole, user?.department, user?.uid]);
+
+  const handleMarkAsRead = (id: string) => {
+    if (user?.uid) {
+      markNotificationAsRead(id, user.uid);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      );
+    }
+  };
+
+  const handleMarkAllAsRead = () => {
+    if (user?.uid) {
+      markAllNotificationsAsRead(
+        notifications.map((n) => n.id),
+        user.uid
+      );
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    }
+  };
+
+  const handleNotificationClick = (notif: AppNotification) => {
+    if (user?.uid && !notif.read) {
+      handleMarkAsRead(notif.id);
+    }
+    if (notif.actionTab) {
+      onTabChange(notif.actionTab as TabKey);
+    }
+  };
 
   const resetModalFields = () => {
     setCurrentPwd('');
@@ -154,21 +203,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }`}
       >
         {/* Brand header */}
-        <div className="h-12 border-b border-gray-200 flex items-center px-3.5 gap-2.5 shrink-0 overflow-hidden">
-          <div className="h-7 w-7 rounded-lg bg-primary-600 flex items-center justify-center text-white shrink-0 shadow-xs">
-            <Activity className="h-4 w-4" />
+        <div
+          className={`h-12 border-b border-gray-200 flex items-center shrink-0 ${
+            collapsed ? 'justify-center px-2' : 'justify-between px-3'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="h-7 w-7 rounded-lg bg-primary-600 flex items-center justify-center text-white shrink-0 shadow-xs">
+              <Activity className="h-4 w-4" />
+            </div>
+            {!collapsed && (
+              <div className="min-w-0">
+                <h1 className="text-sm font-bold text-gray-900 truncate leading-tight tracking-tight">
+                  SurgicalDataPro
+                </h1>
+                <span className="text-[10px] text-gray-400 font-medium tracking-wide uppercase">
+                  Enterprise v2.0
+                </span>
+              </div>
+            )}
           </div>
           {!collapsed && (
-            <div className="min-w-0">
-              <h1 className="text-sm font-bold text-gray-900 truncate leading-tight tracking-tight">
-                SurgicalDataPro
-              </h1>
-              <span className="text-[10px] text-gray-400 font-medium tracking-wide uppercase">
-                Enterprise v2.0
-              </span>
-            </div>
+            <NotificationBell
+              notifications={notifications}
+              onMarkAllAsRead={handleMarkAllAsRead}
+              onNotificationClick={handleNotificationClick}
+              align="left"
+            />
           )}
         </div>
+
+        {/* Collapsed notification icon */}
+        {collapsed && (
+          <div className="py-1.5 flex justify-center border-b border-gray-100">
+            <NotificationBell
+              notifications={notifications}
+              onMarkAllAsRead={handleMarkAllAsRead}
+              onNotificationClick={handleNotificationClick}
+              align="left"
+            />
+          </div>
+        )}
 
         {/* Navigation items */}
         <nav className="flex-1 py-2.5 px-2 space-y-0.5 overflow-y-auto">

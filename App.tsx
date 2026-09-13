@@ -65,6 +65,7 @@ import {
   isPeriodLocked,
 } from './services/reportLockService';
 import { subscribeAuditLogs, logAuditEvent } from './services/auditLogService';
+import { sendNotification } from './services/notificationService';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
@@ -274,6 +275,16 @@ const InnerApp: React.FC = () => {
         department: selectedDept || (isHead && !isAdmin ? user?.department : 'ALL'),
         description: `Khóa sổ báo cáo ${currentPeriodLabel}${note ? ` với ghi chú: "${note}"` : ''}`,
       }).catch((e) => console.warn('[auditLog] Failed to log lock:', e));
+
+      sendNotification({
+        type: 'REPORT_LOCKED',
+        title: `Báo cáo ${currentPeriodLabel} đã khóa sổ`,
+        message: `${user?.name || user?.email || 'Trưởng khoa'} đã chốt số liệu và đưa báo cáo về chế độ Chỉ xem.${note ? ` Ghi chú: "${note}"` : ''}`,
+        targetRole: 'all',
+        department: selectedDept || (isHead && !isAdmin ? user?.department : 'ALL'),
+        actionTab: currentType === 'monthly' ? 'monthly' : 'daily',
+        createdBy: user?.name || user?.email,
+      }).catch((e) => console.warn('[notification] Failed to send lock notif:', e));
     } else {
       addToast(`Không thể khóa sổ: ${res.error || 'Lỗi không xác định'}`, 'error');
     }
@@ -301,6 +312,16 @@ const InnerApp: React.FC = () => {
         department: activeLock.department || 'ALL',
         description: `Mở khóa sổ báo cáo ${currentPeriodLabel}`,
       }).catch((e) => console.warn('[auditLog] Failed to log unlock:', e));
+
+      sendNotification({
+        type: 'REPORT_UNLOCKED',
+        title: `Báo cáo ${currentPeriodLabel} đã mở khóa`,
+        message: `${user?.name || user?.email || 'Trưởng khoa'} đã mở khóa báo cáo. Nhân viên hiện có thể chỉnh sửa số liệu.`,
+        targetRole: 'all',
+        department: activeLock.department || 'ALL',
+        actionTab: currentType === 'monthly' ? 'monthly' : 'daily',
+        createdBy: user?.name || user?.email,
+      }).catch((e) => console.warn('[notification] Failed to send unlock notif:', e));
     } else {
       addToast(`Không thể mở khóa: ${res.error || 'Lỗi không xác định'}`, 'error');
     }
