@@ -27,7 +27,50 @@ export function buildColumnsList(dateFormat: string, config: AppConfig): ColumnD
     { key: 'tenKT', label: 'Tên kỹ thuật', defaultWidth: 220 },
     { key: 'loaiPTTT', label: 'Loại', align: 'center', defaultWidth: 42 },
     { key: 'soLuong', label: 'SL', align: 'center', defaultWidth: 34 },
-    { key: 'timeMinutes', label: 'Phút', align: 'center', defaultWidth: 40 },
+    {
+      key: 'timeMinutes',
+      label: 'Phút',
+      align: 'center',
+      defaultWidth: 46,
+      render: (r) => {
+        const mins = r.timeMinutes;
+        if (mins === undefined || mins === null) return '—';
+        if (r.outlierType === 'negative' || mins <= 0) {
+          return (
+            <span
+              className="px-1 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-700 border border-rose-200"
+              title={r.outlierMessage || 'Thời gian mổ âm/không hợp lệ'}
+            >
+              {mins}p ⚠️
+            </span>
+          );
+        }
+        if (
+          r.outlierType === 'short' ||
+          (mins < 15 && (r.loaiPTTT === 'Đặc biệt' || r.loaiPTTT === 'Loại 1'))
+        ) {
+          return (
+            <span
+              className="px-1 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200"
+              title={r.outlierMessage || 'Ca mổ ngắn bất thường'}
+            >
+              {mins}p ⚡
+            </span>
+          );
+        }
+        if (r.outlierType === 'long' || mins > 480) {
+          return (
+            <span
+              className="px-1 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200"
+              title={r.outlierMessage || 'Ca mổ kéo dài trên 8 tiếng'}
+            >
+              {mins}p ⏳
+            </span>
+          );
+        }
+        return `${mins}p`;
+      },
+    },
     { key: 'ptChinh', label: 'PT Chính', defaultWidth: 100 },
     { key: 'ptPhu', label: 'PT Phụ', defaultWidth: 100 },
     { key: 'bsGM', label: 'BS GM', defaultWidth: 100 },

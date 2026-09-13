@@ -3,6 +3,7 @@ import { ProcessingResult, SurgeryRecord, StaffConflict, MachineConflict, StaffR
 import { AppConfig } from "../contexts/ConfigContext";
 import { getTableLimitForRole, getTimeRuleForRecord, getAllowanceForRecord } from "./laborConfigService";
 import { isMachineCodeRequired, buildRequiredMachineIndex } from "./requiredMachineService";
+import { annotateRecordsWithOutliers } from "./outlierDetectionService";
 
 // ───────────────── Helper Functions ─────────────────
 
@@ -121,6 +122,8 @@ export function detectStaffConflicts(records: SurgeryRecord[], config: AppConfig
                             end2: b.end,
                             rec1: a,
                             rec2: b,
+                            severity: 'error',
+                            notes: vType === 'max2' ? 'Vượt định mức kiêm nhiệm (≥ 3 ca cùng lúc)' : 'Trùng kíp mổ (vượt định mức 1 ca)',
                         });
                     }
                 }
@@ -269,14 +272,17 @@ export function reprocessSurgicalRecords(
         }
     }
 
+    // 0. Annotate records with clinical outliers
+    const { annotated: processedRecords } = annotateRecordsWithOutliers(records);
+
     // 1. Detect Conflicts
-    const staffConflicts = detectStaffConflicts(records, config);
-    const machineConflicts = detectMachineConflicts(records);
+    const staffConflicts = detectStaffConflicts(processedRecords, config);
+    const machineConflicts = detectMachineConflicts(processedRecords);
     const reqMachineIndex = config.requiredMachineCatalog && config.requiredMachineCatalog.length > 0
         ? buildRequiredMachineIndex(config.requiredMachineCatalog)
         : null;
 
-    const missingMachine = records.filter((r) => {
+    const missingMachine = processedRecords.filter((r) => {
         // Use machineCode as primary check (new logic)
         if (r.machineCode) return false;
         // Fallback: also skip if legacy machine (name) exists
@@ -700,7 +706,7 @@ export function reprocessSurgicalRecords(
             totalAmount: totalPayment
         },
         conflicts: [], // Deprecated
-        validRecords: records,
+        validRecords: processedRecords,
         staffConflicts,
         machineConflicts,
         missingRecords: missingMachine,

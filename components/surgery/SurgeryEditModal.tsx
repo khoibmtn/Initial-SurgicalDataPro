@@ -13,9 +13,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X, Save, User, Clock, Stethoscope, Users,
-  Cpu, DollarSign, ChevronDown, Check, Sparkles, Hash, Lock
+  Cpu, DollarSign, ChevronDown, Check, Sparkles, Hash, Lock, AlertTriangle
 } from 'lucide-react';
 import { SurgeryRecord, StaffMember, MachineEntry, SurgeryNamePrice } from '../../types';
+import { detectRecordOutlier } from '../../services/outlierDetectionService';
 
 interface Props {
   isOpen: boolean;
@@ -906,6 +907,22 @@ export const SurgeryEditModal: React.FC<Props> = ({
 
   const hasTimeErrors = Object.keys(timeValidation).length > 0;
 
+  // Cảnh báo thời gian mổ bất thường (Outlier)
+  const outlierWarning = useMemo(() => {
+    if (!record) return null;
+    const startDateObj = combineDateAndTime(startDate, startTime) || record.start;
+    const endDateObj = combineDateAndTime(endDate, endTime) || record.end;
+    const finalMins = calculatedMinutes !== null ? calculatedMinutes : Number(formData.timeMinutes ?? record.timeMinutes ?? 0);
+    const tempRec: SurgeryRecord = {
+      ...record,
+      ...formData,
+      start: startDateObj,
+      end: endDateObj,
+      timeMinutes: finalMins,
+    };
+    return detectRecordOutlier(tempRec);
+  }, [startDate, startTime, endDate, endTime, record, formData, calculatedMinutes]);
+
   // Submit Lưu
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -933,6 +950,15 @@ export const SurgeryEditModal: React.FC<Props> = ({
       donGia: Number(formData.donGia ?? 0),
       thanhTien: Number(formData.thanhTien ?? 0),
     };
+
+    const outlier = detectRecordOutlier(updated);
+    if (outlier) {
+      updated.outlierType = outlier.outlierType;
+      updated.outlierMessage = outlier.message;
+    } else {
+      delete updated.outlierType;
+      delete updated.outlierMessage;
+    }
 
     if (isReadOnly) return;
     onSave(updated);
@@ -989,6 +1015,27 @@ export const SurgeryEditModal: React.FC<Props> = ({
               </div>
               <span className="text-[11px] text-blue-600 italic">
                 💡 Nhấn ESC trong bất kỳ ô nào để khôi phục lại giá trị ban đầu.
+              </span>
+            </div>
+          )}
+
+          {/* Cảnh báo bất thường lâm sàng (Outlier) */}
+          {outlierWarning && (
+            <div
+              className={`rounded-xl px-4 py-2.5 flex items-center gap-2.5 text-xs border ${
+                outlierWarning.severity === 'error'
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}
+            >
+              <AlertTriangle
+                className={`h-4 w-4 shrink-0 ${
+                  outlierWarning.severity === 'error' ? 'text-rose-600' : 'text-amber-600'
+                }`}
+              />
+              <span>
+                <strong>Cảnh báo thời lượng ({outlierWarning.outlierType}):</strong>{' '}
+                {outlierWarning.message}
               </span>
             </div>
           )}
