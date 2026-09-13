@@ -26,6 +26,7 @@ export interface UseReportPersistenceOptions {
   visibleCols: Record<string, any>;
   paymentDataPrepared: any;
   addToast: (message: React.ReactNode, type?: ToastType, duration?: number) => void;
+  isReportLocked?: boolean;
 }
 
 export function useReportPersistence({
@@ -39,6 +40,7 @@ export function useReportPersistence({
   visibleCols,
   paymentDataPrepared,
   addToast,
+  isReportLocked = false,
 }: UseReportPersistenceOptions) {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -114,6 +116,11 @@ export function useReportPersistence({
   }, [currentReport, config, updateCurrentReport, addToast]);
 
   const handleDeleteSelected = useCallback(() => {
+    if (isReportLocked) {
+      addToast('Báo cáo đã khóa sổ (Chỉ xem). Không thể xóa dữ liệu!', 'error');
+      return;
+    }
+
     const selectedIds = currentReport.selectedRecordIds || [];
     if (selectedIds.length === 0) return;
 
@@ -135,10 +142,15 @@ export function useReportPersistence({
         executeDelete();
       },
     });
-  }, [currentReport, currentType, executeDelete]);
+  }, [currentReport, currentType, executeDelete, isReportLocked, addToast]);
 
   // ── SAVE HANDLING ──
   const executeSave = useCallback(async (): Promise<boolean> => {
+    if (isReportLocked) {
+      addToast('Báo cáo đã khóa sổ (Chỉ xem). Không thể lưu dữ liệu!', 'error');
+      return false;
+    }
+
     if (!currentReport.result || !currentReport.result.validRecords) {
       addToast('Không có dữ liệu hợp lệ để lưu.', 'error');
       return false;
@@ -245,6 +257,11 @@ export function useReportPersistence({
   );
 
   const handleSaveData = useCallback(async () => {
+    if (isReportLocked) {
+      addToast('Báo cáo đã khóa sổ (Chỉ xem). Không thể lưu dữ liệu!', 'error');
+      return;
+    }
+
     if (currentReport.dataSource !== 'EXCEL' || !currentReport.result?.validRecords) {
       // STORAGE data or no data — save directly (for auto-filled GV updates etc.)
       await executeSave();

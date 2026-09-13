@@ -48,9 +48,20 @@ import { usePrintController } from './hooks/usePrintController';
 import { useExcelProcessing } from './hooks/useExcelProcessing';
 import { useStorageQuery } from './hooks/useStorageQuery';
 import { useAppCommandPalette } from './hooks/useAppCommandPalette';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginModal } from './components/auth/LoginModal';
 import { AccountPanel } from './components/auth/AccountPanel';
+import { ReportLockModal } from './components/surgery/ReportLockModal';
+import { ReportLockBanner } from './components/surgery/ReportLockBanner';
+import type { ReportLock } from './types/reportLock';
+import type { UserRole } from './types/auth';
+import {
+  subscribeAllReportLocks,
+  lockReport,
+  unlockReport,
+  generateLockKey,
+  isPeriodLocked,
+} from './services/reportLockService';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
@@ -148,6 +159,113 @@ const InnerApp: React.FC = () => {
 
   const { toasts, addToast, removeToast } = useToast();
 
+  // ── Khóa / Mở khóa báo cáo (Report Lock / Unlock) ──
+  const { user, isAdmin, isHead, currentRole } = useAuth();
+  const [allLocks, setAllLocks] = useState<Record<string, ReportLock>>({});
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [lockModalMode, setLockModalMode] = useState<'lock' | 'unlock'>('lock');
+
+  useEffect(() => {
+    const unsub = subscribeAllReportLocks((locks) => {
+      setAllLocks(locks || {});
+    });
+    return () => unsub();
+  }, []);
+
+  const currentPeriodKey = useMemo(() => {
+    if (currentType === 'monthly') {
+      if (monthlyTimeMode === 'month') {
+        return `${selectedMonthlyYear}-${String(selectedMonthlyMonth).padStart(2, '0')}`;
+      }
+      return `${currentReport.dateFrom || ''}_${currentReport.dateTo || ''}`;
+    }
+    return currentReport.dateFrom || new Date().toISOString().slice(0, 10);
+  }, [currentType, monthlyTimeMode, selectedMonthlyYear, selectedMonthlyMonth, currentReport.dateFrom, currentReport.dateTo]);
+
+  const currentPeriodLabel = useMemo(() => {
+    if (currentType === 'monthly') {
+      if (monthlyTimeMode === 'month') {
+        return `Tháng ${String(selectedMonthlyMonth).padStart(2, '0')}/${selectedMonthlyYear}`;
+      }
+      return `${currentReport.dateFrom} - ${currentReport.dateTo}`;
+    }
+    if (currentReport.dateFrom) {
+      const parts = currentReport.dateFrom.split('-');
+      if (parts.length === 3) {
+        return `Ngày ${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return `Ngày ${currentReport.dateFrom}`;
+    }
+    return 'Hôm nay';
+  }, [currentType, monthlyTimeMode, selectedMonthlyYear, selectedMonthlyMonth, currentReport.dateFrom, currentReport.dateTo]);
+
+  const activeLock = useMemo<ReportLock | null>(() => {
+    const globalKey = generateLockKey(currentType, currentPeriodKey, 'ALL');
+    if (allLocks[globalKey]?.isLocked) {
+      return allLocks[globalKey];
+    }
+    if (user?.department) {
+      const deptKey = generateLockKey(currentType, currentPeriodKey, user.department);
+      if (allLocks[deptKey]?.isLocked) {
+        return allLocks[deptKey];
+      }
+    }
+    if (isAdmin) {
+      const cleanPeriod = currentPeriodKey.replace(/[^0-9-]/g, '').replace(/-/g, '_');
+      const matchingKey = Object.keys(allLocks).find(
+        (k) => k.startsWith(`${currentType}_${cleanPeriod}`) && allLocks[k]?.isLocked
+      );
+      if (matchingKey) return allLocks[matchingKey];
+    }
+    return null;
+  }, [allLocks, currentType, currentPeriodKey, user?.department, isAdmin]);
+
+  const isReportLocked = useMemo(() => {
+    return isPeriodLocked(activeLock, currentRole, user?.department);
+  }, [activeLock, currentRole, user?.department]);
+
+  const canManageLock = useMemo(() => {
+    return isAdmin || (isHead && !!user?.department);
+  }, [isAdmin, isHead, user?.department]);
+
+  const canUnlockCurrentReport = useMemo(() => {
+    if (!activeLock || !activeLock.isLocked) return false;
+    if (isAdmin) return true;
+    if (isHead && user?.department && activeLock.department === user.department) return true;
+    return false;
+  }, [activeLock, isAdmin, isHead, user?.department]);
+
+  const handleConfirmLock = async (note: string, selectedDept?: string) => {
+    const res = await lockReport({
+      periodType: currentType,
+      periodKey: currentPeriodKey,
+      lockedBy: user?.name || user?.email || 'Quản trị viên',
+      lockedByUid: user?.uid || 'unknown',
+      lockedByRole: (currentRole as UserRole) || 'head',
+      department: selectedDept || (isHead && !isAdmin ? user?.department : 'ALL'),
+      note,
+    });
+    if (res.success) {
+      addToast(`Đã khóa sổ báo cáo ${currentPeriodLabel} thành công!`, 'success');
+    } else {
+      addToast(`Không thể khóa sổ: ${res.error || 'Lỗi không xác định'}`, 'error');
+    }
+  };
+
+  const handleConfirmUnlock = async () => {
+    if (!activeLock) return;
+    const res = await unlockReport({
+      lockKey: activeLock.id,
+      unlockedBy: user?.name || user?.email || 'Quản trị viên',
+      unlockedByUid: user?.uid || 'unknown',
+    });
+    if (res.success) {
+      addToast(`Đã mở khóa báo cáo ${currentPeriodLabel} thành công!`, 'success');
+    } else {
+      addToast(`Không thể mở khóa: ${res.error || 'Lỗi không xác định'}`, 'error');
+    }
+  };
+
   const {
     editingRecord,
     setEditingRecord,
@@ -189,6 +307,7 @@ const InnerApp: React.FC = () => {
     updateCurrentReport,
     currentType,
     addToast,
+    isReportLocked,
   });
 
   const {
@@ -213,6 +332,7 @@ const InnerApp: React.FC = () => {
     visibleCols,
     paymentDataPrepared,
     addToast,
+    isReportLocked,
   });
 
   const {
@@ -339,6 +459,22 @@ const InnerApp: React.FC = () => {
           setConfigInitialSubTab('users');
           setActiveTab('config');
         }}
+      />
+
+      {/* Report Lock / Unlock Modal */}
+      <ReportLockModal
+        isOpen={showLockModal}
+        mode={lockModalMode}
+        periodLabel={currentPeriodLabel}
+        department={user?.department}
+        departments={config.departments || []}
+        isAdmin={isAdmin}
+        isHead={isHead}
+        currentUserRole={(currentRole as UserRole) || 'staff'}
+        currentUserName={user?.name || user?.email || 'Người dùng'}
+        onClose={() => setShowLockModal(false)}
+        onConfirmLock={handleConfirmLock}
+        onConfirmUnlock={handleConfirmUnlock}
       />
 
       {/* Main Content Area */}
@@ -476,6 +612,19 @@ const InnerApp: React.FC = () => {
                   />
                 )}
 
+                {/* ── Report Lock Banner (khi kỳ báo cáo đã khóa sổ) ── */}
+                {activeLock?.isLocked && (
+                  <ReportLockBanner
+                    lock={activeLock}
+                    periodLabel={currentPeriodLabel}
+                    canUnlock={canUnlockCurrentReport}
+                    onUnlockClick={() => {
+                      setLockModalMode('unlock');
+                      setShowLockModal(true);
+                    }}
+                  />
+                )}
+
                 {/* ── Date range + Action Buttons Row ── */}
                 <ReportActionBar
                   dateRangeText={
@@ -496,6 +645,16 @@ const InnerApp: React.FC = () => {
                       ? 'Chức năng này chỉ khả dụng khi có dữ liệu mới hoặc cập nhật'
                       : 'Lưu dữ liệu vào hệ thống'
                   }
+                  isReportLocked={isReportLocked}
+                  canManageLock={canManageLock}
+                  onLockClick={() => {
+                    setLockModalMode('lock');
+                    setShowLockModal(true);
+                  }}
+                  onUnlockClick={() => {
+                    setLockModalMode('unlock');
+                    setShowLockModal(true);
+                  }}
                 />
 
                 {/* ── Stat Cards (HospitalStat-VT style) ── */}
@@ -607,6 +766,7 @@ const InnerApp: React.FC = () => {
             staffList={config.staffList || []}
             machineRegistry={config.machineRegistry || []}
             surgeryNamePrices={namePrices || []}
+            isReadOnly={isReportLocked}
           />
         )}
       </main>

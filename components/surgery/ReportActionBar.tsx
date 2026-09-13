@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2 } from 'lucide-react';
+import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2, Lock, Unlock } from 'lucide-react';
 
 export interface ReportActionBarProps {
   dateRangeText?: string;
@@ -12,6 +12,11 @@ export interface ReportActionBarProps {
   isSaving: boolean;
   canSave: boolean;
   saveTooltip?: string;
+  // Report Lock Props
+  isReportLocked?: boolean;
+  canManageLock?: boolean;
+  onLockClick?: () => void;
+  onUnlockClick?: () => void;
 }
 
 export const ReportActionBar: React.FC<ReportActionBarProps> = ({
@@ -25,6 +30,10 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
   isSaving,
   canSave,
   saveTooltip,
+  isReportLocked = false,
+  canManageLock = false,
+  onLockClick,
+  onUnlockClick,
 }) => {
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
   const [isExcelDropdownOpen, setIsExcelDropdownOpen] = useState(false);
@@ -157,15 +166,63 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
           )}
         </div>
 
+        {/* Report Lock Status & Actions */}
+        {isReportLocked ? (
+          <div className="flex items-center gap-1.5">
+            <span
+              className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-800 text-[11px] font-bold rounded-lg border border-amber-300 shadow-2xs"
+              title="Báo cáo đã được khóa sổ, dữ liệu chỉ xem"
+            >
+              <Lock className="h-3 w-3 text-amber-600" />
+              <span>Đã khóa</span>
+            </span>
+            {canManageLock && onUnlockClick && (
+              <button
+                type="button"
+                onClick={onUnlockClick}
+                className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
+                title="Mở khóa báo cáo để chỉnh sửa số liệu"
+              >
+                <Unlock className="h-3 w-3" />
+                <span>Mở khóa</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          canManageLock && onLockClick && (
+            <button
+              type="button"
+              onClick={onLockClick}
+              className="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
+              title="Chốt số liệu và khóa báo cáo kỳ này"
+            >
+              <Lock className="h-3 w-3" />
+              <span>Khóa sổ</span>
+            </button>
+          )
+        )}
+
         {/* Save Data */}
         <button
           onClick={onSaveData}
-          disabled={!canSave}
-          className={`flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm ${!canSave ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
-          title={saveTooltip || 'Lưu dữ liệu vào hệ thống'}
+          disabled={!canSave || isReportLocked}
+          className={`flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm ${
+            !canSave || isReportLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+          }`}
+          title={
+            isReportLocked
+              ? 'Báo cáo đã khóa sổ — Toàn bộ số liệu đang ở chế độ Chỉ xem (Read-only)'
+              : saveTooltip || 'Lưu dữ liệu vào hệ thống'
+          }
         >
-          {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          {isSaving ? 'Lưu...' : 'Lưu'}
+          {isSaving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : isReportLocked ? (
+            <Lock className="h-3.5 w-3.5" />
+          ) : (
+            <Save className="h-3.5 w-3.5" />
+          )}
+          {isSaving ? 'Lưu...' : isReportLocked ? 'Đã khóa' : 'Lưu'}
         </button>
       </div>
     </div>

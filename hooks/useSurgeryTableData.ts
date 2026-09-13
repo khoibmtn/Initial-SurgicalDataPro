@@ -34,6 +34,7 @@ export interface UseSurgeryTableDataOptions {
   updateCurrentReport: (updates: Partial<ReportState>) => void;
   currentType: 'daily' | 'monthly';
   addToast: (message: React.ReactNode, type?: ToastType, duration?: number) => void;
+  isReportLocked?: boolean;
 }
 
 export function useSurgeryTableData({
@@ -46,6 +47,7 @@ export function useSurgeryTableData({
   updateCurrentReport,
   currentType,
   addToast,
+  isReportLocked = false,
 }: UseSurgeryTableDataOptions) {
   const [editingRecord, setEditingRecord] = useState<SurgeryRecord | null>(null);
   const [lastActiveRecordId, setLastActiveRecordId] = useState<string | null>(null);
@@ -333,6 +335,12 @@ export function useSurgeryTableData({
 
   const handleSaveEditedRecord = useCallback(
     async (updatedRecord: SurgeryRecord) => {
+      if (isReportLocked) {
+        addToast('Báo cáo đã khóa sổ (Chỉ xem). Không thể chỉnh sửa thông tin ca mổ!', 'error');
+        setEditingRecord(null);
+        return;
+      }
+
       if (!currentReport.result?.validRecords) return;
       const targetId = updatedRecord.id || updatedRecord.key;
       const index = currentReport.result.validRecords.findIndex((r) => (r.id || r.key) === targetId);
@@ -366,12 +374,17 @@ export function useSurgeryTableData({
       addToast(`Đã lưu thay đổi thông tin của bệnh nhân ${updatedRecord.patientName}.`, 'success');
       setEditingRecord(null);
     },
-    [currentReport.result, currentType, config, updateCurrentReport, addToast]
+    [currentReport.result, currentType, config, updateCurrentReport, addToast, isReportLocked]
   );
 
   // Assistant auto fill & save
   const handleSaveAssistant = useCallback(
     async (val: string) => {
+      if (isReportLocked) {
+        addToast('Báo cáo đã khóa sổ (Chỉ xem). Không thể thay đổi người giúp việc!', 'error');
+        return;
+      }
+
       const cleanVal = val ? val.trim() : '';
 
       if (cleanVal !== '') {
