@@ -20,6 +20,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { UserMenuButton } from '../auth/UserMenuButton';
 
 export type TabKey = 'daily' | 'monthly' | 'statistics' | 'config';
@@ -61,6 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAccountClick,
 }) => {
   const { isLocked, unlockConfig, lockConfig, changePassword } = useConfig();
+  const { pendingApprovalCount } = useAuth();
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [currentPwd, setCurrentPwd] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -173,19 +175,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.key;
+            const showPendingBadge = item.key === 'config' && pendingApprovalCount > 0;
             return (
               <button
                 key={item.key}
                 onClick={() => onTabChange(item.key)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all relative ${
                   isActive
                     ? 'bg-primary-50 text-primary-700 font-bold shadow-xs'
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 } ${collapsed ? 'justify-center px-2' : ''}`}
-                title={collapsed ? item.label : undefined}
+                title={collapsed ? (showPendingBadge ? `${item.label} (${pendingApprovalCount} chờ duyệt)` : item.label) : undefined}
               >
                 <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-primary-600' : 'text-gray-400'}`} />
                 {!collapsed && <span className="truncate">{item.label}</span>}
+                {showPendingBadge && (
+                  collapsed ? (
+                    <span
+                      className="absolute top-1 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white animate-pulse"
+                      title={`${pendingApprovalCount} tài khoản chờ duyệt`}
+                    />
+                  ) : (
+                    <span
+                      className="ml-auto px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-amber-100 text-amber-800 border border-amber-300 animate-pulse shrink-0"
+                      title={`${pendingApprovalCount} tài khoản chờ duyệt`}
+                    >
+                      {pendingApprovalCount}
+                    </span>
+                  )
+                )}
               </button>
             );
           })}

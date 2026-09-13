@@ -13,6 +13,7 @@ import {
   onAuthChange,
   subscribeToUserProfile,
 } from '../services/authService';
+import { subscribeToPendingUsers } from '../services/userManagementService';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
 
@@ -44,6 +45,8 @@ interface AuthContextValue extends AuthState {
   isHead: boolean;
   /** Kiểm tra có phải admin hoặc trưởng khoa không */
   isHeadOrAdmin: boolean;
+  /** Số lượng tài khoản đang chờ duyệt thuộc thẩm quyền (admin: toàn viện, head: khoa mình) */
+  pendingApprovalCount: number;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -58,7 +61,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isPendingApproval: false,
   });
   const [authConfig, setAuthConfig] = useState<AuthConfig>(DEFAULT_AUTH_CONFIG);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState<number>(0);
   const profileUnsubRef = useRef<(() => void) | null>(null);
+
+  // ── Lắng nghe số lượng tài khoản chờ duyệt (realtime badge) ──
+  useEffect(() => {
+    const user = authState.user;
+    if (!user || user.status !== 'active') {
+      setPendingApprovalCount(0);
+      return;
+    }
+
+    if (user.role === 'admin') {
+      const unsub = subscribeToPendingUsers('admin', undefined, (pendingList) => {
+        setPendingApprovalCount(pendingList.length);
+      });
+      return () => unsub();
+    } else if (user.role === 'head' && user.department) {
+      const unsub = subscribeToPendingUsers('head', user.department, (pendingList) => {
+        setPendingApprovalCount(pendingList.length);
+      });
+      return () => unsub();
+    } else {
+      setPendingApprovalCount(0);
+    }
+  }, [authState.user?.role, authState.user?.department, authState.user?.status]);
 
   // ── Lắng nghe auth_config từ Realtime Database ──
   useEffect(() => {
@@ -182,6 +209,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAdmin,
     isHead,
     isHeadOrAdmin,
+    pendingApprovalCount,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

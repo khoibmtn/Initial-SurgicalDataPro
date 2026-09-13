@@ -59,6 +59,7 @@ const InnerApp: React.FC = () => {
   const [hasVisitedStats, setHasVisitedStats] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAccountPanel, setShowAccountPanel] = useState(false);
+  const [configInitialSubTab, setConfigInitialSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | undefined>(undefined);
 
   useEffect(() => {
     if (activeTab === 'statistics') {
@@ -335,6 +336,7 @@ const InnerApp: React.FC = () => {
         onClose={() => setShowAccountPanel(false)}
         onNavigateToUserManagement={() => {
           setShowAccountPanel(false);
+          setConfigInitialSubTab('users');
           setActiveTab('config');
         }}
       />
@@ -585,10 +587,13 @@ const InnerApp: React.FC = () => {
 
         {activeTab === 'config' && (
           <ErrorBoundary fallbackTitle="Không thể tải trang Cấu hình">
-            <ConfigurationTab onConfigUpdate={() => {
-              if (dailyUploadState.listFile) handleProcess('daily');
-              if (monthlyUploadState.listFile) handleProcess('monthly');
-            }} />
+            <ConfigurationTab
+              initialSubTab={configInitialSubTab}
+              onConfigUpdate={() => {
+                if (dailyUploadState.listFile) handleProcess('daily');
+                if (monthlyUploadState.listFile) handleProcess('monthly');
+              }}
+            />
           </ErrorBoundary>
         )}
 

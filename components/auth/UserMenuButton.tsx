@@ -30,7 +30,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLoginClick, onAccountClick }) => {
-  const { user, isLoading: authLoading, isAuthenticated, isPendingApproval, currentRole, logout } = useAuth();
+  const { user, isLoading: authLoading, isAuthenticated, isPendingApproval, currentRole, logout, pendingApprovalCount } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -108,11 +108,19 @@ export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLog
           ${collapsed ? 'justify-center px-1.5' : ''}`}
         title={collapsed ? `${user?.displayName || user?.nickname} (${roleInfo.label})` : undefined}
       >
-        <div className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center shrink-0">
-          {currentRole === 'admin' ? (
-            <Shield className="w-3 h-3" />
-          ) : (
-            <UserCircle className="w-3.5 h-3.5" />
+        <div className="relative shrink-0">
+          <div className="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center shrink-0">
+            {currentRole === 'admin' ? (
+              <Shield className="w-3 h-3" />
+            ) : (
+              <UserCircle className="w-3.5 h-3.5" />
+            )}
+          </div>
+          {pendingApprovalCount > 0 && (
+            <span
+              className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-white animate-pulse"
+              title={`${pendingApprovalCount} tài khoản chờ duyệt`}
+            />
           )}
         </div>
         {!collapsed && (
@@ -135,6 +143,20 @@ export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLog
             <p className="text-xs font-semibold text-gray-800 truncate">{user?.displayName || user?.nickname}</p>
             <p className="text-[10px] text-gray-500 truncate">{user?.department}</p>
           </div>
+          {pendingApprovalCount > 0 && onAccountClick && (
+            <button
+              onClick={() => { setIsMenuOpen(false); onAccountClick(); }}
+              className="w-full px-3 py-2 text-xs text-left text-amber-800 bg-amber-50/80 hover:bg-amber-100 flex items-center justify-between transition-colors cursor-pointer border-b border-amber-200"
+            >
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span className="font-semibold text-[11px]">Chờ phê duyệt</span>
+              </div>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                {pendingApprovalCount}
+              </span>
+            </button>
+          )}
           {onAccountClick && (
             <button
               onClick={() => { setIsMenuOpen(false); onAccountClick(); }}

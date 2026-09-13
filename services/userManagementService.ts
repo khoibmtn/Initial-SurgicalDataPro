@@ -8,6 +8,7 @@ import {
   getDocs,
   doc,
   updateDoc,
+  writeBatch,
   onSnapshot,
   serverTimestamp,
   orderBy,
@@ -178,5 +179,131 @@ export function subscribeToDepartmentPermissions(
     console.error('[userManagementService] subscribeToDepartmentPermissions error:', err);
     callback(null);
   });
+}
+
+// ─── Update user profile fields (department, displayName) ───────────────────
+
+export async function updateUserProfile(
+  uid: string,
+  fields: { department?: string; displayName?: string }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const docRef = doc(firestore, USERS_COLLECTION, uid);
+    await updateDoc(docRef, { ...fields, updatedAt: serverTimestamp() });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+// ─── Reject (disable) a pending user ────────────────────────────────────────
+
+export async function rejectUser(uid: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const docRef = doc(firestore, USERS_COLLECTION, uid);
+    await updateDoc(docRef, { status: 'disabled', updatedAt: serverTimestamp() });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+// ─── Batch Approve Users (Atomic Batch) ─────────────────────────────────────
+
+export async function batchApproveUsers(
+  uids: string[],
+  departmentMap?: Record<string, string>
+): Promise<{ success: boolean; count: number; error?: string }> {
+  if (!uids || uids.length === 0) return { success: true, count: 0 };
+  try {
+    const batch = writeBatch(firestore);
+    for (const uid of uids) {
+      const docRef = doc(firestore, USERS_COLLECTION, uid);
+      const updateData: Record<string, any> = {
+        status: 'active',
+        updatedAt: serverTimestamp(),
+      };
+      if (departmentMap && departmentMap[uid]) {
+        updateData.department = departmentMap[uid];
+      }
+      batch.update(docRef, updateData);
+    }
+    await batch.commit();
+    return { success: true, count: uids.length };
+  } catch (err: any) {
+    console.error('[userManagementService] batchApproveUsers error:', err);
+    return { success: false, count: 0, error: err.message };
+  }
+}
+
+// ─── Batch Reject Users (Atomic Batch) ──────────────────────────────────────
+
+export async function batchRejectUsers(
+  uids: string[]
+): Promise<{ success: boolean; count: number; error?: string }> {
+  if (!uids || uids.length === 0) return { success: true, count: 0 };
+  try {
+    const batch = writeBatch(firestore);
+    for (const uid of uids) {
+      const docRef = doc(firestore, USERS_COLLECTION, uid);
+      batch.update(docRef, {
+        status: 'disabled',
+        updatedAt: serverTimestamp(),
+      });
+    }
+    await batch.commit();
+    return { success: true, count: uids.length };
+  } catch (err: any) {
+    console.error('[userManagementService] batchRejectUsers error:', err);
+    return { success: false, count: 0, error: err.message };
+  }
+}
+
+// ─── Subscribe to Pending Users (Realtime count & list for Approver) ────────
+
+export function subscribeToPendingUsers(
+  role: 'admin' | 'head',
+  department: string | undefined,
+  callback: (users: AppUser[]) => void
+): Unsubscribe {
+  if (role === 'admin') {
+    const q = query(
+      collection(firestore, USERS_COLLECTION),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'desc')
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const users = snapshot.docs.map((d) => docToAppUser(d.id, d.data()));
+        callback(users);
+      },
+      (err) => {
+        console.error('[userManagementService] subscribeToPendingUsers (admin) error:', err);
+        callback([]);
+      }
+    );
+  } else if (role === 'head' && department) {
+    const q = query(
+      collection(firestore, USERS_COLLECTION),
+      where('department', '==', department),
+      where('status', '==', 'pending'),
+      orderBy('createdAt', 'desc')
+    );
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const users = snapshot.docs.map((d) => docToAppUser(d.id, d.data()));
+        callback(users);
+      },
+      (err) => {
+        console.error('[userManagementService] subscribeToPendingUsers (head) error:', err);
+        callback([]);
+      }
+    );
+  }
+
+  callback([]);
+  return () => {};
 }
 

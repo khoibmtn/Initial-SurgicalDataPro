@@ -24,12 +24,21 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface ConfigurationTabProps {
     onConfigUpdate?: () => void;
+    initialSubTab?: 'norms' | 'dmkt' | 'staff' | 'users';
 }
 
-export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate }) => {
+export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate, initialSubTab }) => {
     const { config, updateConfig, resetConfig, isLoaded, isLocked, unlockConfig, lockConfig } = useConfig();
-    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users'>('norms');
-    const { isAdmin, isHead } = useAuth();
+    const { isAdmin, isHead, pendingApprovalCount } = useAuth();
+    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users'>(
+        initialSubTab || (isHead && !isAdmin ? 'users' : 'norms')
+    );
+
+    useEffect(() => {
+        if (initialSubTab) {
+            setActiveSubTab(initialSubTab);
+        }
+    }, [initialSubTab]);
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
 
@@ -125,9 +134,17 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                   { value: 'dmkt', label: 'DMKT', icon: Database },
                   { value: 'staff', label: 'Hành chính', icon: Users },
                   ...(isAdmin
-                    ? [{ value: 'users', label: 'Người dùng', icon: Shield }]
+                    ? [{
+                        value: 'users',
+                        label: pendingApprovalCount > 0 ? `Người dùng (${pendingApprovalCount})` : 'Người dùng',
+                        icon: Shield,
+                      }]
                     : isHead
-                    ? [{ value: 'users', label: 'Quản lý khoa', icon: Building2 }]
+                    ? [{
+                        value: 'users',
+                        label: pendingApprovalCount > 0 ? `Quản lý khoa (${pendingApprovalCount})` : 'Quản lý khoa',
+                        icon: Building2,
+                      }]
                     : []),
                 ]}
               />
