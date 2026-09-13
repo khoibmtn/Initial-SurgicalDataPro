@@ -70,7 +70,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLoginClick,
   onAccountClick,
 }) => {
-  const { user, currentRole } = useAuth();
+  const { user, currentRole, pendingApprovalCount = 0 } = useAuth();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   // Subscribe to realtime notifications

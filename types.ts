@@ -627,3 +627,6 @@ export interface RequiredMachineItem {
   createdAt?: number;
   updatedAt?: number;
 }
+
+export type { AppConfig } from './contexts/ConfigContext';
+export type SurgeryConfig = import('./contexts/ConfigContext').AppConfig;
