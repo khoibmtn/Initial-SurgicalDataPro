@@ -8,8 +8,12 @@ import {
 } from '../services/permissionService';
 
 describe('RBAC Permission Ceiling & Resolution', () => {
-  it('should have 14 total defined system permissions', () => {
-    expect(ALL_PERMISSIONS.length).toBe(14);
+  it('should have 16 total defined system permissions including lock_report and view_audit_log', () => {
+    expect(ALL_PERMISSIONS.length).toBe(16);
+    expect(ALL_PERMISSIONS.some((p) => p.key === 'lock_report')).toBe(true);
+    expect(ALL_PERMISSIONS.some((p) => p.key === 'view_audit_log')).toBe(true);
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('lock_report');
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('view_audit_log');
   });
 
   describe('resolveDepartmentStaffPermissions (Ceiling Enforcement)', () => {

@@ -24,11 +24,17 @@ import {
   RotateCcw,
   Sparkles,
   SlidersHorizontal,
+  KeyRound,
+  Trash2,
+  Edit2,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import type { AppUser, UserRole } from '../../types/auth';
 import {
   subscribeToAllUsers,
@@ -41,6 +47,8 @@ import {
   saveDepartmentStaffPermissions,
   subscribeToDepartmentPermissions,
   updateUserProfile,
+  deleteUser,
+  resetUserPassword,
   rejectUser,
   batchApproveUsers,
 } from '../../services/userManagementService';
@@ -410,6 +418,16 @@ export const UserManagementPanel: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'disabled'>('all');
   const [deptFilter, setDeptFilter] = useState<string>('all');
 
+  // User Management Modals State
+  const [editingUser, setEditingUser] = useState<AppUser | null>(null);
+  const [editFormData, setEditFormData] = useState<{ displayName: string; department: string; role: UserRole }>({
+    displayName: '',
+    department: '',
+    role: 'staff',
+  });
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<AppUser | null>(null);
+  const [resetPasswordConfirmUser, setResetPasswordConfirmUser] = useState<AppUser | null>(null);
+
   // Subscribe to users list (Admin: all users; Head: users in own department)
   useEffect(() => {
     if (!isAdmin && !isHead) {
@@ -541,6 +559,64 @@ export const UserManagementPanel: React.FC = () => {
     showMsg(res.success ? 'success' : 'error', res.success ? 'Đã cập nhật tên hiển thị.' : res.error || 'Lỗi.');
   };
 
+  const openEditModal = (u: AppUser) => {
+    setEditingUser(u);
+    setEditFormData({
+      displayName: u.displayName || u.nickname,
+      department: u.department || '',
+      role: u.role,
+    });
+  };
+
+  const handleSaveEditUser = async () => {
+    if (!editingUser) return;
+    if (!editFormData.displayName.trim()) {
+      showMsg('error', 'Họ và tên không được để trống!');
+      return;
+    }
+    const updates: { displayName: string; department?: string; role?: UserRole } = {
+      displayName: editFormData.displayName.trim(),
+      department: editFormData.department,
+    };
+    if (isAdmin && editingUser.uid !== currentUser?.uid) {
+      updates.role = editFormData.role;
+    }
+    const res = await updateUserProfile(editingUser.uid, updates);
+    if (res.success) {
+      showMsg('success', `Đã cập nhật thông tin tài khoản "${editingUser.nickname}" thành công!`);
+      setEditingUser(null);
+    } else {
+      showMsg('error', res.error || 'Lỗi khi cập nhật thông tin người dùng.');
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deleteConfirmUser) return;
+    if (deleteConfirmUser.uid === currentUser?.uid) {
+      showMsg('error', 'Không thể xóa tài khoản của chính mình!');
+      setDeleteConfirmUser(null);
+      return;
+    }
+    const res = await deleteUser(deleteConfirmUser.uid);
+    if (res.success) {
+      showMsg('success', `Đã xóa tài khoản "${deleteConfirmUser.displayName || deleteConfirmUser.nickname}" thành công!`);
+    } else {
+      showMsg('error', res.error || 'Lỗi khi xóa người dùng.');
+    }
+    setDeleteConfirmUser(null);
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordConfirmUser) return;
+    const res = await resetUserPassword(resetPasswordConfirmUser.uid);
+    if (res.success) {
+      showMsg('success', `Đã đặt lại mật khẩu của "${resetPasswordConfirmUser.displayName || resetPasswordConfirmUser.nickname}" về "123456" thành công!`);
+    } else {
+      showMsg('error', res.error || 'Lỗi khi đặt lại mật khẩu.');
+    }
+    setResetPasswordConfirmUser(null);
+  };
+
   const handleToggleApproval = async () => {
     const newVal = !authConfig.requireApproval;
     const res = await updateAuthConfig({ requireApproval: newVal });
@@ -659,7 +735,7 @@ export const UserManagementPanel: React.FC = () => {
         <td className="px-3 py-2.5 text-center">
           {isCurrentUser ? (
             <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
                 ROLE_OPTIONS.find((r) => r.value === u.role)?.color || ''
               }`}
             >
@@ -669,7 +745,7 @@ export const UserManagementPanel: React.FC = () => {
             <select
               value={u.role}
               onChange={(e) => handleRoleChange(u.uid, e.target.value as UserRole)}
-              className="text-[10px] font-bold rounded-full px-2 py-0.5 border cursor-pointer bg-white focus:outline-hidden focus:ring-1 focus:ring-primary-300"
+              className="text-xs font-medium px-2.5 py-1.5 border border-gray-200 rounded-lg bg-gray-50 hover:bg-white focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none transition-colors cursor-pointer text-gray-800 shadow-2xs"
             >
               {ROLE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -679,7 +755,7 @@ export const UserManagementPanel: React.FC = () => {
             </select>
           ) : (
             <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
                 ROLE_OPTIONS.find((r) => r.value === u.role)?.color || 'bg-gray-100 text-gray-700 border-gray-200'
               }`}
               title="Chỉ Quản trị viên mới có thể thay đổi vai trò"
@@ -702,13 +778,32 @@ export const UserManagementPanel: React.FC = () => {
         {/* Actions */}
         <td className="px-3 py-2.5 text-center">
           <div className="flex items-center justify-center gap-1">
+            {/* Sửa thông tin tài khoản */}
+            <button
+              onClick={() => openEditModal(u)}
+              className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors cursor-pointer"
+              title="Sửa thông tin tài khoản (Họ tên, Khoa, Vai trò)"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Đặt lại mật khẩu về 123456 */}
+            <button
+              onClick={() => setResetPasswordConfirmUser(u)}
+              className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors cursor-pointer"
+              title="Đặt lại mật khẩu về 123456"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Khóa / Mở khóa tài khoản */}
             {u.status === 'active' && !isCurrentUser && (
               <button
                 onClick={() => handleDisable(u.uid)}
-                className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors cursor-pointer"
                 title="Khóa tài khoản"
               >
-                <UserX className="w-3.5 h-3.5" />
+                <Lock className="w-3.5 h-3.5" />
               </button>
             )}
             {u.status === 'disabled' && (
@@ -717,7 +812,7 @@ export const UserManagementPanel: React.FC = () => {
                 className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors cursor-pointer"
                 title="Mở khóa tài khoản"
               >
-                <UserCheck className="w-3.5 h-3.5" />
+                <Unlock className="w-3.5 h-3.5" />
               </button>
             )}
             {u.status === 'pending' && (
@@ -727,6 +822,17 @@ export const UserManagementPanel: React.FC = () => {
                 title="Duyệt tài khoản này"
               >
                 <UserCheck className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Xóa tài khoản vĩnh viễn (Admin only) */}
+            {!isCurrentUser && isAdmin && (
+              <button
+                onClick={() => setDeleteConfirmUser(u)}
+                className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-500 transition-colors cursor-pointer"
+                title="Xóa tài khoản vĩnh viễn"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -1124,6 +1230,125 @@ export const UserManagementPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ─── Modal Chỉnh sửa thông tin tài khoản ───────────────────────── */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+                  <Edit2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Sửa thông tin nhân sự</h3>
+                  <p className="text-xs text-gray-500">Tài khoản: <span className="font-semibold text-gray-700">@{editingUser.nickname}</span></p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingUser(null)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Họ và tên đầy đủ <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editFormData.displayName}
+                  onChange={(e) => setEditFormData((prev) => ({ ...prev, displayName: e.target.value }))}
+                  className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50/50 focus:bg-white transition-all outline-none"
+                  placeholder="Ví dụ: BSCKII. Nguyễn Văn A"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Khoa / Phòng trực thuộc
+                </label>
+                <select
+                  value={editFormData.department}
+                  onChange={(e) => setEditFormData((prev) => ({ ...prev, department: e.target.value }))}
+                  className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50/50 focus:bg-white transition-all outline-none"
+                >
+                  <option value="">-- Chưa gán khoa phòng --</option>
+                  {departments.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {isAdmin && editingUser.uid !== currentUser?.uid && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Vai trò hệ thống
+                  </label>
+                  <select
+                    value={editFormData.role}
+                    onChange={(e) => setEditFormData((prev) => ({ ...prev, role: e.target.value as UserRole }))}
+                    className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50/50 focus:bg-white transition-all outline-none"
+                  >
+                    {ROLE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-200/60 rounded-lg transition-colors cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditUser}
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs hover:shadow-sm transition-all cursor-pointer"
+              >
+                Lưu thay đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Confirm Dialog: Xóa tài khoản ──────────────────────────────── */}
+      <ConfirmDialog
+        isOpen={!!deleteConfirmUser}
+        title="Xác nhận xóa tài khoản"
+        message={`Bạn có chắc chắn muốn xóa vĩnh viễn tài khoản "${deleteConfirmUser?.displayName || deleteConfirmUser?.nickname}" (@${deleteConfirmUser?.nickname})? Thao tác này không thể hoàn tác.`}
+        confirmLabel="Xóa tài khoản"
+        cancelLabel="Hủy bỏ"
+        variant="danger"
+        onConfirm={handleDeleteUser}
+        onCancel={() => setDeleteConfirmUser(null)}
+      />
+
+      {/* ─── Confirm Dialog: Đặt lại mật khẩu ───────────────────────────── */}
+      <ConfirmDialog
+        isOpen={!!resetPasswordConfirmUser}
+        title="Đặt lại mật khẩu về 123456"
+        message={`Mật khẩu của tài khoản "${resetPasswordConfirmUser?.displayName || resetPasswordConfirmUser?.nickname}" (@${resetPasswordConfirmUser?.nickname}) sẽ được đặt lại về mặc định là "123456". Bạn có chắc chắn muốn thực hiện?`}
+        confirmLabel="Đặt lại mật khẩu"
+        cancelLabel="Hủy bỏ"
+        variant="info"
+        onConfirm={handleResetPassword}
+        onCancel={() => setResetPasswordConfirmUser(null)}
+      />
     </div>
   );
 };

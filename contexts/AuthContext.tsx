@@ -2,7 +2,7 @@
 // Provider quản lý trạng thái đăng nhập toàn app
 // Khi chưa đăng nhập → Guest mode (app hoạt động y hệt hiện tại)
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { AppUser, AuthState, AuthConfig, RegisterData, AuthResult } from '../types/auth';
 import {
   loginWithEmail,
@@ -13,7 +13,8 @@ import {
   onAuthChange,
   subscribeToUserProfile,
 } from '../services/authService';
-import { subscribeToPendingUsers } from '../services/userManagementService';
+import { subscribeToPendingUsers, subscribeToDepartmentPermissions } from '../services/userManagementService';
+import { resolveEffectivePermissions, DEFAULT_ROLE_PERMISSIONS } from '../services/permissionService';
 import { sendNotification } from '../services/notificationService';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
@@ -48,6 +49,10 @@ interface AuthContextValue extends AuthState {
   isHeadOrAdmin: boolean;
   /** Số lượng tài khoản đang chờ duyệt thuộc thẩm quyền (admin: toàn viện, head: khoa mình) */
   pendingApprovalCount: number;
+  /** Danh sách quyền hiệu lực của người dùng hiện tại */
+  permissions: string[];
+  /** Kiểm tra xem người dùng hiện tại có một quyền cụ thể không */
+  can: (permissionKey: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -206,11 +211,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await authLogout();
   }, []);
 
+  // ── RBAC Permissions Resolution ──
+  const [globalRolePerms, setGlobalRolePerms] = useState<{ head?: string[]; staff?: string[] }>({
+    head: DEFAULT_ROLE_PERMISSIONS.head,
+    staff: DEFAULT_ROLE_PERMISSIONS.staff,
+  });
+  const [deptStaffPerms, setDeptStaffPerms] = useState<string[] | null>(null);
+
+  // Lắng nghe trần quyền toàn hệ thống từ Realtime DB
+  useEffect(() => {
+    const permRef = ref(db, 'role_permissions');
+    const unsub = onValue(permRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setGlobalRolePerms({
+          head: data.head || DEFAULT_ROLE_PERMISSIONS.head,
+          staff: data.staff || DEFAULT_ROLE_PERMISSIONS.staff,
+        });
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Lắng nghe quyền áp dụng riêng cho nhân viên khoa
+  useEffect(() => {
+    const dept = authState.user?.department;
+    if (!dept) {
+      setDeptStaffPerms(null);
+      return;
+    }
+    const unsub = subscribeToDepartmentPermissions(dept, (customPerms) => {
+      setDeptStaffPerms(customPerms);
+    });
+    return () => unsub();
+  }, [authState.user?.department]);
+
   // ── Derived values ──
   const currentRole = authState.user?.role ?? 'guest';
   const isAdmin = currentRole === 'admin';
   const isHead = currentRole === 'head';
   const isHeadOrAdmin = isAdmin || isHead;
+
+  const permissions = useMemo(() => {
+    return resolveEffectivePermissions(
+      currentRole,
+      authState.user?.department,
+      globalRolePerms,
+      deptStaffPerms
+    );
+  }, [currentRole, authState.user?.department, globalRolePerms, deptStaffPerms]);
+
+  const can = useCallback(
+    (permKey: string): boolean => {
+      if (isAdmin) return true;
+      return permissions.includes(permKey);
+    },
+    [isAdmin, permissions]
+  );
 
   const value: AuthContextValue = {
     ...authState,
@@ -224,6 +281,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isHead,
     isHeadOrAdmin,
     pendingApprovalCount,
+    permissions,
+    can,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

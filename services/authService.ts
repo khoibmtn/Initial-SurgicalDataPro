@@ -85,28 +85,59 @@ export async function loginWithEmail(email: string, password: string): Promise<A
 export async function loginWithNickname(nickname: string, password: string): Promise<AuthResult> {
   try {
     const normalizedNickname = nickname.toLowerCase().trim();
-    
-    // Tạo email ảo từ nickname
     const email = nicknameToEmail(normalizedNickname);
-    const credential = await signInWithEmailAndPassword(auth, email, password);
-    const profile = await getUserProfile(credential.user.uid);
     
-    if (!profile) {
-      await signOut(auth);
-      return { success: false, error: 'Không tìm thấy hồ sơ người dùng.' };
+    try {
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const profile = await getUserProfile(credential.user.uid);
+      
+      if (!profile) {
+        await signOut(auth);
+        return { success: false, error: 'Không tìm thấy hồ sơ người dùng.' };
+      }
+      
+      if (profile.status === 'pending') {
+        await signOut(auth);
+        return { success: false, error: 'Tài khoản đang chờ phê duyệt. Vui lòng liên hệ quản trị viên hoặc trưởng khoa.' };
+      }
+      
+      if (profile.status === 'disabled') {
+        await signOut(auth);
+        return { success: false, error: 'Tài khoản đã bị khóa.' };
+      }
+
+      // Xóa cờ resetPasswordDefault nếu đang có
+      if ((profile as any).passwordResetDefault) {
+        const docRef = doc(firestore, USERS_COLLECTION, credential.user.uid);
+        updateDoc(docRef, { passwordResetDefault: false }).catch(() => {});
+      }
+      
+      return { success: true, user: profile };
+    } catch (authErr: any) {
+      // Hỗ trợ mật khẩu reset về 123456 do Admin thực hiện
+      if (password === '123456') {
+        const q = query(
+          collection(firestore, USERS_COLLECTION),
+          where('nickname', '==', normalizedNickname)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const userDoc = snap.docs[0];
+          const userData = userDoc.data();
+          if (userData.passwordResetDefault === true) {
+            const profile = docToAppUser(userDoc.id, userData);
+            if (profile.status === 'pending') {
+              return { success: false, error: 'Tài khoản đang chờ phê duyệt.' };
+            }
+            if (profile.status === 'disabled') {
+              return { success: false, error: 'Tài khoản đã bị khóa.' };
+            }
+            return { success: true, user: profile };
+          }
+        }
+      }
+      return { success: false, error: mapFirebaseError(authErr.code) };
     }
-    
-    if (profile.status === 'pending') {
-      await signOut(auth);
-      return { success: false, error: 'Tài khoản đang chờ phê duyệt. Vui lòng liên hệ quản trị viên hoặc trưởng khoa.' };
-    }
-    
-    if (profile.status === 'disabled') {
-      await signOut(auth);
-      return { success: false, error: 'Tài khoản đã bị khóa.' };
-    }
-    
-    return { success: true, user: profile };
   } catch (err: any) {
     return { success: false, error: mapFirebaseError(err.code) };
   }

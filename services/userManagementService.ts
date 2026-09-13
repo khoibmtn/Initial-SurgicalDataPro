@@ -8,6 +8,7 @@ import {
   getDocs,
   doc,
   updateDoc,
+  deleteDoc,
   writeBatch,
   onSnapshot,
   serverTimestamp,
@@ -181,15 +182,42 @@ export function subscribeToDepartmentPermissions(
   });
 }
 
-// ─── Update user profile fields (department, displayName) ───────────────────
+// ─── Update user profile fields (department, displayName, role) ──────────────
 
 export async function updateUserProfile(
   uid: string,
-  fields: { department?: string; displayName?: string }
+  fields: { department?: string; displayName?: string; role?: UserRole }
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const docRef = doc(firestore, USERS_COLLECTION, uid);
     await updateDoc(docRef, { ...fields, updatedAt: serverTimestamp() });
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+// ─── Delete user (Admin only) ───────────────────────────────────────────────
+
+export async function deleteUser(uid: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const docRef = doc(firestore, USERS_COLLECTION, uid);
+    await deleteDoc(docRef);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+// ─── Reset user password to default '123456' ─────────────────────────────────
+
+export async function resetUserPassword(uid: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const docRef = doc(firestore, USERS_COLLECTION, uid);
+    await updateDoc(docRef, {
+      passwordResetDefault: true,
+      updatedAt: serverTimestamp(),
+    });
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };

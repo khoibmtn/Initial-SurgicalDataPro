@@ -167,7 +167,7 @@ const InnerApp: React.FC = () => {
   const { toasts, addToast, removeToast } = useToast();
 
   // ── Khóa / Mở khóa báo cáo (Report Lock / Unlock) ──
-  const { user, isAdmin, isHead, currentRole } = useAuth();
+  const { user, isAdmin, isHead, currentRole, can } = useAuth();
   const [allLocks, setAllLocks] = useState<Record<string, ReportLock>>({});
   const [showLockModal, setShowLockModal] = useState(false);
   const [lockModalMode, setLockModalMode] = useState<'lock' | 'unlock'>('lock');
@@ -239,17 +239,22 @@ const InnerApp: React.FC = () => {
   const canManageLock = useMemo(() => {
     // Chỉ áp dụng khóa sổ cho Báo cáo tháng
     if (currentType !== 'monthly') return false;
-    return isAdmin || (isHead && !!user?.department);
-  }, [isAdmin, isHead, user?.department, currentType]);
+    if (isAdmin) return true;
+    return can('lock_report') && !!user?.department;
+  }, [isAdmin, can, user?.department, currentType]);
 
   const canUnlockCurrentReport = useMemo(() => {
     // Chỉ áp dụng khóa sổ cho Báo cáo tháng
     if (currentType !== 'monthly') return false;
     if (!activeLock || !activeLock.isLocked) return false;
     if (isAdmin) return true;
-    if (isHead && user?.department && activeLock.department === user.department) return true;
-    return false;
-  }, [activeLock, isAdmin, isHead, user?.department, currentType]);
+    return can('lock_report') && !!user?.department && activeLock.department === user.department;
+  }, [activeLock, isAdmin, can, user?.department, currentType]);
+
+  const canViewAuditLog = useMemo(() => {
+    if (isAdmin) return true;
+    return can('view_audit_log');
+  }, [isAdmin, can]);
 
   // ── Truy vết chỉnh sửa (Audit Log) ──
   const [allAuditLogs, setAllAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -791,7 +796,7 @@ const InnerApp: React.FC = () => {
                     setLockModalMode('unlock');
                     setShowLockModal(true);
                   }}
-                  onOpenAuditLog={() => setShowAuditLogModal(true)}
+                  onOpenAuditLog={canViewAuditLog ? () => setShowAuditLogModal(true) : undefined}
                   auditLogCount={allAuditLogs.length}
                   onOpenStaging={currentReport.result?.validRecords?.length ? handleOpenStaging : undefined}
                   stagingIssueCount={currentStagingIssuesCount}

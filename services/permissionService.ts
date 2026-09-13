@@ -9,7 +9,7 @@ export interface PermissionDefinition {
   category: 'Dữ liệu' | 'Thống kê' | 'Cấu hình' | 'Quản trị';
 }
 
-/** Danh sách 14 quyền trong hệ thống */
+/** Danh sách 16 quyền trong hệ thống */
 export const ALL_PERMISSIONS: PermissionDefinition[] = [
   // ── Dữ liệu & Báo cáo ──
   { key: 'view_daily_report', label: 'Xem BC hàng ngày', description: 'Xem báo cáo phẫu thuật hàng ngày', category: 'Dữ liệu' },
@@ -17,6 +17,7 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: 'edit_report', label: 'Chỉnh sửa BC', description: 'Thêm, sửa, xóa bản ghi phẫu thuật', category: 'Dữ liệu' },
   { key: 'import_excel', label: 'Nhập Excel', description: 'Import dữ liệu từ file Excel', category: 'Dữ liệu' },
   { key: 'export_excel', label: 'Xuất Excel', description: 'Export dữ liệu ra file Excel', category: 'Dữ liệu' },
+  { key: 'lock_report', label: 'Khóa sổ báo cáo', description: 'Khóa hoặc mở khóa chốt số liệu báo cáo tháng', category: 'Dữ liệu' },
   // ── Thống kê ──
   { key: 'view_statistics', label: 'Xem thống kê', description: 'Xem trang thống kê tổng hợp', category: 'Thống kê' },
   { key: 'view_cost_report', label: 'Xem chi phí', description: 'Xem báo cáo chi phí phẫu thuật', category: 'Thống kê' },
@@ -25,6 +26,7 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: 'manage_dmkt', label: 'Quản lý DMKT', description: 'Quản lý danh mục kỹ thuật, giá', category: 'Cấu hình' },
   { key: 'manage_staff', label: 'Quản lý nhân viên', description: 'Danh sách nhân viên, khoa phòng', category: 'Cấu hình' },
   // ── Quản trị ──
+  { key: 'view_audit_log', label: 'Xem lưu vết', description: 'Xem lịch sử các thao tác chỉnh sửa và lưu vết hệ thống', category: 'Quản trị' },
   { key: 'approve_users', label: 'Duyệt thành viên', description: 'Phê duyệt/từ chối tài khoản mới', category: 'Quản trị' },
   { key: 'manage_user_roles', label: 'Phân quyền', description: 'Thay đổi vai trò người dùng', category: 'Quản trị' },
   { key: 'disable_users', label: 'Khóa tài khoản', description: 'Vô hiệu hóa tài khoản người dùng', category: 'Quản trị' },
@@ -35,10 +37,10 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
 export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'staff', string[]> = {
   head: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
-    'import_excel', 'export_excel',
+    'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
     'manage_staff',
-    'approve_users',
+    'approve_users', 'view_audit_log',
   ],
   staff: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
