@@ -8,12 +8,18 @@ import {
 } from '../services/permissionService';
 
 describe('RBAC Permission Ceiling & Resolution', () => {
-  it('should have 16 total defined system permissions including lock_report and view_audit_log', () => {
-    expect(ALL_PERMISSIONS.length).toBe(16);
+  it('should have 17 total defined system permissions including lock_report, view_audit_log, and manage_admin_settings', () => {
+    expect(ALL_PERMISSIONS.length).toBe(17);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'lock_report')).toBe(true);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'view_audit_log')).toBe(true);
+    expect(ALL_PERMISSIONS.some((p) => p.key === 'manage_admin_settings')).toBe(true);
     expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('lock_report');
     expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('view_audit_log');
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('manage_admin_settings');
+    expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).toContain('manage_admin_settings');
+    expect(DEFAULT_ROLE_PERMISSIONS.guest).toContain('manage_admin_settings');
+    expect(DEFAULT_ROLE_PERMISSIONS.guest).toContain('view_daily_report');
+    expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain('approve_users');
   });
 
   describe('resolveDepartmentStaffPermissions (Ceiling Enforcement)', () => {
@@ -60,6 +66,7 @@ describe('RBAC Permission Ceiling & Resolution', () => {
       head: DEFAULT_ROLE_PERMISSIONS.head,
       deputy_head: DEFAULT_ROLE_PERMISSIONS.deputy_head,
       staff: DEFAULT_ROLE_PERMISSIONS.staff,
+      guest: DEFAULT_ROLE_PERMISSIONS.guest,
     };
 
     it('should grant all permissions to admin', () => {
@@ -72,6 +79,7 @@ describe('RBAC Permission Ceiling & Resolution', () => {
     it('should grant head permissions to department head', () => {
       const perms = resolveEffectivePermissions('head', 'Ngoại Tổng Hợp', globalPerms);
       expect(hasPermission(perms, 'approve_users')).toBe(true);
+      expect(hasPermission(perms, 'manage_admin_settings')).toBe(true);
       expect(hasPermission(perms, 'system_config')).toBe(false);
     });
 
@@ -80,6 +88,7 @@ describe('RBAC Permission Ceiling & Resolution', () => {
       expect(hasPermission(perms, 'approve_users')).toBe(true);
       expect(hasPermission(perms, 'lock_report')).toBe(true);
       expect(hasPermission(perms, 'view_audit_log')).toBe(true);
+      expect(hasPermission(perms, 'manage_admin_settings')).toBe(true);
       expect(hasPermission(perms, 'system_config')).toBe(false);
     });
 
@@ -91,9 +100,14 @@ describe('RBAC Permission Ceiling & Resolution', () => {
       expect(hasPermission(perms, 'edit_report')).toBe(false);
     });
 
-    it('should grant all permissions to guest during Guest-First phase', () => {
+    it('should grant operational permissions to guest based on global guest permissions', () => {
       const perms = resolveEffectivePermissions('guest', undefined, globalPerms);
-      expect(perms.length).toBe(ALL_PERMISSIONS.length);
+      expect(perms).toEqual(DEFAULT_ROLE_PERMISSIONS.guest);
+      expect(hasPermission(perms, 'view_daily_report')).toBe(true);
+      expect(hasPermission(perms, 'manage_admin_settings')).toBe(true);
+      expect(hasPermission(perms, 'manage_norms')).toBe(true);
+      expect(hasPermission(perms, 'approve_users')).toBe(false);
+      expect(hasPermission(perms, 'system_config')).toBe(false);
     });
   });
 });

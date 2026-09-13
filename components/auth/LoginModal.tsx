@@ -16,6 +16,8 @@ import {
   EyeOff,
   Shield,
   Loader2,
+  Info,
+  ArrowRight,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { RegisterForm } from './RegisterForm';
@@ -244,6 +246,34 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 >
                   Chưa có tài khoản? <span className="font-bold">Đăng ký</span>
                 </button>
+              </div>
+
+              {/* Note: Đăng nhập không cần tài khoản (Khách) */}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-left flex items-start gap-2.5">
+                  <div className="p-1 bg-slate-200/80 text-slate-700 rounded-md shrink-0 mt-0.5">
+                    <Info className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1 flex-wrap">
+                      <span className="text-xs font-bold text-gray-800">Đăng nhập không cần tài khoản</span>
+                      <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">
+                        Chế độ Khách
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 leading-snug mt-1">
+                      Bạn có thể trải nghiệm toàn bộ tính năng báo cáo, đối soát và xuất dữ liệu ngay mà không cần đăng nhập.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { resetForm(); onClose(); }}
+                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                    >
+                      <span>Vào ngay (Khách)</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (

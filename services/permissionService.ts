@@ -25,6 +25,7 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: 'manage_norms', label: 'Quản lý định mức', description: 'Thay đổi định mức phụ cấp, thời gian', category: 'Cấu hình' },
   { key: 'manage_dmkt', label: 'Quản lý DMKT', description: 'Quản lý danh mục kỹ thuật, giá', category: 'Cấu hình' },
   { key: 'manage_staff', label: 'Quản lý nhân viên', description: 'Danh sách nhân viên, khoa phòng', category: 'Cấu hình' },
+  { key: 'manage_admin_settings', label: 'Hành chính', description: 'Được phép truy cập và sửa mục Hành chính', category: 'Cấu hình' },
   // ── Quản trị ──
   { key: 'view_audit_log', label: 'Xem lưu vết', description: 'Xem lịch sử các thao tác chỉnh sửa và lưu vết hệ thống', category: 'Quản trị' },
   { key: 'approve_users', label: 'Duyệt thành viên', description: 'Phê duyệt/từ chối tài khoản mới', category: 'Quản trị' },
@@ -34,25 +35,32 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
 ];
 
 /** Quyền mặc định theo từng role */
-export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff', string[]> = {
+export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' | 'guest', string[]> = {
   head: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
-    'manage_staff',
+    'manage_staff', 'manage_admin_settings',
     'approve_users', 'view_audit_log',
   ],
   deputy_head: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
-    'manage_staff',
+    'manage_staff', 'manage_admin_settings',
     'approve_users', 'view_audit_log',
   ],
   staff: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel',
     'view_statistics',
+  ],
+  guest: [
+    'view_daily_report', 'view_monthly_report', 'edit_report',
+    'import_excel', 'export_excel',
+    'view_statistics', 'view_cost_report',
+    'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
+    'view_audit_log',
   ],
 };
 
@@ -81,7 +89,7 @@ export function resolveDepartmentStaffPermissions(
 export function resolveEffectivePermissions(
   userRole: string,
   _department: string | undefined,
-  globalRolePerms: { head?: string[]; deputy_head?: string[]; staff?: string[] },
+  globalRolePerms: { head?: string[]; deputy_head?: string[]; staff?: string[]; guest?: string[] },
   departmentStaffPerms?: string[] | null
 ): string[] {
   if (userRole === 'admin') {
@@ -97,8 +105,10 @@ export function resolveEffectivePermissions(
     const staffCeiling = globalRolePerms.staff || DEFAULT_ROLE_PERMISSIONS.staff;
     return resolveDepartmentStaffPermissions(staffCeiling, departmentStaffPerms);
   }
-  // Guest: toàn quyền trong giai đoạn Guest-First
-  return ALL_PERMISSIONS.map((p) => p.key);
+  if (userRole === 'guest') {
+    return globalRolePerms.guest || DEFAULT_ROLE_PERMISSIONS.guest;
+  }
+  return DEFAULT_ROLE_PERMISSIONS.guest;
 }
 
 /**

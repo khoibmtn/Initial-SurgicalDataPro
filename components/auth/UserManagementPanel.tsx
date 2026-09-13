@@ -29,6 +29,7 @@ import {
   Edit2,
   Lock,
   Unlock,
+  Globe,
 } from 'lucide-react';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../../lib/firebase';
@@ -1478,6 +1479,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   const [headPerms, setHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.head);
   const [deputyHeadPerms, setDeputyHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.deputy_head);
   const [staffPerms, setStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
+  const [guestPerms, setGuestPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.guest);
   const [deptStaffPerms, setDeptStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -1490,6 +1492,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
         if (data.head) setHeadPerms(data.head);
         if (data.deputy_head) setDeputyHeadPerms(data.deputy_head);
         if (data.staff) setStaffPerms(data.staff);
+        if (data.guest) setGuestPerms(data.guest);
       }
     });
     return () => unsub();
@@ -1509,12 +1512,13 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   }, [department, staffPerms]);
 
   // Admin toggling global role permissions
-  const toggleGlobalPermission = async (role: 'head' | 'deputy_head' | 'staff', permKey: string) => {
+  const toggleGlobalPermission = async (role: 'head' | 'deputy_head' | 'staff' | 'guest', permKey: string) => {
     setIsSaving(true);
     let currentPerms: string[];
     if (role === 'head') currentPerms = [...headPerms];
     else if (role === 'deputy_head') currentPerms = [...deputyHeadPerms];
-    else currentPerms = [...staffPerms];
+    else if (role === 'staff') currentPerms = [...staffPerms];
+    else currentPerms = [...guestPerms];
 
     const idx = currentPerms.indexOf(permKey);
     if (idx >= 0) {
@@ -1526,6 +1530,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
     const nextHead = role === 'head' ? currentPerms : headPerms;
     const nextDeputyHead = role === 'deputy_head' ? currentPerms : deputyHeadPerms;
     let nextStaff = role === 'staff' ? currentPerms : [...staffPerms];
+    const nextGuest = role === 'guest' ? currentPerms : guestPerms;
 
     if (role === 'head' && idx >= 0) {
       nextStaff = staffPerms.filter((p) => p !== permKey);
@@ -1536,6 +1541,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
         head: nextHead,
         deputy_head: nextDeputyHead,
         staff: nextStaff,
+        guest: nextGuest,
       });
     } catch (err) {
       console.error('Failed to save permissions:', err);
@@ -1770,29 +1776,35 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/50">
-              <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[36%]">Quyền</th>
-              <th className="text-center px-2 py-2 font-semibold w-[16%]">
+              <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[30%]">Quyền</th>
+              <th className="text-center px-2 py-2 font-semibold w-[14%]">
                 <div className="flex items-center justify-center gap-1">
                   <Shield className="w-3 h-3 text-red-600" />
                   <span className="text-red-700">Admin</span>
                 </div>
               </th>
-              <th className="text-center px-2 py-2 font-semibold w-[16%]">
+              <th className="text-center px-2 py-2 font-semibold w-[14%]">
                 <div className="flex items-center justify-center gap-1">
                   <Building2 className="w-3 h-3 text-blue-600" />
                   <span className="text-blue-700">Trưởng khoa</span>
                 </div>
               </th>
-              <th className="text-center px-2 py-2 font-semibold w-[16%]">
+              <th className="text-center px-2 py-2 font-semibold w-[14%]">
                 <div className="flex items-center justify-center gap-1">
                   <UserCheck className="w-3 h-3 text-sky-600" />
                   <span className="text-sky-700">Phó khoa</span>
                 </div>
               </th>
-              <th className="text-center px-2 py-2 font-semibold w-[16%]">
+              <th className="text-center px-2 py-2 font-semibold w-[14%]">
                 <div className="flex items-center justify-center gap-1">
                   <Users className="w-3 h-3 text-gray-600" />
                   <span className="text-gray-700">Nhân viên</span>
+                </div>
+              </th>
+              <th className="text-center px-2 py-2 font-semibold w-[14%]">
+                <div className="flex items-center justify-center gap-1">
+                  <Globe className="w-3 h-3 text-slate-600" />
+                  <span className="text-slate-700">Khách</span>
                 </div>
               </th>
             </tr>
@@ -1801,7 +1813,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
             {categories.map((cat) => (
               <React.Fragment key={cat}>
                 <tr className="bg-gray-50/80 border-y border-gray-100">
-                  <td colSpan={5} className="px-3.5 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                  <td colSpan={6} className="px-3.5 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                     {cat}
                   </td>
                 </tr>
@@ -1809,6 +1821,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                   const headHas = headPerms.includes(perm.key);
                   const deputyHeadHas = deputyHeadPerms.includes(perm.key);
                   const staffHas = staffPerms.includes(perm.key);
+                  const guestHas = guestPerms.includes(perm.key);
 
                   return (
                     <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
@@ -1862,6 +1875,17 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                             <XCircle className="w-4 h-4 text-gray-200" />
                           </div>
                         )}
+                      </td>
+                      <td className="text-center px-2 py-2">
+                        <button
+                          onClick={() => toggleGlobalPermission('guest', perm.key)}
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                            guestHas ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-gray-100 hover:bg-gray-200'
+                          }`}
+                          title={guestHas ? `Tắt '${perm.label}' cho Khách` : `Bật '${perm.label}' cho Khách`}
+                        >
+                          {guestHas ? <CheckCircle2 className="w-4 h-4 text-slate-700" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                        </button>
                       </td>
                     </tr>
                   );

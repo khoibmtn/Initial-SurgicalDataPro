@@ -216,10 +216,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // ── RBAC Permissions Resolution ──
-  const [globalRolePerms, setGlobalRolePerms] = useState<{ head?: string[]; deputy_head?: string[]; staff?: string[] }>({
+  const [globalRolePerms, setGlobalRolePerms] = useState<{
+    head?: string[];
+    deputy_head?: string[];
+    staff?: string[];
+    guest?: string[];
+  }>({
     head: DEFAULT_ROLE_PERMISSIONS.head,
     deputy_head: DEFAULT_ROLE_PERMISSIONS.deputy_head,
     staff: DEFAULT_ROLE_PERMISSIONS.staff,
+    guest: DEFAULT_ROLE_PERMISSIONS.guest,
   });
   const [deptStaffPerms, setDeptStaffPerms] = useState<string[] | null>(null);
 
@@ -233,6 +239,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           head: data.head || DEFAULT_ROLE_PERMISSIONS.head,
           deputy_head: data.deputy_head || DEFAULT_ROLE_PERMISSIONS.deputy_head,
           staff: data.staff || DEFAULT_ROLE_PERMISSIONS.staff,
+          guest: data.guest || DEFAULT_ROLE_PERMISSIONS.guest,
         });
       }
     });

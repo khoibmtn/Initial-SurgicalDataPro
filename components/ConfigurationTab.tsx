@@ -29,7 +29,7 @@ interface ConfigurationTabProps {
 
 export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate, initialSubTab }) => {
     const { config, updateConfig, resetConfig, isLoaded, isLocked, unlockConfig, lockConfig } = useConfig();
-    const { isAdmin, isHead, isDeputyHead, pendingApprovalCount } = useAuth();
+    const { isAdmin, isHead, isDeputyHead, pendingApprovalCount, can } = useAuth();
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users'>(
         initialSubTab || ((isHead || isDeputyHead) && !isAdmin ? 'users' : 'norms')
     );
@@ -42,6 +42,14 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
     const [accountSubTab, setAccountSubTab] = useState<'accounts' | 'permissions'>('accounts');
+
+    const canManageAdmin = can('manage_admin_settings');
+
+    useEffect(() => {
+        if (!canManageAdmin && staffSubTab === 'admin') {
+            setStaffSubTab('departments');
+        }
+    }, [canManageAdmin, staffSubTab]);
 
     // Lock modal state
     const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
@@ -239,7 +247,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                     onChange={(v) => setStaffSubTab(v as any)}
                     size="sm"
                     options={[
-                      { value: 'admin', label: 'Hành chính', icon: Building2 },
+                      ...(canManageAdmin ? [{ value: 'admin', label: 'Hành chính', icon: Building2 }] : []),
                       { value: 'departments', label: 'DM Khoa, phòng', icon: Layers },
                       { value: 'staff-list', label: 'Nhân viên y tế', icon: Users },
                     ]}
@@ -310,7 +318,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
                 {activeSubTab === 'staff' && (
                     <div className="animate-fade-in space-y-4">
-                        {staffSubTab === 'admin' && <AdminSettingsConfig />}
+                        {staffSubTab === 'admin' && canManageAdmin && <AdminSettingsConfig />}
                         {staffSubTab === 'departments' && <DepartmentConfig />}
                         {staffSubTab === 'staff-list' && <StaffListConfig onConfigUpdate={onConfigUpdate} />}
                     </div>
