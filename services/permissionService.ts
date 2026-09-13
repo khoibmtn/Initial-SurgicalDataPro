@@ -34,8 +34,15 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
 ];
 
 /** Quyền mặc định theo từng role */
-export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'staff', string[]> = {
+export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff', string[]> = {
   head: [
+    'view_daily_report', 'view_monthly_report', 'edit_report',
+    'import_excel', 'export_excel', 'lock_report',
+    'view_statistics', 'view_cost_report',
+    'manage_staff',
+    'approve_users', 'view_audit_log',
+  ],
+  deputy_head: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
@@ -74,7 +81,7 @@ export function resolveDepartmentStaffPermissions(
 export function resolveEffectivePermissions(
   userRole: string,
   _department: string | undefined,
-  globalRolePerms: { head?: string[]; staff?: string[] },
+  globalRolePerms: { head?: string[]; deputy_head?: string[]; staff?: string[] },
   departmentStaffPerms?: string[] | null
 ): string[] {
   if (userRole === 'admin') {
@@ -82,6 +89,9 @@ export function resolveEffectivePermissions(
   }
   if (userRole === 'head') {
     return globalRolePerms.head || DEFAULT_ROLE_PERMISSIONS.head;
+  }
+  if (userRole === 'deputy_head') {
+    return globalRolePerms.deputy_head || DEFAULT_ROLE_PERMISSIONS.deputy_head;
   }
   if (userRole === 'staff') {
     const staffCeiling = globalRolePerms.staff || DEFAULT_ROLE_PERMISSIONS.staff;

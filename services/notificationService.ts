@@ -104,7 +104,10 @@ export function isNotificationForUser(
     if (notif.targetRole === 'admin' && userRole !== 'admin') {
       return false;
     }
-    if (notif.targetRole === 'head' && userRole !== 'admin' && userRole !== 'head') {
+    if (notif.targetRole === 'head' && userRole !== 'admin' && userRole !== 'head' && userRole !== 'deputy_head') {
+      return false;
+    }
+    if (notif.targetRole === 'deputy_head' && userRole !== 'admin' && userRole !== 'head' && userRole !== 'deputy_head') {
       return false;
     }
   }

@@ -61,6 +61,7 @@ import {
 const ROLE_OPTIONS: { value: UserRole; label: string; color: string }[] = [
   { value: 'admin', label: 'Admin', color: 'bg-red-100 text-red-700 border-red-200' },
   { value: 'head', label: 'Trưởng khoa', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  { value: 'deputy_head', label: 'Phó khoa', color: 'bg-sky-100 text-sky-700 border-sky-200' },
   { value: 'staff', label: 'Nhân viên', color: 'bg-gray-100 text-gray-700 border-gray-200' },
 ];
 
@@ -414,7 +415,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   activeSubTab: propSubTab,
   onSubTabChange,
 }) => {
-  const { user: currentUser, authConfig, isAdmin, isHead } = useAuth();
+  const { user: currentUser, authConfig, isAdmin, isHead, isDeputyHead } = useAuth();
   const { config } = useConfig();
   const departments = config.departments || [];
   const [users, setUsers] = useState<AppUser[]>([]);
@@ -443,9 +444,9 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<AppUser | null>(null);
   const [resetPasswordConfirmUser, setResetPasswordConfirmUser] = useState<AppUser | null>(null);
 
-  // Subscribe to users list (Admin: all users; Head: users in own department)
+  // Subscribe to users list (Admin: all users; Head & Deputy Head: users in own department)
   useEffect(() => {
-    if (!isAdmin && !isHead) {
+    if (!isAdmin && !isHead && !isDeputyHead) {
       setIsLoading(false);
       return;
     }
@@ -457,7 +458,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
         setIsLoading(false);
       });
       return () => unsub();
-    } else if (isHead && currentUser?.department) {
+    } else if ((isHead || isDeputyHead) && currentUser?.department) {
       const unsub = subscribeToDepartmentUsers(currentUser.department, (data) => {
         setUsers(data);
         setIsLoading(false);
@@ -467,7 +468,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       setUsers([]);
       setIsLoading(false);
     }
-  }, [isAdmin, isHead, currentUser?.department]);
+  }, [isAdmin, isHead, isDeputyHead, currentUser?.department]);
 
   // Auto-clear action messages
   useEffect(() => {
@@ -554,6 +555,24 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       showMsg('error', 'Không thể thay đổi vai trò của chính mình!');
       return;
     }
+    const targetUser = users.find((u) => u.uid === uid);
+    if (!isAdmin) {
+      if (!isHead) {
+        showMsg('error', 'Bạn không có quyền thay đổi vai trò người dùng!');
+        return;
+      }
+      // Trưởng khoa chỉ có thể phân vai trò Phó khoa hoặc Nhân viên cho người trong khoa
+      if (
+        !targetUser ||
+        targetUser.department !== currentUser?.department ||
+        targetUser.role === 'admin' ||
+        targetUser.role === 'head' ||
+        (role !== 'deputy_head' && role !== 'staff')
+      ) {
+        showMsg('error', 'Trưởng khoa chỉ có thể gán vai trò Phó khoa hoặc Nhân viên trong khoa của mình!');
+        return;
+      }
+    }
     const res = await changeUserRole(uid, role);
     showMsg(
       res.success ? 'success' : 'error',
@@ -593,7 +612,16 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       displayName: editFormData.displayName.trim(),
       department: editFormData.department,
     };
-    if (isAdmin && editingUser.uid !== currentUser?.uid) {
+    const canChangeRoleInEdit =
+      (isAdmin && editingUser.uid !== currentUser?.uid) ||
+      (isHead &&
+        editingUser.uid !== currentUser?.uid &&
+        editingUser.department === currentUser?.department &&
+        editingUser.role !== 'admin' &&
+        editingUser.role !== 'head' &&
+        (editFormData.role === 'deputy_head' || editFormData.role === 'staff'));
+
+    if (canChangeRoleInEdit) {
       updates.role = editFormData.role;
     }
     const res = await updateUserProfile(editingUser.uid, updates);
@@ -768,12 +796,21 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                 </option>
               ))}
             </select>
+          ) : isHead && u.department === currentUser?.department && u.role !== 'admin' && u.role !== 'head' ? (
+            <select
+              value={u.role}
+              onChange={(e) => handleRoleChange(u.uid, e.target.value as UserRole)}
+              className="text-xs font-medium px-2.5 py-1.5 border border-sky-200 rounded-lg bg-sky-50/50 hover:bg-white focus:bg-white focus:ring-1 focus:ring-blue-500 outline-none transition-colors cursor-pointer text-gray-800 shadow-2xs"
+              title="Trưởng khoa có thể phân vai trò Phó khoa hoặc Nhân viên"
+            >
+              <option value="deputy_head">Phó khoa</option>
+              <option value="staff">Nhân viên</option>
+            </select>
           ) : (
             <span
               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border ${
                 ROLE_OPTIONS.find((r) => r.value === u.role)?.color || 'bg-gray-100 text-gray-700 border-gray-200'
               }`}
-              title="Chỉ Quản trị viên mới có thể thay đổi vai trò"
             >
               {ROLE_OPTIONS.find((r) => r.value === u.role)?.label}
             </span>
@@ -910,7 +947,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       {currentSubTab === 'accounts' && (
         <div className="space-y-4 animate-in fade-in duration-150">
           {/* ─── Hero Header & Metric Cards (Tasks 8.1 & 8.4) ─────────────────────── */}
-          {isHead && !isAdmin && currentUser?.department ? (
+          {(isHead || isDeputyHead) && !isAdmin && currentUser?.department ? (
         <div className="bg-gradient-to-r from-blue-50/90 via-sky-50/50 to-white border border-blue-200 rounded-2xl p-4 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-blue-100">
             <div className="flex items-center gap-3">
@@ -923,7 +960,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                     Khoa {currentUser.department}
                   </h3>
                   <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-blue-100 text-blue-800 border border-blue-200">
-                    Trưởng khoa phụ trách
+                    {isHead ? 'Trưởng khoa phụ trách' : 'Phó khoa phụ trách'}
                   </span>
                 </div>
                 <p className="text-xs text-gray-500">
@@ -932,7 +969,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
               </div>
             </div>
             <div className="text-right">
-              <span className="text-xs font-medium text-gray-500">Trưởng khoa:</span>{' '}
+              <span className="text-xs font-medium text-gray-500">{isHead ? 'Trưởng khoa:' : 'Phó khoa:'}</span>{' '}
               <span className="text-xs font-bold text-gray-800">
                 {currentUser.displayName || currentUser.nickname}
               </span>
@@ -1280,6 +1317,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
           <RolePermissionsSection
             isAdmin={isAdmin}
             isHead={isHead}
+            isDeputyHead={isDeputyHead}
             department={currentUser?.department || ''}
           />
         </div>
@@ -1340,7 +1378,13 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                 </select>
               </div>
 
-              {isAdmin && editingUser.uid !== currentUser?.uid && (
+              {/* Role selection in modal: Admin can select any role; Head can select deputy_head or staff for own dept members */}
+              {((isAdmin && editingUser.uid !== currentUser?.uid) ||
+                (isHead &&
+                  editingUser.uid !== currentUser?.uid &&
+                  editingUser.department === currentUser?.department &&
+                  editingUser.role !== 'admin' &&
+                  editingUser.role !== 'head')) && (
                 <div>
                   <label className="block text-xs font-semibold text-gray-700 mb-1">
                     Vai trò hệ thống
@@ -1350,11 +1394,20 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                     onChange={(e) => setEditFormData((prev) => ({ ...prev, role: e.target.value as UserRole }))}
                     className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50/50 focus:bg-white transition-all outline-none"
                   >
-                    {ROLE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
+                    {isAdmin
+                      ? ROLE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))
+                      : [
+                          { value: 'deputy_head', label: 'Phó khoa' },
+                          { value: 'staff', label: 'Nhân viên' },
+                        ].map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
                   </select>
                 </div>
               )}
@@ -1412,15 +1465,18 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
 interface RolePermissionsSectionProps {
   isAdmin: boolean;
   isHead: boolean;
+  isDeputyHead?: boolean;
   department?: string;
 }
 
 const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   isAdmin,
   isHead,
+  isDeputyHead = false,
   department = '',
 }) => {
   const [headPerms, setHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.head);
+  const [deputyHeadPerms, setDeputyHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.deputy_head);
   const [staffPerms, setStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
   const [deptStaffPerms, setDeptStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
   const [isSaving, setIsSaving] = useState(false);
@@ -1432,6 +1488,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
       const data = snapshot.val();
       if (data) {
         if (data.head) setHeadPerms(data.head);
+        if (data.deputy_head) setDeputyHeadPerms(data.deputy_head);
         if (data.staff) setStaffPerms(data.staff);
       }
     });
@@ -1452,26 +1509,33 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   }, [department, staffPerms]);
 
   // Admin toggling global role permissions
-  const toggleGlobalPermission = async (role: 'head' | 'staff', permKey: string) => {
+  const toggleGlobalPermission = async (role: 'head' | 'deputy_head' | 'staff', permKey: string) => {
     setIsSaving(true);
-    const currentPerms = role === 'head' ? [...headPerms] : [...staffPerms];
-    const idx = currentPerms.indexOf(permKey);
+    let currentPerms: string[];
+    if (role === 'head') currentPerms = [...headPerms];
+    else if (role === 'deputy_head') currentPerms = [...deputyHeadPerms];
+    else currentPerms = [...staffPerms];
 
+    const idx = currentPerms.indexOf(permKey);
     if (idx >= 0) {
       currentPerms.splice(idx, 1);
     } else {
       currentPerms.push(permKey);
     }
 
-    let updatedStaffPerms = role === 'staff' ? currentPerms : [...staffPerms];
+    const nextHead = role === 'head' ? currentPerms : headPerms;
+    const nextDeputyHead = role === 'deputy_head' ? currentPerms : deputyHeadPerms;
+    let nextStaff = role === 'staff' ? currentPerms : [...staffPerms];
+
     if (role === 'head' && idx >= 0) {
-      updatedStaffPerms = staffPerms.filter((p) => p !== permKey);
+      nextStaff = staffPerms.filter((p) => p !== permKey);
     }
 
     try {
       await set(ref(db, 'role_permissions'), {
-        head: role === 'head' ? currentPerms : headPerms,
-        staff: updatedStaffPerms,
+        head: nextHead,
+        deputy_head: nextDeputyHead,
+        staff: nextStaff,
       });
     } catch (err) {
       console.error('Failed to save permissions:', err);
@@ -1530,8 +1594,8 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
 
   const categories = [...new Set(ALL_PERMISSIONS.map((p) => p.category))];
 
-  // ─── Head Mode View (Scoped to department) ───────────────────────────────
-  if (isHead && !isAdmin) {
+  // ─── Head / Deputy Head Mode View (Scoped to department) ───────────────────
+  if ((isHead || isDeputyHead) && !isAdmin) {
     return (
       <div className="border border-blue-200 bg-white rounded-2xl overflow-hidden shadow-xs">
         <div className="px-4 py-3 bg-gradient-to-r from-blue-50/90 to-sky-50/60 border-b border-blue-200 flex items-center justify-between flex-wrap gap-2">
@@ -1706,22 +1770,28 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/50">
-              <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[45%]">Quyền</th>
-              <th className="text-center px-2 py-2 font-semibold w-[18%]">
+              <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[36%]">Quyền</th>
+              <th className="text-center px-2 py-2 font-semibold w-[16%]">
                 <div className="flex items-center justify-center gap-1">
                   <Shield className="w-3 h-3 text-red-600" />
                   <span className="text-red-700">Admin</span>
                 </div>
               </th>
-              <th className="text-center px-2 py-2 font-semibold w-[18%]">
+              <th className="text-center px-2 py-2 font-semibold w-[16%]">
                 <div className="flex items-center justify-center gap-1">
                   <Building2 className="w-3 h-3 text-blue-600" />
                   <span className="text-blue-700">Trưởng khoa</span>
                 </div>
               </th>
-              <th className="text-center px-2 py-2 font-semibold w-[18%]">
+              <th className="text-center px-2 py-2 font-semibold w-[16%]">
                 <div className="flex items-center justify-center gap-1">
-                  <UserCheck className="w-3 h-3 text-gray-600" />
+                  <UserCheck className="w-3 h-3 text-sky-600" />
+                  <span className="text-sky-700">Phó khoa</span>
+                </div>
+              </th>
+              <th className="text-center px-2 py-2 font-semibold w-[16%]">
+                <div className="flex items-center justify-center gap-1">
+                  <Users className="w-3 h-3 text-gray-600" />
                   <span className="text-gray-700">Nhân viên</span>
                 </div>
               </th>
@@ -1731,12 +1801,13 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
             {categories.map((cat) => (
               <React.Fragment key={cat}>
                 <tr className="bg-gray-50/80 border-y border-gray-100">
-                  <td colSpan={4} className="px-3.5 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                  <td colSpan={5} className="px-3.5 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                     {cat}
                   </td>
                 </tr>
                 {ALL_PERMISSIONS.filter((p) => p.category === cat).map((perm) => {
                   const headHas = headPerms.includes(perm.key);
+                  const deputyHeadHas = deputyHeadPerms.includes(perm.key);
                   const staffHas = staffPerms.includes(perm.key);
 
                   return (
@@ -1759,6 +1830,17 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                           title={headHas ? `Tắt '${perm.label}' cho Trưởng khoa` : `Bật '${perm.label}' cho Trưởng khoa`}
                         >
                           {headHas ? <CheckCircle2 className="w-4 h-4 text-blue-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                        </button>
+                      </td>
+                      <td className="text-center px-2 py-2">
+                        <button
+                          onClick={() => toggleGlobalPermission('deputy_head', perm.key)}
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                            deputyHeadHas ? 'bg-sky-100 hover:bg-sky-200' : 'bg-gray-100 hover:bg-gray-200'
+                          }`}
+                          title={deputyHeadHas ? `Tắt '${perm.label}' cho Phó khoa` : `Bật '${perm.label}' cho Phó khoa`}
+                        >
+                          {deputyHeadHas ? <CheckCircle2 className="w-4 h-4 text-sky-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
                         </button>
                       </td>
                       <td className="text-center px-2 py-2">

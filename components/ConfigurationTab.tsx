@@ -29,9 +29,9 @@ interface ConfigurationTabProps {
 
 export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate, initialSubTab }) => {
     const { config, updateConfig, resetConfig, isLoaded, isLocked, unlockConfig, lockConfig } = useConfig();
-    const { isAdmin, isHead, pendingApprovalCount } = useAuth();
+    const { isAdmin, isHead, isDeputyHead, pendingApprovalCount } = useAuth();
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users'>(
-        initialSubTab || (isHead && !isAdmin ? 'users' : 'norms')
+        initialSubTab || ((isHead || isDeputyHead) && !isAdmin ? 'users' : 'norms')
     );
 
     useEffect(() => {
@@ -140,7 +140,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                         label: pendingApprovalCount > 0 ? `Tài khoản (${pendingApprovalCount})` : 'Tài khoản',
                         icon: Shield,
                       }]
-                    : isHead
+                    : (isHead || isDeputyHead)
                     ? [{
                         value: 'users',
                         label: pendingApprovalCount > 0 ? `Tài khoản (${pendingApprovalCount})` : 'Tài khoản',
@@ -276,7 +276,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
             {/* Content area - only content scrolls */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
 
-                {activeSubTab === 'users' && (isAdmin || isHead) && (
+                {activeSubTab === 'users' && (isAdmin || isHead || isDeputyHead) && (
                     <div className="animate-fade-in">
                         <UserManagementPanel activeSubTab={accountSubTab} onSubTabChange={setAccountSubTab} />
                     </div>

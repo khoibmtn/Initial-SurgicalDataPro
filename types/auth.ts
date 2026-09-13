@@ -2,7 +2,7 @@
 // Hệ thống phân quyền 3 cấp: Admin → Trưởng khoa → Nhân viên + Guest tạm thời
 
 /** Vai trò người dùng trong hệ thống */
-export type UserRole = 'admin' | 'head' | 'staff';
+export type UserRole = 'admin' | 'head' | 'deputy_head' | 'staff';
 
 /** Trạng thái tài khoản */
 export type UserStatus = 'active' | 'pending' | 'disabled';

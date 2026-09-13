@@ -45,7 +45,11 @@ interface AuthContextValue extends AuthState {
   isAdmin: boolean;
   /** Kiểm tra có phải trưởng khoa không */
   isHead: boolean;
-  /** Kiểm tra có phải admin hoặc trưởng khoa không */
+  /** Kiểm tra có phải phó khoa không */
+  isDeputyHead: boolean;
+  /** Kiểm tra có phải lãnh đạo khoa (trưởng hoặc phó khoa) không */
+  isDepartmentLeader: boolean;
+  /** Kiểm tra có phải admin hoặc lãnh đạo khoa không */
   isHeadOrAdmin: boolean;
   /** Số lượng tài khoản đang chờ duyệt thuộc thẩm quyền (admin: toàn viện, head: khoa mình) */
   pendingApprovalCount: number;
@@ -83,8 +87,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setPendingApprovalCount(pendingList.length);
       });
       return () => unsub();
-    } else if (user.role === 'head' && user.department) {
-      const unsub = subscribeToPendingUsers('head', user.department, (pendingList) => {
+    } else if ((user.role === 'head' || user.role === 'deputy_head') && user.department) {
+      const unsub = subscribeToPendingUsers(user.role, user.department, (pendingList) => {
         setPendingApprovalCount(pendingList.length);
       });
       return () => unsub();
@@ -212,8 +216,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   // ── RBAC Permissions Resolution ──
-  const [globalRolePerms, setGlobalRolePerms] = useState<{ head?: string[]; staff?: string[] }>({
+  const [globalRolePerms, setGlobalRolePerms] = useState<{ head?: string[]; deputy_head?: string[]; staff?: string[] }>({
     head: DEFAULT_ROLE_PERMISSIONS.head,
+    deputy_head: DEFAULT_ROLE_PERMISSIONS.deputy_head,
     staff: DEFAULT_ROLE_PERMISSIONS.staff,
   });
   const [deptStaffPerms, setDeptStaffPerms] = useState<string[] | null>(null);
@@ -226,6 +231,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data) {
         setGlobalRolePerms({
           head: data.head || DEFAULT_ROLE_PERMISSIONS.head,
+          deputy_head: data.deputy_head || DEFAULT_ROLE_PERMISSIONS.deputy_head,
           staff: data.staff || DEFAULT_ROLE_PERMISSIONS.staff,
         });
       }
@@ -250,7 +256,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const currentRole = authState.user?.role ?? 'guest';
   const isAdmin = currentRole === 'admin';
   const isHead = currentRole === 'head';
-  const isHeadOrAdmin = isAdmin || isHead;
+  const isDeputyHead = currentRole === 'deputy_head';
+  const isDepartmentLeader = isHead || isDeputyHead;
+  const isHeadOrAdmin = isAdmin || isHead || isDeputyHead;
 
   const permissions = useMemo(() => {
     return resolveEffectivePermissions(
@@ -279,6 +287,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     currentRole,
     isAdmin,
     isHead,
+    isDeputyHead,
+    isDepartmentLeader,
     isHeadOrAdmin,
     pendingApprovalCount,
     permissions,

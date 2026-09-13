@@ -290,7 +290,7 @@ export async function batchRejectUsers(
 // ─── Subscribe to Pending Users (Realtime count & list for Approver) ────────
 
 export function subscribeToPendingUsers(
-  role: 'admin' | 'head',
+  role: 'admin' | 'head' | 'deputy_head',
   department: string | undefined,
   callback: (users: AppUser[]) => void
 ): Unsubscribe {
@@ -311,7 +311,7 @@ export function subscribeToPendingUsers(
         callback([]);
       }
     );
-  } else if (role === 'head' && department) {
+  } else if ((role === 'head' || role === 'deputy_head') && department) {
     const q = query(
       collection(firestore, USERS_COLLECTION),
       where('department', '==', department),

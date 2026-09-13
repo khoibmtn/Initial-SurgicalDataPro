@@ -19,8 +19,8 @@ export interface AppNotification {
   message: string;
   timestamp: string; // ISO string
   read: boolean;
-  /** Vai trò được nhận: 'admin' | 'head' | 'staff' | 'all' */
-  targetRole?: 'admin' | 'head' | 'staff' | 'all';
+  /** Vai trò được nhận: 'admin' | 'head' | 'deputy_head' | 'staff' | 'all' */
+  targetRole?: 'admin' | 'head' | 'deputy_head' | 'staff' | 'all';
   /** Khoa nhận thông báo (hoặc 'ALL') */
   department?: string;
   /** UID người nhận cụ thể (nếu gửi riêng cá nhân) */
@@ -37,7 +37,7 @@ export interface SendNotificationParams {
   type: NotificationType;
   title: string;
   message: string;
-  targetRole?: 'admin' | 'head' | 'staff' | 'all';
+  targetRole?: 'admin' | 'head' | 'deputy_head' | 'staff' | 'all';
   department?: string;
   targetUserId?: string;
   actionTab?: string;
