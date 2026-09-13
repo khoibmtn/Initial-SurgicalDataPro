@@ -54,6 +54,9 @@ import { AccountPanel } from './components/auth/AccountPanel';
 import { ReportLockModal } from './components/surgery/ReportLockModal';
 import { ReportLockBanner } from './components/surgery/ReportLockBanner';
 import { AuditLogModal } from './components/audit/AuditLogModal';
+import { ExcelStagingModal } from './components/excel/ExcelStagingModal';
+import { buildStagingRecords } from './services/stagingValidationService';
+import type { StagingRecord } from './types/staging';
 import type { ReportLock } from './types/reportLock';
 import type { UserRole } from './types/auth';
 import type { AuditLogEntry } from './types/auditLog';
@@ -242,6 +245,42 @@ const InnerApp: React.FC = () => {
   // ── Truy vết chỉnh sửa (Audit Log) ──
   const [allAuditLogs, setAllAuditLogs] = useState<AuditLogEntry[]>([]);
   const [showAuditLogModal, setShowAuditLogModal] = useState(false);
+
+  // ── Đối soát & Chuẩn hóa dữ liệu Excel (Smart Staging Grid) ──
+  const [showStagingModal, setShowStagingModal] = useState(false);
+  const [stagingRecords, setStagingRecords] = useState<StagingRecord[]>([]);
+
+  const currentStagingIssuesCount = useMemo(() => {
+    const validRecords = currentReport.result?.validRecords;
+    if (!validRecords || validRecords.length === 0) return 0;
+    const staging = buildStagingRecords(validRecords, config);
+    return staging.filter((r) => r._status === 'error' || r._status === 'warning').length;
+  }, [currentReport.result?.validRecords, config]);
+
+  const handleOpenStaging = () => {
+    const validRecords = currentReport.result?.validRecords;
+    if (!validRecords || validRecords.length === 0) {
+      addToast('Chưa có dữ liệu ca mổ để đối soát!', 'info');
+      return;
+    }
+    const staging = buildStagingRecords(validRecords, config);
+    setStagingRecords(staging);
+    setShowStagingModal(true);
+  };
+
+  const handleConfirmStaging = (cleanRecords: SurgeryRecord[]) => {
+    const freshResult = reprocessSurgicalRecords(
+      cleanRecords,
+      config,
+      currentReport.result?.dateRangeText || ''
+    );
+    updateCurrentReport({
+      result: freshResult,
+      stats: freshResult.stats,
+      hasAutoFilledData: true,
+    });
+    addToast(`Đã đối soát và cập nhật ${cleanRecords.length} ca mổ thành công!`, 'success');
+  };
 
   useEffect(() => {
     const unsub = subscribeAuditLogs((logs) => {
@@ -555,6 +594,16 @@ const InnerApp: React.FC = () => {
         isAdmin={isAdmin}
       />
 
+      {/* Smart Staging & Validation Modal */}
+      <ExcelStagingModal
+        isOpen={showStagingModal}
+        onClose={() => setShowStagingModal(false)}
+        fileName={currentReport.result?.dateRangeText || (currentType === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo ngày')}
+        initialRecords={stagingRecords}
+        config={config}
+        onConfirmImport={handleConfirmStaging}
+      />
+
       {/* Main Content Area */}
       <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto animate-fade-in">
         {(activeTab === 'daily' || activeTab === 'monthly') && (
@@ -735,6 +784,8 @@ const InnerApp: React.FC = () => {
                   }}
                   onOpenAuditLog={() => setShowAuditLogModal(true)}
                   auditLogCount={allAuditLogs.length}
+                  onOpenStaging={currentReport.result?.validRecords?.length ? handleOpenStaging : undefined}
+                  stagingIssueCount={currentStagingIssuesCount}
                 />
 
                 {/* ── Stat Cards (HospitalStat-VT style) ── */}

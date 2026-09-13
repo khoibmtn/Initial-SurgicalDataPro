@@ -20,6 +20,9 @@ export interface ReportActionBarProps {
   // Audit Log Props
   onOpenAuditLog?: () => void;
   auditLogCount?: number;
+  // Staging Grid Props
+  onOpenStaging?: () => void;
+  stagingIssueCount?: number;
 }
 
 export const ReportActionBar: React.FC<ReportActionBarProps> = ({
@@ -39,6 +42,8 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
   onUnlockClick,
   onOpenAuditLog,
   auditLogCount,
+  onOpenStaging,
+  stagingIssueCount,
 }) => {
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
   const [isExcelDropdownOpen, setIsExcelDropdownOpen] = useState(false);
@@ -184,6 +189,24 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
             {auditLogCount !== undefined && auditLogCount > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-800 font-bold border border-blue-200">
                 {auditLogCount}
+              </span>
+            )}
+          </button>
+        )}
+
+        {/* Smart Staging & Validation Button */}
+        {onOpenStaging && (
+          <button
+            type="button"
+            onClick={onOpenStaging}
+            className="flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-gray-100 text-gray-700 font-semibold rounded-lg text-[11px] border border-gray-300 transition-colors shadow-2xs cursor-pointer"
+            title="Mở bảng đối soát & chuẩn hóa dữ liệu lâm sàng"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-blue-600" />
+            <span>Đối soát</span>
+            {stagingIssueCount !== undefined && stagingIssueCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-100 text-rose-800 font-bold border border-rose-200">
+                {stagingIssueCount}
               </span>
             )}
           </button>
