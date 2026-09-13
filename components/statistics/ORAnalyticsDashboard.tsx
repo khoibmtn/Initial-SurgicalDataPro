@@ -180,14 +180,13 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
   const {
     totalCases,
     totalOperatingMinutes,
-    overallUtilizationRate,
-    avgTurnaroundMinutes,
+    capacity,
+    hourlyLoads,
+    dailyPeaks,
     scheduledCases,
     emergencyCases,
     inHoursCases,
     outHoursCases,
-    roomUtilizations,
-    turnarounds,
     surgeonPerformances,
     topTechniques,
     alerts,
@@ -208,14 +207,14 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-gray-900 leading-tight">
-                Quản trị Phòng mổ (OR Analytics)
+                Quản trị Khối Phòng mổ & Phụ tải (OR Capacity & Concurrency)
               </h3>
               <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
                 {analyticsResult.periodLabel}
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">
-              Đo lường công suất sử dụng bàn mổ, thời gian dọn ca, phân tích nhân sự và phát hiện bất thường
+              Đo lường công suất khối phòng mổ toàn viện, số bàn chạy đồng thời đỉnh điểm, biểu đồ phụ tải 24h và năng suất PTV
             </p>
           </div>
         </div>
@@ -317,79 +316,79 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
 
       {/* ── 2. 4 Summary KPI Metric Cards ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Công suất phòng mổ */}
+        {/* Card 1: Công suất khối phòng mổ toàn viện */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs text-gray-500 font-semibold mb-2">
               <span className="flex items-center gap-1.5">
                 <Gauge className="h-4 w-4 text-blue-600" />
-                Công suất phòng mổ (OR Utilization)
+                Công suất khối phòng mổ
               </span>
               <span
                 className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                  overallUtilizationRate >= 70 && overallUtilizationRate <= 90
+                  capacity.status === 'optimal'
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : overallUtilizationRate > 90
+                    : capacity.status === 'overloaded'
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                    : capacity.status === 'high'
                     ? 'bg-amber-50 text-amber-700 border-amber-200'
                     : 'bg-blue-50 text-blue-700 border-blue-200'
                 }`}
               >
-                {overallUtilizationRate >= 70 && overallUtilizationRate <= 90
-                  ? 'Tối ưu'
-                  : overallUtilizationRate > 90
-                  ? 'Quá tải'
-                  : 'Còn trống'}
+                {capacity.status === 'optimal'
+                  ? 'Tối ưu (60-85%)'
+                  : capacity.status === 'overloaded'
+                  ? 'Quá tải (>100%)'
+                  : capacity.status === 'high'
+                  ? 'Cao (85-100%)'
+                  : 'Còn dư (<60%)'}
               </span>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-black text-gray-900 font-mono tracking-tight">
-                {overallUtilizationRate}%
+                {capacity.utilizationRate}%
               </span>
               <span className="text-xs text-gray-400">
-                ({Math.round(totalOperatingMinutes / 60)} giờ mổ)
+                ({Math.round(totalOperatingMinutes / 60)}h mổ thực tế)
               </span>
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
-            <span>Chuẩn khuyến nghị: <strong>75% - 85%</strong></span>
-            <span>{roomUtilizations.length} bàn mổ</span>
+            <span>Quy mô: <strong>{capacity.totalOperatingRooms} bàn mổ</strong></span>
+            <span>Khả dụng: <strong>{Math.round(capacity.totalAvailableMinutes / 60)}h</strong></span>
           </div>
         </div>
 
-        {/* Card 2: Thời gian chuyển ca (Turnaround Time) */}
+        {/* Card 2: Bàn mổ đồng thời cao nhất (Peak Concurrency) */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-xs text-gray-500 font-semibold mb-2">
               <span className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4 text-emerald-600" />
-                Thời gian chuyển ca TB (TAT)
+                <Activity className="h-4 w-4 text-indigo-600" />
+                Bàn chạy đồng thời đỉnh điểm
               </span>
               <span
                 className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                  avgTurnaroundMinutes <= kpiConfig.targetTurnaroundMinutes
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : avgTurnaroundMinutes > kpiConfig.warningTurnaroundMinutes
+                  capacity.peakConcurrentSurgeries > capacity.totalOperatingRooms
                     ? 'bg-rose-50 text-rose-700 border-rose-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
                 }`}
               >
-                {avgTurnaroundMinutes <= kpiConfig.targetTurnaroundMinutes
-                  ? 'Đạt mục tiêu'
-                  : avgTurnaroundMinutes > kpiConfig.warningTurnaroundMinutes
-                  ? 'Chậm trễ'
-                  : 'Cần chú ý'}
+                {capacity.peakConcurrentSurgeries > capacity.totalOperatingRooms
+                  ? `Vượt mức (+${capacity.peakConcurrentSurgeries - capacity.totalOperatingRooms})`
+                  : 'Trong định mức'}
               </span>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-black text-gray-900 font-mono tracking-tight">
-                {avgTurnaroundMinutes}
+                {capacity.peakConcurrentSurgeries}
               </span>
-              <span className="text-xs text-gray-500">phút / ca</span>
+              <span className="text-xs text-gray-500">ca mổ cùng lúc</span>
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
-            <span>Mục tiêu: <strong>≤ {kpiConfig.targetTurnaroundMinutes}p</strong></span>
-            <span>Cảnh báo: &gt; {kpiConfig.warningTurnaroundMinutes}p</span>
+            <span>Thời điểm: <strong>{capacity.peakTime || '—'}</strong></span>
+            <span>Ngày: <strong>{capacity.peakDate ? capacity.peakDate.split('-').reverse().join('/') : '—'}</strong></span>
           </div>
         </div>
 
@@ -464,8 +463,8 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
           }`}
         >
-          <Building2 className="h-3.5 w-3.5" />
-          <span>Công suất & Chuyển ca từng Bàn mổ ({roomUtilizations.length})</span>
+          <Activity className="h-3.5 w-3.5" />
+          <span>Phụ tải 24h & Đỉnh điểm ngày ({dailyPeaks.length} ngày)</span>
         </button>
 
         <button
@@ -478,7 +477,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
           }`}
         >
           <Users className="h-3.5 w-3.5" />
-          <span>Hiệu suất Phẫu thuật viên ({surgeonPerformances.length})</span>
+          <span>Năng suất Phẫu thuật viên & Kỹ thuật ({surgeonPerformances.length})</span>
         </button>
 
         <button
@@ -491,119 +490,147 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
           }`}
         >
           <AlertTriangle className="h-3.5 w-3.5" />
-          <span>Danh sách Cảnh báo & Bất thường ({alerts.length})</span>
+          <span>Danh sách Cảnh báo lâm sàng ({alerts.length})</span>
         </button>
       </div>
 
       {/* ── 4. View Details ── */}
 
-      {/* View 1: Công suất từng bàn mổ */}
+      {/* View 1: Phụ tải 24h & Đỉnh điểm ngày */}
       {activeView === 'rooms' && (
-        <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xs">
-            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-              <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Bảng theo dõi công suất và thời gian chuyển ca theo từng phòng / bàn mổ
-              </h4>
-              <span className="text-[11px] text-gray-400">
-                Tiêu chuẩn: {kpiConfig.standardHoursPerDay}h/ngày × {scope === 'month' ? kpiConfig.operatingDaysPerMonth : kpiConfig.operatingDaysPerMonth * 12} ngày
-              </span>
+        <div className="space-y-6">
+          {/* Biểu đồ phân bố phụ tải 24 khung giờ */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 mb-4">
+              <div>
+                <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                  Phân bố phụ tải phẫu thuật theo 24 khung giờ trong ngày
+                </h4>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Xác định các khung giờ cao điểm để điều phối nhân sự gây mê và phụ mổ hợp lý
+                </p>
+              </div>
+              <div className="flex items-center gap-3 text-[11px]">
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-blue-600" /> Giờ hành chính
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-amber-500" /> Cao điểm (&gt;75% tải)
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-slate-300" /> Trực / Ngoài giờ
+                </span>
+              </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="grid grid-cols-6 sm:grid-cols-12 lg:grid-cols-24 gap-1.5 items-end h-40 pt-4">
+              {hourlyLoads.map((h) => {
+                const maxMins = Math.max(...hourlyLoads.map(x => x.operatingMinutes), 1);
+                const heightPct = Math.max(8, Math.round((h.operatingMinutes / maxMins) * 100));
+                return (
+                  <div key={h.hour} className="flex flex-col items-center h-full justify-end group relative">
+                    {/* Tooltip */}
+                    <div className="absolute bottom-full mb-2 hidden group-hover:flex flex-col items-center z-20 pointer-events-none">
+                      <div className="bg-gray-900 text-white text-[10px] rounded-lg py-1 px-2 whitespace-nowrap shadow-md">
+                        <p className="font-bold">{h.hourLabel}</p>
+                        <p>Số ca: {h.activeSurgeries} ca</p>
+                        <p>Tổng thời gian: {h.operatingMinutes} phút</p>
+                        <p>Bàn chạy đồng thời tối đa: {h.maxConcurrentTables} bàn</p>
+                      </div>
+                      <div className="w-2 h-2 bg-gray-900 rotate-45 -mt-1" />
+                    </div>
+
+                    {/* Bar */}
+                    <div
+                      className={`w-full rounded-t-md transition-all ${
+                        h.isPeak
+                          ? 'bg-amber-500'
+                          : h.inHours
+                          ? 'bg-blue-600'
+                          : 'bg-slate-300'
+                      }`}
+                      style={{ height: `${heightPct}%` }}
+                    />
+                    {/* Hour label */}
+                    <span className="text-[9px] font-mono text-gray-500 mt-1">
+                      {h.hour}h
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Bảng theo dõi số bàn mổ chạy song song theo từng ngày */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xs">
+            <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                  Bảng phụ tải & số bàn mổ hoạt động song song theo từng ngày
+                </h4>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  Quy mô bệnh viện: {capacity.totalOperatingRooms} bàn mổ | Quét đồng thời theo thuật toán Sweep Line
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-[460px]">
               <table className="w-full text-xs text-left">
-                <thead className="bg-gray-100/75 text-gray-600 font-semibold border-b border-gray-200">
+                <thead className="bg-gray-100/75 text-gray-600 font-semibold border-b border-gray-200 sticky top-0 bg-white z-10">
                   <tr>
                     <th className="py-2.5 px-3 text-center w-12">STT</th>
-                    <th className="py-2.5 px-3">Bàn mổ / Phòng</th>
-                    <th className="py-2.5 px-3 text-center">Số ca mổ</th>
+                    <th className="py-2.5 px-3">Ngày phẫu thuật</th>
+                    <th className="py-2.5 px-3">Thứ</th>
+                    <th className="py-2.5 px-3 text-center">Tổng số ca</th>
                     <th className="py-2.5 px-3 text-right">Tổng giờ mổ</th>
-                    <th className="py-2.5 px-3 text-right">Giờ chuẩn</th>
-                    <th className="py-2.5 px-3 w-48">Tỷ lệ công suất (% Utilization)</th>
-                    <th className="py-2.5 px-3 text-center">TAT Trung bình</th>
-                    <th className="py-2.5 px-3 text-center">Trạng thái</th>
+                    <th className="py-2.5 px-3 text-center">Bàn mổ chạy đỉnh điểm</th>
+                    <th className="py-2.5 px-3 text-center">Thời điểm đạt đỉnh</th>
+                    <th className="py-2.5 px-3 text-center">Đánh giá phụ tải</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {roomUtilizations.map((room, idx) => {
-                    const tatInfo = turnarounds.find(t => t.roomKey === room.roomKey);
-                    return (
-                      <tr key={room.roomKey} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-3 px-3 text-center font-mono text-gray-500">{idx + 1}</td>
-                        <td className="py-3 px-3 font-semibold text-gray-900">
-                          {room.roomName}
-                        </td>
-                        <td className="py-3 px-3 text-center font-mono font-bold text-gray-800">
-                          {room.totalCases}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-gray-700">
-                          {Math.round(room.totalMinutes / 60)}h ({room.totalMinutes}p)
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-gray-400">
-                          {Math.round(room.availableMinutes / 60)}h
-                        </td>
-                        <td className="py-3 px-3">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${
-                                  room.utilizationRate >= 70 && room.utilizationRate <= 85
-                                    ? 'bg-emerald-500'
-                                    : room.utilizationRate > 85 && room.utilizationRate <= 100
-                                    ? 'bg-blue-500'
-                                    : room.utilizationRate > 100
-                                    ? 'bg-rose-500'
-                                    : 'bg-amber-400'
-                                }`}
-                                style={{ width: `${Math.min(room.utilizationRate, 100)}%` }}
-                              />
-                            </div>
-                            <span className="font-mono font-bold text-[11px] text-gray-700 w-12 text-right">
-                              {room.utilizationRate}%
-                            </span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-center font-mono">
-                          {tatInfo && tatInfo.totalTurnarounds > 0 ? (
-                            <span
-                              className={`font-semibold ${
-                                tatInfo.avgTurnaroundMinutes <= kpiConfig.targetTurnaroundMinutes
-                                  ? 'text-emerald-600'
-                                  : tatInfo.avgTurnaroundMinutes > kpiConfig.warningTurnaroundMinutes
-                                  ? 'text-rose-600'
-                                  : 'text-amber-600'
-                              }`}
-                            >
-                              {tatInfo.avgTurnaroundMinutes} phút
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                              room.status === 'optimal'
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : room.status === 'high'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : room.status === 'overloaded'
-                                ? 'bg-rose-50 text-rose-700 border-rose-200'
-                                : 'bg-gray-100 text-gray-600 border-gray-200'
-                            }`}
-                          >
-                            {room.status === 'optimal'
-                              ? 'Tối ưu'
-                              : room.status === 'high'
-                              ? 'Khá cao'
-                              : room.status === 'overloaded'
-                              ? 'Quá tải'
-                              : 'Thấp'}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {dailyPeaks.map((d, idx) => (
+                    <tr key={d.date} className={`hover:bg-gray-50/80 transition-colors ${d.isOverCapacity ? 'bg-rose-50/40' : ''}`}>
+                      <td className="py-2.5 px-3 text-center font-mono text-gray-400">{idx + 1}</td>
+                      <td className="py-2.5 px-3 font-semibold text-gray-900 font-mono">
+                        {d.date.split('-').reverse().join('/')}
+                      </td>
+                      <td className="py-2.5 px-3 text-gray-600">
+                        {d.dayOfWeek}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-mono font-bold text-gray-800">
+                        {d.totalCases}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-gray-700">
+                        {Math.round(d.totalMinutes / 60)}h ({d.totalMinutes}p)
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-mono font-black text-sm">
+                        <span className={d.isOverCapacity ? 'text-rose-600' : 'text-blue-700'}>
+                          {d.peakConcurrentTables} bàn
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-mono text-gray-500">
+                        {d.peakTime || '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                            d.isOverCapacity
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : d.peakConcurrentTables === capacity.totalOperatingRooms
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          }`}
+                        >
+                          {d.isOverCapacity
+                            ? `Quá tải (+${d.peakConcurrentTables - capacity.totalOperatingRooms})`
+                            : d.peakConcurrentTables === capacity.totalOperatingRooms
+                            ? 'Đầy tải'
+                            : 'Bình thường'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -634,7 +661,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {surgeonPerformances.slice(0, 20).map((s, idx) => (
+                  {surgeonPerformances.slice(0, 25).map((s, idx) => (
                     <tr key={s.surgeonName} className="hover:bg-gray-50/80 transition-colors">
                       <td className="py-2.5 px-3 text-center font-mono text-gray-400">{idx + 1}</td>
                       <td className="py-2.5 px-3 font-semibold text-gray-900">
@@ -668,7 +695,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xs">
             <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-200">
               <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-                Top kỹ thuật thực hiện nhiều nhất
+                Top kỹ thuật thực hiện nhiều nhất ({topTechniques.length})
               </h4>
             </div>
             <div className="overflow-x-auto max-h-[500px]">
@@ -684,7 +711,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {topTechniques.slice(0, 20).map((t, idx) => (
+                  {topTechniques.slice(0, 25).map((t, idx) => (
                     <tr key={t.tenKT} className="hover:bg-gray-50/80 transition-colors">
                       <td className="py-2.5 px-3 text-center font-mono text-gray-400">{idx + 1}</td>
                       <td className="py-2.5 px-3 font-semibold text-gray-900">
@@ -722,19 +749,21 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
       {activeView === 'alerts' && (
         <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xs">
           <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-            <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-              Danh sách ca mổ bất thường & Cảnh báo chi phí ({alerts.length})
-            </h4>
-            <span className="text-[11px] text-gray-400">
-              Phát hiện theo ngưỡng cấu hình KPI
-            </span>
+            <div>
+              <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                Danh sách ca mổ bất thường lâm sàng ({alerts.length})
+              </h4>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                Phát hiện theo ngưỡng cấu hình KPI: Ca siêu ngắn (&lt;{kpiConfig.minOutlierMinutes}p), ca siêu dài (&gt;{Math.round(kpiConfig.maxOutlierMinutes / 60)}h), thời gian âm
+              </p>
+            </div>
           </div>
 
           {alerts.length === 0 ? (
             <div className="p-8 text-center text-gray-500 text-xs">
               <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2" />
               <p className="font-semibold text-gray-800">Không có ca mổ bất thường</p>
-              <p className="text-gray-400 mt-0.5">Tất cả các ca mổ đều nằm trong ngưỡng thời lượng và chi phí an toàn.</p>
+              <p className="text-gray-400 mt-0.5">Tất cả các ca mổ đều nằm trong ngưỡng thời lượng an toàn.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -745,7 +774,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
                     <th className="py-2.5 px-3">Bệnh nhân</th>
                     <th className="py-2.5 px-3">Ngày mổ</th>
                     <th className="py-2.5 px-3">Tên kỹ thuật</th>
-                    <th className="py-2.5 px-3">PTV / Phòng</th>
+                    <th className="py-2.5 px-3">PTV chính</th>
                     <th className="py-2.5 px-3 text-center">Thời lượng</th>
                     <th className="py-2.5 px-3">Nội dung cảnh báo</th>
                   </tr>
@@ -767,8 +796,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
                         {a.tenKT}
                       </td>
                       <td className="py-3 px-3 text-gray-600">
-                        <span>{a.ptChinh || '—'}</span>
-                        <span className="block text-[10px] text-gray-400">{a.roomName}</span>
+                        {a.ptChinh || '—'}
                       </td>
                       <td className="py-3 px-3 text-center font-mono font-bold text-gray-800">
                         {a.durationMinutes}p

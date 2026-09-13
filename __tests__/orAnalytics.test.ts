@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { calculateOrAnalytics } from '../services/orAnalyticsService';
-import { DEFAULT_KPI_CONFIG } from '../types/kpi';
-import { PersistedSurgeryRecord } from '../types';
+import { DEFAULT_KPI_CONFIG, KpiConfig } from '../types/kpi';
+import { PersistedSurgeryRecord, SurgeryCostItem } from '../types';
 
-describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
+describe('OR Analytics & KPI Service (Macro OR Capacity & Concurrency)', () => {
   const mockRecords: PersistedSurgeryRecord[] = [
     {
       stt: 1,
@@ -25,9 +25,6 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
       ktvGM: 'KTV Nam',
       tdc: 'ĐD Hoa',
       gv: 'ĐD Bình',
-      machine: 'Bàn mổ 01',
-      machineCode: 'BM01',
-      machineId: 'm1',
       type: 'MONTHLY',
       donGia: 3_000_000,
       thanhTien: 3_000_000,
@@ -39,9 +36,9 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
       gender: 'Nữ',
       yob: '1992',
       bhyt: 'DN4010123456788',
-      ngayCD: '2026-09-10T08:30:00Z',
-      ngayBD: '2026-09-10T10:00:00Z', // 30 phút sau ca 1 kết thúc (TAT = 30 phút)
-      ngayKT: '2026-09-10T10:10:00Z', // 10 phút -> Outlier short (< 15p)
+      ngayCD: '2026-09-10T08:15:00Z',
+      ngayBD: '2026-09-10T08:30:00Z', // Bắt đầu lúc 8:30 (trùng với ca 1: 08:00 - 09:30) => Chạy đồng thời
+      ngayKT: '2026-09-10T08:40:00Z', // 10 phút -> Outlier short (< 15p)
       timeMinutes: 10,
       tenKT: 'Chích áp xe cấp cứu',
       loaiPTTT: 'T2',
@@ -52,9 +49,6 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
       ktvGM: '',
       tdc: 'ĐD Hoa',
       gv: '',
-      machine: 'Bàn mổ 01',
-      machineCode: 'BM01',
-      machineId: 'm1',
       type: 'MONTHLY',
       donGia: 500_000,
       thanhTien: 500_000,
@@ -68,8 +62,8 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
       bhyt: 'DN4010123456787',
       ngayCD: '2026-09-10T11:00:00Z',
       ngayBD: '2026-09-10T19:00:00Z', // Ngoài giờ (19h)
-      ngayKT: '2026-09-11T02:00:00Z', // 7 tiếng (420p) -> Outlier long (> 360p)
-      timeMinutes: 420,
+      ngayKT: '2026-09-11T03:30:00Z', // 8.5 tiếng (510p) -> Outlier long (> 480p)
+      timeMinutes: 510,
       tenKT: 'Phẫu thuật thay khớp háng nhân tạo',
       loaiPTTT: 'PĐB',
       soLuong: 1,
@@ -79,9 +73,6 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
       ktvGM: 'KTV Hùng',
       tdc: 'ĐD Thảo',
       gv: 'ĐD Cúc',
-      machine: 'Bàn mổ 02',
-      machineCode: 'BM02',
-      machineId: 'm2',
       type: 'MONTHLY',
       donGia: 15_000_000,
       thanhTien: 15_000_000,
@@ -98,7 +89,7 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
     });
 
     expect(result.totalCases).toBe(3);
-    expect(result.totalOperatingMinutes).toBe(90 + 10 + 420);
+    expect(result.totalOperatingMinutes).toBe(90 + 10 + 510);
     expect(result.periodLabel).toBe('Tháng 09/2026');
     expect(result.dataSource).toBe('MONTHLY');
   });
@@ -119,26 +110,51 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
     expect(result.outHoursCases).toBeGreaterThanOrEqual(1);
   });
 
-  it('computes room utilization and turnaround times for consecutive cases on same table', () => {
+  it('computes hospital-wide capacity and peak concurrency using sweep line algorithm', () => {
+    const testConfig: KpiConfig = {
+      ...DEFAULT_KPI_CONFIG,
+      totalOperatingRooms: 4,
+      standardHoursPerDay: 8,
+    };
+
+    const result = calculateOrAnalytics({
+      records: mockRecords,
+      kpiConfig: testConfig,
+      periodLabel: 'Tháng 09/2026',
+      dataSource: 'MONTHLY',
+      operatingDays: 10,
+    });
+
+    // 4 bàn * 10 ngày * 8 giờ * 60 phút = 19,200 phút
+    expect(result.capacity.totalAvailableMinutes).toBe(19200);
+    expect(result.capacity.totalOperatingRooms).toBe(4);
+    expect(result.capacity.actualOperatingMinutes).toBe(610);
+    expect(result.capacity.utilizationRate).toBeCloseTo((610 / 19200) * 100, 1);
+
+    // Ca 1 (8:00 - 9:30) và Ca 2 (8:30 - 8:40) giao nhau lúc 8:30 -> Đỉnh điểm là 2 ca song song
+    expect(result.capacity.peakConcurrentSurgeries).toBe(2);
+    expect(result.dailyPeaks.length).toBeGreaterThanOrEqual(1);
+
+    const peakDay = result.dailyPeaks[0];
+    expect(peakDay.peakConcurrentTables).toBe(2);
+    expect(peakDay.isOverCapacity).toBe(false); // 2 <= 4 bàn
+  });
+
+  it('populates 24 hourly load metrics correctly', () => {
     const result = calculateOrAnalytics({
       records: mockRecords,
       kpiConfig: DEFAULT_KPI_CONFIG,
       periodLabel: 'Tháng 09/2026',
       dataSource: 'MONTHLY',
-      operatingDays: 20,
     });
 
-    expect(result.roomUtilizations.length).toBe(2); // BM01 và BM02
-    const bm01 = result.roomUtilizations.find(r => r.roomKey === 'BM01');
-    expect(bm01).toBeDefined();
-    expect(bm01?.totalCases).toBe(2);
-    expect(bm01?.totalMinutes).toBe(100);
-
-    // TAT giữa ca 1 (KT: 9:30) và ca 2 (BD: 10:00) trên BM01 = 30 phút
-    const tatBm01 = result.turnarounds.find(t => t.roomKey === 'BM01');
-    expect(tatBm01).toBeDefined();
-    expect(tatBm01?.totalTurnarounds).toBe(1);
-    expect(tatBm01?.avgTurnaroundMinutes).toBe(30);
+    expect(result.hourlyLoads.length).toBe(24);
+    // Khung 8h (8:00 - 9:00) có cả ca 1 và ca 2
+    const hour8 = result.hourlyLoads[8];
+    expect(hour8).toBeDefined();
+    expect(hour8.activeSurgeries).toBeGreaterThanOrEqual(1);
+    expect(hour8.operatingMinutes).toBeGreaterThan(0);
+    expect(hour8.inHours).toBe(true);
   });
 
   it('detects short and long outliers accurately based on kpiConfig thresholds', () => {
@@ -158,7 +174,30 @@ describe('OR Analytics & KPI Service (Lựa chọn 2)', () => {
     const longAlert = result.alerts.find(a => a.alertType === 'outlier_long');
     expect(longAlert).toBeDefined();
     expect(longAlert?.patientId).toBe('BN003');
-    expect(longAlert?.durationMinutes).toBe(420);
+    expect(longAlert?.durationMinutes).toBe(510);
+  });
+
+  it('detects cost overrun alert when material cost exceeds threshold', () => {
+    const costItems: SurgeryCostItem[] = [
+      {
+        maDichVu: 'KT001',
+        tenDichVu: 'Phẫu thuật thay khớp háng nhân tạo',
+        chiPhiThuoc: 20_000_000,
+        chiPhiVtth: 40_000_000, // Tổng 60tr > ngưỡng 50tr
+      },
+    ];
+
+    const result = calculateOrAnalytics({
+      records: mockRecords,
+      kpiConfig: DEFAULT_KPI_CONFIG,
+      costItems,
+      periodLabel: 'Tháng 09/2026',
+      dataSource: 'MONTHLY',
+    });
+
+    const costAlert = result.alerts.find(a => a.alertType === 'cost_overrun');
+    expect(costAlert).toBeDefined();
+    expect(costAlert?.patientId).toBe('BN003');
   });
 
   it('aggregates surgeon performance metric', () => {

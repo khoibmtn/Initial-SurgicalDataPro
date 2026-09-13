@@ -1,6 +1,6 @@
 // ─── Operating Room Analytics Service ──────────────────────────────────────────
-// Thuật toán phân tích chỉ số KPI phòng mổ (OR Utilization, Turnaround Time,
-// Phân bố nhân sự, Cảnh báo bất thường, và Xuất báo cáo Excel)
+// Thuật toán phân tích phụ tải & công suất khối phòng mổ toàn viện (Macro OR Capacity & Concurrency)
+// Hỗ trợ: Đỉnh điểm số bàn chạy đồng thời, Phụ tải theo 24 khung giờ, Năng suất PTV, và Cảnh báo lâm sàng
 
 import * as XLSX from 'xlsx';
 import {
@@ -10,8 +10,9 @@ import {
 import {
   KpiConfig,
   OrAnalyticsResult,
-  RoomUtilizationMetric,
-  TurnaroundMetric,
+  HospitalCapacityMetric,
+  HourlyLoadMetric,
+  DailyPeakMetric,
   SurgeonPerformanceMetric,
   TechniqueKpiMetric,
   KpiAlertRecord,
@@ -20,7 +21,7 @@ import {
 /**
  * Trích xuất ngày chuẩn hóa YYYY-MM-DD từ chuỗi ngày bất kỳ
  */
-function toDateKey(dateStr?: string): string {
+function toDateKey(dateStr?: string | Date): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return '';
@@ -28,6 +29,16 @@ function toDateKey(dateStr?: string): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * Lấy thứ trong tuần tiếng Việt
+ */
+function getDayOfWeekVN(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const days = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+  return days[d.getDay()] || '';
 }
 
 /**
@@ -40,7 +51,7 @@ function getDurationMinutes(r: PersistedSurgeryRecord): number {
   if (r.ngayBD && r.ngayKT) {
     const s = new Date(r.ngayBD).getTime();
     const e = new Date(r.ngayKT).getTime();
-    if (!isNaN(s) && !isNaN(e) && e > s) {
+    if (!isNaN(s) && !isNaN(e)) {
       return Math.round((e - s) / (1000 * 60));
     }
   }
@@ -48,7 +59,16 @@ function getDurationMinutes(r: PersistedSurgeryRecord): number {
 }
 
 /**
- * Phân tích dữ liệu ca mổ và tính toán toàn bộ chỉ số KPI Quản trị phòng mổ
+ * Parse Date an toàn
+ */
+function parseSafeDate(dateVal?: string | Date | null): Date | null {
+  if (!dateVal) return null;
+  const d = new Date(dateVal);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Phân tích dữ liệu ca mổ và tính toán toàn bộ chỉ số KPI Quản trị phòng mổ cấp bệnh viện
  */
 export function calculateOrAnalytics(params: {
   records: PersistedSurgeryRecord[];
@@ -64,7 +84,7 @@ export function calculateOrAnalytics(params: {
     costItems = [],
     periodLabel,
     dataSource,
-    operatingDays = kpiConfig.operatingDaysPerMonth,
+    operatingDays = kpiConfig.operatingDaysPerMonth || 22,
   } = params;
 
   const totalCases = records.length;
@@ -74,12 +94,15 @@ export function calculateOrAnalytics(params: {
   let inHoursCases = 0;
   let outHoursCases = 0;
 
-  // 1. Phân nhóm theo phòng mổ / bàn mổ (Machine)
-  const roomCasesMap = new Map<string, PersistedSurgeryRecord[]>();
+  // 1. Phân nhóm theo ngày để quét số ca mổ song song (Concurrency Sweep Line)
+  const dayRecordsMap = new Map<string, { start: number; end: number; rec: PersistedSurgeryRecord }[]>();
+
   // 2. Phân nhóm theo Phẫu thuật viên chính
-  const surgeonMap = new Map<string, PersistedSurgeryRecord[]>();
+  const surgeonMap = new Map<string, { records: PersistedSurgeryRecord[]; totalRev: number; overtimeCount: number; emergencyCount: number }>();
+
   // 3. Phân nhóm theo Kỹ thuật
   const techniqueMap = new Map<string, { records: PersistedSurgeryRecord[]; totalRev: number }>();
+
   // 4. Danh sách cảnh báo
   const alerts: KpiAlertRecord[] = [];
 
@@ -91,9 +114,14 @@ export function calculateOrAnalytics(params: {
     if (c.tenDichVu) costMap.set(c.tenDichVu.trim().toLowerCase(), totalC);
   }
 
+  // Khởi tạo 24 khung giờ
+  const hourMinutes = Array(24).fill(0);
+  const hourActiveCases = Array(24).fill(0);
+  const hourMaxConcurrent = Array(24).fill(0);
+
   for (const r of records) {
     const dur = getDurationMinutes(r);
-    totalOperatingMinutes += dur;
+    totalOperatingMinutes += Math.max(0, dur);
 
     // Phân loại mổ cấp cứu vs mổ phiên
     const tenKTLower = (r.tenKT || '').toLowerCase();
@@ -106,38 +134,70 @@ export function calculateOrAnalytics(params: {
 
     // Phân loại trong giờ vs ngoài giờ
     let isOutHours = false;
-    if (r.ngayBD) {
-      const d = new Date(r.ngayBD);
-      if (!isNaN(d.getTime())) {
-        const dayOfWeek = d.getDay(); // 0 = Chủ Nhật, 6 = Thứ 7
-        const hour = d.getHours();
-        const minute = d.getMinutes();
-        const timeVal = hour * 60 + minute;
-        // Chuẩn hành chính: 7h30 (450p) -> 17h00 (1020p), trừ thứ 7/CN
-        if (dayOfWeek === 0 || dayOfWeek === 6 || timeVal < 450 || timeVal >= 1020) {
-          isOutHours = true;
+    const startDate = parseSafeDate(r.ngayBD);
+    const endDate = parseSafeDate(r.ngayKT);
+
+    if (startDate) {
+      const dayOfWeek = startDate.getDay(); // 0 = Chủ Nhật, 6 = Thứ 7
+      const hour = startDate.getHours();
+      const minute = startDate.getMinutes();
+      const timeVal = hour * 60 + minute;
+      // Chuẩn hành chính: 7h30 (450p) -> 17h00 (1020p), trừ thứ 7/CN
+      if (dayOfWeek === 0 || dayOfWeek === 6 || timeVal < 450 || timeVal >= 1020) {
+        isOutHours = true;
+      }
+
+      // Thêm vào dayRecordsMap để phân tích phụ tải đồng thời
+      const dateKey = toDateKey(startDate);
+      if (dateKey && endDate && endDate.getTime() >= startDate.getTime()) {
+        if (!dayRecordsMap.has(dateKey)) {
+          dayRecordsMap.set(dateKey, []);
+        }
+        dayRecordsMap.get(dateKey)!.push({
+          start: startDate.getTime(),
+          end: endDate.getTime(),
+          rec: r,
+        });
+
+        // Phân bổ phút mổ vào 24 khung giờ trong ngày
+        let cur = new Date(startDate.getTime());
+        const endT = endDate.getTime();
+        while (cur.getTime() < endT) {
+          const h = cur.getHours();
+          hourActiveCases[h]++;
+
+          // Tính số phút nằm trong khung giờ h
+          const nextHour = new Date(cur);
+          nextHour.setHours(h + 1, 0, 0, 0);
+          const segmentEnd = Math.min(endT, nextHour.getTime());
+          const segmentMinutes = Math.max(0, Math.round((segmentEnd - cur.getTime()) / 60000));
+          hourMinutes[h] += segmentMinutes;
+
+          cur = new Date(segmentEnd);
         }
       }
     }
+
     if (isOutHours) {
       outHoursCases++;
     } else {
       inHoursCases++;
     }
 
-    // Phân nhóm phòng mổ
-    const roomKey = (r.machineCode || r.machineId || r.machine || 'Bàn chưa định danh').trim();
-    if (!roomCasesMap.has(roomKey)) roomCasesMap.set(roomKey, []);
-    roomCasesMap.get(roomKey)!.push(r);
-
     // Phân nhóm PTV
     const ptChinh = (r.ptChinh || 'Chưa gán PTV').trim();
-    if (!surgeonMap.has(ptChinh)) surgeonMap.set(ptChinh, []);
-    surgeonMap.get(ptChinh)!.push(r);
+    if (!surgeonMap.has(ptChinh)) {
+      surgeonMap.set(ptChinh, { records: [], totalRev: 0, overtimeCount: 0, emergencyCount: 0 });
+    }
+    const sEntry = surgeonMap.get(ptChinh)!;
+    sEntry.records.push(r);
+    const rev = Number(r.thanhTien) || (Number(r.donGia || 0) * Number(r.soLuong || 1));
+    sEntry.totalRev += rev;
+    if (isOutHours) sEntry.overtimeCount++;
+    if (isEmergency) sEntry.emergencyCount++;
 
     // Phân nhóm Kỹ thuật
     const tenKT = (r.tenKT || 'Chưa rõ tên').trim();
-    const rev = Number(r.thanhTien) || (Number(r.donGia || 0) * Number(r.soLuong || 1));
     if (!techniqueMap.has(tenKT)) {
       techniqueMap.set(tenKT, { records: [], totalRev: 0 });
     }
@@ -145,17 +205,30 @@ export function calculateOrAnalytics(params: {
     tEntry.records.push(r);
     tEntry.totalRev += rev;
 
-    // Kiểm tra Outliers
-    if (dur > 0 && dur < kpiConfig.minOutlierMinutes) {
+    // Kiểm tra cảnh báo bất thường
+    if (dur < 0) {
+      alerts.push({
+        id: r.id || `${r.patientId}_${r.stt}_negative`,
+        stt: r.stt || '#',
+        patientId: r.patientId || '',
+        patientName: r.patientName || '',
+        ngayPT: toDateKey(startDate),
+        tenKT: r.tenKT || '',
+        ptChinh: ptChinh,
+        durationMinutes: dur,
+        alertType: 'negative_time',
+        severity: 'error',
+        message: `Thời gian mổ âm (${dur} phút). Giờ bắt đầu sau giờ kết thúc. Cần kiểm tra lại dữ liệu.`,
+      });
+    } else if (dur > 0 && dur < kpiConfig.minOutlierMinutes) {
       alerts.push({
         id: r.id || `${r.patientId}_${r.stt}_short`,
         stt: r.stt || '#',
         patientId: r.patientId || '',
         patientName: r.patientName || '',
-        ngayPT: toDateKey(r.ngayBD),
+        ngayPT: toDateKey(startDate),
         tenKT: r.tenKT || '',
-        ptChinh: r.ptChinh || '',
-        roomName: roomKey,
+        ptChinh: ptChinh,
         durationMinutes: dur,
         alertType: 'outlier_short',
         severity: 'warning',
@@ -167,211 +240,197 @@ export function calculateOrAnalytics(params: {
         stt: r.stt || '#',
         patientId: r.patientId || '',
         patientName: r.patientName || '',
-        ngayPT: toDateKey(r.ngayBD),
+        ngayPT: toDateKey(startDate),
         tenKT: r.tenKT || '',
-        ptChinh: r.ptChinh || '',
-        roomName: roomKey,
+        ptChinh: ptChinh,
         durationMinutes: dur,
         alertType: 'outlier_long',
-        severity: 'error',
-        message: `Thời gian mổ kéo dài ${Math.round(dur / 60)} giờ (${dur} phút), vượt trần cảnh báo ${kpiConfig.maxOutlierMinutes} phút.`,
+        severity: 'warning',
+        message: `Thời gian mổ kéo dài ${dur} phút (${(dur / 60).toFixed(1)} giờ, vượt ngưỡng cảnh báo: ${kpiConfig.maxOutlierMinutes} phút).`,
       });
     }
 
-    // Kiểm tra bội chi
-    const costExpected = costMap.get(r.maTuongDuong?.trim() || '') || costMap.get(tenKTLower);
-    if (costExpected && rev > 0) {
-      const overrunThreshold = rev * (kpiConfig.costOverrunThresholdPct / 100);
-      if (costExpected > overrunThreshold) {
-        alerts.push({
-          id: r.id || `${r.patientId}_${r.stt}_cost`,
-          stt: r.stt || '#',
-          patientId: r.patientId || '',
-          patientName: r.patientName || '',
-          ngayPT: toDateKey(r.ngayBD),
-          tenKT: r.tenKT || '',
-          ptChinh: r.ptChinh || '',
-          roomName: roomKey,
-          durationMinutes: dur,
-          alertType: 'cost_overrun',
-          severity: 'warning',
-          message: `Chi phí thuốc & VTTH (${costExpected.toLocaleString('vi-VN')} ₫) vượt mức trần ${kpiConfig.costOverrunThresholdPct}% của giá thu (${rev.toLocaleString('vi-VN')} ₫).`,
-        });
-      }
-    }
-  }
-
-  // --- 2. Tính công suất bàn mổ (OR Utilization) & Turnaround Time (TAT) ---
-  const roomUtilizations: RoomUtilizationMetric[] = [];
-  const turnarounds: TurnaroundMetric[] = [];
-  let totalTatSum = 0;
-  let totalTatCount = 0;
-
-  const standardMinutesPerRoom = operatingDays * kpiConfig.standardHoursPerDay * 60;
-
-  for (const [roomKey, cList] of roomCasesMap.entries()) {
-    let roomMins = 0;
-    for (const c of cList) {
-      roomMins += getDurationMinutes(c);
-    }
-
-    const utilRate = standardMinutesPerRoom > 0
-      ? Math.round((roomMins / standardMinutesPerRoom) * 1000) / 10
-      : 0;
-
-    let status: RoomUtilizationMetric['status'] = 'optimal';
-    if (utilRate < 50) status = 'low';
-    else if (utilRate > 100) status = 'overloaded';
-    else if (utilRate >= 85) status = 'high';
-
-    roomUtilizations.push({
-      roomKey,
-      roomName: roomKey,
-      totalCases: cList.length,
-      totalMinutes: roomMins,
-      availableMinutes: standardMinutesPerRoom,
-      utilizationRate: utilRate,
-      status,
-    });
-
-    // Tính Turnaround Time giữa các ca cùng ngày trên bàn này
-    const casesByDate = new Map<string, PersistedSurgeryRecord[]>();
-    for (const c of cList) {
-      const dKey = toDateKey(c.ngayBD);
-      if (dKey) {
-        if (!casesByDate.has(dKey)) casesByDate.set(dKey, []);
-        casesByDate.get(dKey)!.push(c);
-      }
-    }
-
-    let roomTatSum = 0;
-    let roomTatCount = 0;
-    let minTat = 9999;
-    let maxTat = 0;
-    let delayedTatCount = 0;
-
-    for (const [, dayCases] of casesByDate.entries()) {
-      if (dayCases.length < 2) continue;
-
-      // Sắp xếp theo giờ bắt đầu
-      dayCases.sort((a, b) => {
-        const sa = new Date(a.ngayBD).getTime();
-        const sb = new Date(b.ngayBD).getTime();
-        return sa - sb;
+    // Kiểm tra chi phí vật tư vượt định mức
+    const expectedCost = costMap.get(r.maTuongDuong?.trim() || '') || costMap.get(r.tenKT?.trim().toLowerCase() || '') || 0;
+    if (expectedCost > (kpiConfig.costOverrunThresholdAmount || 50000000)) {
+      alerts.push({
+        id: r.id || `${r.patientId}_${r.stt}_cost`,
+        stt: r.stt || '#',
+        patientId: r.patientId || '',
+        patientName: r.patientName || '',
+        ngayPT: toDateKey(startDate),
+        tenKT: r.tenKT || '',
+        ptChinh: ptChinh,
+        durationMinutes: dur,
+        alertType: 'cost_overrun',
+        severity: 'warning',
+        message: `Chi phí thuốc & VTTH định mức ước tính ${expectedCost.toLocaleString('vi-VN')} đ, vượt ngưỡng kiểm soát ${kpiConfig.costOverrunThresholdAmount.toLocaleString('vi-VN')} đ.`,
       });
+    }
+  }
 
-      for (let i = 0; i < dayCases.length - 1; i++) {
-        const endPrev = new Date(dayCases[i].ngayKT).getTime();
-        const startNext = new Date(dayCases[i + 1].ngayBD).getTime();
+  // --- Tính toán phụ tải đồng thời (Sweep Line Algorithm) ---
+  let peakConcurrentSurgeries = 0;
+  let overallPeakDate = '';
+  let overallPeakTime = '';
+  const dailyPeaks: DailyPeakMetric[] = [];
 
-        if (!isNaN(endPrev) && !isNaN(startNext) && startNext >= endPrev) {
-          const gapMins = Math.round((startNext - endPrev) / (1000 * 60));
-          // Bỏ qua khoảng trống quá dài (> 180 phút được tính là trống ca/nghỉ trưa chứ không phải dọn phòng)
-          if (gapMins >= 0 && gapMins <= 180) {
-            roomTatSum += gapMins;
-            roomTatCount++;
-            if (gapMins < minTat) minTat = gapMins;
-            if (gapMins > maxTat) maxTat = gapMins;
-            if (gapMins > kpiConfig.warningTurnaroundMinutes) {
-              delayedTatCount++;
-            }
-          }
-        }
+  const totalRooms = kpiConfig.totalOperatingRooms || 6;
+
+  // Duyệt qua từng ngày để tìm đỉnh điểm đồng thời
+  const sortedDates = Array.from(dayRecordsMap.keys()).sort();
+  for (const dateKey of sortedDates) {
+    const intervals = dayRecordsMap.get(dateKey)!;
+    const events: { time: number; delta: number }[] = [];
+
+    for (const item of intervals) {
+      events.push({ time: item.start, delta: +1 });
+      events.push({ time: item.end, delta: -1 });
+    }
+
+    // Sắp xếp sự kiện theo thời gian tăng dần, nếu bằng nhau thì -1 (kết thúc) đứng trước +1 (bắt đầu)
+    events.sort((a, b) => {
+      if (a.time !== b.time) return a.time - b.time;
+      return a.delta - b.delta;
+    });
+
+    let currentConcurrent = 0;
+    let dayPeak = 0;
+    let dayPeakTime = '';
+    let dayTotalMinutes = 0;
+
+    for (const item of intervals) {
+      dayTotalMinutes += Math.round((item.end - item.start) / 60000);
+    }
+
+    for (const ev of events) {
+      currentConcurrent += ev.delta;
+      if (currentConcurrent > dayPeak) {
+        dayPeak = currentConcurrent;
+        const evDate = new Date(ev.time);
+        dayPeakTime = `${String(evDate.getHours()).padStart(2, '0')}:${String(evDate.getMinutes()).padStart(2, '0')}`;
+      }
+
+      // Cập nhật max concurrent cho từng khung giờ
+      const h = new Date(ev.time).getHours();
+      if (currentConcurrent > hourMaxConcurrent[h]) {
+        hourMaxConcurrent[h] = currentConcurrent;
       }
     }
 
-    const avgTat = roomTatCount > 0 ? Math.round(roomTatSum / roomTatCount) : 0;
-    turnarounds.push({
-      roomKey,
-      roomName: roomKey,
-      avgTurnaroundMinutes: avgTat,
-      minTurnaroundMinutes: minTat === 9999 ? 0 : minTat,
-      maxTurnaroundMinutes: maxTat,
-      totalTurnarounds: roomTatCount,
-      delayedCount: delayedTatCount,
-    });
+    if (dayPeak > peakConcurrentSurgeries) {
+      peakConcurrentSurgeries = dayPeak;
+      overallPeakDate = dateKey;
+      overallPeakTime = dayPeakTime;
+    }
 
-    totalTatSum += roomTatSum;
-    totalTatCount += roomTatCount;
+    dailyPeaks.push({
+      date: dateKey,
+      dayOfWeek: getDayOfWeekVN(dateKey),
+      totalCases: intervals.length,
+      totalMinutes: dayTotalMinutes,
+      peakConcurrentTables: dayPeak,
+      peakTime: dayPeakTime,
+      isOverCapacity: dayPeak > totalRooms,
+    });
   }
 
-  // Sắp xếp bàn mổ theo số ca giảm dần
-  roomUtilizations.sort((a, b) => b.totalCases - a.totalCases);
-  turnarounds.sort((a, b) => b.totalTurnarounds - a.totalTurnarounds);
-
-  const totalAvailableRoomsMinutes = roomUtilizations.length * standardMinutesPerRoom;
-  const overallUtilizationRate = totalAvailableRoomsMinutes > 0
-    ? Math.round((totalOperatingMinutes / totalAvailableRoomsMinutes) * 1000) / 10
+  // --- Tính toán Công suất sử dụng khối phòng mổ toàn viện ---
+  const standardHours = kpiConfig.standardHoursPerDay || 8;
+  const totalAvailableMinutes = totalRooms * operatingDays * standardHours * 60;
+  const utilizationRate = totalAvailableMinutes > 0
+    ? Math.round((totalOperatingMinutes / totalAvailableMinutes) * 1000) / 10
     : 0;
 
-  const avgTurnaroundMinutes = totalTatCount > 0 ? Math.round(totalTatSum / totalTatCount) : 0;
+  let capacityStatus: 'low' | 'optimal' | 'high' | 'overloaded' = 'optimal';
+  if (utilizationRate < 50) capacityStatus = 'low';
+  else if (utilizationRate <= 85) capacityStatus = 'optimal';
+  else if (utilizationRate <= 100) capacityStatus = 'high';
+  else capacityStatus = 'overloaded';
 
-  // --- 3. Tính hiệu suất Phẫu thuật viên ---
+  const capacityMetric: HospitalCapacityMetric = {
+    totalOperatingRooms: totalRooms,
+    standardHoursPerDay: standardHours,
+    operatingDays: operatingDays,
+    totalAvailableMinutes,
+    actualOperatingMinutes: totalOperatingMinutes,
+    utilizationRate,
+    status: capacityStatus,
+    peakConcurrentSurgeries,
+    peakDate: overallPeakDate,
+    peakTime: overallPeakTime,
+  };
+
+  // --- Xây dựng mảng 24 khung giờ ---
+  const maxHourMinutes = Math.max(...hourMinutes, 1);
+  const hourlyLoads: HourlyLoadMetric[] = [];
+  for (let h = 0; h < 24; h++) {
+    const nextH = (h + 1) % 24;
+    const label = `${String(h).padStart(2, '0')}:00 - ${String(nextH).padStart(2, '0')}:00`;
+    const isPeak = hourMinutes[h] >= maxHourMinutes * 0.75 && hourMinutes[h] > 0;
+    const inHours = h >= 7 && h < 17;
+
+    hourlyLoads.push({
+      hour: h,
+      hourLabel: label,
+      activeSurgeries: hourActiveCases[h],
+      operatingMinutes: hourMinutes[h],
+      maxConcurrentTables: hourMaxConcurrent[h],
+      isPeak,
+      inHours,
+    });
+  }
+
+  // --- Năng suất Phẫu thuật viên ---
   const surgeonPerformances: SurgeonPerformanceMetric[] = [];
-  for (const [sName, sList] of surgeonMap.entries()) {
-    let sMins = 0;
-    let sRev = 0;
-    let sOvertime = 0;
-    const techCounts = new Map<string, number>();
+  for (const [surgeonName, data] of surgeonMap.entries()) {
+    const sCases = data.records.length;
+    let sMinutes = 0;
+    const techCountMap = new Map<string, number>();
 
-    for (const r of sList) {
-      sMins += getDurationMinutes(r);
-      sRev += Number(r.thanhTien) || (Number(r.donGia || 0) * Number(r.soLuong || 1));
-
-      // Kiểm tra ngoài giờ
-      if (r.ngayBD) {
-        const d = new Date(r.ngayBD);
-        if (!isNaN(d.getTime())) {
-          const dow = d.getDay();
-          const tVal = d.getHours() * 60 + d.getMinutes();
-          if (dow === 0 || dow === 6 || tVal < 450 || tVal >= 1020) {
-            sOvertime++;
-          }
-        }
-      }
-
-      const tName = (r.tenKT || '').trim();
-      if (tName) {
-        techCounts.set(tName, (techCounts.get(tName) || 0) + 1);
-      }
+    for (const r of data.records) {
+      sMinutes += getDurationMinutes(r);
+      const tName = r.tenKT?.trim();
+      if (tName) techCountMap.set(tName, (techCountMap.get(tName) || 0) + 1);
     }
 
-    // Top 3 kỹ thuật của PTV này
-    const sortedTechs = Array.from(techCounts.entries())
+    const topTechniques = Array.from(techCountMap.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([name, count]) => `${name} (${count})`);
 
     surgeonPerformances.push({
-      surgeonName: sName,
-      totalCases: sList.length,
-      totalMinutes: sMins,
-      avgDurationMinutes: sList.length > 0 ? Math.round(sMins / sList.length) : 0,
-      overtimeCases: sOvertime,
-      totalRevenue: sRev,
-      topTechniques: sortedTechs,
+      surgeonName,
+      totalCases: sCases,
+      totalMinutes: sMinutes,
+      avgDurationMinutes: sCases > 0 ? Math.round(sMinutes / sCases) : 0,
+      overtimeCases: data.overtimeCount,
+      emergencyCases: data.emergencyCount,
+      totalRevenue: data.totalRev,
+      topTechniques,
     });
   }
   surgeonPerformances.sort((a, b) => b.totalCases - a.totalCases);
 
-  // --- 4. Top Kỹ thuật ---
+  // --- Top Kỹ thuật ---
   const topTechniques: TechniqueKpiMetric[] = [];
-  for (const [tName, entry] of techniqueMap.entries()) {
-    let tMins = 0;
-    const loai = entry.records[0]?.loaiPTTT || 'TKPL';
-    const maTđ = entry.records[0]?.maTuongDuong;
+  for (const [tenKT, data] of techniqueMap.entries()) {
+    const count = data.records.length;
+    let techMinutes = 0;
+    const loaiPTTT = data.records[0]?.loaiPTTT || '';
+    const maTuongDuong = data.records[0]?.maTuongDuong;
 
-    for (const r of entry.records) {
-      tMins += getDurationMinutes(r);
+    for (const r of data.records) {
+      techMinutes += getDurationMinutes(r);
     }
 
     topTechniques.push({
-      tenKT: tName,
-      loaiPTTT: loai,
-      maTuongDuong: maTđ,
-      count: entry.records.length,
-      totalRevenue: entry.totalRev,
-      avgDurationMinutes: entry.records.length > 0 ? Math.round(tMins / entry.records.length) : 0,
+      tenKT,
+      loaiPTTT,
+      maTuongDuong,
+      count,
+      totalRevenue: data.totalRev,
+      avgDurationMinutes: count > 0 ? Math.round(techMinutes / count) : 0,
     });
   }
   topTechniques.sort((a, b) => b.count - a.count);
@@ -381,132 +440,123 @@ export function calculateOrAnalytics(params: {
     dataSource,
     totalCases,
     totalOperatingMinutes,
-    overallUtilizationRate,
-    avgTurnaroundMinutes,
+    capacity: capacityMetric,
+    hourlyLoads,
+    dailyPeaks,
     scheduledCases,
     emergencyCases,
     inHoursCases,
     outHoursCases,
-    roomUtilizations,
-    turnarounds,
     surgeonPerformances,
-    topTechniques,
+    topTechniques: topTechniques.slice(0, 20),
     alerts,
   };
 }
 
 /**
- * Xuất toàn bộ dữ liệu KPI Quản trị phòng mổ ra file Excel nhiều sheet chuẩn
+ * Xuất dữ liệu KPI Quản trị phòng mổ ra file Excel đa sheets chuyên nghiệp
  */
-export function exportOrAnalyticsToExcel(data: OrAnalyticsResult): void {
+export function exportOrAnalyticsToExcel(result: OrAnalyticsResult): void {
   const wb = XLSX.utils.book_new();
 
-  // Sheet 1: Tổng quan & Công suất bàn mổ
+  // Sheet 1: Tổng quan Năng lực khối Phòng mổ
   const summaryRows = [
-    ['BÁO CÁO CHỈ SỐ KPI QUẢN TRỊ PHÒNG MỔ (OR ANALYTICS)'],
-    [`Kỳ thống kê: ${data.periodLabel} | Nguồn dữ liệu: ${data.dataSource}`],
-    [''],
-    ['1. CÁC CHỈ SỐ CHÍNH'],
-    ['Tổng số ca phẫu thuật/thủ thuật', data.totalCases],
-    ['Tổng thời gian mổ thực tế (phút)', data.totalOperatingMinutes],
-    ['Tổng thời gian mổ thực tế (giờ)', Math.round(data.totalOperatingMinutes / 60)],
-    ['Công suất lấp đầy phòng mổ trung bình (%)', `${data.overallUtilizationRate}%`],
-    ['Thời gian chuyển ca trung bình (phút)', data.avgTurnaroundMinutes],
-    ['Số ca mổ phiên', data.scheduledCases],
-    ['Số ca mổ cấp cứu', data.emergencyCases],
-    ['Số ca trong giờ hành chính', data.inHoursCases],
-    ['Số ca ngoài giờ / trực', data.outHoursCases],
-    ['Tổng số ca cảnh báo bất thường', data.alerts.length],
-    [''],
-    ['2. CÔNG SUẤT THEO TỪNG BÀN MỔ / PHÒNG MỔ'],
-    ['STT', 'Bàn mổ / Mã máy', 'Số ca mổ', 'Tổng phút mổ', 'Tổng giờ mổ', 'Thời gian chuẩn (giờ)', 'Tỷ lệ công suất (%)', 'Đánh giá'],
-    ...data.roomUtilizations.map((r, idx) => [
-      idx + 1,
-      r.roomName,
-      r.totalCases,
-      r.totalMinutes,
-      Math.round(r.totalMinutes / 60),
-      Math.round(r.availableMinutes / 60),
-      `${r.utilizationRate}%`,
-      r.status === 'optimal' ? 'Tối ưu (50-85%)' : r.status === 'high' ? 'Cao (85-100%)' : r.status === 'overloaded' ? 'Quá tải (>100%)' : 'Thấp (<50%)',
-    ]),
+    ['BÁO CÁO QUẢN TRỊ NĂNG LỰC & PHỤ TẢI KHỐI PHÒNG MỔ'],
+    ['Thời kỳ:', result.periodLabel],
+    ['Nguồn số liệu:', result.dataSource === 'AUTO' ? 'Tự động' : (result.dataSource === 'MONTHLY' ? 'Báo cáo tháng' : 'Báo cáo hàng ngày')],
+    ['Ngày xuất báo cáo:', new Date().toLocaleString('vi-VN')],
+    [],
+    ['CHỈ SỐ', 'GIÁ TRỊ', 'ĐƠN VỊ', 'GHI CHÚ / TIÊU CHUẨN'],
+    ['Quy mô bàn mổ của viện', result.capacity.totalOperatingRooms, 'Bàn', 'Số bàn mổ hoạt động thực tế'],
+    ['Số ngày làm việc trong kỳ', result.capacity.operatingDays, 'Ngày', 'Tiêu chuẩn tháng'],
+    ['Số giờ hoạt động chuẩn / ngày', result.capacity.standardHoursPerDay, 'Giờ', 'Giờ hành chính tiêu chuẩn'],
+    ['Tổng thời gian mổ khả dụng', Math.round(result.capacity.totalAvailableMinutes / 60), 'Giờ', `${result.capacity.totalAvailableMinutes.toLocaleString('vi-VN')} phút`],
+    ['Tổng thời gian mổ thực tế', Math.round(result.totalOperatingMinutes / 60), 'Giờ', `${result.totalOperatingMinutes.toLocaleString('vi-VN')} phút`],
+    ['Tỷ lệ công suất sử dụng (OR Utilization)', `${result.capacity.utilizationRate}%`, '%', result.capacity.utilizationRate >= 85 ? 'Công suất cao' : result.capacity.utilizationRate >= 60 ? 'Tối ưu' : 'Thấp'],
+    ['Số bàn hoạt động đỉnh điểm (Peak Concurrency)', result.capacity.peakConcurrentSurgeries, 'Bàn cùng lúc', `Thời điểm: ${result.capacity.peakTime || '-'} ngày ${result.capacity.peakDate || '-'}`],
+    ['Tổng số ca phẫu thuật', result.totalCases, 'Ca', ''],
+    ['Ca mổ phiên', result.scheduledCases, 'Ca', `${result.totalCases > 0 ? Math.round((result.scheduledCases / result.totalCases) * 100) : 0}%`],
+    ['Ca mổ cấp cứu', result.emergencyCases, 'Ca', `${result.totalCases > 0 ? Math.round((result.emergencyCases / result.totalCases) * 100) : 0}%`],
+    ['Ca trong giờ hành chính', result.inHoursCases, 'Ca', `${result.totalCases > 0 ? Math.round((result.inHoursCases / result.totalCases) * 100) : 0}%`],
+    ['Ca ngoài giờ hành chính', result.outHoursCases, 'Ca', `${result.totalCases > 0 ? Math.round((result.outHoursCases / result.totalCases) * 100) : 0}%`],
   ];
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-  XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng quan & Bàn mổ');
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Tổng quan Năng lực OR');
 
-  // Sheet 2: Thời gian chuyển ca (Turnaround Time)
-  const tatRows = [
-    ['THỜI GIAN CHUYỂN GIAO CA MỔ (TURNAROUND TIME)'],
-    ['STT', 'Bàn mổ / Phòng', 'Số lần chuyển ca', 'TAT Trung bình (phút)', 'TAT Nhanh nhất (phút)', 'TAT Lâu nhất (phút)', 'Số lần chậm (> ngưỡng)'],
-    ...data.turnarounds.map((t, idx) => [
-      idx + 1,
-      t.roomName,
-      t.totalTurnarounds,
-      t.avgTurnaroundMinutes,
-      t.minTurnaroundMinutes,
-      t.maxTurnaroundMinutes,
-      t.delayedCount,
-    ]),
-  ];
-  const wsTat = XLSX.utils.aoa_to_sheet(tatRows);
-  XLSX.utils.book_append_sheet(wb, wsTat, 'Thời gian chuyển ca');
+  // Sheet 2: Phụ tải theo 24 khung giờ
+  const hourlyHeader = ['Khung giờ', 'Số ca diễn ra', 'Tổng phút mổ', 'Bàn chạy đồng thời tối đa', 'Loại khung giờ', 'Đánh giá phụ tải'];
+  const hourlyRows = result.hourlyLoads.map(h => [
+    h.hourLabel,
+    h.activeSurgeries,
+    h.operatingMinutes,
+    h.maxConcurrentTables,
+    h.inHours ? 'Trong giờ hành chính' : 'Ngoài giờ / Trực',
+    h.isPeak ? 'CAO ĐIỂM' : 'Bình thường',
+  ]);
+  const wsHourly = XLSX.utils.aoa_to_sheet([hourlyHeader, ...hourlyRows]);
+  XLSX.utils.book_append_sheet(wb, wsHourly, 'Phụ tải 24h');
 
-  // Sheet 3: Hiệu suất Phẫu thuật viên
-  const surgeonRows = [
-    ['HIỆU SUẤT PHẪU THUẬT VIÊN CHÍNH'],
-    ['STT', 'Phẫu thuật viên', 'Tổng ca mổ', 'Tổng giờ mổ', 'TG trung bình/ca (phút)', 'Ca ngoài giờ', 'Tổng viện phí mang lại (₫)', 'Kỹ thuật phổ biến'],
-    ...data.surgeonPerformances.map((s, idx) => [
-      idx + 1,
-      s.surgeonName,
-      s.totalCases,
-      Math.round(s.totalMinutes / 60),
-      s.avgDurationMinutes,
-      s.overtimeCases,
-      s.totalRevenue,
-      s.topTechniques.join('; '),
-    ]),
-  ];
-  const wsSurgeon = XLSX.utils.aoa_to_sheet(surgeonRows);
-  XLSX.utils.book_append_sheet(wb, wsSurgeon, 'Phẫu thuật viên');
+  // Sheet 3: Đỉnh điểm theo từng ngày
+  const dailyHeader = ['Ngày mổ', 'Thứ', 'Số ca mổ', 'Tổng phút mổ', 'Số bàn mổ chạy đỉnh điểm', 'Thời điểm đạt đỉnh', 'Tình trạng tải'];
+  const dailyRows = result.dailyPeaks.map(d => [
+    d.date,
+    d.dayOfWeek,
+    d.totalCases,
+    d.totalMinutes,
+    d.peakConcurrentTables,
+    d.peakTime,
+    d.isOverCapacity ? `VƯỢT ĐỊNH MỨC (${d.peakConcurrentTables} > ${result.capacity.totalOperatingRooms} bàn)` : 'Trong định mức',
+  ]);
+  const wsDaily = XLSX.utils.aoa_to_sheet([dailyHeader, ...dailyRows]);
+  XLSX.utils.book_append_sheet(wb, wsDaily, 'Phụ tải theo ngày');
 
-  // Sheet 4: Top Kỹ thuật
-  const techRows = [
-    ['DANH MỤC KỸ THUẬT PHỔ BIẾN & DOANH THU'],
-    ['STT', 'Tên dịch vụ kỹ thuật', 'Loại PTTT', 'Mã tương đương', 'Số ca', 'Thời lượng TB (phút)', 'Tổng thành tiền (₫)'],
-    ...data.topTechniques.map((t, idx) => [
-      idx + 1,
-      t.tenKT,
-      t.loaiPTTT,
-      t.maTuongDuong || '',
-      t.count,
-      t.avgDurationMinutes,
-      t.totalRevenue,
-    ]),
-  ];
-  const wsTech = XLSX.utils.aoa_to_sheet(techRows);
-  XLSX.utils.book_append_sheet(wb, wsTech, 'Top Kỹ thuật');
+  // Sheet 4: Phẫu thuật viên
+  const surgeonHeader = ['STT', 'Phẫu thuật viên chính', 'Tổng số ca', 'Tổng phút mổ', 'Thời gian TB/ca (phút)', 'Ca ngoài giờ', 'Ca cấp cứu', 'Doanh thu (VNĐ)', 'Top kỹ thuật'];
+  const surgeonRows = result.surgeonPerformances.map((s, idx) => [
+    idx + 1,
+    s.surgeonName,
+    s.totalCases,
+    s.totalMinutes,
+    s.avgDurationMinutes,
+    s.overtimeCases,
+    s.emergencyCases,
+    s.totalRevenue,
+    s.topTechniques.join('; '),
+  ]);
+  const wsSurgeons = XLSX.utils.aoa_to_sheet([surgeonHeader, ...surgeonRows]);
+  XLSX.utils.book_append_sheet(wb, wsSurgeons, 'Phẫu thuật viên');
 
-  // Sheet 5: Danh sách cảnh báo
-  const alertRows = [
-    ['DANH SÁCH CA MỔ BẤT THƯỜNG & CẢNH BÁO CHI PHÍ'],
-    ['STT', 'Mã BN', 'Họ tên người bệnh', 'Ngày mổ', 'Tên kỹ thuật', 'PTV chính', 'Phòng/Bàn mổ', 'Thời lượng (phút)', 'Loại cảnh báo', 'Mức độ', 'Nội dung chi tiết'],
-    ...data.alerts.map((a, idx) => [
-      idx + 1,
-      a.patientId,
-      a.patientName,
-      a.ngayPT,
-      a.tenKT,
-      a.ptChinh,
-      a.roomName,
-      a.durationMinutes,
-      a.alertType === 'outlier_short' ? 'Ca quá ngắn' : a.alertType === 'outlier_long' ? 'Ca quá dài' : a.alertType === 'cost_overrun' ? 'Bội chi thuốc/VTTH' : 'Chậm chuyển ca',
-      a.severity === 'error' ? 'Nghiêm trọng' : 'Cảnh báo',
-      a.message,
-    ]),
-  ];
-  const wsAlerts = XLSX.utils.aoa_to_sheet(alertRows);
+  // Sheet 5: Top kỹ thuật
+  const techHeader = ['STT', 'Tên kỹ thuật phẫu thuật', 'Loại PTTT', 'Mã tương đương', 'Số ca', 'Thời gian TB (phút)', 'Tổng doanh thu (VNĐ)'];
+  const techRows = result.topTechniques.map((t, idx) => [
+    idx + 1,
+    t.tenKT,
+    t.loaiPTTT,
+    t.maTuongDuong || '',
+    t.count,
+    t.avgDurationMinutes,
+    t.totalRevenue,
+  ]);
+  const wsTechniques = XLSX.utils.aoa_to_sheet([techHeader, ...techRows]);
+  XLSX.utils.book_append_sheet(wb, wsTechniques, 'Top kỹ thuật');
+
+  // Sheet 6: Cảnh báo bất thường
+  const alertHeader = ['STT', 'Mã BN', 'Họ và tên', 'Ngày mổ', 'Tên kỹ thuật', 'PTV chính', 'Thời lượng (phút)', 'Loại cảnh báo', 'Mức độ', 'Nội dung chi tiết'];
+  const alertRows = result.alerts.map((a, idx) => [
+    idx + 1,
+    a.patientId,
+    a.patientName,
+    a.ngayPT,
+    a.tenKT,
+    a.ptChinh,
+    a.durationMinutes,
+    a.alertType === 'negative_time' ? 'Thời gian âm' : (a.alertType === 'outlier_short' ? 'Ca quá ngắn' : (a.alertType === 'outlier_long' ? 'Ca quá dài' : 'Bội chi chi phí')),
+    a.severity === 'error' ? 'Nghiêm trọng' : 'Cảnh báo',
+    a.message,
+  ]);
+  const wsAlerts = XLSX.utils.aoa_to_sheet([alertHeader, ...alertRows]);
   XLSX.utils.book_append_sheet(wb, wsAlerts, 'Cảnh báo bất thường');
 
-  const fileName = `Bao_cao_KPI_Quan_tri_Phong_mo_${new Date().toISOString().slice(0, 10)}.xlsx`;
-  XLSX.writeFile(wb, fileName);
+  const safeLabel = result.periodLabel.replace(/[/\\?%*:|"<>]/g, '_');
+  XLSX.writeFile(wb, `Bao_cao_KPI_Quan_tri_phong_mo_${safeLabel}.xlsx`);
 }

@@ -100,16 +100,38 @@ export const KpiSettingsConfig: React.FC<Props> = ({ isLocked = false }) => {
       </div>
 
       <form onSubmit={handleSave} className="space-y-5">
-        {/* Khối 1: Tiêu chuẩn công suất phòng mổ */}
+        {/* Khối 1: Tiêu chuẩn công suất & Quy mô phòng mổ toàn viện */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
           <div className="flex items-center gap-2.5 pb-3 border-b border-gray-100">
             <Sliders className="h-4 w-4 text-blue-600" />
             <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-              1. Tiêu chuẩn công suất & Thời gian mở phòng (OR Utilization)
+              1. Quy mô & Năng lực khối phòng mổ toàn viện (OR Suite Capacity)
             </h4>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Tổng số bàn mổ hoạt động của viện
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  step={1}
+                  disabled={isLocked}
+                  value={form.totalOperatingRooms || 6}
+                  onChange={(e) => setForm({ ...form, totalOperatingRooms: Math.max(1, Number(e.target.value)) })}
+                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono disabled:bg-gray-100 disabled:text-gray-400"
+                />
+                <span className="absolute right-3 top-2.5 text-xs text-gray-400">bàn</span>
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1">
+                Tổng số bàn mổ thực tế đang vận hành của toàn bệnh viện (mặc định 6 bàn). Dùng để tính tổng công suất khả dụng và cảnh báo quá tải phụ tải đồng thời.
+              </p>
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
                 Số giờ hoạt động chuẩn / bàn mổ / ngày
@@ -128,7 +150,7 @@ export const KpiSettingsConfig: React.FC<Props> = ({ isLocked = false }) => {
                 <span className="absolute right-3 top-2.5 text-xs text-gray-400">giờ / ngày</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
-                Mặc định: 8.0 giờ/ngày (ca làm việc hành chính). Dùng để tính % công suất lấp đầy bàn mổ.
+                Mặc định: 8.0 giờ/ngày (ca làm việc hành chính). Dùng để tính % công suất lấp đầy khối phòng mổ.
               </p>
             </div>
 
@@ -149,72 +171,18 @@ export const KpiSettingsConfig: React.FC<Props> = ({ isLocked = false }) => {
                 <span className="absolute right-3 top-2.5 text-xs text-gray-400">ngày / tháng</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
-                Mặc định: 22 ngày (trừ Thứ 7, Chủ Nhật).
+                Mặc định: 22 ngày làm việc / tháng (trừ Thứ 7, Chủ Nhật).
               </p>
             </div>
           </div>
         </div>
 
-        {/* Khối 2: Thời gian chuyển giao ca mổ (Turnaround Time - TAT) */}
-        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
-          <div className="flex items-center gap-2.5 pb-3 border-b border-gray-100">
-            <Clock className="h-4 w-4 text-emerald-600" />
-            <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-              2. Tiêu chuẩn thời gian chuyển ca (Turnaround Time - TAT)
-            </h4>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Thời gian chuyển ca mục tiêu (Target TAT)
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  min={5}
-                  max={120}
-                  disabled={isLocked}
-                  value={form.targetTurnaroundMinutes}
-                  onChange={(e) => setForm({ ...form, targetTurnaroundMinutes: Number(e.target.value) })}
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono disabled:bg-gray-100 disabled:text-gray-400"
-                />
-                <span className="absolute right-3 top-2.5 text-xs text-gray-400">phút</span>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-1">
-                Khoảng cách lý tưởng từ khi ca trước ra khỏi phòng đến khi ca sau vào bàn (mặc định 25 phút).
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Ngưỡng cảnh báo chuyển ca chậm (Warning TAT)
-              </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  min={10}
-                  max={180}
-                  disabled={isLocked}
-                  value={form.warningTurnaroundMinutes}
-                  onChange={(e) => setForm({ ...form, warningTurnaroundMinutes: Number(e.target.value) })}
-                  className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono disabled:bg-gray-100 disabled:text-gray-400"
-                />
-                <span className="absolute right-3 top-2.5 text-xs text-gray-400">phút</span>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-1">
-                Nếu khoảng cách giữa 2 ca vượt quá mốc này, hệ thống sẽ gắn nhãn cảnh báo chậm trễ (mặc định 40 phút).
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Khối 3: Cảnh báo bất thường thời lượng & Chi phí */}
+        {/* Khối 2: Cảnh báo bất thường thời lượng & Chi phí */}
         <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs space-y-4">
           <div className="flex items-center gap-2.5 pb-3 border-b border-gray-100">
             <Activity className="h-4 w-4 text-amber-600" />
             <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
-              3. Ngưỡng phát hiện ca mổ bất thường & Vượt định mức chi phí
+              2. Ngưỡng phát hiện ca mổ bất thường & Vượt định mức chi phí
             </h4>
           </div>
 
@@ -248,7 +216,7 @@ export const KpiSettingsConfig: React.FC<Props> = ({ isLocked = false }) => {
                 <input
                   type="number"
                   min={60}
-                  max={1440}
+                  max={960}
                   step={30}
                   disabled={isLocked}
                   value={form.maxOutlierMinutes}
@@ -258,29 +226,28 @@ export const KpiSettingsConfig: React.FC<Props> = ({ isLocked = false }) => {
                 <span className="absolute right-3 top-2.5 text-xs text-gray-400">phút</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
-                Ca mổ dài hơn mốc này sẽ được cảnh báo (mặc định 360 phút = 6 giờ).
+                Ca mổ kéo dài hơn mốc này sẽ được gắn cờ theo dõi ca đại phẫu (mặc định &gt; 480 phút = 8 giờ).
               </p>
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">
-                Cảnh báo chi phí vượt trần
+                Ngưỡng chi phí vật tư / thuốc báo động
               </label>
               <div className="relative">
                 <input
                   type="number"
-                  min={10}
-                  max={300}
-                  step={5}
+                  min={1000000}
+                  step={5000000}
                   disabled={isLocked}
-                  value={form.costOverrunThresholdPct}
-                  onChange={(e) => setForm({ ...form, costOverrunThresholdPct: Number(e.target.value) })}
+                  value={form.costOverrunThresholdAmount || 50000000}
+                  onChange={(e) => setForm({ ...form, costOverrunThresholdAmount: Number(e.target.value) })}
                   className="w-full px-3 py-2 text-xs border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-mono disabled:bg-gray-100 disabled:text-gray-400"
                 />
-                <span className="absolute right-3 top-2.5 text-xs text-gray-400">% giá thu</span>
+                <span className="absolute right-3 top-2.5 text-xs text-gray-400">VNĐ</span>
               </div>
               <p className="text-[11px] text-gray-400 mt-1">
-                Khi chi phí thuốc + VTTH vượt tỷ lệ này so với giá viện phí thu về.
+                Cảnh báo khi chi phí định mức thuốc + VTTH của ca mổ vượt quá mức này (mặc định 50,000,000 đ).
               </p>
             </div>
           </div>
