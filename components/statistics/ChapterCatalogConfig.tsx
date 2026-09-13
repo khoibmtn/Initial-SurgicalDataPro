@@ -10,7 +10,7 @@ import {
   Loader2, FileSpreadsheet, BookOpen,
 } from 'lucide-react';
 import { ChapterCatalog } from '../../types';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   createChapter,
   updateChapter,
@@ -40,7 +40,8 @@ const EMPTY_ROW: EditRow = {
 const DEFAULT_PAGE_SIZE = 30;
 
 export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
-  const { isLocked } = useConfig();
+  const { can, isAdmin } = useAuth();
+  const isLocked = !isAdmin && !can('manage_dmkt');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);

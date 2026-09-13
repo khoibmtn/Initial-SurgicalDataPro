@@ -5,6 +5,7 @@
 import React from 'react';
 import { Building2, Clock, Save } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,7 +184,9 @@ const TimeRow: React.FC<TimeRowProps> = ({ label, fromField, toField, summerFrom
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export const AdminSettingsConfig: React.FC = () => {
-    const { config, updateConfig, isLocked } = useConfig();
+    const { config, updateConfig } = useConfig();
+    const { can, isAdmin } = useAuth();
+    const isLocked = !isAdmin && !can('manage_admin_settings');
 
     return (
         <div className="space-y-4 p-1">

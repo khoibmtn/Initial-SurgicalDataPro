@@ -24,7 +24,7 @@ import {
 } from '../../services/requiredMachineService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { normalizeForMatch } from '../../services/servicePriceProcessor';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface Props {
   initialItems?: RequiredMachineItem[];
@@ -33,7 +33,8 @@ interface Props {
 type FilterStatus = 'all' | 'required' | 'optional' | 'active' | 'expired';
 
 export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) => {
-  const { isLocked } = useConfig();
+  const { can, isAdmin } = useAuth();
+  const isLocked = !isAdmin && !can('manage_dmkt');
   const [items, setItems] = useState<RequiredMachineItem[]>(initialItems || []);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');

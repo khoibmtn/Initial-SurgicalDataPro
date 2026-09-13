@@ -230,10 +230,10 @@ const ConfigContext = createContext<ConfigContextType>({
     getAllowance: (loai: string) => DEFAULT_PRICE_CONFIG[loai] || { "Chính": 0, "Phụ": 0, "Giúp việc": 0 },
     getTimeRule: (loai: string) => DEFAULT_TIME_RULES[loai] || { min: 0, max: 0 },
     getTableLimit: () => 1,
-    isLocked: true,
-    unlockConfig: () => ({ success: false }),
+    isLocked: false,
+    unlockConfig: () => ({ success: true }),
     lockConfig: () => { },
-    changePassword: () => ({ success: false }),
+    changePassword: () => ({ success: true }),
     autoUnlockForAdmin: () => {},
 });
 
@@ -243,82 +243,20 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
     const [isLoaded, setIsLoaded] = useState(false);
 
-    // Luôn khóa mặc định khi mở ứng dụng/phiên mới; mở theo session; mật khẩu lưu local
-    const [isLocked, setIsLocked] = useState<boolean>(() => {
+    // Cơ chế phân quyền RBAC đã bao phủ và thay thế hoàn toàn mật khẩu thủ công 123456.
+    const isLocked = false;
+    const unlockConfig = () => ({ success: true });
+    const lockConfig = () => {};
+    const autoUnlockForAdmin = () => {};
+    const changePassword = () => ({ success: true });
+
+    // Dọn dẹp key cũ trong storage
+    useEffect(() => {
         try {
-            return sessionStorage.getItem('config_unlocked') !== 'true';
-        } catch {
-            return true;
-        }
-    });
-
-    const unlockConfig = (password: string): { success: boolean; error?: string } => {
-        const stored = localStorage.getItem('admin_config_password') || '123456';
-
-        // Check password (supports both legacy plain-text and new hashed format)
-        // For hashed passwords, we use async verification but wrap in sync API for compatibility
-        if (stored.startsWith('sha256:')) {
-            // Async hash verification — trigger in background
-            import('../utils/hashUtils').then(({ verifyPassword: vp }) => {
-                vp(password, stored).then((valid) => {
-                    if (valid) {
-                        try { sessionStorage.setItem('config_unlocked', 'true'); } catch {}
-                        setIsLocked(false);
-                    }
-                });
-            });
-            // Optimistic: return success false, will auto-unlock if valid
-            return { success: false, error: 'Đang xác thực...' };
-        }
-
-        // Legacy plain-text comparison + auto-migrate to hash
-        if (password === stored) {
-            try { sessionStorage.setItem('config_unlocked', 'true'); } catch {}
-            setIsLocked(false);
-            // Migrate to hash in background
-            import('../utils/hashUtils').then(({ hashPassword: hp }) => {
-                hp(password).then(({ hash }) => {
-                    localStorage.setItem('admin_config_password', hash);
-                });
-            });
-            return { success: true };
-        }
-        return { success: false, error: 'Mật khẩu không chính xác!' };
-    };
-
-    const lockConfig = () => {
-        try { sessionStorage.removeItem('config_unlocked'); } catch {}
-        setIsLocked(true);
-    };
-
-    /** Auto-unlock cho admin đã đăng nhập Firebase Auth */
-    const autoUnlockForAdmin = () => {
-        try { sessionStorage.setItem('config_unlocked', 'true'); } catch {}
-        setIsLocked(false);
-    };
-
-    const changePassword = (oldPassword: string, newPassword: string): { success: boolean; error?: string } => {
-        const stored = localStorage.getItem('admin_config_password') || '123456';
-        
-        // Legacy plain-text check
-        if (!stored.startsWith('sha256:')) {
-            if (oldPassword !== stored) {
-                return { success: false, error: 'Mật khẩu hiện tại không đúng!' };
-            }
-        }
-        // Note: For hashed passwords, the old password is verified in unlockConfig flow
-
-        if (!newPassword || newPassword.trim().length < 4) {
-            return { success: false, error: 'Mật khẩu mới phải có ít nhất 4 ký tự!' };
-        }
-        // Hash the new password
-        import('../utils/hashUtils').then(({ hashPassword: hp }) => {
-            hp(newPassword.trim()).then(({ hash }) => {
-                localStorage.setItem('admin_config_password', hash);
-            });
-        });
-        return { success: true };
-    };
+            sessionStorage.removeItem('config_unlocked');
+            localStorage.removeItem('admin_config_password');
+        } catch {}
+    }, []);
 
 
     // Load config from Firebase on mount

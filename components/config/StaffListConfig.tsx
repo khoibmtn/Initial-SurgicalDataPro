@@ -6,6 +6,7 @@ import React, { useState, useMemo } from 'react';
 import { Users, Download, Upload, Plus, Save, ChevronRight, ChevronLeft, XCircle, Search, Trash2, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { StaffMember } from '../../types';
 
 interface StaffListConfigProps {
@@ -13,7 +14,9 @@ interface StaffListConfigProps {
 }
 
 export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate }) => {
-    const { config, updateConfig, isLocked } = useConfig();
+    const { config, updateConfig } = useConfig();
+    const { can, isAdmin } = useAuth();
+    const isLocked = !isAdmin && !can('manage_staff');
     const staffList = config.staffList || [];
 
     const [staffForm, setStaffForm] = useState<Omit<StaffMember, 'id'>>({

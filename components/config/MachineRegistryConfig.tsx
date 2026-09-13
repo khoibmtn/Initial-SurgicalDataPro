@@ -6,6 +6,7 @@ import React, { useState, useMemo } from 'react';
 import { Download, Upload, RefreshCw, Plus, Save, XCircle, Check, AlertCircle, Search, Trash2, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { MachineEntry } from '../../types';
 import { reportService } from '../../services/reportService';
 
@@ -20,7 +21,9 @@ type ImportDialogData = {
 };
 
 export const MachineRegistryConfig: React.FC<MachineRegistryConfigProps> = ({ onConfigUpdate }) => {
-    const { config, updateConfig, isLocked } = useConfig();
+    const { config, updateConfig } = useConfig();
+    const { can, isAdmin } = useAuth();
+    const isLocked = !isAdmin && !can('manage_dmkt');
     const registry = config.machineRegistry || [];
 
     const [regSearchQuery, setRegSearchQuery] = useState("");

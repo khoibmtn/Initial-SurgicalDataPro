@@ -34,7 +34,7 @@ import { ChapterCatalogConfig } from './ChapterCatalogConfig';
 import { ProfileConfig } from './ProfileConfig';
 import { SurgeryCostConfig } from './SurgeryCostConfig';
 import { subscribeToCostItems } from '../../services/surgeryCostService';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   getComparisonThresholdConfig,
   saveComparisonThresholdConfig,
@@ -95,7 +95,8 @@ function toFormState(v: SurgeryPriceVersion): FormState {
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
 export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices, chapters, profiles }) => {
-  const { isLocked } = useConfig();
+  const { can, isAdmin } = useAuth();
+  const isLocked = !isAdmin && !can('manage_dmkt');
   const [configSubTab, setConfigSubTab] = useState<ConfigSubTab>(() => {
     const saved = localStorage.getItem(SUB_TAB_KEY);
     if (saved === 'profile' || saved === 'comparison-threshold') return saved;

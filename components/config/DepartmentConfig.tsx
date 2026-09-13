@@ -5,9 +5,12 @@
 import React, { useState } from 'react';
 import { Layers, Plus, ArrowUp, ArrowDown, Pencil, Check, X, Trash2, ToggleLeft, ToggleRight } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const DepartmentConfig: React.FC = () => {
-    const { config, updateConfig, isLocked } = useConfig();
+    const { config, updateConfig } = useConfig();
+    const { can, isAdmin } = useAuth();
+    const isLocked = !isAdmin && !can('manage_staff');
     const [newDeptShortName, setNewDeptShortName] = useState("");
     const [newDeptFullName, setNewDeptFullName] = useState("");
     const [editingDeptIndex, setEditingDeptIndex] = useState<number | null>(null);
