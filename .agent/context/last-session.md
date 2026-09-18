@@ -1,17 +1,17 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 13/09/2026 13:05 (Giờ địa phương GMT+7)  
+> **Thời gian cập nhật:** 18/09/2026 17:04 (Giờ địa phương GMT+7)  
 > **Nhánh Git hiện tại:** `version2` (remote: `origin/version2`)  
-> **Commit mới nhất:** `0ffef58` (`feat(analytics): refactor OR analytics to hospital-wide capacity and peak concurrency model`)  
+> **Commit mới nhất:** `c4e175d` (`fix(overtime): add missing Check icon import causing crash on config dropdown`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Local Dev Port:** `http://localhost:3002` (Vite dev server đang chạy nền)  
+> **Local Dev Port:** `http://localhost:3003` (Vite dev server đang chạy nền)  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`  
 > **Trạng thái Test:** `250 / 250 tests PASS` (17 test suites)  
 > **Tài liệu Kế hoạch:** [implementation_plan.md](file:///Users/buiminhkhoi/.gemini/antigravity-ide/brain/f443151a-e45d-4851-a746-575eac49efce/implementation_plan.md) & [walkthrough.md](file:///Users/buiminhkhoi/.gemini/antigravity-ide/brain/f443151a-e45d-4851-a746-575eac49efce/walkthrough.md)
 
 ---
 
-## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành Trong Phiên
+## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
 
 ### 1.1. Loại Bỏ Mật Khẩu Thủ Công `123456` / `isLocked` Thừa Thãi
 - **Đánh giá an ninh**: Kiểm tra toàn diện hệ thống phân quyền RBAC đa cấp (Admin viện, Trưởng khoa, Bác sĩ/KTV).
@@ -58,7 +58,7 @@
   3. **Thuật toán Sweep Line quét Đỉnh điểm Đồng thời (Peak Concurrency & Over-capacity Detection)**:
      - Tự động quét giao thoa thời gian (`ngayBD` $\rightarrow$ `ngayKT`) của từng ca mổ.
      - Sắp xếp sự kiện mốc thời gian: tại cùng thời điểm, ca mổ kết thúc (`-1`) ưu tiên xử lý trước ca bắt đầu (`+1`) để không cộng dồn thời điểm chuyển tiếp.
-     - Xác định chính xác **Số bàn mổ chạy đồng thời đỉnh điểm** toàn kỳ và theo từng ngày; phát hiện ngày bị vượt định mức ($> N$ bàn).
+     - Xác định chính xác **Số bàn mổ chạy đồng thời đỉnh điểm** toàn kỳ và theo từng ngày; phát hiện ngày bị vượt định mức ($>N$ bàn).
   4. **Phân bố Phụ tải Phẫu thuật theo 24 Khung giờ (Hourly Load Distribution)**:
      - Chia nhỏ và tích lũy phút mổ của các ca vào từng khung giờ (0h..23h).
      - Biểu đồ cột 24 khung giờ giúp ban giám đốc nhận diện ngay khung giờ cao điểm (Peak Hours: 8h–11h, 14h–16h) và ca trực đêm ngoài giờ.
@@ -70,6 +70,16 @@
   7. **Xuất Báo cáo Excel 6 Sheets (`exportOrAnalyticsToExcel`)**:
      - Gồm: *Tổng quan Năng lực OR, Phụ tải 24h, Phụ tải theo ngày, Phẫu thuật viên, Top kỹ thuật, Cảnh báo bất thường*.
 - **Kiểm thử**: `__tests__/orAnalytics.test.ts` (7/7 tests PASS).
+
+---
+
+### 1.4. Hotfix: Missing `Check` Icon Import (Phiên 18/09/2026)
+- **Lỗi**: Khi bấm nút "Cấu hình hiển thị ngoài giờ" trong tab Ngoài giờ (cả BC hàng ngày & BC tháng), ứng dụng crash với lỗi `"Check is not defined"`.
+- **Nguyên nhân**: Icon `Check` từ `lucide-react` được sử dụng 3 lần trong dropdown cấu hình của `OvertimeTab.tsx` (dòng 555, 598, 621) nhưng **chưa được import**.
+- **Fix**: Thêm `Check` vào import list `lucide-react` trong `components/overtime/OvertimeTab.tsx`.
+- **Phạm vi**: Fix đã được apply cho cả 2 nhánh:
+  - `main` → commit `ed2a831` → pushed & deployed lên Vercel.
+  - `version2` → cherry-pick `c4e175d` → pushed.
 
 ---
 
@@ -140,19 +150,23 @@ export interface RecordEditingLock {
 - **Nhánh hiện tại**: `version2`
 - **Tình trạng git**: Sạch sẽ, đã đồng bộ hoàn toàn với remote `origin/version2`.
 - **Lịch sử commit gần nhất**:
+  - `c4e175d`: `fix(overtime): add missing Check icon import causing crash on config dropdown`
+  - `790c423`: `docs(context): save session context for version2 and macro OR capacity model`
   - `0ffef58`: `feat(analytics): refactor OR analytics to hospital-wide capacity and peak concurrency model`
   - `544faf5`: `fix(ui): destructure pendingApprovalCount in Sidebar and export AppConfig/SurgeryConfig`
   - `f1b9cb1`: `feat(analytics): add OR Analytics KPI dashboard and real-time collaborative record lock`
+- **Nhánh `main`** (production):
+  - `ed2a831`: `fix(overtime): add missing Check icon import causing crash on config dropdown`
+  - Đã deploy thành công lên Vercel.
 - **Kết quả Kiểm thử**:
   - `npx vitest run`: **17 test suites, 250 / 250 tests PASS (100%)**
-  - `npm run build`: Thành công trong 6.39 giây, không có cảnh báo TypeScript nào.
   - **Quy tắc thiết kế**: Tuân thủ tuyệt đối **Purple Ban** (sử dụng tông blue, indigo, emerald, amber, slate, rose).
 
 ---
 
 ## 🎯 4. Các Bước Kế Tiếp Được Đề Xuất
 
-1. **Sẵn sàng Merge vào `main`**:
+1. **Sẵn sàng Merge `version2` vào `main`**:
    - Khi bạn yêu cầu, toàn bộ các tính năng hoàn chỉnh của `version2` (Khóa bản ghi realtime, KPI Năng lực khối phòng mổ toàn viện, Phụ tải 24 khung giờ, Sweep Line Concurrency) có thể được merge vào nhánh `main` để deploy tự động lên Vercel.
 2. **Mục 3.1 trong Roadmap**:
    - Triển khai **Mẫu in quyết toán phụ cấp C73/C74 chuẩn Bộ Y Tế & BHXH** (tự động kết xuất bảng kê chi trả phẫu thuật - thủ thuật phục vụ phòng Kế toán - Tài chính).
