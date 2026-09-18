@@ -18,6 +18,7 @@ import {
   ChevronRight,
   FileText,
   UserPlus,
+  Check,
 } from 'lucide-react';
 import { SurgeryRecord, DutyScheduleDateConfig, OvertimeRecordRow } from '../../types';
 import { AppConfig } from '../../contexts/ConfigContext';
