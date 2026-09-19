@@ -1,13 +1,13 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 18/09/2026 17:04 (Giờ địa phương GMT+7)  
+> **Thời gian cập nhật:** 19/09/2026 08:36 (Giờ địa phương GMT+7)  
 > **Nhánh Git hiện tại:** `version2` (remote: `origin/version2`)  
-> **Commit mới nhất:** `c4e175d` (`fix(overtime): add missing Check icon import causing crash on config dropdown`)  
+> **Commit mới nhất (version2):** `08c6aa9` (`fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`)  
+> **Commit mới nhất (main):** `46cf6aa` (`fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Local Dev Port:** `http://localhost:3003` (Vite dev server đang chạy nền)  
-> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi TypeScript)`  
+> **Local Dev Port:** `http://localhost:3003` (Vite dev server)  
+> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build)`  
 > **Trạng thái Test:** `250 / 250 tests PASS` (17 test suites)  
-> **Tài liệu Kế hoạch:** [implementation_plan.md](file:///Users/buiminhkhoi/.gemini/antigravity-ide/brain/f443151a-e45d-4851-a746-575eac49efce/implementation_plan.md) & [walkthrough.md](file:///Users/buiminhkhoi/.gemini/antigravity-ide/brain/f443151a-e45d-4851-a746-575eac49efce/walkthrough.md)
 
 ---
 
@@ -83,6 +83,24 @@
 
 ---
 
+### 1.5. Bugfix: False-Positive "Thiếu máy" cho Phẫu thuật Không Cần Máy (Phiên 19/09/2026)
+- **Lỗi**: "Phẫu thuật quặm" (phẫu thuật mắt, không cần máy) bị gắn cờ **Thiếu máy** sai trong BC hàng ngày khoảng 18-19/09/2026.
+- **Root Cause — Race condition + Legacy blacklist fallback**:
+  - Logic phát hiện thiếu máy trong `services/reprocess.ts` (2 hàm: `reprocessSurgicalRecords` và `recalculateResultFromRecords`) có 2 nhánh:
+    1. **Whitelist (DM sử dụng mã máy)**: Khi `config.requiredMachineCatalog` đã load (4.773 items), gọi `isMachineCodeRequired()` → kiểm tra kỹ thuật có trong DM không → "Phẫu thuật quặm" không có → trả `false` → ✅ ĐÚNG.
+    2. **Blacklist fallback (cũ)**: Khi catalog **chưa load** (`undefined` / rỗng), code rơi vào `config.ignoredMachineNames` check → `ignoredMachineNames` rỗng `[]` → `.some()` trả `false` → `return true` → ❌ MỌI ca không máy đều bị báo thiếu!
+  - DM sử dụng mã máy tìm "quặm" cho **0 kết quả** → phẫu thuật này KHÔNG yêu cầu máy.
+  - Khi Firebase subscription cho `requiredMachineCatalog` chưa trigger (initial load, race condition), logic rơi vào fallback sai.
+- **Fix** (`services/reprocess.ts` dòng 285-298 và 870-883):
+  - Loại bỏ hoàn toàn fallback blacklist cũ (`ignoredMachineNames`).
+  - Áp dụng **pure whitelist**: Chỉ báo thiếu máy khi kỹ thuật **NẰM TRONG** DM sử dụng mã máy có `isRequired: true`.
+  - Nếu DM chưa load → `return false` (an toàn, không báo false positive).
+- **Phạm vi**: Fix đã được apply cho cả 2 nhánh:
+  - `main` → commit `46cf6aa` → pushed & deployed lên Vercel.
+  - `version2` → cherry-pick `08c6aa9` → pushed. 250/250 tests PASS.
+
+---
+
 ## 📐 2. Cấu Trúc Dữ Liệu & Schema Trọng Điểm
 
 ### 2.1. KPI Types (`types/kpi.ts`)
@@ -143,19 +161,44 @@ export interface RecordEditingLock {
 }
 ```
 
+### 2.3. Missing Machine Detection Logic (Fixed — `services/reprocess.ts`)
+```typescript
+// Pure whitelist approach — KHÔNG CÓ fallback blacklist
+const missingMachine = records.filter((r) => {
+    if (r.machineCode) return false;
+    if (r.machine && r.machine.trim() !== "") return false;
+
+    // Chỉ báo thiếu khi kỹ thuật NẰM TRONG DM sử dụng mã máy
+    if (reqMachineIndex) {
+        return isMachineCodeRequired(r, reqMachineIndex);
+    }
+
+    // DM chưa load → không báo (tránh false positive)
+    return false;
+});
+```
+
+### 2.4. `isMachineCodeRequired()` (`services/requiredMachineService.ts`)
+- Tra cứu theo thứ tự ưu tiên:
+  1. `maTuongDuong` (mã BHXH) — O(1) lookup qua `IndexedRequiredMachineCatalog.byCode`
+  2. `tenKT` (tên DVKT normalized) — O(1) lookup qua `IndexedRequiredMachineCatalog.byName`
+- Lọc theo ngày hiệu lực: `effectiveFrom <= ngayBD <= effectiveTo`
+- Nếu KHÔNG tìm thấy trong catalog → `return false` (không yêu cầu máy)
+
 ---
 
 ## 🚀 3. Trạng Thái Git & Kiểm Thử
 
 - **Nhánh hiện tại**: `version2`
 - **Tình trạng git**: Sạch sẽ, đã đồng bộ hoàn toàn với remote `origin/version2`.
-- **Lịch sử commit gần nhất**:
+- **Lịch sử commit gần nhất (version2)**:
+  - `08c6aa9`: `fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`
+  - `2888efa`: `docs(context): save session context with overtime Check icon hotfix`
   - `c4e175d`: `fix(overtime): add missing Check icon import causing crash on config dropdown`
   - `790c423`: `docs(context): save session context for version2 and macro OR capacity model`
   - `0ffef58`: `feat(analytics): refactor OR analytics to hospital-wide capacity and peak concurrency model`
-  - `544faf5`: `fix(ui): destructure pendingApprovalCount in Sidebar and export AppConfig/SurgeryConfig`
-  - `f1b9cb1`: `feat(analytics): add OR Analytics KPI dashboard and real-time collaborative record lock`
 - **Nhánh `main`** (production):
+  - `46cf6aa`: `fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`
   - `ed2a831`: `fix(overtime): add missing Check icon import causing crash on config dropdown`
   - Đã deploy thành công lên Vercel.
 - **Kết quả Kiểm thử**:
