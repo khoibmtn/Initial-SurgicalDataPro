@@ -288,18 +288,15 @@ export function reprocessSurgicalRecords(
         // Fallback: also skip if legacy machine (name) exists
         if (r.machine && r.machine.trim() !== "") return false;
 
-        // If requiredMachineCatalog is loaded, check against catalog (whitelist approach)
+        // Whitelist approach: only flag as "missing machine" if the surgery
+        // is explicitly listed in the DM sử dụng mã máy catalog as requiring a machine.
+        // If catalog is not loaded yet, do NOT flag any surgery (avoid false positives).
         if (reqMachineIndex) {
             return isMachineCodeRequired(r, reqMachineIndex);
         }
 
-        // Backward compatibility fallback if catalog not loaded
-        if (config.ignoredMachineNames && config.ignoredMachineNames.some(ignoredName => {
-            const normalizedSurgeryName = r.tenKT.replace(/[\[\]()]/g, '').trim().toLowerCase();
-            const normalizedIgnoredName = ignoredName.replace(/[\[\]()]/g, '').trim().toLowerCase();
-            return normalizedSurgeryName.includes(normalizedIgnoredName) || normalizedIgnoredName.includes(normalizedSurgeryName);
-        })) return false;
-        return true;
+        // Catalog not loaded → cannot determine requirement → do not flag
+        return false;
     });
 
     // 2. Create Workbook
@@ -878,18 +875,15 @@ export function recalculateResultFromRecords(records: SurgeryRecord[], config: A
         if (r.machineCode) return false;
         if (r.machine && r.machine.trim() !== "") return false;
 
-        // If requiredMachineCatalog is loaded, check against catalog (whitelist approach)
+        // Whitelist approach: only flag as "missing machine" if the surgery
+        // is explicitly listed in the DM sử dụng mã máy catalog as requiring a machine.
+        // If catalog is not loaded yet, do NOT flag any surgery (avoid false positives).
         if (reqMachineIndexRecalc) {
             return isMachineCodeRequired(r, reqMachineIndexRecalc);
         }
 
-        // Backward compatibility fallback if catalog not loaded
-        if (config.ignoredMachineNames && config.ignoredMachineNames.some(ignoredName => {
-            const normalizedSurgeryName = r.tenKT.replace(/[\[\]()]/g, '').trim().toLowerCase();
-            const normalizedIgnoredName = ignoredName.replace(/[\[\]()]/g, '').trim().toLowerCase();
-            return normalizedSurgeryName.includes(normalizedIgnoredName) || normalizedIgnoredName.includes(normalizedSurgeryName);
-        })) return false;
-        return true;
+        // Catalog not loaded → cannot determine requirement → do not flag
+        return false;
     });
 
 
