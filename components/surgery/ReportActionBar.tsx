@@ -4,7 +4,7 @@ import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2
 export interface ReportActionBarProps {
   dateRangeText?: string;
   activeTable?: string;
-  onPrint: (type: 'list' | 'payment', orientation: 'portrait' | 'landscape') => void;
+  onPrint: (type: 'list' | 'payment' | 'packagePayment', orientation: 'portrait' | 'landscape') => void;
   onOvertimePrint?: () => void;
   onDownloadExcel: () => void;
   onDownloadFormattedExcel: () => void;
@@ -23,6 +23,7 @@ export interface ReportActionBarProps {
   // Staging Grid Props
   onOpenStaging?: () => void;
   stagingIssueCount?: number;
+  paymentSubTab?: 'pttt' | 'package';
 }
 
 export const ReportActionBar: React.FC<ReportActionBarProps> = ({
@@ -43,6 +44,7 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
   onOpenAuditLog,
   auditLogCount,
   onOpenStaging,
+  paymentSubTab,
   stagingIssueCount,
 }) => {
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
@@ -114,26 +116,95 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
                 <span>Danh sách PT — A4 ngang</span>
               </button>
               <div className="fb-dropdown-divider" />
-              <button
-                onClick={() => {
-                  setIsPrintDropdownOpen(false);
-                  onPrint('payment', 'portrait');
-                }}
-                className="fb-dropdown-item cursor-pointer"
-              >
-                <CreditCard />
-                <span>Thanh toán — A4 dọc</span>
-              </button>
-              <button
-                onClick={() => {
-                  setIsPrintDropdownOpen(false);
-                  onPrint('payment', 'landscape');
-                }}
-                className="fb-dropdown-item cursor-pointer"
-              >
-                <CreditCard />
-                <span>Thanh toán — A4 ngang</span>
-              </button>
+              {activeTable === 'payment' && paymentSubTab === 'package' ? (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('packagePayment', 'portrait');
+                    }}
+                    className="fb-dropdown-item font-semibold text-emerald-700 cursor-pointer"
+                  >
+                    <CreditCard className="text-emerald-600" />
+                    <span>TT Gói DV — A4 dọc</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('packagePayment', 'landscape');
+                    }}
+                    className="fb-dropdown-item font-semibold text-emerald-700 cursor-pointer"
+                  >
+                    <CreditCard className="text-emerald-600" />
+                    <span>TT Gói DV — A4 ngang</span>
+                  </button>
+                  <div className="fb-dropdown-divider" />
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('payment', 'portrait');
+                    }}
+                    className="fb-dropdown-item cursor-pointer text-gray-500"
+                  >
+                    <CreditCard />
+                    <span>Phụ cấp PTTT — A4 dọc</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('payment', 'landscape');
+                    }}
+                    className="fb-dropdown-item cursor-pointer text-gray-500"
+                  >
+                    <CreditCard />
+                    <span>Phụ cấp PTTT — A4 ngang</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('payment', 'portrait');
+                    }}
+                    className="fb-dropdown-item cursor-pointer"
+                  >
+                    <CreditCard />
+                    <span>Thanh toán PTTT — A4 dọc</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('payment', 'landscape');
+                    }}
+                    className="fb-dropdown-item cursor-pointer"
+                  >
+                    <CreditCard />
+                    <span>Thanh toán PTTT — A4 ngang</span>
+                  </button>
+                  <div className="fb-dropdown-divider" />
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('packagePayment', 'portrait');
+                    }}
+                    className="fb-dropdown-item cursor-pointer"
+                  >
+                    <CreditCard />
+                    <span>TT Gói DV — A4 dọc</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsPrintDropdownOpen(false);
+                      onPrint('packagePayment', 'landscape');
+                    }}
+                    className="fb-dropdown-item cursor-pointer"
+                  >
+                    <CreditCard />
+                    <span>TT Gói DV — A4 ngang</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -194,8 +265,8 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
           </button>
         )}
 
-        {/* Smart Staging & Validation Button */}
-        {onOpenStaging && (
+        {/* Smart Staging & Validation Button (Tạm thời ẩn theo yêu cầu) */}
+        {/* {onOpenStaging && (
           <button
             type="button"
             onClick={onOpenStaging}
@@ -210,7 +281,7 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
               </span>
             )}
           </button>
-        )}
+        )} */}
 
         {/* Report Lock Status & Actions */}
         {isReportLocked ? (

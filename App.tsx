@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { reprocessSurgicalRecords } from './services/reprocess';
 import { ConfigurationTab } from './components/ConfigurationTab';
 import { PrintPreview } from './components/PrintPreview';
@@ -27,6 +27,7 @@ import {
   DollarSign,
   CalendarDays,
   Clock,
+  Package,
 } from 'lucide-react';
 import { auth } from './lib/firebase';
 import { ToastContainer } from './components/common/ToastContainer';
@@ -67,6 +68,17 @@ import {
   generateLockKey,
   isPeriodLocked,
 } from './services/reportLockService';
+import {
+  ServicePackageAssignment,
+  ServicePackageDefinition,
+  ServicePackageModuleConfig,
+  DEFAULT_MODULE_CONFIG,
+  getRecordDateString,
+  buildCompositeKey,
+  clearPackageDrafts,
+  LS_DRAFT_KEY,
+} from './types/servicePackage';
+import { subscribeToAssignments, subscribeToServicePackages, subscribeToModuleConfig } from './services/servicePackageService';
 import { subscribeAuditLogs, logAuditEvent } from './services/auditLogService';
 import { sendNotification } from './services/notificationService';
 
@@ -78,6 +90,11 @@ const InnerApp: React.FC = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [configInitialSubTab, setConfigInitialSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | undefined>(undefined);
+
+  // Clear unassigned draft cases on initial app load / browser refresh
+  useEffect(() => {
+    clearPackageDrafts();
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'statistics') {
@@ -178,6 +195,50 @@ const InnerApp: React.FC = () => {
     });
     return () => unsub();
   }, []);
+
+  // ── Package data subscriptions ──
+  const [packageAssignments, setPackageAssignments] = useState<ServicePackageAssignment[]>([]);
+  const [packageDefinitions, setPackageDefinitions] = useState<ServicePackageDefinition[]>([]);
+  const [packageModuleConfig, setPackageModuleConfig] = useState<ServicePackageModuleConfig>(DEFAULT_MODULE_CONFIG);
+  const [packagePaymentMode, setPackagePaymentMode] = useState<'count' | 'amount'>(() => {
+    try {
+      return (localStorage.getItem('package_payment_mode') as 'count' | 'amount') || 'count';
+    } catch {
+      return 'count';
+    }
+  });
+  const [paymentSubTab, setPaymentSubTab] = useState<'pttt' | 'package'>(() => {
+    try {
+      return (localStorage.getItem('payment_sub_tab') as 'pttt' | 'package') || 'pttt';
+    } catch {
+      return 'pttt';
+    }
+  });
+
+  const handlePaymentSubTabChange = (tab: 'pttt' | 'package') => {
+    setPaymentSubTab(tab);
+    try {
+      localStorage.setItem('payment_sub_tab', tab);
+    } catch {}
+  };
+
+  useEffect(() => {
+    const unsub = subscribeToServicePackages(setPackageDefinitions);
+    const unsubConfig = subscribeToModuleConfig(setPackageModuleConfig);
+    return () => { unsub(); unsubConfig(); };
+  }, []);
+
+  useEffect(() => {
+    // Subscribe to assignments based on current report date range
+    const dateFrom = currentReport.dateFrom || '';
+    const dateTo = currentReport.dateTo || '';
+    if (!dateFrom) {
+      setPackageAssignments([]);
+      return;
+    }
+    const unsub = subscribeToAssignments(dateFrom, dateTo || dateFrom, setPackageAssignments);
+    return () => unsub();
+  }, [currentReport.dateFrom, currentReport.dateTo]);
 
   const currentPeriodKey = useMemo(() => {
     if (currentType === 'monthly') {
@@ -475,6 +536,11 @@ const InnerApp: React.FC = () => {
     config,
     ensureDataSaved,
     addToast,
+    packageAssignments,
+    packageDefinitions,
+    staffList: config.staffList || [],
+    packagePaymentMode,
+    packageModuleConfig,
   });
 
   // Excel Processing Controller
@@ -513,6 +579,31 @@ const InnerApp: React.FC = () => {
     addToast,
   });
 
+  const handleAssignPackage = useCallback((selectedRecords?: SurgeryRecord[]) => {
+    if (selectedRecords && selectedRecords.length > 0) {
+      try {
+        const stored = localStorage.getItem(LS_DRAFT_KEY);
+        const existing: SurgeryRecord[] = stored ? JSON.parse(stored) : [];
+        const map = new Map<string, SurgeryRecord>();
+        const getDraftKey = (r: SurgeryRecord) => {
+          const dDate = getRecordDateString(r).substring(0, 10);
+          return buildCompositeKey(r.patientId || '', dDate, r.tenKT || '');
+        };
+        existing.forEach(r => {
+          map.set(getDraftKey(r), r);
+        });
+        selectedRecords.forEach(r => {
+          map.set(getDraftKey(r), r);
+        });
+        localStorage.setItem(LS_DRAFT_KEY, JSON.stringify(Array.from(map.values())));
+        window.dispatchEvent(new Event('package_drafts_updated'));
+        addToast(`Đã thêm ${selectedRecords.length} ca vào danh sách Gói DV`, 'info');
+      } catch (e) {
+        console.error('Error saving draft package records:', e);
+      }
+    }
+    setActiveTable('packages');
+  }, [setActiveTable, addToast]);
 
   // Command Palette
   const { cmdPaletteOpen, setCmdPaletteOpen, commandItems } = useAppCommandPalette({
@@ -774,7 +865,15 @@ const InnerApp: React.FC = () => {
                       : currentReport.result?.dateRangeText || ''
                   }
                   activeTable={currentReport.activeTable}
-                  onPrint={(type, orientation) => handlePrintClick(type, orientation)}
+                  paymentSubTab={paymentSubTab}
+                  onPrint={(type, orientation) => {
+                    let targetType = type;
+                    // If user is currently looking at package subtab in payment table, map payment to packagePayment
+                    if (currentReport.activeTable === 'payment' && paymentSubTab === 'package' && type === 'payment') {
+                      targetType = 'packagePayment';
+                    }
+                    handlePrintClick(targetType as any, orientation);
+                  }}
                   onOvertimePrint={() => overtimePrintHandlerRef.current?.()}
                   onDownloadExcel={handleDownload}
                   onDownloadFormattedExcel={handleDownloadFormatted}
@@ -820,6 +919,7 @@ const InnerApp: React.FC = () => {
                           { value: 'payment', label: 'Thanh toán', icon: DollarSign, badge: currentReport.result?.paymentData?.rows?.length || 0, badgeColor: 'bg-emerald-100 text-emerald-700' },
                           { value: 'duty', label: 'Lịch trực', icon: CalendarDays, badge: currentReportDutyDateCount || 0 },
                           { value: 'overtime', label: 'Ngoài giờ', icon: Clock, badge: currentReportOvertimeCount || 0, badgeColor: currentReportOvertimeCount > 0 ? 'bg-amber-100 text-amber-800' : undefined },
+                          { value: 'packages', label: 'Gói DV', icon: Package, badge: packageAssignments.length > 0 ? `${packageAssignments.length} gán` : '0', badgeColor: packageAssignments.length > 0 ? 'bg-teal-100 text-teal-700' : undefined },
                         ]}
                       />
                     </div>
@@ -872,6 +972,14 @@ const InnerApp: React.FC = () => {
                             setPrintConfig(pConfig);
                             setIsPrintOpen(true);
                           }}
+                          packageAssignments={packageAssignments}
+                          packageDefinitions={packageDefinitions}
+                          onAssignPackage={handleAssignPackage}
+                          packagePaymentMode={packagePaymentMode}
+                          onPackagePaymentModeChange={setPackagePaymentMode}
+                          paymentSubTab={paymentSubTab}
+                          onPaymentSubTabChange={handlePaymentSubTabChange}
+                          onPrint={handlePrintClick}
                         />
                       )}
                     </div>

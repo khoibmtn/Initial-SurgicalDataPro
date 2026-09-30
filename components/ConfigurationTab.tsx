@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, RefreshCw, ClipboardList, Database, Users, Shield, Building2, BookOpen, DollarSign, Cpu, Activity, Layers, Receipt } from 'lucide-react';
+import { Save, RefreshCw, ClipboardList, Database, Users, Shield, Building2, BookOpen, DollarSign, Cpu, Activity, Layers, Receipt, Package } from 'lucide-react';
 import { useConfig } from '../contexts/ConfigContext';
 import { LaborConfigVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile, SurgeryCostItem } from '../types';
 import { LaborConfigManager } from './config/LaborConfigManager';
@@ -20,16 +20,19 @@ import { DepartmentConfig } from './config/DepartmentConfig';
 import { StaffListConfig } from './config/StaffListConfig';
 import { UserManagementPanel } from './auth/UserManagementPanel';
 import { useAuth } from '../contexts/AuthContext';
+import { PositionCatalogConfig } from './config/PositionCatalogConfig';
+import { ServicePackageConfig } from './config/ServicePackageConfig';
+import { ServicePackageSettingsConfig } from './config/ServicePackageSettingsConfig';
 
 interface ConfigurationTabProps {
     onConfigUpdate?: () => void;
-    initialSubTab?: 'norms' | 'dmkt' | 'staff' | 'users';
+    initialSubTab?: 'norms' | 'dmkt' | 'staff' | 'users' | 'packages';
 }
 
 export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate, initialSubTab }) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
     const { isAdmin, isHead, isDeputyHead, pendingApprovalCount, can } = useAuth();
-    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users'>(
+    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages'>(
         initialSubTab || ((isHead || isDeputyHead) && !isAdmin ? 'users' : 'norms')
     );
 
@@ -41,6 +44,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
     const [dmktSubTab, setDmktSubTab] = useState<'chapter-catalog' | 'price-catalog' | 'cost-catalog' | 'machines' | 'registry'>('chapter-catalog');
     const [staffSubTab, setStaffSubTab] = useState<'admin' | 'departments' | 'staff-list'>('admin');
     const [accountSubTab, setAccountSubTab] = useState<'accounts' | 'permissions'>('accounts');
+    const [pkgSubTab, setPkgSubTab] = useState<'positions' | 'packages' | 'settings'>('positions');
 
     const canManageAdmin = can('manage_admin_settings');
 
@@ -102,6 +106,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                         icon: Building2,
                       }]
                     : []),
+                  { value: 'packages', label: 'Gói dịch vụ', icon: Package },
                 ]}
               />
             </ContextToolbar>
@@ -170,6 +175,24 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
               </div>
             )}
 
+            {/* Stationary Subtabs Bar for Gói dịch vụ */}
+            {activeSubTab === 'packages' && (
+              <div className="bg-white pt-4 shrink-0 z-10">
+                <div className="border-y border-blue-200/80 bg-blue-50/75 px-6">
+                  <TabLine
+                    value={pkgSubTab}
+                    onChange={(v) => setPkgSubTab(v as any)}
+                    size="sm"
+                    options={[
+                      { value: 'positions', label: 'DM Vị trí', icon: Users },
+                      { value: 'packages', label: 'Cấu hình gói', icon: Package },
+                      { value: 'settings', label: 'Thiết lập', icon: ClipboardList },
+                    ]}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Content area - only content scrolls */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
 
@@ -210,6 +233,14 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
                         {staffSubTab === 'admin' && canManageAdmin && <AdminSettingsConfig />}
                         {staffSubTab === 'departments' && <DepartmentConfig />}
                         {staffSubTab === 'staff-list' && <StaffListConfig onConfigUpdate={onConfigUpdate} />}
+                    </div>
+                )}
+
+                {activeSubTab === 'packages' && (
+                    <div className="animate-fade-in space-y-4">
+                        {pkgSubTab === 'positions' && <PositionCatalogConfig />}
+                        {pkgSubTab === 'packages' && <ServicePackageConfig />}
+                        {pkgSubTab === 'settings' && <ServicePackageSettingsConfig />}
                     </div>
                 )}
 

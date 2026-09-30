@@ -74,5 +74,26 @@ service cloud.firestore {
     match /duty_schedules/{dateKey} {
       allow read, write: if true;
     }
+
+    // ── Service Package Module ──────────────────────────────────────
+    // Position catalog (DM Vị trí)
+    match /position_catalog/{positionId} {
+      allow read, write: if true;
+    }
+
+    // Service package definitions (Cấu hình gói DV)
+    match /service_packages/{packageId} {
+      allow read, write: if true;
+    }
+
+    // Service package assignments (Gán gói cho BN)
+    match /service_package_assignments/{assignmentId} {
+      allow read, write: if true;
+    }
+
+    // Service package module config
+    match /service_package_module_config/{docId} {
+      allow read, write: if true;
+    }
   }
 }

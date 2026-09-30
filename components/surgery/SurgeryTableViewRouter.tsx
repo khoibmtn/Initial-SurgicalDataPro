@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Hash, DollarSign } from 'lucide-react';
 import { DynamicTable, ColumnDef } from '../common/DynamicTable';
 import { PaymentTableView } from './PaymentTableView';
+import { PackageListView } from './PackageListView';
+import { PackagePaymentTable } from './PackagePaymentTable';
+import { PackageAssignmentModal } from './PackageAssignmentModal';
 import { DutyScheduleTab } from '../duty/DutyScheduleTab';
 import { OvertimeTab } from '../overtime/OvertimeTab';
 import {
@@ -10,15 +14,16 @@ import {
   ProcessingResult,
   ProcessedStats,
   SurgeryConfig,
-  DutySchedule,
+  DutyScheduleDateConfig,
 } from '../../types';
 import { getTimeRuleForRecord } from '../../services/laborConfigService';
+import { ServicePackageAssignment, ServicePackageDefinition, getRecordDateString } from '../../types/servicePackage';
 
 export interface SurgeryTableViewRouterProps {
   currentReport: {
     result: ProcessingResult | null;
     stats: ProcessedStats | null;
-    activeTable: 'list' | 'staff' | 'machine' | 'missing' | 'payment' | 'duty' | 'overtime' | null;
+    activeTable: 'list' | 'staff' | 'machine' | 'missing' | 'payment' | 'duty' | 'overtime' | 'packages' | null;
     selectedRecordIds: string[];
     searchTerms: {
       list: string;
@@ -28,6 +33,7 @@ export interface SurgeryTableViewRouterProps {
       payment: string;
       duty?: string;
       overtime?: string;
+      packages?: string;
     };
     dataSource: 'EXCEL' | 'STORAGE' | null;
     queryDateRangeText?: string;
@@ -64,12 +70,21 @@ export interface SurgeryTableViewRouterProps {
   onOpenEditModal: () => void;
   onRowDoubleClick: (row: any) => void;
   onSaveAssistant: (val: string) => Promise<void>;
-  dutySchedules: Record<string, DutySchedule>;
-  onUpdateDutySchedule: (date: string, schedule: DutySchedule) => Promise<void>;
+  dutySchedules: Record<string, DutyScheduleDateConfig>;
+  onUpdateDutySchedule: (dateKey: string, isHoliday: boolean, onCallStaff: string[]) => void | Promise<void>;
   isSavingDutySchedule: boolean;
   onNavigateToDutyTab: () => void;
   onRegisterPrintHandler: (handler: () => void) => void;
   onTriggerPrint: (pConfig: any) => void;
+  // Package-related props
+  packageAssignments?: ServicePackageAssignment[];
+  packageDefinitions?: ServicePackageDefinition[];
+  onAssignPackage?: (selectedRecords?: SurgeryRecord[]) => void;
+  packagePaymentMode?: 'count' | 'amount';
+  onPackagePaymentModeChange?: (mode: 'count' | 'amount') => void;
+  paymentSubTab?: 'pttt' | 'package';
+  onPaymentSubTabChange?: (tab: 'pttt' | 'package') => void;
+  onPrint?: (type: 'list' | 'payment' | 'packagePayment', orientation: 'portrait' | 'landscape') => void;
 }
 
 export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
@@ -111,19 +126,53 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
   onNavigateToDutyTab,
   onRegisterPrintHandler,
   onTriggerPrint,
+  packageAssignments = [],
+  packageDefinitions = [],
+  onAssignPackage,
+  packagePaymentMode,
+  onPackagePaymentModeChange,
+  paymentSubTab: propPaymentSubTab,
+  onPaymentSubTabChange,
+  onPrint,
 }) => {
+  const [internalPaymentMode, setInternalPaymentMode] = useState<'pttt' | 'package'>(() => {
+    try {
+      return (localStorage.getItem('payment_sub_tab') as 'pttt' | 'package') || 'pttt';
+    } catch {
+      return 'pttt';
+    }
+  });
+
+  const paymentMode = propPaymentSubTab !== undefined ? propPaymentSubTab : internalPaymentMode;
+  const setPaymentMode = (tab: 'pttt' | 'package') => {
+    setInternalPaymentMode(tab);
+    try {
+      localStorage.setItem('payment_sub_tab', tab);
+    } catch {}
+    if (onPaymentSubTabChange) onPaymentSubTabChange(tab);
+  };
+
   if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
+
+  // Composite keys of records that have a package assignment
+  const assignedKeys = new Set(packageAssignments.map(a => a.compositeKey));
 
   if (currentReport.activeTable === 'list') {
     const rowStyle = (r: SurgeryRecord) => {
       const min = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min;
-      return min && r.timeMinutes < min ? 'bg-yellow-50 text-red-600 font-medium' : '';
+      const timeWarn = min && r.timeMinutes < min ? 'bg-yellow-50 text-red-600 font-medium' : '';
+      // Highlight red if record has a package assignment
+      const ngayBDStr = getRecordDateString(r);
+      const compositeKey = `${r.patientId}_${ngayBDStr.substring(0, 10)}_${(r.tenKT || '').normalize('NFC').trim().toLowerCase().replace(/\s+/g, '_')}`;
+      if (assignedKeys.has(compositeKey)) return 'bg-red-50 border-l-4 border-l-red-400';
+      return timeWarn;
     };
     const ptCount = currentReport.result.validRecords.filter((r) => r.loaiPTTT?.startsWith('P')).length;
     const ttCount = currentReport.result.validRecords.filter((r) => r.loaiPTTT?.startsWith('T')).length;
     const countLabel = `${ptCount} ca PT, ${ttCount} ca TT`;
 
     return (
+      <>
       <DynamicTable
         data={filteredList}
         columns={columnsList}
@@ -238,9 +287,32 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
                 </div>
               </>
             )}
+            {/* Chuyển vào Gói DV button */}
+            {onAssignPackage && currentReport.selectedRecordIds.length > 0 && (
+              <button
+                onClick={() => {
+                  const selSet = new Set(currentReport.selectedRecordIds.map(String));
+                  const selected = (currentReport.result?.validRecords || []).filter(r => {
+                    const rId = r.id ? String(r.id) : '';
+                    const rKey = r.key ? String(r.key) : '';
+                    const pId = r.patientId ? String(r.patientId) : '';
+                    return (rId && selSet.has(rId)) || (rKey && selSet.has(rKey)) || (pId && selSet.has(pId));
+                  });
+                  onAssignPackage(selected);
+                }}
+                className="ml-2 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-all shadow-sm whitespace-nowrap"
+                title="Chuyển các ca đã chọn sang tab Gói dịch vụ"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
+                Gói DV ({currentReport.selectedRecordIds.length})
+              </button>
+            )}
           </div>
         }
       />
+      </>
     );
   }
 
@@ -305,18 +377,65 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
 
   if (currentReport.activeTable === 'payment') {
     return (
-      <PaymentTableView
-        paymentDataPrepared={paymentDataPrepared}
-        searchTerm={currentReport.searchTerms.payment}
-        onSearchChange={(val) => onSearchChange('payment', val)}
-        visibleCols={visibleCols['payment']}
-        onVisibleColsChange={(cols) => onVisibleColsChange('payment', cols)}
-        dateFormat={dateFormat}
-        onDateFormatChange={onDateFormatChange}
-        rowsPerPage={rowsPerPage}
-        onRowsPerPageChange={onRowsPerPageChange}
-        config={config}
-      />
+      <div className="space-y-2">
+        {/* Toggle PTTT ↔ Gói DV (left) + Mode toggle (far right) */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 bg-gray-100 p-0.5 rounded-lg">
+            <button
+              onClick={() => setPaymentMode('pttt')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${paymentMode === 'pttt' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Phụ cấp PTTT
+            </button>
+            <button
+              onClick={() => setPaymentMode('package')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${paymentMode === 'package' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Gói dịch vụ
+            </button>
+          </div>
+
+          {paymentMode === 'package' && (
+            <div className="flex items-center gap-2 bg-gray-100 p-0.5 rounded-lg ml-auto">
+              <button
+                onClick={() => onPackagePaymentModeChange?.('count')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${packagePaymentMode === 'count' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <Hash className="h-3 w-3" /> Số lượng
+              </button>
+              <button
+                onClick={() => onPackagePaymentModeChange?.('amount')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${packagePaymentMode === 'amount' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <DollarSign className="h-3 w-3" /> Số tiền
+              </button>
+            </div>
+          )}
+        </div>
+
+        {paymentMode === 'pttt' ? (
+          <PaymentTableView
+            paymentDataPrepared={paymentDataPrepared}
+            searchTerm={currentReport.searchTerms.payment}
+            onSearchChange={(val) => onSearchChange('payment', val)}
+            visibleCols={visibleCols['payment']}
+            onVisibleColsChange={(cols) => onVisibleColsChange('payment', cols)}
+            dateFormat={dateFormat}
+            onDateFormatChange={onDateFormatChange}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={onRowsPerPageChange}
+            config={config}
+          />
+        ) : (
+          <PackagePaymentTable
+            assignments={packageAssignments}
+            packages={packageDefinitions}
+            staffList={config.staffList || []}
+            mode={packagePaymentMode}
+            onModeChange={onPackagePaymentModeChange}
+          />
+        )}
+      </div>
     );
   }
 
@@ -352,6 +471,19 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
         }
         onRegisterPrintHandler={onRegisterPrintHandler}
         onTriggerPrint={onTriggerPrint}
+      />
+    );
+  }
+
+  if (currentReport.activeTable === 'packages') {
+    return (
+      <PackageListView
+        assignments={packageAssignments}
+        packages={packageDefinitions}
+        records={currentReport.result.validRecords}
+        staffList={config.staffList || []}
+        searchTerm={currentReport.searchTerms.packages || ''}
+        onSearchChange={(val) => onSearchChange('packages', val)}
       />
     );
   }

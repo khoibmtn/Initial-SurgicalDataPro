@@ -20,7 +20,7 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
     const staffList = config.staffList || [];
 
     const [staffForm, setStaffForm] = useState<Omit<StaffMember, 'id'>>({
-        name: "", position: '', taxId: "", department: ""
+        name: "", position: '', taxId: "", department: "", nonSurgical: false
     });
     const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
@@ -30,7 +30,7 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
     const [pageSize, setPageSize] = useState(20);
 
     const availableStaffPositions = useMemo(() => {
-        const standard = ['BS PT', 'BS GMHS', 'Phụ'];
+        const standard = ['BS PT', 'BS GMHS', 'Phụ', 'Khác'];
         const fromList = staffList.map(s => s.position).filter(Boolean) as string[];
         return Array.from(new Set([...standard, ...fromList]));
     }, [staffList]);
@@ -81,7 +81,7 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
     };
 
     const resetStaffForm = () => {
-        setStaffForm({ name: "", position: '', taxId: "", department: "" });
+        setStaffForm({ name: "", position: '', taxId: "", department: "", nonSurgical: false });
         setEditingStaffId(null);
     };
 
@@ -90,7 +90,7 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
     };
 
     const handleEditStaff = (staff: StaffMember) => {
-        setStaffForm({ name: staff.name, position: staff.position, taxId: staff.taxId, department: staff.department });
+        setStaffForm({ name: staff.name, position: staff.position, taxId: staff.taxId, department: staff.department, nonSurgical: staff.nonSurgical || false });
         setEditingStaffId(staff.id);
     };
 
@@ -239,11 +239,12 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
                     </div>
                     <div className="w-32 min-w-[110px]">
                         <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Vị trí mổ</label>
-                        <select value={staffForm.position} disabled={isLocked} tabIndex={isLocked ? -1 : undefined} onChange={(e) => { if (!isLocked) setStaffForm({ ...staffForm, position: e.target.value as any }); }} className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[35px] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed">
+                        <select value={staffForm.position} disabled={isLocked} tabIndex={isLocked ? -1 : undefined} onChange={(e) => { if (!isLocked) { const pos = e.target.value as any; const isKhac = pos === 'Khác'; setStaffForm({ ...staffForm, position: pos, nonSurgical: isKhac ? true : staffForm.nonSurgical }); } }} className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-blue-500 outline-none bg-white h-[35px] disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed">
                             <option value="">-- Vị trí --</option>
                             <option value="BS PT">BS PT</option>
                             <option value="BS GMHS">BS GMHS</option>
                             <option value="Phụ">Phụ (KTV/DDC/GV)</option>
+                            <option value="Khác">Khác (Ngoài PT)</option>
                         </select>
                     </div>
                     <div className="w-32 min-w-[110px]">
@@ -256,6 +257,12 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
                             <option value="">-- Khoa phòng --</option>
                             {(config.departments || []).map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 self-end h-[35px]">
+                        <label className={`flex items-center gap-1.5 cursor-pointer select-none text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${staffForm.nonSurgical ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'} ${isLocked ? 'opacity-50 pointer-events-none' : ''}`} title="Nhân viên không tham gia cuộc phẫu thuật">
+                            <input type="checkbox" checked={staffForm.nonSurgical || false} disabled={isLocked} onChange={(e) => { if (!isLocked) setStaffForm({ ...staffForm, nonSurgical: e.target.checked }); }} className="rounded border-gray-300 text-rose-500 w-3.5 h-3.5" />
+                            Ngoài PT
+                        </label>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                         {editingStaffId ? (
@@ -321,12 +328,13 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
                             <th className="px-3 py-2.5 w-28 text-center text-gray-500 font-semibold border-r border-gray-100">Vị trí</th>
                             <th className="px-3 py-2.5 w-36 text-gray-500 font-semibold border-r border-gray-100">MST TNCN</th>
                             <th className="px-3 py-2.5 text-gray-500 font-semibold border-r border-gray-100">Khoa / Phòng</th>
+                            <th className="px-3 py-2.5 w-24 text-center text-gray-500 font-semibold border-r border-gray-100" title="Nhân viên không tham gia cuộc phẫu thuật (Chuẩn bị PT, Tư vấn...)">Ngoài PT</th>
                             <th className="px-3 py-2.5 w-16 text-center text-gray-500 font-semibold">Thao tác</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                         {paginatedStaff.length === 0 ? (
-                            <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-400 italic text-sm">
+                            <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400 italic text-sm">
                                 {searchQuery || staffFilterPosition || staffFilterDepartment ? "Không tìm thấy nhân viên nào phù hợp với bộ lọc." : "Chưa có nhân viên nào trong danh sách. Hãy thêm mới hoặc import từ file Excel."}
                             </td></tr>
                         ) : (
@@ -343,6 +351,21 @@ export const StaffListConfig: React.FC<StaffListConfigProps> = ({ onConfigUpdate
                                         </td>
                                         <td className="px-3 py-2 text-gray-600 font-mono border-r border-gray-100">{staff.taxId || "—"}</td>
                                         <td className="px-3 py-2 text-gray-600 border-r border-gray-100">{staff.department || "—"}</td>
+                                        <td className="px-3 py-2 text-center border-r border-gray-100">
+                                            <input
+                                                type="checkbox"
+                                                checked={staff.nonSurgical || false}
+                                                disabled={isLocked}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    if (isLocked) return;
+                                                    const newList = staffList.map(s => s.id === staff.id ? { ...s, nonSurgical: !s.nonSurgical } : s);
+                                                    updateConfig({ staffList: newList });
+                                                }}
+                                                className="rounded border-gray-300 text-rose-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                                                title="Không tham gia phẫu thuật"
+                                            />
+                                        </td>
                                         <td className="px-3 py-2 text-center">
                                             <button onClick={(e) => { e.stopPropagation(); if (isLocked) return; handleDeleteStaff(staff.id); }} disabled={isLocked} title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : "Xóa"} className={`p-1 rounded transition-colors ${isLocked ? 'text-gray-300 cursor-not-allowed opacity-40 pointer-events-none' : 'hover:bg-red-50 text-gray-400 hover:text-red-500 cursor-pointer'}`}>
                                                 <Trash2 className="h-3.5 w-3.5" />

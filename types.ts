@@ -50,6 +50,7 @@ export interface StaffMember {
   position: 'BS PT' | 'BS GMHS' | 'Phụ' | '';
   taxId: string;
   department: string;
+  nonSurgical?: boolean; // true = không tham gia phẫu thuật (Chuẩn bị PT, Tư vấn...)
 }
 
 export interface SurgeryRecord {

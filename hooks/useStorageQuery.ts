@@ -4,6 +4,7 @@ import { ReportState } from '../types/reportState';
 import { ToastType } from '../components/common/ToastContainer';
 import { reportService } from '../services/reportService';
 import { reprocessSurgicalRecords, recalculateResultFromRecords } from '../services/reprocess';
+import { clearPackageDrafts } from '../types/servicePackage';
 
 export interface UseStorageQueryOptions {
   config: SurgeryConfig;
@@ -168,6 +169,7 @@ export function useStorageQuery({
     (async () => {
       try {
         addToast('Đang tải dữ liệu lưu trữ...', 'success');
+        clearPackageDrafts();
 
         const isoFrom = new Date(dateFromIso).toISOString();
         const isoTo = new Date(dateToIso).toISOString();
@@ -267,6 +269,7 @@ export function useStorageQuery({
 
     try {
       addToast('Đang tải dữ liệu lưu trữ...', 'success');
+      clearPackageDrafts();
 
       const isoFrom = new Date(dateFromStr).toISOString();
       const isoTo = new Date(dateToStr).toISOString();

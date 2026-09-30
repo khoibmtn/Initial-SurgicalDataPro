@@ -12,6 +12,7 @@ import { reprocessSurgicalRecords } from '../services/reprocess';
 import { reportService } from '../services/reportService';
 import { getNamePrice } from '../services/surgeryNamePriceService';
 import { matchAndApplyServicePrices } from '../services/servicePriceProcessor';
+import { clearPackageDrafts } from '../types/servicePackage';
 
 export interface UseExcelProcessingOptions {
   config: SurgeryConfig;
@@ -116,6 +117,7 @@ export function useExcelProcessing({
       if (!report.listFile) return;
 
       updateReportState(type, { isProcessing: true }, 'upload');
+      clearPackageDrafts();
       try {
         const res = await processSurgicalFiles(report.listFile, config);
 

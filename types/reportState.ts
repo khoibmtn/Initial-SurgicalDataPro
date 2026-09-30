@@ -2,7 +2,7 @@ import { format } from 'date-fns';
 import { ProcessingResult, ProcessedStats } from '../types';
 
 export type DataTabType = 'storage' | 'upload' | 'price_service';
-export type ActiveTableType = 'list' | 'staff' | 'machine' | 'missing' | 'payment' | 'duty' | 'overtime' | null;
+export type ActiveTableType = 'list' | 'staff' | 'machine' | 'missing' | 'payment' | 'duty' | 'overtime' | 'packages' | null;
 
 export interface ReportState {
   result: ProcessingResult | null;
@@ -19,6 +19,7 @@ export interface ReportState {
     payment: string;
     duty?: string;
     overtime?: string;
+    packages?: string;
   };
   // UI State for Date Range Pickers (Independent per tab)
   dateFrom: string;
@@ -47,6 +48,7 @@ export const createInitialReportState = (): ReportState => ({
     payment: '',
     duty: '',
     overtime: '',
+    packages: '',
   },
   dateFrom: format(new Date(), 'yyyy-MM-dd'),
   timeFrom: '00:00',
