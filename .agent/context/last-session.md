@@ -1,215 +1,118 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 19/09/2026 08:36 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `version2` (remote: `origin/version2`)  
-> **Commit mới nhất (version2):** `08c6aa9` (`fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`)  
-> **Commit mới nhất (main):** `46cf6aa` (`fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`)  
+> **Thời gian cập nhật:** 01/10/2026 02:40 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `main` (remote: `origin/main`), đã đồng bộ với `version2` (`origin/version2`)  
+> **Commit mới nhất (main & version2):** `6dc92f9` (`fix(packages): prioritize package shortName from live config on package list`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Local Dev Port:** `http://localhost:3003` (Vite dev server)  
+> **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build)`  
-> **Trạng thái Test:** `250 / 250 tests PASS` (17 test suites)  
+> **Trạng thái Test:** `278 / 278 tests PASS` (18 test suites)  
 
 ---
 
 ## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
 
-### 1.1. Loại Bỏ Mật Khẩu Thủ Công `123456` / `isLocked` Thừa Thãi
-- **Đánh giá an ninh**: Kiểm tra toàn diện hệ thống phân quyền RBAC đa cấp (Admin viện, Trưởng khoa, Bác sĩ/KTV).
-- **Kết luận**: Tính năng khóa bằng mật khẩu cứng `123456` đã hoàn toàn lỗi thời và gây phiền hà cho người dùng vì đã được bao phủ chặt chẽ bởi:
-  - RBAC đa cấp + Phân quyền chức năng theo vai trò.
-  - Trần quyền Trưởng khoa (Permission Ceiling).
-  - Khóa báo cáo tháng / ngày có xác thực tài khoản (`report_locks`).
-  - Khóa danh mục giá và hiệu lực danh mục (`catalog_locks`).
-- **Thực hiện**: Đã tháo bỏ modal mở khóa thủ công và các cờ `isLocked` dư thừa, trả lại trải nghiệm người dùng hiện đại, an toàn và liền mạch.
+### 1.1. Mô Đun Gói Dịch Vụ Phẫu Thuật Theo Yêu Cầu (Service Package System)
+- **Cấu hình Danh mục Vị trí & Ánh xạ tự động**:
+  - Hỗ trợ thiết lập linh hoạt các vị trí tham gia gói (Tên đầy đủ, tên viết tắt, nguồn ánh xạ từ kíp mổ thực tế).
+  - Với các vị trí ngoài kíp mổ (Chuẩn bị PT, Người tư vấn...), hỗ trợ tùy chọn lọc danh sách nhân viên không tham gia cuộc mổ hoặc lấy từ toàn bộ nhân viên.
+- **Cấu hình Gói Dịch Vụ**:
+  - Thiết lập tên gói đầy đủ, **tên rút gọn (hiển thị trên bảng)**, tổng số tiền gói, phân bổ định mức tiền cho từng vị trí trong gói.
+  - Cảnh báo tổng tiền các vị trí so với tổng tiền gói nếu chưa khớp.
+- **Hiển thị Tên Rút Gọn trên Tab Gói DV**:
+  - Cột "Gói DV" trên tab `PackageListView` tự động ưu tiên lấy **tên rút gọn (`shortName`)** từ cấu hình gói trực tiếp (`matchedPkg?.shortName?.trim()`).
+  - Hỗ trợ tooltip hiển thị đầy đủ tên gói và tên rút gọn khi rê chuột.
+  - Tìm kiếm (Search) trên danh sách gói tự động lọc theo cả tên gói đầy đủ, tên rút gọn và thông tin ca bệnh.
+- **Cơ chế Lưu trữ & Draft Tạm (Offline-first / Hybrid Sync)**:
+  - Khi người dùng chọn ca từ tab "DS Phẫu thuật" chuyển sang tab "Gói DV", danh sách này được lưu tạm (local draft) trên trình duyệt.
+  - Khi nhấn "Lấy dữ liệu", "Dữ liệu trực", import Excel hoặc nạp lại dữ liệu, hàm `clearPackageDrafts()` tự động dọn sạch các ca chưa gán gói, tránh tình trạng hiển thị tồn đọng các ca rác chưa hoàn tất.
+  - Chỉ khi người dùng thực hiện gán gói thành công (dù chưa chọn đủ nhân viên cho các vị trí), ca bệnh mới được lưu đồng bộ trực tiếp lên Firebase Firestore để truy cập trên các thiết bị khác không bị mất.
+- **Trải nghiệm Thao tác & Modal Phân Bổ Nhân Viên**:
+  - Hộp tìm kiếm chọn nhân viên được chuẩn hóa theo chuẩn Combobox: gõ phím để lọc, dùng phím mũi tên lên/xuống và Enter để chọn, không cho phép nhập text tự do ngoài danh mục.
+  - Thao tác xóa ca mổ khỏi danh sách gói sử dụng React Confirmation Modal tùy biến, loại bỏ hoàn toàn hiện tượng chớp tắt popup của `window.confirm`.
+- **Bảng Thanh Toán Gói Dịch Vụ & Bản In**:
+  - Bổ sung toggle chuyển đổi giữa chế độ hiển thị **Số lượng (SL)** và **Số tiền (VNĐ)**.
+  - Di chuyển toggle này lên cùng hàng với toggle "Bảng thanh toán phụ cấp / Gói dịch vụ", nằm sát mé phải màn hình để tối ưu hóa không gian hiển thị.
+  - Đồng bộ trạng thái hiển thị giữa giao diện web và bản in (`usePrintController`): khi chọn chế độ hiển thị tiền, bản in preview hiển thị chính xác số tiền thay vì luôn hiển thị số lượng như trước.
+  - Tiêu đề bản in được chuẩn hóa thành **"BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU"** và cho phép tùy chỉnh trong phần Thiết lập.
 
 ---
 
-### 1.2. Khóa Chỉnh Sửa Ca Mổ Theo Thời Gian Thực (Collaborative Record Lock - Mục 3.3.2)
-- **Mục tiêu**: Ngăn chặn tình trạng 2 bác sĩ/điều dưỡng mở sửa đồng thời một ca mổ dẫn đến ghi đè dữ liệu.
-- **Kiến trúc & Cơ chế hoạt động (`services/recordLockService.ts`)**:
-  - Dùng Firebase Realtime Database tại nhánh `record_editing_locks/{recordKey}`.
-  - Khóa sinh tự động theo định danh lâm sàng: `patientId + '_' + ngayBD + '_' + tenKT`.
-  - **Heartbeat 20 giây** + **Timeout 2 phút**: Tự động thu hồi khóa nếu trình duyệt bị tắt đột ngột hoặc mất mạng, kết hợp `onDisconnect().remove()` của Firebase.
-- **Trải nghiệm bảng dữ liệu (`components/common/DynamicTable.tsx`)**:
-  - Hàng ca mổ đang có người sửa được đánh dấu viền sáng màu hổ phách (`ring-amber-300`).
-  - Cột STT có chấm màu cam nhấp nháy (`animate-pulse`) kèm tooltip hiển thị tên và khoa của bác sĩ đang giữ khóa.
-- **Trải nghiệm Modal chỉnh sửa (`components/surgery/SurgeryEditModal.tsx`)**:
-  - Nếu ca mổ đang bị khóa bởi tài khoản khác: Modal tự động bật banner cảnh báo, gắn badge *"Đang sửa: [Tên Bác sĩ]"*, chuyển modal sang chế độ **Chỉ xem (Read-only)** và vô hiệu hóa nút Lưu để bảo vệ toàn vẹn dữ liệu.
-- **Kiểm thử**: `__tests__/recordEditingLock.test.ts` (10/10 tests PASS).
+### 1.2. Tạm Thời Ẩn Nút "Đối Soát" (Smart Staging Action)
+- Tạm thời comment out nút bấm "Đối soát" trong component `ReportActionBar.tsx` trên cả Báo cáo hàng ngày và Báo cáo tháng theo yêu cầu người dùng, giữ giao diện tập trung và gọn gàng.
 
 ---
 
-### 1.3. Bảng Điều Khiển KPI Quản Trị Khối Phòng Mổ Cấp Bệnh Viện (OR Analytics Dashboard - Mục 3.2)
-- **Vị trí tích hợp**: Trang `StatisticsTab.tsx` bổ sung subtab **"Quản trị phòng mổ"** (Icon `Gauge`).
-- **Bộ chọn Nguồn số liệu Độc lập (Isolated Data Source Selector)**:
-  - Cho phép người dùng chuyển đổi linh hoạt giữa: **Tự động** (Ưu tiên BC tháng, fallback BC ngày), **BC Tháng**, **BC Ngày**.
-  - Bộ chọn và bộ lọc kỳ này được **cách ly cục bộ hoàn toàn**, không làm ảnh hưởng đến các subtab khác trong trang Thống kê.
-
-#### 🏥 Điều chỉnh Chuẩn Thực Tế Lâm Sàng (Macro Capacity & Peak Concurrency)
-- **Phát hiện nghiệp vụ từ người dùng**:
-  - File Excel trích xuất từ phần mềm HIS của bệnh viện **hoàn toàn không có trường Bàn mổ / Phòng mổ vật lý**.
-  - Cột mã máy `machineCode` thực chất chỉ là mã thiết bị y tế (như C-Arm, dàn máy nội soi Karl Storz...) dùng chung cho nhiều bàn mổ khác nhau.
-  - Do đó, việc gom nhóm theo mã máy và tính Turnaround Time (TAT) theo máy là **sai lệch chuyên môn**.
-- **Giải pháp chuyển đổi mô hình Quản trị Năng lực & Phụ tải khối phòng mổ toàn viện**:
-  1. **Cấu hình Quy mô Bàn mổ**: Bổ sung cấu hình **"Tổng số bàn mổ hoạt động của viện"** ($N$ bàn, mặc định 6) trong tab *Cấu hình thống kê > Chỉ số KPI phòng mổ* (`KpiSettingsConfig.tsx`).
-  2. **Công suất Khối phòng mổ toàn viện (OR Capacity Utilization)**:
-     - Tính tổng thời gian khả dụng theo công thức: $N \text{ bàn} \times \text{Số ngày làm việc} \times \text{Số giờ chuẩn/ngày} \times 60 \text{ phút}$.
-     - Tính tỷ lệ sử dụng công suất thực tế so với định mức khả dụng.
-  3. **Thuật toán Sweep Line quét Đỉnh điểm Đồng thời (Peak Concurrency & Over-capacity Detection)**:
-     - Tự động quét giao thoa thời gian (`ngayBD` $\rightarrow$ `ngayKT`) của từng ca mổ.
-     - Sắp xếp sự kiện mốc thời gian: tại cùng thời điểm, ca mổ kết thúc (`-1`) ưu tiên xử lý trước ca bắt đầu (`+1`) để không cộng dồn thời điểm chuyển tiếp.
-     - Xác định chính xác **Số bàn mổ chạy đồng thời đỉnh điểm** toàn kỳ và theo từng ngày; phát hiện ngày bị vượt định mức ($>N$ bàn).
-  4. **Phân bố Phụ tải Phẫu thuật theo 24 Khung giờ (Hourly Load Distribution)**:
-     - Chia nhỏ và tích lũy phút mổ của các ca vào từng khung giờ (0h..23h).
-     - Biểu đồ cột 24 khung giờ giúp ban giám đốc nhận diện ngay khung giờ cao điểm (Peak Hours: 8h–11h, 14h–16h) và ca trực đêm ngoài giờ.
-  5. **Năng suất Phẫu thuật viên & Top kỹ thuật**:
-     - Thống kê chi tiết từng PTV: số ca, tổng phút mổ, thời gian TB/ca, ca ngoài giờ, ca cấp cứu, doanh thu, top kỹ thuật.
-     - Top kỹ thuật phẫu thuật thực hiện nhiều nhất.
-  6. **Cảnh báo Bất thường Lâm sàng**:
-     - Phát hiện ca mổ siêu ngắn (<15 phút), siêu dài (>8 giờ), thời gian âm, và ca mổ vượt trần chi phí vật tư dự kiến.
-  7. **Xuất Báo cáo Excel 6 Sheets (`exportOrAnalyticsToExcel`)**:
-     - Gồm: *Tổng quan Năng lực OR, Phụ tải 24h, Phụ tải theo ngày, Phẫu thuật viên, Top kỹ thuật, Cảnh báo bất thường*.
-- **Kiểm thử**: `__tests__/orAnalytics.test.ts` (7/7 tests PASS).
+### 1.3. Khóa Chỉnh Sửa Ca Mổ Theo Thời Gian Thực (Collaborative Record Lock)
+- Tích hợp Firebase Realtime Database `record_editing_locks/{recordKey}` với cơ chế Heartbeat 20 giây và Timeout 2 phút.
+- Hiển thị viền vàng hổ phách và chấm nhấp nháy trên hàng đang có người chỉnh sửa. Chuyển modal sang chế độ Read-only nếu ca mổ đang bị khóa bởi tài khoản khác.
 
 ---
 
-### 1.4. Hotfix: Missing `Check` Icon Import (Phiên 18/09/2026)
-- **Lỗi**: Khi bấm nút "Cấu hình hiển thị ngoài giờ" trong tab Ngoài giờ (cả BC hàng ngày & BC tháng), ứng dụng crash với lỗi `"Check is not defined"`.
-- **Nguyên nhân**: Icon `Check` từ `lucide-react` được sử dụng 3 lần trong dropdown cấu hình của `OvertimeTab.tsx` (dòng 555, 598, 621) nhưng **chưa được import**.
-- **Fix**: Thêm `Check` vào import list `lucide-react` trong `components/overtime/OvertimeTab.tsx`.
-- **Phạm vi**: Fix đã được apply cho cả 2 nhánh:
-  - `main` → commit `ed2a831` → pushed & deployed lên Vercel.
-  - `version2` → cherry-pick `c4e175d` → pushed.
-
----
-
-### 1.5. Bugfix: False-Positive "Thiếu máy" cho Phẫu thuật Không Cần Máy (Phiên 19/09/2026)
-- **Lỗi**: "Phẫu thuật quặm" (phẫu thuật mắt, không cần máy) bị gắn cờ **Thiếu máy** sai trong BC hàng ngày khoảng 18-19/09/2026.
-- **Root Cause — Race condition + Legacy blacklist fallback**:
-  - Logic phát hiện thiếu máy trong `services/reprocess.ts` (2 hàm: `reprocessSurgicalRecords` và `recalculateResultFromRecords`) có 2 nhánh:
-    1. **Whitelist (DM sử dụng mã máy)**: Khi `config.requiredMachineCatalog` đã load (4.773 items), gọi `isMachineCodeRequired()` → kiểm tra kỹ thuật có trong DM không → "Phẫu thuật quặm" không có → trả `false` → ✅ ĐÚNG.
-    2. **Blacklist fallback (cũ)**: Khi catalog **chưa load** (`undefined` / rỗng), code rơi vào `config.ignoredMachineNames` check → `ignoredMachineNames` rỗng `[]` → `.some()` trả `false` → `return true` → ❌ MỌI ca không máy đều bị báo thiếu!
-  - DM sử dụng mã máy tìm "quặm" cho **0 kết quả** → phẫu thuật này KHÔNG yêu cầu máy.
-  - Khi Firebase subscription cho `requiredMachineCatalog` chưa trigger (initial load, race condition), logic rơi vào fallback sai.
-- **Fix** (`services/reprocess.ts` dòng 285-298 và 870-883):
-  - Loại bỏ hoàn toàn fallback blacklist cũ (`ignoredMachineNames`).
-  - Áp dụng **pure whitelist**: Chỉ báo thiếu máy khi kỹ thuật **NẰM TRONG** DM sử dụng mã máy có `isRequired: true`.
-  - Nếu DM chưa load → `return false` (an toàn, không báo false positive).
-- **Phạm vi**: Fix đã được apply cho cả 2 nhánh:
-  - `main` → commit `46cf6aa` → pushed & deployed lên Vercel.
-  - `version2` → cherry-pick `08c6aa9` → pushed. 250/250 tests PASS.
+### 1.4. Quản Trị Khối Phòng Mổ Toàn Viện (OR Analytics Dashboard)
+- Tích hợp mô hình đo lường năng lực vĩ mô toàn viện ($N$ bàn mổ hoạt động, tỷ lệ sử dụng công suất, thuật toán Sweep Line quét ca mổ đồng thời đỉnh điểm theo ngày/khung giờ, phân bố phụ tải 24h, cảnh báo bất thường).
 
 ---
 
 ## 📐 2. Cấu Trúc Dữ Liệu & Schema Trọng Điểm
 
-### 2.1. KPI Types (`types/kpi.ts`)
+### 2.1. Service Package Schema (`types/servicePackage.ts`)
 ```typescript
-export interface KpiConfig {
-  totalOperatingRooms: number;        // Tổng số bàn mổ hoạt động của viện (mặc định 6)
-  standardHoursPerDay: number;        // Giờ mổ chuẩn/ngày (mặc định 8h)
-  operatingDaysPerMonth: number;      // Ngày làm việc chuẩn/tháng (mặc định 22)
-  minOutlierMinutes: number;          // Ngưỡng ca siêu ngắn (15p)
-  maxOutlierMinutes: number;          // Ngưỡng ca kéo dài bất thường (480p = 8h)
-  costOverrunThresholdAmount: number; // Ngưỡng chi phí báo động (50,000,000 đ)
+export interface ServicePackageDefinition {
+  id: string;
+  name: string;             // Tên đầy đủ: "DV chọn bác sĩ phẫu thuật theo yêu cầu"
+  shortName?: string;       // Tên rút gọn: "Chọn BS YC"
+  totalAmount: number;      // 2,000,000 đ
+  positions: ServicePackagePosition[];
+  note?: string;
+  active: boolean;
+  sortOrder: number;
+  createdAt: number;
+  updatedAt: number;
 }
 
-export interface HospitalCapacityMetric {
-  totalOperatingRooms: number;
-  standardHoursPerDay: number;
-  operatingDays: number;
-  totalAvailableMinutes: number;
-  actualOperatingMinutes: number;
-  utilizationRate: number;            // %
-  status: 'low' | 'optimal' | 'high' | 'overloaded';
-  peakConcurrentSurgeries: number;    // Đỉnh điểm số ca chạy đồng thời
-  peakDate?: string;
-  peakTime?: string;
-}
-
-export interface HourlyLoadMetric {
-  hour: number;                       // 0..23
-  hourLabel: string;                  // "08:00 - 09:00"
-  activeSurgeries: number;
-  operatingMinutes: number;
-  maxConcurrentTables: number;
-  isPeak: boolean;
-  inHours: boolean;
-}
-
-export interface DailyPeakMetric {
-  date: string;                       // YYYY-MM-DD
-  dayOfWeek: string;                  // Thứ Hai, Thứ Ba...
-  totalCases: number;
-  totalMinutes: number;
-  peakConcurrentTables: number;       // Đỉnh điểm số ca mổ song song trong ngày
-  peakTime: string;                   // Thời điểm đạt đỉnh (VD: "10:15")
-  isOverCapacity: boolean;            // True nếu peak > totalOperatingRooms
+export interface ServicePackageAssignment {
+  id: string;
+  patientId: string;
+  ngayBD: string;
+  tenKT: string;
+  compositeKey: string;     // {patientId}_{ngayBD}_{tenKT}
+  patientName: string;
+  gender?: string;
+  yob?: string;
+  packageId: string;
+  packageName: string;
+  packageShortName?: string;
+  staffAssignments: StaffPackageAssignment[];
+  linkedSurgeryKeys: string[];
+  createdAt: number;
+  updatedAt: number;
 }
 ```
 
-### 2.2. Collaborative Lock Schema (`types/index.ts` / `services/recordLockService.ts`)
-- RTDB Path: `record_editing_locks/{recordKey}`
+### 2.2. Logic Hiển Thị Tên Gói Ưu Tiên Tên Rút Gọn (`components/surgery/PackageListView.tsx`)
 ```typescript
-export interface RecordEditingLock {
-  recordKey: string;
-  lockedByUid: string;
-  lockedByName: string;
-  lockedByDepartment?: string;
-  lockedAt: number;      // Epoch ms
-  lastHeartbeat: number; // Heartbeat mỗi 20s
-}
+const matchedPkg = a
+  ? (packages.find(p => p.id && a.packageId && p.id === a.packageId) ||
+     packages.find(p => p.name && a.packageName && p.name.trim().toLowerCase() === a.packageName.trim().toLowerCase()))
+  : undefined;
+
+const packageDisplay = a
+  ? (matchedPkg?.shortName?.trim() ||
+     (a.packageShortName && a.packageShortName.trim() !== a.packageName.trim() ? a.packageShortName.trim() : '') ||
+     a.packageName)
+  : '';
 ```
-
-### 2.3. Missing Machine Detection Logic (Fixed — `services/reprocess.ts`)
-```typescript
-// Pure whitelist approach — KHÔNG CÓ fallback blacklist
-const missingMachine = records.filter((r) => {
-    if (r.machineCode) return false;
-    if (r.machine && r.machine.trim() !== "") return false;
-
-    // Chỉ báo thiếu khi kỹ thuật NẰM TRONG DM sử dụng mã máy
-    if (reqMachineIndex) {
-        return isMachineCodeRequired(r, reqMachineIndex);
-    }
-
-    // DM chưa load → không báo (tránh false positive)
-    return false;
-});
-```
-
-### 2.4. `isMachineCodeRequired()` (`services/requiredMachineService.ts`)
-- Tra cứu theo thứ tự ưu tiên:
-  1. `maTuongDuong` (mã BHXH) — O(1) lookup qua `IndexedRequiredMachineCatalog.byCode`
-  2. `tenKT` (tên DVKT normalized) — O(1) lookup qua `IndexedRequiredMachineCatalog.byName`
-- Lọc theo ngày hiệu lực: `effectiveFrom <= ngayBD <= effectiveTo`
-- Nếu KHÔNG tìm thấy trong catalog → `return false` (không yêu cầu máy)
 
 ---
 
-## 🚀 3. Trạng Thái Git & Kiểm Thử
+## 🚀 3. Trạng Thái Git, Build & Deploy
 
-- **Nhánh hiện tại**: `version2`
-- **Tình trạng git**: Sạch sẽ, đã đồng bộ hoàn toàn với remote `origin/version2`.
-- **Lịch sử commit gần nhất (version2)**:
-  - `08c6aa9`: `fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`
-  - `2888efa`: `docs(context): save session context with overtime Check icon hotfix`
-  - `c4e175d`: `fix(overtime): add missing Check icon import causing crash on config dropdown`
-  - `790c423`: `docs(context): save session context for version2 and macro OR capacity model`
-  - `0ffef58`: `feat(analytics): refactor OR analytics to hospital-wide capacity and peak concurrency model`
-- **Nhánh `main`** (production):
-  - `46cf6aa`: `fix(machine): remove false-positive missing machine detection for surgeries not in DM catalog`
-  - `ed2a831`: `fix(overtime): add missing Check icon import causing crash on config dropdown`
-  - Đã deploy thành công lên Vercel.
-- **Kết quả Kiểm thử**:
-  - `npx vitest run`: **17 test suites, 250 / 250 tests PASS (100%)**
-  - **Quy tắc thiết kế**: Tuân thủ tuyệt đối **Purple Ban** (sử dụng tông blue, indigo, emerald, amber, slate, rose).
-
----
-
-## 🎯 4. Các Bước Kế Tiếp Được Đề Xuất
-
-1. **Sẵn sàng Merge `version2` vào `main`**:
-   - Khi bạn yêu cầu, toàn bộ các tính năng hoàn chỉnh của `version2` (Khóa bản ghi realtime, KPI Năng lực khối phòng mổ toàn viện, Phụ tải 24 khung giờ, Sweep Line Concurrency) có thể được merge vào nhánh `main` để deploy tự động lên Vercel.
-2. **Mục 3.1 trong Roadmap**:
-   - Triển khai **Mẫu in quyết toán phụ cấp C73/C74 chuẩn Bộ Y Tế & BHXH** (tự động kết xuất bảng kê chi trả phẫu thuật - thủ thuật phục vụ phòng Kế toán - Tài chính).
+- **Nhánh `main` & `version2`**: Đã merge và push đầy đủ lên GitHub remote (`origin/main`, `origin/version2`).
+- **Commit mới nhất**: `6dc92f9` (`fix(packages): prioritize package shortName from live config on package list`).
+- **Kiểm thử (Vitest)**: **18 test suites, 278 / 278 tests PASS (100%)**.
+- **Build (Vite v6.4.1)**: Build production bundle thành công trong ~10s.
+- **Deploy**:
+  - Vercel Production: `https://initial-surgical-data-pro.vercel.app` (Aliased thành công).
+  - Firebase Firestore Rules: Đã kiểm tra và deploy lên `initial-surgicaldatapro`.
+- **Tuân thủ thiết kế**: Đáp ứng triệt để quy tắc Purple Ban, Clean Code, và các quy định của hệ thống.
