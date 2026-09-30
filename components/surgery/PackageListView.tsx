@@ -345,12 +345,17 @@ export const PackageListView: React.FC<Props> = ({
     if (searchTerm.trim()) {
       const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
       result = result.filter(({ record: r, assignment: a }) => {
-        const text = `${r.patientId} ${r.patientName} ${r.tenKT} ${r.ptChinh} ${r.ptPhu} ${a?.packageName || ''} ${a?.packageShortName || ''}`.toLowerCase();
+        const matched = a
+          ? (packages.find(p => p.id && a.packageId && p.id === a.packageId) ||
+             packages.find(p => p.name && a.packageName && p.name.trim().toLowerCase() === a.packageName.trim().toLowerCase()))
+          : undefined;
+        const pkgShort = matched?.shortName || a?.packageShortName || '';
+        const text = `${r.patientId} ${r.patientName} ${r.tenKT} ${r.ptChinh} ${r.ptPhu} ${a?.packageName || ''} ${pkgShort}`.toLowerCase();
         return terms.every(t => text.includes(t));
       });
     }
     return result;
-  }, [enrichedRecords, filterMode, searchTerm]);
+  }, [enrichedRecords, filterMode, searchTerm, packages]);
 
   const assignedCount = enrichedRecords.filter(r => r.assignment).length;
   const unassignedCount = enrichedRecords.length - assignedCount;
@@ -674,8 +679,15 @@ export const PackageListView: React.FC<Props> = ({
                 </td>
               </tr>
             ) : filtered.map(({ record: r, compositeKey, assignment: a }, idx) => {
-              const matchedPkg = a ? packages.find(p => p.id === a.packageId) : undefined;
-              const packageDisplay = a ? (a.packageShortName || matchedPkg?.shortName || a.packageName) : '';
+              const matchedPkg = a
+                ? (packages.find(p => p.id && a.packageId && p.id === a.packageId) ||
+                   packages.find(p => p.name && a.packageName && p.name.trim().toLowerCase() === a.packageName.trim().toLowerCase()))
+                : undefined;
+              const packageDisplay = a
+                ? (matchedPkg?.shortName?.trim() ||
+                   (a.packageShortName && a.packageShortName.trim() !== a.packageName.trim() ? a.packageShortName.trim() : '') ||
+                   a.packageName)
+                : '';
 
               return (
                 <tr
@@ -756,7 +768,7 @@ export const PackageListView: React.FC<Props> = ({
                       {a ? (
                         <span
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded text-[0.85em] font-semibold border border-teal-200"
-                          title={a.packageName}
+                          title={a.packageName ? `${a.packageName}${packageDisplay && packageDisplay !== a.packageName ? ` (${packageDisplay})` : ''}` : ''}
                         >
                           <Package className="h-3 w-3 shrink-0" />
                           <span>{packageDisplay}</span>

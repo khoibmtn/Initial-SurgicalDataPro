@@ -401,7 +401,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
         yob: rec.yob,
         packageId: selectedPkg.id,
         packageName: selectedPkg.name,
-        packageShortName: selectedPkg.shortName || selectedPkg.name,
+        packageShortName: selectedPkg.shortName?.trim() || '',
         staffAssignments,
         linkedSurgeryKeys: records.map(r => r.key || r.id || `${r.patientId}_${r.stt}`).filter(Boolean),
         createdAt: existingAssignment?.createdAt || Date.now(),
