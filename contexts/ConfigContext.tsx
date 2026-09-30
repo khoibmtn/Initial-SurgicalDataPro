@@ -108,6 +108,8 @@ export interface ConfigContextType {
     unlockConfig: (password: string) => { success: boolean; error?: string };
     lockConfig: () => void;
     changePassword: (oldPassword: string, newPassword: string) => { success: boolean; error?: string };
+    /** Auto-unlock khi admin đã xác thực qua Firebase Auth */
+    autoUnlockForAdmin: () => void;
 }
 
 // --- Defaults ---
@@ -228,10 +230,11 @@ const ConfigContext = createContext<ConfigContextType>({
     getAllowance: (loai: string) => DEFAULT_PRICE_CONFIG[loai] || { "Chính": 0, "Phụ": 0, "Giúp việc": 0 },
     getTimeRule: (loai: string) => DEFAULT_TIME_RULES[loai] || { min: 0, max: 0 },
     getTableLimit: () => 1,
-    isLocked: true,
-    unlockConfig: () => ({ success: false }),
+    isLocked: false,
+    unlockConfig: () => ({ success: true }),
     lockConfig: () => { },
-    changePassword: () => ({ success: false }),
+    changePassword: () => ({ success: true }),
+    autoUnlockForAdmin: () => {},
 });
 
 export const useConfig = () => useContext(ConfigContext);
@@ -240,49 +243,21 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
     const [isLoaded, setIsLoaded] = useState(false);
 
-    // Luôn khóa mặc định khi mở ứng dụng/phiên mới; mở theo session; mật khẩu lưu local
-    const [isLocked, setIsLocked] = useState<boolean>(() => {
-        try {
-            return sessionStorage.getItem('config_unlocked') !== 'true';
-        } catch {
-            return true;
-        }
-    });
+    // Cơ chế phân quyền RBAC đã bao phủ và thay thế hoàn toàn mật khẩu thủ công 123456.
+    const isLocked = false;
+    const unlockConfig = () => ({ success: true });
+    const lockConfig = () => {};
+    const autoUnlockForAdmin = () => {};
+    const changePassword = () => ({ success: true });
 
-    const unlockConfig = (password: string): { success: boolean; error?: string } => {
-        const stored = localStorage.getItem('admin_config_password') || '123456';
-        if (password === stored) {
-            try {
-                sessionStorage.setItem('config_unlocked', 'true');
-            } catch (e) {
-                console.error(e);
-            }
-            setIsLocked(false);
-            return { success: true };
-        }
-        return { success: false, error: 'Mật khẩu không chính xác!' };
-    };
-
-    const lockConfig = () => {
+    // Dọn dẹp key cũ trong storage
+    useEffect(() => {
         try {
             sessionStorage.removeItem('config_unlocked');
-        } catch (e) {
-            console.error(e);
-        }
-        setIsLocked(true);
-    };
+            localStorage.removeItem('admin_config_password');
+        } catch {}
+    }, []);
 
-    const changePassword = (oldPassword: string, newPassword: string): { success: boolean; error?: string } => {
-        const stored = localStorage.getItem('admin_config_password') || '123456';
-        if (oldPassword !== stored) {
-            return { success: false, error: 'Mật khẩu hiện tại không đúng!' };
-        }
-        if (!newPassword || newPassword.trim().length < 4) {
-            return { success: false, error: 'Mật khẩu mới phải có ít nhất 4 ký tự!' };
-        }
-        localStorage.setItem('admin_config_password', newPassword.trim());
-        return { success: true };
-    };
 
     // Load config from Firebase on mount
     useEffect(() => {
@@ -522,7 +497,8 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             isLocked,
             unlockConfig,
             lockConfig,
-            changePassword
+            changePassword,
+            autoUnlockForAdmin
         }}>
             {children}
         </ConfigContext.Provider>

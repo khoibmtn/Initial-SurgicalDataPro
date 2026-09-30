@@ -316,9 +316,9 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                                                 if (col.key === 'stt') extraClass = "col-stt";
                                                 if (col.key === 'department') extraClass = "col-dept";
                                                 if (col.key === 'taxId') extraClass = "col-tax";
-                                                if (col.key === 'name') extraClass = "col-name";
-                                                if (col.key === 'total_amount') extraClass = "col-total";
-                                                if (col.key === 'total_qty' || col.key.startsWith('val_')) extraClass = "col-numeric";
+                                                if (col.key === 'name' || col.key === 'staffName') extraClass = "col-name";
+                                                if (col.key === 'total_amount' || col.key === 'total') extraClass = "col-total";
+                                                if (col.key === 'total_qty' || col.key === 'totalCount' || col.key.startsWith('val_')) extraClass = "col-numeric";
 
                                                 return (
                                                     <td key={col.key} className={`border border-black ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${col.className || ''} ${deptBorderClass} ${extraClass}`}>

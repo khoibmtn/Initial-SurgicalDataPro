@@ -13,7 +13,7 @@
  * - Full Excel export for all 3 tabs
  */
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   Plus, Trash2, X, Download,
   CheckCircle2, AlertTriangle, Pencil, Check,
@@ -103,7 +103,8 @@ const NumInput: React.FC<{
 };
 
 export const LaborConfigManager: React.FC<Props> = () => {
-  const { isLocked } = useConfig();
+  const { can, isAdmin } = useAuth();
+  const isLocked = !isAdmin && !can('manage_norms');
   const [subTab, setSubTab] = useState<NormsSubTab>('allowance');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 

@@ -34,7 +34,7 @@ import { ChapterCatalogConfig } from './ChapterCatalogConfig';
 import { ProfileConfig } from './ProfileConfig';
 import { SurgeryCostConfig } from './SurgeryCostConfig';
 import { subscribeToCostItems } from '../../services/surgeryCostService';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import {
   getComparisonThresholdConfig,
   saveComparisonThresholdConfig,
@@ -53,9 +53,10 @@ import {
   SpecialtyCode,
   ComparisonConfig
 } from '../../services/specialtyComparisonService';
-import { PlusCircle, Receipt } from 'lucide-react';
+import { PlusCircle, Receipt, Gauge } from 'lucide-react';
+import { KpiSettingsConfig } from './KpiSettingsConfig';
 
-type ConfigSubTab = 'profile' | 'comparison-threshold';
+type ConfigSubTab = 'profile' | 'comparison-threshold' | 'kpi-settings';
 
 const SUB_TAB_KEY = 'sdp_config_sub_tab';
 
@@ -95,10 +96,11 @@ function toFormState(v: SurgeryPriceVersion): FormState {
 const fmtMoney = (n: number) => n.toLocaleString('vi-VN') + ' ₫';
 
 export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices, chapters, profiles }) => {
-  const { isLocked } = useConfig();
+  const { can, isAdmin } = useAuth();
+  const isLocked = !isAdmin && !can('manage_dmkt');
   const [configSubTab, setConfigSubTab] = useState<ConfigSubTab>(() => {
     const saved = localStorage.getItem(SUB_TAB_KEY);
-    if (saved === 'profile' || saved === 'comparison-threshold') return saved;
+    if (saved === 'profile' || saved === 'comparison-threshold' || saved === 'kpi-settings') return saved;
     return 'profile';
   });
 
@@ -403,6 +405,7 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
   const subTabs: { key: ConfigSubTab; label: string; icon: React.ReactNode }[] = [
     { key: 'profile', label: 'Profile', icon: <Users className="h-3.5 w-3.5" /> },
     { key: 'comparison-threshold', label: 'Ngưỡng phân tích', icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },
+    { key: 'kpi-settings', label: 'Chỉ số KPI phòng mổ', icon: <Gauge className="h-3.5 w-3.5" /> },
   ];
 
   return (
@@ -808,6 +811,11 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
             )}
           </div>
         </div>
+      </div>
+
+      {/* KPI Standards Sub-tab */}
+      <div style={{ display: configSubTab === 'kpi-settings' ? 'block' : 'none' }}>
+        <KpiSettingsConfig isLocked={isLocked} />
       </div>
     </div>
   );

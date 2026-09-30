@@ -50,6 +50,7 @@ export interface StaffMember {
   position: 'BS PT' | 'BS GMHS' | 'Phụ' | '';
   taxId: string;
   department: string;
+  nonSurgical?: boolean; // true = không tham gia phẫu thuật (Chuẩn bị PT, Tư vấn...)
 }
 
 export interface SurgeryRecord {
@@ -85,6 +86,8 @@ export interface SurgeryRecord {
   thanhTien?: number;    // Thành tiền (VNĐ)
   priceSource?: 'excel_dvkt' | 'catalog'; // Nguồn gốc giá: 'excel_dvkt' (từ file Excel Thống kê DVKT) hoặc 'catalog' (từ DM giá)
   excelRowIndex?: number; // Dòng trong file Excel gốc (1-based)
+  outlierType?: 'negative' | 'short' | 'long'; // Bất thường thời gian lâm sàng
+  outlierMessage?: string; // Diễn giải cảnh báo bất thường
 }
 
 export type StaffRole = "PT_CHINH" | "PT_PHU" | "BS_GM" | "KTV_GM" | "TDC" | "GV";
@@ -105,6 +108,8 @@ export interface StaffConflict {
   end2: Date;
   rec1: SurgeryRecord;
   rec2: SurgeryRecord;
+  severity?: 'error' | 'warning';
+  notes?: string;
 }
 
 export interface MachineConflict {
@@ -623,3 +628,6 @@ export interface RequiredMachineItem {
   createdAt?: number;
   updatedAt?: number;
 }
+
+export type { AppConfig } from './contexts/ConfigContext';
+export type SurgeryConfig = import('./contexts/ConfigContext').AppConfig;

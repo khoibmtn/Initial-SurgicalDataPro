@@ -16,7 +16,7 @@ import {
   duplicateCostItem,
   exportCostItemsExcel,
 } from '../../services/surgeryCostService';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { InstantTooltip } from './SurgeryNamePriceConfig';
 
 interface Props {
@@ -40,7 +40,8 @@ const parseThousands = (val: string): number => {
 const fmtMoney = (n: number) => (n > 0 ? n.toLocaleString('vi-VN') + ' ₫' : '—');
 
 export const SurgeryCostConfig: React.FC<Props> = ({ costItems }) => {
-  const { isLocked } = useConfig();
+  const { can, isAdmin } = useAuth();
+  const isLocked = !isAdmin && !can('manage_dmkt');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);

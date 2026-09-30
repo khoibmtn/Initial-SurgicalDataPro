@@ -29,7 +29,7 @@ import {
 } from '../../services/surgeryNamePriceService';
 import { toggleCostItem, getCostRefPriceIds } from '../../services/surgeryCostService';
 import { reportService } from '../../services/reportService';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { RefillModal } from './RefillModal';
 import { MissingCatalogModal } from './MissingCatalogModal';
 
@@ -148,7 +148,8 @@ export const InstantTooltip: React.FC<{ content: string; children: React.ReactNo
 );
 
 export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, costItems, profiles = [] }) => {
-  const { isLocked } = useConfig();
+  const { can, isAdmin } = useAuth();
+  const isLocked = !isAdmin && !can('manage_dmkt');
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);

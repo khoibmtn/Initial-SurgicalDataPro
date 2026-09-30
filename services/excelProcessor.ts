@@ -32,24 +32,40 @@ function validateListFileFormat(listData: any[][]): string | null {
 
 // ───────────────── Helper: parse dd/mm/yyyy hh:mm → Date ─────────────────
 
-function parseVNDateTime(value: any): Date | null {
+export function parseVNDateTime(value: any): Date | null {
   if (!value) return null;
+  if (value instanceof Date) {
+    return isNaN(value.getTime()) ? null : value;
+  }
   const s = String(value).trim();
-  // dạng dd/mm/yyyy hh:mm
-  const [datePart, timePart] = s.split(" ");
-  if (!datePart) return null;
-  const [d, m, y] = datePart.split("/").map((x) => parseInt(x, 10));
-  if (!y || !m || !d) return null;
+  if (!s) return null;
 
-  let hh = 0;
-  let mm = 0;
-  if (timePart) {
-    const [hStr, mStr] = timePart.split(":");
-    hh = parseInt(hStr || "0", 10);
-    mm = parseInt(mStr || "0", 10);
+  // Dạng ISO string hoặc yyyy-mm-dd
+  if (s.includes('T') || /^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return d;
   }
 
-  return new Date(y, m - 1, d, hh, mm, 0, 0);
+  // dạng dd/mm/yyyy hh:mm hoặc dd-mm-yyyy hh:mm
+  const [datePart, timePart] = s.split(" ");
+  if (!datePart) return null;
+  const delimiter = datePart.includes('/') ? '/' : datePart.includes('-') ? '-' : null;
+  if (delimiter) {
+    const [d, m, y] = datePart.split(delimiter).map((x) => parseInt(x, 10));
+    if (y && m && d) {
+      let hh = 0;
+      let mm = 0;
+      if (timePart) {
+        const [hStr, mStr] = timePart.split(":");
+        hh = parseInt(hStr || "0", 10);
+        mm = parseInt(mStr || "0", 10);
+      }
+      return new Date(y, m - 1, d, hh, mm, 0, 0);
+    }
+  }
+
+  const fallback = new Date(s);
+  return isNaN(fallback.getTime()) ? null : fallback;
 }
 
 // Kiểm tra ca mổ trùng lặp trong toàn bộ file Excel: cùng mã BN, cùng 1 PT, cùng khoảng thời gian BĐ/KT
@@ -173,7 +189,7 @@ function isOverlap(
 
 // (Đã chuyển SurgeryRecord và StaffRole sang types.ts)
 
-function determineLoaiPT(row: any[]): string {
+export function determineLoaiPT(row: any[]): string {
   const j = row[9];
   const k = row[10];
   const l = row[11];
@@ -185,7 +201,7 @@ function determineLoaiPT(row: any[]): string {
   return "";
 }
 
-function determineLoaiTT(row: any[]): string {
+export function determineLoaiTT(row: any[]): string {
   const n = row[13];
   const o = row[14];
   const p = row[15];
@@ -199,7 +215,7 @@ function determineLoaiTT(row: any[]): string {
   return "";
 }
 
-function determineLoaiPTTT(row: any[]): string {
+export function determineLoaiPTTT(row: any[]): string {
   // Cột phẫu thuật (J→M)
   const loaiPT_raw = determineLoaiPT(row);
   if (loaiPT_raw) {

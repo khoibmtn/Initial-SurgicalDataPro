@@ -22,7 +22,7 @@ function normalizeDate(raw: any): string {
 }
 
 /** Trả về ngày trước 1 ngày so với dateStr (yyyy-mm-dd) */
-function dayBefore(dateStr: string): string {
+export function dayBefore(dateStr: string): string {
   const d = new Date(dateStr);
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);

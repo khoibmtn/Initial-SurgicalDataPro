@@ -3,7 +3,7 @@
  * Manages sub-tabs (Thống kê / Cấu hình), data loading, year selection
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef, useTransition, useDeferredValue } from 'react';
-import { Settings2, Table2, Loader2, AlertTriangle, Info, BarChart3, Download, RefreshCw } from 'lucide-react';
+import { Settings2, Table2, Loader2, AlertTriangle, Info, BarChart3, Download, RefreshCw, Gauge } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
 import { fetchAndAggregateYearly, computeDailyForMonth, clearRawYearCache, type YearlyCacheData } from '../../services/statisticsService';
@@ -11,13 +11,15 @@ import { subscribeToPriceVersions } from '../../services/pricingService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { subscribeToChapterCatalog } from '../../services/chapterCatalogService';
 import { subscribeToProfiles } from '../../services/profileService';
-import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile, PersistedSurgeryRecord } from '../../types';
+import { subscribeToCostItems } from '../../services/surgeryCostService';
+import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile, PersistedSurgeryRecord, SurgeryCostItem } from '../../types';
 import { StatsSummary } from './StatsSummary';
 import { StatsConfig } from './StatsConfig';
 import { SpecialtyComparisonTab } from './SpecialtyComparisonTab';
+import { ORAnalyticsDashboard } from './ORAnalyticsDashboard';
 import { ContextToolbar, TabLine } from '../ui';
 
-type SubTab = 'summary' | 'comparison' | 'config';
+type SubTab = 'summary' | 'comparison' | 'kpi' | 'config';
 
 export const StatisticsTab: React.FC = () => {
   const { config } = useConfig();
@@ -38,6 +40,8 @@ export const StatisticsTab: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
   const [profiles, setProfiles] = useState<SurgeryProfile[]>([]);
+  const [costItems, setCostItems] = useState<SurgeryCostItem[]>([]);
+  const [yearlyCacheData, setYearlyCacheData] = useState<YearlyCacheData | null>(null);
   const [isPending, startTransition] = useTransition();
 
   // Defer statsData so React renders old data while new data is computing
@@ -97,6 +101,14 @@ export const StatisticsTab: React.FC = () => {
     return unsub;
   }, []);
 
+  // Subscribe to surgery cost items (Realtime Database)
+  useEffect(() => {
+    const unsub = subscribeToCostItems((data) => {
+      setCostItems(data);
+    });
+    return unsub;
+  }, []);
+
   // --- Full yearly fetch (Firestore queries + 24× aggregation) ---
   const loadYearlyData = useCallback(async (
     pYear: number,
@@ -124,6 +136,7 @@ export const StatisticsTab: React.FC = () => {
       // Store in cache
       const key = buildCacheKey(pYear, cYear, pv, np);
       yearCacheRef.current = { key, data: yearlyCache };
+      setYearlyCacheData(yearlyCache);
 
       // Compute daily for selected month (fast, from pre-indexed data)
       const daily = computeDailyForMonth(month, yearlyCache, pv, config.priceConfig, np, config.allowanceItems);
@@ -179,6 +192,7 @@ export const StatisticsTab: React.FC = () => {
     if (yearChanged) {
       // Year changed → invalidate cache, full re-fetch
       yearCacheRef.current = null;
+      setYearlyCacheData(null);
       prevParams.current = { primaryYear, compareYear, selectedMonth };
       loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
     } else if (monthChanged) {
@@ -198,6 +212,7 @@ export const StatisticsTab: React.FC = () => {
       // Price data changed → clear cache, full re-fetch
       console.log('[stats] Price config changed, invalidating cache');
       yearCacheRef.current = null;
+      setYearlyCacheData(null);
       loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices);
     }
     prevCacheKey.current = newKey;
@@ -208,6 +223,7 @@ export const StatisticsTab: React.FC = () => {
   const handleLoadData = (forceRefresh = false) => {
     if (forceRefresh) {
       yearCacheRef.current = null;
+      setYearlyCacheData(null);
       clearRawYearCache();
     }
     loadYearlyData(primaryYear, compareYear, selectedMonth, priceVersions, surgeryNamePrices, !initialLoaded, forceRefresh);
@@ -440,6 +456,7 @@ export const StatisticsTab: React.FC = () => {
   const subTabOptions = [
     { value: 'summary' as const, label: 'Thống kê', icon: Table2 },
     { value: 'comparison' as const, label: 'Phân tích so sánh', icon: BarChart3 },
+    { value: 'kpi' as const, label: 'Quản trị phòng mổ', icon: Gauge },
     { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
 
@@ -733,6 +750,20 @@ export const StatisticsTab: React.FC = () => {
           initialYear={primaryYear}
           initialMonth={selectedMonth}
         />
+      </div>
+
+      {/* KPI / OR ANALYTICS tab body */}
+      <div style={{ display: subTab === 'kpi' ? 'block' : 'none' }}>
+        <div className="px-4 pt-3 pb-8">
+          <ORAnalyticsDashboard
+            yearlyCache={yearlyCacheData || yearCacheRef.current?.data || null}
+            selectedMonth={selectedMonth}
+            primaryYear={primaryYear}
+            costItems={costItems}
+            loading={loading}
+            onLoadData={() => handleLoadData(false)}
+          />
+        </div>
       </div>
 
       {/* CONFIG tab body */}

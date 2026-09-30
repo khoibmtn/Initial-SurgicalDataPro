@@ -65,7 +65,7 @@ export interface YearlyCacheData {
 
 // --- Timezone-safe date helpers ---
 
-function toLocalDateKey(isoString: string): string {
+export function toLocalDateKey(isoString: string): string {
   if (!isoString) return '';
   const d = new Date(isoString);
   if (isNaN(d.getTime())) return '';
@@ -89,7 +89,7 @@ function daysInMonth(month: number, year: number): number {
 // --- Name normalization ---
 
 /** Normalize tenKT: trim + lowercase + collapse whitespace. Preserves meaningful terms. */
-function normalizeTenKT(name: string): string {
+export function normalizeTenKT(name: string): string {
   if (!name) return '';
   return name.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -160,7 +160,7 @@ export function getServicePrice(
   };
 }
 
-function getLaborCost(
+export function getLaborCost(
   loaiPTTT: string,
   soLuong: number,
   laborPrices: Record<string, RolePrice>,
@@ -180,7 +180,7 @@ function getLaborCost(
 
 // --- Data Validation ---
 
-function validateRecords(records: PersistedSurgeryRecord[]): {
+export function validateRecords(records: PersistedSurgeryRecord[]): {
   duplicateCount: number;
   duplicateRecords: DuplicateSurgeryRecord[];
 } {
@@ -292,7 +292,7 @@ function getRecordsFromIndex(
   return indexed.byMonth.get(month) || { records: [], source: 'DAILY' };
 }
 
-function aggregateMonth(
+export function aggregateMonth(
   month: number, year: number,
   records: PersistedSurgeryRecord[],
   dataSource: 'MONTHLY' | 'DAILY',
@@ -415,7 +415,7 @@ function aggregateMonth(
   };
 }
 
-function aggregateDaily(
+export function aggregateDaily(
   records: PersistedSurgeryRecord[],
   priceVersions: SurgeryPriceVersion[],
   laborPrices: Record<string, RolePrice>,
@@ -500,7 +500,7 @@ const TET_CALENDAR: Record<number, { month: number; days: number }> = {
 const FIXED_HOLIDAYS = ['01-01', '04-30', '05-01', '09-02'];
 
 /** Build multi-year weighted seasonal index */
-function buildSeasonalIndex(
+export function buildSeasonalIndex(
   recentYear: MonthlyAggregate[],
   prevYear?: MonthlyAggregate[]
 ): number[] {
@@ -519,7 +519,7 @@ function buildSeasonalIndex(
 }
 
 /** Adjust seasonal index for Tết influence */
-function adjustSeasonalForTet(
+export function adjustSeasonalForTet(
   seasonality: number[],
   forecastYear: number,
   referenceYears: number[]

@@ -13,7 +13,7 @@ const CHAPTER_CATALOG_PATH = 'chapter_catalog';
 // --- Default chapters ---
 // ma_chuong = 2 ký tự text ("01"–"28"), ánh xạ với 2 ký tự đầu của maTuongDuong
 // VD: maTuongDuong "24.0018.1611" → ma_chuong "24" → "Phẫu thuật Thận - tiết niệu"
-const DEFAULT_CHAPTERS: Omit<ChapterCatalog, 'id' | 'createdAt'>[] = [
+export const DEFAULT_CHAPTERS: Omit<ChapterCatalog, 'id' | 'createdAt'>[] = [
   { ma_chuong: '01', ten_chuong: 'Bệnh nhiễm trùng và ký sinh trùng' },
   { ma_chuong: '02', ten_chuong: 'Bướu tân sinh (U)' },
   { ma_chuong: '03', ten_chuong: 'Bệnh của máu, cơ quan tạo máu và các rối loạn liên quan đến cơ chế miễn dịch' },
