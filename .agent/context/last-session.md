@@ -1,107 +1,96 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 01/10/2026 02:40 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `main` (remote: `origin/main`), đã đồng bộ với `version2` (`origin/version2`)  
-> **Commit mới nhất (main & version2):** `6dc92f9` (`fix(packages): prioritize package shortName from live config on package list`)  
+> **Thời gian cập nhật:** 01/10/2026 17:15 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `main` (remote: `origin/main`), đã đồng bộ hoàn toàn với `version2` (`origin/version2`)  
+> **Commit mới nhất (main & version2):** `241c121` (`fix(app): resolve TDZ ReferenceError for useAuth in AppContent`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
-> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build)`  
-> **Trạng thái Test:** `278 / 278 tests PASS` (18 test suites)  
+> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build, dist/assets/index-CL2lkbLa.js)`  
+> **Trạng thái Test:** `290 / 290 tests PASS` (19 test suites, 100% pass)  
 
 ---
 
 ## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
 
-### 1.1. Mô Đun Gói Dịch Vụ Phẫu Thuật Theo Yêu Cầu (Service Package System)
-- **Cấu hình Danh mục Vị trí & Ánh xạ tự động**:
-  - Hỗ trợ thiết lập linh hoạt các vị trí tham gia gói (Tên đầy đủ, tên viết tắt, nguồn ánh xạ từ kíp mổ thực tế).
-  - Với các vị trí ngoài kíp mổ (Chuẩn bị PT, Người tư vấn...), hỗ trợ tùy chọn lọc danh sách nhân viên không tham gia cuộc mổ hoặc lấy từ toàn bộ nhân viên.
-- **Cấu hình Gói Dịch Vụ**:
-  - Thiết lập tên gói đầy đủ, **tên rút gọn (hiển thị trên bảng)**, tổng số tiền gói, phân bổ định mức tiền cho từng vị trí trong gói.
-  - Cảnh báo tổng tiền các vị trí so với tổng tiền gói nếu chưa khớp.
-- **Hiển thị Tên Rút Gọn trên Tab Gói DV**:
-  - Cột "Gói DV" trên tab `PackageListView` tự động ưu tiên lấy **tên rút gọn (`shortName`)** từ cấu hình gói trực tiếp (`matchedPkg?.shortName?.trim()`).
-  - Hỗ trợ tooltip hiển thị đầy đủ tên gói và tên rút gọn khi rê chuột.
-  - Tìm kiếm (Search) trên danh sách gói tự động lọc theo cả tên gói đầy đủ, tên rút gọn và thông tin ca bệnh.
-- **Cơ chế Lưu trữ & Draft Tạm (Offline-first / Hybrid Sync)**:
-  - Khi người dùng chọn ca từ tab "DS Phẫu thuật" chuyển sang tab "Gói DV", danh sách này được lưu tạm (local draft) trên trình duyệt.
-  - Khi nhấn "Lấy dữ liệu", "Dữ liệu trực", import Excel hoặc nạp lại dữ liệu, hàm `clearPackageDrafts()` tự động dọn sạch các ca chưa gán gói, tránh tình trạng hiển thị tồn đọng các ca rác chưa hoàn tất.
-  - Chỉ khi người dùng thực hiện gán gói thành công (dù chưa chọn đủ nhân viên cho các vị trí), ca bệnh mới được lưu đồng bộ trực tiếp lên Firebase Firestore để truy cập trên các thiết bị khác không bị mất.
-- **Trải nghiệm Thao tác & Modal Phân Bổ Nhân Viên**:
-  - Hộp tìm kiếm chọn nhân viên được chuẩn hóa theo chuẩn Combobox: gõ phím để lọc, dùng phím mũi tên lên/xuống và Enter để chọn, không cho phép nhập text tự do ngoài danh mục.
-  - Thao tác xóa ca mổ khỏi danh sách gói sử dụng React Confirmation Modal tùy biến, loại bỏ hoàn toàn hiện tượng chớp tắt popup của `window.confirm`.
-- **Bảng Thanh Toán Gói Dịch Vụ & Bản In**:
-  - Bổ sung toggle chuyển đổi giữa chế độ hiển thị **Số lượng (SL)** và **Số tiền (VNĐ)**.
-  - Di chuyển toggle này lên cùng hàng với toggle "Bảng thanh toán phụ cấp / Gói dịch vụ", nằm sát mé phải màn hình để tối ưu hóa không gian hiển thị.
-  - Đồng bộ trạng thái hiển thị giữa giao diện web và bản in (`usePrintController`): khi chọn chế độ hiển thị tiền, bản in preview hiển thị chính xác số tiền thay vì luôn hiển thị số lượng như trước.
-  - Tiêu đề bản in được chuẩn hóa thành **"BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU"** và cho phép tùy chỉnh trong phần Thiết lập.
+### 1.1. Chuẩn Hóa Logic Ca Trực 24h & Ngoài Giờ Tại Các Mốc Giao Mùa
+- **Bối cảnh quy định**:
+  - Giờ làm việc Mùa Hè (01/05 – 30/09): Sáng từ 07:00 đến 11:30.
+  - Giờ làm việc Mùa Đông (01/10 – 30/04 năm sau): Sáng từ 07:30 đến 12:00.
+- **Tính toán mốc thời gian chuyển tiếp (Boundary Conditions)**:
+  - **Tua trực ngày 30/09**: Bắt đầu lúc 07:00 ngày 30/09 và kết thúc vào giờ làm việc hành chính sáng hôm sau (ngày 01/10 bắt đầu mùa đông lúc 07:30, do đó ca trực kéo dài đến **07:29 ngày 01/10** — dài hơn 30 phút so với các ngày thường).
+  - **Tua trực ngày 30/04**: Bắt đầu lúc 07:30 ngày 30/04 và kết thúc vào giờ làm việc hành chính sáng hôm sau (ngày 01/05 bắt đầu mùa hè lúc 07:00, do đó ca trực kết thúc lúc **06:59 ngày 01/05** — ngắn hơn 30 phút so với các ngày thường).
+- **Đồng bộ hóa Nút bấm "Lấy dữ liệu trực" & Logic Tính Ngoài Giờ (`overtimeCalculation.ts`)**:
+  - Khắc phục triệt để sai lệch lấy thiếu/thừa 30 phút ở cả 2 nút lấy dữ liệu tự động.
+  - Hàm xác định ngoài giờ `isOvertimeSurgery` sử dụng thời điểm giữa cuộc mổ (`midPoint`) đối chiếu chính xác theo từng phút với khung giờ chuyển mùa này.
+  - Đã bổ sung 26/26 bộ unit test chuyên biệt trong `__tests__/overtimeCalculation.test.ts`.
 
 ---
 
-### 1.2. Tạm Thời Ẩn Nút "Đối Soát" (Smart Staging Action)
-- Tạm thời comment out nút bấm "Đối soát" trong component `ReportActionBar.tsx` trên cả Báo cáo hàng ngày và Báo cáo tháng theo yêu cầu người dùng, giữ giao diện tập trung và gọn gàng.
+### 1.2. Nâng Cấp Xác Thực: Bắt Buộc Số Điện Thoại & Đăng Nhập Linh Hoạt
+- **Bắt buộc số điện thoại khi đăng ký**:
+  - Trường `phoneNumber` được lưu trữ dạng chuỗi văn bản (`string`) để bảo tồn số `0` ở đầu.
+  - Kiểm tra tính duy nhất (Unique check) trên hệ cơ sở dữ liệu: không cho phép đăng ký trùng số điện thoại.
+  - Validate định dạng số điện thoại chuẩn Việt Nam (10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09).
+- **Hỗ trợ đăng nhập đa kênh**:
+  - Người dùng có thể đăng nhập bằng **Nickname/Username** HOẶC **Số điện thoại** cùng với mật khẩu.
+  - Cập nhật giao diện `LoginModal.tsx` và dịch vụ `authService.ts`.
 
 ---
 
-### 1.3. Khóa Chỉnh Sửa Ca Mổ Theo Thời Gian Thực (Collaborative Record Lock)
-- Tích hợp Firebase Realtime Database `record_editing_locks/{recordKey}` với cơ chế Heartbeat 20 giây và Timeout 2 phút.
-- Hiển thị viền vàng hổ phách và chấm nhấp nháy trên hàng đang có người chỉnh sửa. Chuyển modal sang chế độ Read-only nếu ca mổ đang bị khóa bởi tài khoản khác.
+### 1.3. Hệ Thống Ghi Dấu Thao Tác (Audit Log) & Lịch Sử Đăng Nhập
+- **Ghi nhận toàn diện các hành vi**:
+  - Đăng nhập, đăng xuất, đổi mật khẩu.
+  - Thêm, sửa, xóa ca phẫu thuật / thủ thuật.
+  - Khóa / mở khóa báo cáo ngày và báo cáo tháng.
+  - Xuất dữ liệu Excel, cập nhật danh mục, cấu hình hệ thống.
+- **Phân quyền bảo mật cao cấp (Admin & Trưởng khoa)**:
+  - Chỉ tài khoản có vai trò **Admin (`isAdmin`)** hoặc **Trưởng khoa (`isHead`)** mới có quyền truy cập tab Nhật ký thao tác và Lịch sử đăng nhập.
+  - Toàn bộ các tài khoản khác bị chặn cả ở mức giao diện người dùng và API/Service rules.
+  - Bổ sung 19 bài kiểm thử chuyên sâu trong `__tests__/auditLog.test.ts` và `__tests__/authPhoneAndAudit.test.ts`.
 
 ---
 
-### 1.4. Quản Trị Khối Phòng Mổ Toàn Viện (OR Analytics Dashboard)
-- Tích hợp mô hình đo lường năng lực vĩ mô toàn viện ($N$ bàn mổ hoạt động, tỷ lệ sử dụng công suất, thuật toán Sweep Line quét ca mổ đồng thời đỉnh điểm theo ngày/khung giờ, phân bố phụ tải 24h, cảnh báo bất thường).
+### 1.4. Khắc Phục Lỗi Production Temporal Dead Zone (TDZ)
+- **Hiện tượng**: Bản build production tại `https://initial-surgical-data-pro.vercel.app` gặp sự cố tải do ErrorBoundary bắt lỗi `Cannot access 'le' before initialization`.
+- **Nguyên nhân**: Trong `App.tsx`, `useDutyScheduleState` được gọi với tham số `currentUser: user` trước khi khai báo `const { user, ... } = useAuth();`.
+- **Xử lý**: Đã di chuyển dòng `const { user, isAdmin, isHead, currentRole, can } = useAuth();` lên trước `useDutyScheduleState`.
+- **Kiểm thử**: Đã chạy Browser Subagent kiểm tra trực tiếp môi trường Localhost Preview và Vercel Production, xác nhận hệ thống tải mượt mà 100%, không còn bất kỳ lỗi khởi tạo nào.
 
 ---
 
 ## 📐 2. Cấu Trúc Dữ Liệu & Schema Trọng Điểm
 
-### 2.1. Service Package Schema (`types/servicePackage.ts`)
+### 2.1. Audit Log Schema (`types/auditLog.ts`)
 ```typescript
-export interface ServicePackageDefinition {
+export interface AuditLogEntry {
   id: string;
-  name: string;             // Tên đầy đủ: "DV chọn bác sĩ phẫu thuật theo yêu cầu"
-  shortName?: string;       // Tên rút gọn: "Chọn BS YC"
-  totalAmount: number;      // 2,000,000 đ
-  positions: ServicePackagePosition[];
-  note?: string;
-  active: boolean;
-  sortOrder: number;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface ServicePackageAssignment {
-  id: string;
-  patientId: string;
-  ngayBD: string;
-  tenKT: string;
-  compositeKey: string;     // {patientId}_{ngayBD}_{tenKT}
-  patientName: string;
-  gender?: string;
-  yob?: string;
-  packageId: string;
-  packageName: string;
-  packageShortName?: string;
-  staffAssignments: StaffPackageAssignment[];
-  linkedSurgeryKeys: string[];
-  createdAt: number;
-  updatedAt: number;
+  userId: string;
+  userName: string;
+  userRole: string;
+  action: 'LOGIN' | 'LOGOUT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'LOCK_REPORT' | 'UNLOCK_REPORT' | 'EXPORT_EXCEL' | 'CONFIG_CHANGE';
+  targetType: 'SURGERY' | 'DUTY_SCHEDULE' | 'SERVICE_PACKAGE' | 'REPORT_LOCK' | 'SYSTEM_CONFIG' | 'AUTH';
+  targetId?: string;
+  details?: string;
+  previousData?: any;
+  newData?: any;
+  ipAddress?: string;
+  timestamp: number;
 }
 ```
 
-### 2.2. Logic Hiển Thị Tên Gói Ưu Tiên Tên Rút Gọn (`components/surgery/PackageListView.tsx`)
+### 2.2. User Profile Schema với Phone Number
 ```typescript
-const matchedPkg = a
-  ? (packages.find(p => p.id && a.packageId && p.id === a.packageId) ||
-     packages.find(p => p.name && a.packageName && p.name.trim().toLowerCase() === a.packageName.trim().toLowerCase()))
-  : undefined;
-
-const packageDisplay = a
-  ? (matchedPkg?.shortName?.trim() ||
-     (a.packageShortName && a.packageShortName.trim() !== a.packageName.trim() ? a.packageShortName.trim() : '') ||
-     a.packageName)
-  : '';
+export interface UserProfile {
+  uid: string;
+  username: string;
+  fullName: string;
+  phoneNumber: string;       // Lưu dạng chuỗi text: '0987654321'
+  role: 'admin' | 'head' | 'doctor' | 'nurse' | 'viewer';
+  departmentId?: string;
+  active: boolean;
+  createdAt: number;
+  lastLoginAt?: number;
+}
 ```
 
 ---
@@ -109,10 +98,11 @@ const packageDisplay = a
 ## 🚀 3. Trạng Thái Git, Build & Deploy
 
 - **Nhánh `main` & `version2`**: Đã merge và push đầy đủ lên GitHub remote (`origin/main`, `origin/version2`).
-- **Commit mới nhất**: `6dc92f9` (`fix(packages): prioritize package shortName from live config on package list`).
-- **Kiểm thử (Vitest)**: **18 test suites, 278 / 278 tests PASS (100%)**.
-- **Build (Vite v6.4.1)**: Build production bundle thành công trong ~10s.
+- **Commit mới nhất**: `241c121` (`fix(app): resolve TDZ ReferenceError for useAuth in AppContent`).
+- **Kiểm thử (Vitest)**: **19 test suites, 290 / 290 tests PASS (100%)**.
+- **Build (Vite v6.4.1)**: Build production bundle thành công không có lỗi.
 - **Deploy**:
-  - Vercel Production: `https://initial-surgical-data-pro.vercel.app` (Aliased thành công).
-  - Firebase Firestore Rules: Đã kiểm tra và deploy lên `initial-surgicaldatapro`.
-- **Tuân thủ thiết kế**: Đáp ứng triệt để quy tắc Purple Ban, Clean Code, và các quy định của hệ thống.
+  - Vercel Production: `https://initial-surgical-data-pro.vercel.app` (Đang hoạt động ổn định).
+- **Tuân thủ quy chuẩn**:
+  - Clean Code, AAA Testing pattern.
+  - Tuân thủ nghiêm ngặt quy tắc Purple Ban và giao diện y tế cao cấp.
