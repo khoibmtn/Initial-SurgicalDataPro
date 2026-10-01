@@ -156,6 +156,9 @@ const InnerApp: React.FC = () => {
   } = useReportStateManager({ activeTab });
 
 
+  // ── Người dùng & Quyền hạn (Auth Context) ──
+  const { user, isAdmin, isHead, currentRole, can } = useAuth();
+
   // ── Lịch trực & Ngoài giờ (Shared State across Daily & Monthly) ──
   const {
     dutySchedules,
@@ -168,9 +171,6 @@ const InnerApp: React.FC = () => {
     config,
     currentUser: user,
   });
-
-
-
 
   const {
     rowsPerPage,
@@ -186,7 +186,6 @@ const InnerApp: React.FC = () => {
   const { toasts, addToast, removeToast } = useToast();
 
   // ── Khóa / Mở khóa báo cáo (Report Lock / Unlock) ──
-  const { user, isAdmin, isHead, currentRole, can } = useAuth();
   const [allLocks, setAllLocks] = useState<Record<string, ReportLock>>({});
   const [showLockModal, setShowLockModal] = useState(false);
   const [lockModalMode, setLockModalMode] = useState<'lock' | 'unlock'>('lock');
