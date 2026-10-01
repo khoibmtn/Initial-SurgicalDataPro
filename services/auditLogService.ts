@@ -172,6 +172,11 @@ export function filterAuditLogs(
       }
     }
 
+    // 2.1. Lọc theo userId (nếu có)
+    if (filters.userId && log.userId !== filters.userId) {
+      return false;
+    }
+
     // 3. Lọc theo loại hành động
     if (filters.action && filters.action !== 'ALL' && log.action !== filters.action) {
       return false;

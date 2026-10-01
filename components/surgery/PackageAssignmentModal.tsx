@@ -28,6 +28,8 @@ import {
   subscribeToModuleConfig,
   saveAssignment,
 } from '../../services/servicePackageService';
+import { useAuth } from '../../contexts/AuthContext';
+import { logAuditEvent } from '../../services/auditLogService';
 
 interface Props {
   isOpen: boolean;
@@ -264,6 +266,7 @@ const StaffCombobox: React.FC<StaffComboboxProps> = ({
 export const PackageAssignmentModal: React.FC<Props> = ({
   isOpen, onClose, records, staffList, existingAssignment, onSaved,
 }) => {
+  const { user } = useAuth();
   const [positions, setPositions] = useState<PositionCatalogItem[]>([]);
   const [packages, setPackages] = useState<ServicePackageDefinition[]>([]);
   const [moduleConfig, setModuleConfig] = useState<ServicePackageModuleConfig>(DEFAULT_MODULE_CONFIG);
@@ -410,6 +413,21 @@ export const PackageAssignmentModal: React.FC<Props> = ({
 
       const id = await saveAssignment(assignment);
       assignment.id = id;
+
+      if (user) {
+        logAuditEvent({
+          userId: user.uid,
+          userName: user.displayName || user.nickname || 'Người dùng',
+          userRole: user.role,
+          userDepartment: user.department,
+          action: 'PACKAGE_ASSIGNMENT_EDIT',
+          targetType: 'service_package',
+          targetId: id,
+          targetLabel: `Gói ${selectedPkg.name} - BN ${rec.patientName}`,
+          periodKey: assignment.surgeryDate ? assignment.surgeryDate.slice(0, 7) : undefined,
+          description: `Gán gói dịch vụ "${selectedPkg.name}" cho bệnh nhân ${rec.patientName} (${rec.patientId || ''})`,
+        }).catch((e) => console.warn('[auditLog] Failed to log package assignment:', e));
+      }
 
       // Remove from local draft records once assigned and saved online
       try {

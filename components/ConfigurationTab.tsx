@@ -23,13 +23,19 @@ import { useAuth } from '../contexts/AuthContext';
 import { PositionCatalogConfig } from './config/PositionCatalogConfig';
 import { ServicePackageConfig } from './config/ServicePackageConfig';
 import { ServicePackageSettingsConfig } from './config/ServicePackageSettingsConfig';
+import type { AppUser } from '../types/auth';
 
 interface ConfigurationTabProps {
     onConfigUpdate?: () => void;
     initialSubTab?: 'norms' | 'dmkt' | 'staff' | 'users' | 'packages';
+    onOpenAuditLogWithUser?: (user: AppUser) => void;
 }
 
-export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpdate, initialSubTab }) => {
+export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
+    onConfigUpdate,
+    initialSubTab,
+    onOpenAuditLogWithUser,
+}) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
     const { isAdmin, isHead, isDeputyHead, pendingApprovalCount, can } = useAuth();
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages'>(
@@ -198,7 +204,11 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({ onConfigUpda
 
                 {activeSubTab === 'users' && (isAdmin || isHead || isDeputyHead) && (
                     <div className="animate-fade-in">
-                        <UserManagementPanel activeSubTab={accountSubTab} onSubTabChange={setAccountSubTab} />
+                        <UserManagementPanel
+                            activeSubTab={accountSubTab}
+                            onSubTabChange={setAccountSubTab}
+                            onViewUserLogs={onOpenAuditLogWithUser}
+                        />
                     </div>
                 )}
 

@@ -2,7 +2,7 @@
 // Modal hiển thị dòng thời gian (Timeline) truy vết chỉnh sửa số liệu & thao tác hệ thống
 // Hỗ trợ kiểm toán y tế, đối soát và giám sát hoạt động cho Trưởng khoa & Admin
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   History,
   X,
@@ -22,6 +22,12 @@ import {
   Building2,
   ChevronDown,
   ChevronUp,
+  LogIn,
+  LogOut,
+  Calendar,
+  Layers,
+  Settings,
+  User,
 } from 'lucide-react';
 import type { AuditLogEntry, AuditAction } from '../../types/auditLog';
 import { filterAuditLogs } from '../../services/auditLogService';
@@ -34,6 +40,9 @@ interface AuditLogModalProps {
   department?: string;
   departments?: string[];
   isAdmin: boolean;
+  initialUserId?: string;
+  initialAction?: AuditAction | 'ALL';
+  initialUserName?: string;
 }
 
 function formatRelativeTime(isoStr: string): string {
@@ -131,6 +140,42 @@ function getActionMeta(action: AuditAction): {
         colorClass: 'bg-red-100 text-red-900 border-red-300',
         icon: <UserX className="w-3.5 h-3.5 text-red-700" />,
       };
+    case 'USER_LOGIN':
+      return {
+        label: 'Đăng nhập',
+        colorClass: 'bg-blue-100 text-blue-900 border-blue-300',
+        icon: <LogIn className="w-3.5 h-3.5 text-blue-700" />,
+      };
+    case 'USER_LOGOUT':
+      return {
+        label: 'Đăng xuất',
+        colorClass: 'bg-slate-100 text-slate-800 border-slate-300',
+        icon: <LogOut className="w-3.5 h-3.5 text-slate-600" />,
+      };
+    case 'DUTY_SCHEDULE_EDIT':
+      return {
+        label: 'Lịch trực',
+        colorClass: 'bg-amber-100 text-amber-900 border-amber-300',
+        icon: <Calendar className="w-3.5 h-3.5 text-amber-700" />,
+      };
+    case 'PACKAGE_ASSIGNMENT_EDIT':
+      return {
+        label: 'Gói dịch vụ',
+        colorClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+        icon: <Layers className="w-3.5 h-3.5 text-indigo-700" />,
+      };
+    case 'USER_ROLE_CHANGE':
+      return {
+        label: 'Đổi quyền',
+        colorClass: 'bg-sky-100 text-sky-900 border-sky-300',
+        icon: <Users className="w-3.5 h-3.5 text-sky-700" />,
+      };
+    case 'SYSTEM_CONFIG':
+      return {
+        label: 'Cấu hình HT',
+        colorClass: 'bg-cyan-100 text-cyan-900 border-cyan-300',
+        icon: <Settings className="w-3.5 h-3.5 text-cyan-700" />,
+      };
     default:
       return {
         label: 'Hệ thống',
@@ -148,11 +193,23 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
   department = '',
   departments = [],
   isAdmin,
+  initialUserId,
+  initialAction,
+  initialUserName,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedAction, setSelectedAction] = useState<AuditAction | 'ALL'>('ALL');
+  const [selectedAction, setSelectedAction] = useState<AuditAction | 'ALL'>(initialAction || 'ALL');
   const [selectedDept, setSelectedDept] = useState<string>(isAdmin ? 'ALL' : department || 'ALL');
+  const [selectedUserId, setSelectedUserId] = useState<string>(initialUserId || '');
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set());
+
+  // Đồng bộ filter khi modal mở hoặc prop đổi
+  useEffect(() => {
+    if (isOpen) {
+      if (initialAction) setSelectedAction(initialAction);
+      if (initialUserId) setSelectedUserId(initialUserId);
+    }
+  }, [isOpen, initialAction, initialUserId]);
 
   const toggleExpand = (id: string) => {
     setExpandedLogIds((prev) => {
@@ -168,8 +225,9 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
       action: selectedAction,
       department: selectedDept,
       searchTerm,
+      userId: selectedUserId || undefined,
     });
-  }, [logs, selectedAction, selectedDept, searchTerm]);
+  }, [logs, selectedAction, selectedDept, searchTerm, selectedUserId]);
 
   if (!isOpen) return null;
 
@@ -229,15 +287,37 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
               className="px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded-lg text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
             >
               <option value="ALL">Tất cả hành động</option>
+              <option value="USER_LOGIN">Đăng nhập</option>
+              <option value="USER_LOGOUT">Đăng xuất</option>
               <option value="RECORD_EDIT">Chỉnh sửa ca mổ</option>
               <option value="ASSISTANT_FILL">Người giúp việc</option>
+              <option value="DUTY_SCHEDULE_EDIT">Lịch trực tua</option>
+              <option value="PACKAGE_ASSIGNMENT_EDIT">Gói dịch vụ PT</option>
               <option value="REPORT_LOCK">Khóa sổ báo cáo</option>
               <option value="REPORT_UNLOCK">Mở khóa báo cáo</option>
               <option value="RECORD_DELETE">Xóa dòng</option>
               <option value="DATA_SAVE">Lưu CSDL</option>
               <option value="USER_APPROVE">Phê duyệt thành viên</option>
+              <option value="USER_REJECT">Từ chối thành viên</option>
+              <option value="USER_ROLE_CHANGE">Thay đổi vai trò</option>
+              <option value="SYSTEM_CONFIG">Cấu hình hệ thống</option>
             </select>
           </div>
+
+          {/* User Filter Badge (nếu đang lọc theo 1 user cụ thể) */}
+          {selectedUserId && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-800 rounded-lg border border-blue-200 text-xs animate-fade-in">
+              <User className="w-3.5 h-3.5 text-blue-600" />
+              <span>Nhân sự: <strong>{initialUserName || selectedUserId}</strong></span>
+              <button
+                onClick={() => setSelectedUserId('')}
+                className="hover:text-blue-950 p-0.5 ml-1 rounded-sm hover:bg-blue-100 transition-colors cursor-pointer"
+                title="Bỏ lọc theo nhân sự này"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
 
           {/* Department Filter (Admin view) */}
           {isAdmin && departments.length > 0 && (

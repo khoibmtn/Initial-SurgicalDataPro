@@ -48,7 +48,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
     'manage_staff', 'manage_admin_settings',
-    'approve_users', 'view_audit_log',
+    'approve_users',
   ],
   staff: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
@@ -60,7 +60,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'import_excel', 'export_excel',
     'view_statistics', 'view_cost_report',
     'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
-    'view_audit_log',
   ],
 };
 

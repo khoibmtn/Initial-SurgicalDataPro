@@ -8,6 +8,7 @@
 import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore';
 import { firestore as db } from '../lib/firebase';
 import { DutyScheduleDateConfig } from '../types';
+import { logAuditEvent } from './auditLogService';
 
 export const DUTY_SCHEDULE_CHANGE_EVENT = 'sdp-duty-schedule-changed';
 
@@ -216,7 +217,8 @@ export const dutyScheduleService = {
   async saveDutyScheduleDate(
     dateKey: string,
     isHoliday: boolean,
-    onCallStaff: string[]
+    onCallStaff: string[],
+    currentUser?: { uid: string; displayName?: string; nickname?: string; role?: any; department?: string }
   ): Promise<void> {
     if (!dateKey) return;
     const dataToSave: DutyScheduleDateConfig = {
@@ -242,6 +244,22 @@ export const dutyScheduleService = {
     try {
       const docRef = doc(db, 'duty_schedules', dateKey);
       await setDoc(docRef, dataToSave, { merge: true });
+
+      // 4. Ghi lưu vết kiểm toán nếu có thông tin người dùng
+      if (currentUser) {
+        logAuditEvent({
+          userId: currentUser.uid,
+          userName: currentUser.displayName || currentUser.nickname || 'Người dùng',
+          userRole: currentUser.role || 'staff',
+          userDepartment: currentUser.department,
+          action: 'DUTY_SCHEDULE_EDIT',
+          targetType: 'duty_schedule',
+          targetId: dateKey,
+          targetLabel: `Lịch trực ngày ${dateKey}`,
+          periodKey: dateKey.slice(0, 7),
+          description: `Cập nhật lịch trực ngày ${dateKey}: ${onCallStaff.length} nhân sự trực${isHoliday ? ' (Ngày nghỉ/lễ)' : ''}`,
+        }).catch((e) => console.warn('[auditLog] Failed to log duty schedule edit:', e));
+      }
     } catch (error) {
       console.error(`[dutyScheduleService] Failed to save duty schedule to Firestore for ${dateKey}:`, error);
       // Không throw error nếu local đã lưu thành công để UI không bị gián đoạn
@@ -252,7 +270,8 @@ export const dutyScheduleService = {
    * Lưu hàng loạt nhiều ngày (Batch Save)
    */
   async batchSaveDutySchedules(
-    schedules: Record<string, DutyScheduleDateConfig>
+    schedules: Record<string, DutyScheduleDateConfig>,
+    currentUser?: { uid: string; displayName?: string; nickname?: string; role?: any; department?: string }
   ): Promise<void> {
     const dates = Object.keys(schedules);
     if (dates.length === 0) return;
@@ -284,6 +303,22 @@ export const dutyScheduleService = {
         );
       }
       await batch.commit();
+
+      // 3. Ghi lưu vết kiểm toán
+      if (currentUser) {
+        const periodKey = dates[0]?.slice(0, 7);
+        logAuditEvent({
+          userId: currentUser.uid,
+          userName: currentUser.displayName || currentUser.nickname || 'Người dùng',
+          userRole: currentUser.role || 'staff',
+          userDepartment: currentUser.department,
+          action: 'DUTY_SCHEDULE_EDIT',
+          targetType: 'duty_schedule',
+          targetLabel: `Cập nhật ${dates.length} ngày trực`,
+          periodKey,
+          description: `Cập nhật hàng loạt ${dates.length} ngày trực (${dates[0]} → ${dates[dates.length - 1]})`,
+        }).catch((e) => console.warn('[auditLog] Failed to log batch duty schedule edit:', e));
+      }
     } catch (error) {
       console.error('[dutyScheduleService] Batch save to Firestore failed:', error);
     }

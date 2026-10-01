@@ -55,12 +55,13 @@ import { AccountPanel } from './components/auth/AccountPanel';
 import { ReportLockModal } from './components/surgery/ReportLockModal';
 import { ReportLockBanner } from './components/surgery/ReportLockBanner';
 import { AuditLogModal } from './components/audit/AuditLogModal';
+import { RequirePhoneModal } from './components/auth/RequirePhoneModal';
 import { ExcelStagingModal } from './components/excel/ExcelStagingModal';
 import { buildStagingRecords } from './services/stagingValidationService';
 import type { StagingRecord } from './types/staging';
 import type { ReportLock } from './types/reportLock';
-import type { UserRole } from './types/auth';
-import type { AuditLogEntry } from './types/auditLog';
+import type { UserRole, AppUser } from './types/auth';
+import type { AuditLogEntry, AuditAction } from './types/auditLog';
 import {
   subscribeAllReportLocks,
   lockReport,
@@ -165,6 +166,7 @@ const InnerApp: React.FC = () => {
   } = useDutyScheduleState({
     validRecords: currentReport.result?.validRecords,
     config,
+    currentUser: user,
   });
 
 
@@ -314,12 +316,14 @@ const InnerApp: React.FC = () => {
 
   const canViewAuditLog = useMemo(() => {
     if (isAdmin) return true;
-    return can('view_audit_log');
-  }, [isAdmin, can]);
+    return isHead && can('view_audit_log');
+  }, [isAdmin, isHead, can]);
 
   // ── Truy vết chỉnh sửa (Audit Log) ──
   const [allAuditLogs, setAllAuditLogs] = useState<AuditLogEntry[]>([]);
   const [showAuditLogModal, setShowAuditLogModal] = useState(false);
+  const [auditLogUserFilter, setAuditLogUserFilter] = useState<AppUser | null>(null);
+  const [auditLogActionFilter, setAuditLogActionFilter] = useState<AuditAction | 'ALL'>('ALL');
 
   // ── Đối soát & Chuẩn hóa dữ liệu Excel (Smart Staging Grid) ──
   const [showStagingModal, setShowStagingModal] = useState(false);
@@ -358,11 +362,15 @@ const InnerApp: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!canViewAuditLog) {
+      setAllAuditLogs([]);
+      return;
+    }
     const unsub = subscribeAuditLogs((logs) => {
       setAllAuditLogs(logs || []);
     });
     return () => unsub();
-  }, []);
+  }, [canViewAuditLog]);
 
   const handleConfirmLock = async (note: string, selectedDept?: string) => {
     const res = await lockReport({
@@ -691,12 +699,24 @@ const InnerApp: React.FC = () => {
       {/* Audit Log (Nhật ký truy vết) Modal */}
       <AuditLogModal
         isOpen={showAuditLogModal}
-        onClose={() => setShowAuditLogModal(false)}
+        onClose={() => {
+          setShowAuditLogModal(false);
+          setAuditLogUserFilter(null);
+          setAuditLogActionFilter('ALL');
+        }}
         logs={allAuditLogs}
         currentPeriodLabel={currentPeriodLabel}
         department={user?.department}
         departments={config.departments || []}
         isAdmin={isAdmin}
+        initialUserId={auditLogUserFilter?.uid}
+        initialUserName={auditLogUserFilter ? (auditLogUserFilter.displayName || auditLogUserFilter.nickname) : undefined}
+        initialAction={auditLogActionFilter}
+      />
+
+      {/* Modal bắt buộc bổ sung số điện thoại nếu tài khoản chưa có */}
+      <RequirePhoneModal
+        isOpen={!!(user && user.status === 'active' && !user.phone)}
       />
 
       {/* Smart Staging & Validation Modal */}
@@ -1004,6 +1024,11 @@ const InnerApp: React.FC = () => {
               onConfigUpdate={() => {
                 if (dailyUploadState.listFile) handleProcess('daily');
                 if (monthlyUploadState.listFile) handleProcess('monthly');
+              }}
+              onOpenAuditLogWithUser={(targetUser) => {
+                setAuditLogUserFilter(targetUser);
+                setAuditLogActionFilter('ALL');
+                setShowAuditLogModal(true);
               }}
             />
           </ErrorBoundary>

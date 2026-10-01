@@ -6,6 +6,7 @@ import React from 'react';
 import { Building2, Clock, Save } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { logAuditEvent } from '../../services/auditLogService';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -185,7 +186,7 @@ const TimeRow: React.FC<TimeRowProps> = ({ label, fromField, toField, summerFrom
 
 export const AdminSettingsConfig: React.FC = () => {
     const { config, updateConfig } = useConfig();
-    const { can, isAdmin } = useAuth();
+    const { can, isAdmin, user } = useAuth();
     const isLocked = !isAdmin && !can('manage_admin_settings');
 
     return (
@@ -206,6 +207,20 @@ export const AdminSettingsConfig: React.FC = () => {
                         type="text"
                         value={config.hospitalName || ""}
                         onChange={(e) => { if (!isLocked) updateConfig({ hospitalName: e.target.value }); }}
+                        onBlur={(e) => {
+                            if (user && e.target.value.trim() && e.target.value.trim() !== config.hospitalName) {
+                                logAuditEvent({
+                                    userId: user.uid,
+                                    userName: user.displayName || user.nickname || 'Admin',
+                                    userRole: user.role,
+                                    userDepartment: user.department,
+                                    action: 'SYSTEM_CONFIG',
+                                    targetType: 'config',
+                                    targetLabel: 'Tên bệnh viện',
+                                    description: `Cập nhật tên bệnh viện thành "${e.target.value.trim()}"`,
+                                }).catch((err) => console.warn('[auditLog] Failed to log hospitalName edit:', err));
+                            }
+                        }}
                         disabled={isLocked}
                         readOnly={isLocked}
                         tabIndex={isLocked ? -1 : undefined}

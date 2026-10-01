@@ -11,9 +11,10 @@ import { getScheduleForDate, calculateOvertimeRows } from '../services/overtimeC
 export interface UseDutyScheduleStateOptions {
   validRecords?: SurgeryRecord[];
   config?: SurgeryConfig;
+  currentUser?: { uid: string; displayName?: string; nickname?: string; role?: any; department?: string } | null;
 }
 
-export function useDutyScheduleState({ validRecords, config }: UseDutyScheduleStateOptions) {
+export function useDutyScheduleState({ validRecords, config, currentUser }: UseDutyScheduleStateOptions) {
   // ── Lịch trực & Ngoài giờ (Shared State across Daily & Monthly) ──
   const [dutySchedules, setDutySchedules] = useState<Record<string, DutyScheduleDateConfig>>({});
   const [isSavingDutySchedule, setIsSavingDutySchedule] = useState<boolean>(false);
@@ -80,7 +81,7 @@ export function useDutyScheduleState({ validRecords, config }: UseDutyScheduleSt
     }));
     setIsSavingDutySchedule(true);
     try {
-      await dutyScheduleService.saveDutyScheduleDate(dateKey, isHoliday, onCallStaff);
+      await dutyScheduleService.saveDutyScheduleDate(dateKey, isHoliday, onCallStaff, currentUser || undefined);
     } catch (err) {
       console.error('Lỗi khi lưu lịch trực:', err);
     } finally {

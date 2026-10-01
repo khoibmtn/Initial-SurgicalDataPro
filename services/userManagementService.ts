@@ -18,6 +18,8 @@ import {
 import { ref, update, set, onValue } from 'firebase/database';
 import { firestore, db } from '../lib/firebase';
 import type { AppUser, UserRole, UserStatus, AuthConfig } from '../types/auth';
+import { isValidPhoneNumber } from '../types/auth';
+import { checkPhoneExists } from './authService';
 import { Timestamp } from 'firebase/firestore';
 
 const USERS_COLLECTION = 'users';
@@ -30,6 +32,7 @@ function docToAppUser(uid: string, data: Record<string, any>): AppUser {
     nickname: data.nickname || '',
     displayName: data.displayName || data.nickname || '',
     email: data.email || '',
+    phone: data.phone || '',
     role: (data.role as UserRole) || 'staff',
     department: data.department || '',
     status: (data.status as UserStatus) || 'pending',
@@ -182,15 +185,32 @@ export function subscribeToDepartmentPermissions(
   });
 }
 
-// ─── Update user profile fields (department, displayName, role) ──────────────
+// ─── Update user profile fields (department, displayName, role, phone) ───────
 
 export async function updateUserProfile(
   uid: string,
-  fields: { department?: string; displayName?: string; role?: UserRole }
+  fields: { department?: string; displayName?: string; role?: UserRole; phone?: string }
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const updateData: Record<string, any> = { ...fields, updatedAt: serverTimestamp() };
+    if (fields.phone !== undefined) {
+      const cleanPhone = (fields.phone || '').trim();
+      if (cleanPhone) {
+        if (!isValidPhoneNumber(cleanPhone)) {
+          return { success: false, error: 'Số điện thoại không hợp lệ. Vui lòng nhập đúng 10 số di động (bắt đầu bằng 03, 05, 07, 08, 09).' };
+        }
+        const isDup = await checkPhoneExists(cleanPhone, uid);
+        if (isDup) {
+          return { success: false, error: `Số điện thoại "${cleanPhone}" đã được sử dụng bởi tài khoản khác.` };
+        }
+        updateData.phone = cleanPhone;
+      } else {
+        updateData.phone = '';
+      }
+    }
+
     const docRef = doc(firestore, USERS_COLLECTION, uid);
-    await updateDoc(docRef, { ...fields, updatedAt: serverTimestamp() });
+    await updateDoc(docRef, updateData);
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };

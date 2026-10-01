@@ -13,6 +13,7 @@ export interface AppUser {
   nickname: string;
   displayName: string;
   email: string;
+  phone?: string; // Chuỗi số điện thoại 10 số (dạng text lưu số 0 đằng trước)
   role: UserRole;
   department: string;
   status: UserStatus;
@@ -44,9 +45,25 @@ export interface AuthConfig {
 /** Dữ liệu đăng ký tài khoản nhân viên */
 export interface RegisterData {
   nickname: string;
+  phone: string; // Bắt buộc khi đăng ký
   password: string;
   displayName: string;
   department: string;
+}
+
+/** Regex chuẩn số điện thoại di động Việt Nam: 10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09 */
+export const VIETNAMESE_PHONE_REGEX = /^(0[3|5|7|8|9])[0-9]{8}$/;
+
+/** Kiểm tra số điện thoại có hợp lệ theo chuẩn Việt Nam không */
+export function isValidPhoneNumber(phone: string): boolean {
+  if (!phone) return false;
+  return VIETNAMESE_PHONE_REGEX.test(phone.trim());
+}
+
+/** Chuẩn hóa số điện thoại: loại bỏ khoảng trắng và ký tự không phải số */
+export function normalizePhoneNumber(phone: string): string {
+  if (!phone) return '';
+  return phone.replace(/[^0-9]/g, '');
 }
 
 /** Kết quả thao tác auth */

@@ -1,9 +1,7 @@
-// ─── Register Form ────────────────────────────────────────────────────────────
-// Form đăng ký tài khoản nhân viên: nickname + password + khoa
-
 import React, { useState } from 'react';
 import {
   User,
+  Phone,
   Lock,
   Eye,
   EyeOff,
@@ -17,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
+import { isValidPhoneNumber } from '../../types/auth';
 
 interface RegisterFormProps {
   onSuccess: () => void;
@@ -28,6 +27,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onBackToL
   const { config } = useConfig();
 
   const [nickname, setNickname] = useState('');
+  const [phone, setPhone] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -44,6 +44,11 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onBackToL
     if (!trimmedNickname) return 'Vui lòng nhập nickname.';
     if (trimmedNickname.length < 6) return 'Nickname phải có ít nhất 6 ký tự.';
     if (!/^[a-z0-9._-]+$/.test(trimmedNickname)) return 'Nickname chỉ được chứa chữ thường, số, dấu chấm, gạch ngang và gạch dưới.';
+
+    const cleanPhone = phone.trim();
+    if (!cleanPhone) return 'Vui lòng nhập số điện thoại.';
+    if (!isValidPhoneNumber(cleanPhone)) return 'Số điện thoại không hợp lệ. Vui lòng nhập đúng 10 số (vd: 0912345678).';
+
     if (!password) return 'Vui lòng nhập mật khẩu.';
     if (password.length < 6) return 'Mật khẩu phải có ít nhất 6 ký tự.';
     if (password !== confirmPassword) return 'Mật khẩu xác nhận không khớp.';
@@ -64,6 +69,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onBackToL
     try {
       const result = await register({
         nickname: nickname.trim().toLowerCase(),
+        phone: phone.trim(),
         password,
         displayName: displayName.trim() || nickname.trim(),
         department,
@@ -114,6 +120,27 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onBackToL
             onKeyDown={handleKeyDown}
             className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
             autoFocus
+          />
+        </div>
+      </div>
+
+      {/* Số điện thoại */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-700 mb-1">
+          Số điện thoại <span className="text-red-500">*</span>
+          <span className="text-gray-400 font-normal ml-1">(10 số, dùng để đăng nhập)</span>
+        </label>
+        <div className="relative">
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+            <Phone className="w-4 h-4" />
+          </div>
+          <input
+            type="tel"
+            placeholder="vd: 0912345678"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
+            onKeyDown={handleKeyDown}
+            className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white"
           />
         </div>
       </div>

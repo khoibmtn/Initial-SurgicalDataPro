@@ -25,12 +25,8 @@ service cloud.firestore {
     
     // ── Users collection (KHÓA BẢO MẬT) ──────────────────────────────
     match /users/{userId} {
-      // Ai cũng có thể đọc profile riêng; Admin đọc tất cả; Trưởng khoa đọc nhân viên khoa mình
-      allow read: if isAuthenticated() && (
-        request.auth.uid == userId || 
-        isAdmin() || 
-        (isHead() && resource.data.department == getUserData().department)
-      );
+      // Cho phép đọc: cần thiết cho việc đăng nhập bằng SĐT, kiểm tra trùng SĐT và đồng bộ profile
+      allow read: if true;
       // Đăng ký: tạo doc cho chính mình
       allow create: if isAuthenticated() && request.auth.uid == userId;
       // Sửa: admin, chính mình, hoặc Trưởng khoa sửa nhân viên cùng khoa (không được đổi role thành admin/head)
@@ -94,6 +90,13 @@ service cloud.firestore {
     // Service package module config
     match /service_package_module_config/{docId} {
       allow read, write: if true;
+    }
+
+    // ── Audit Logs (Nhật ký truy vết & kiểm toán - Chỉ Admin và Trưởng khoa xem được)
+    match /audit_logs/{logId} {
+      allow read: if isAdmin() || isHead();
+      allow create: if true;
+      allow update, delete: if false;
     }
   }
 }

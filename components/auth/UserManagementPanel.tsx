@@ -30,6 +30,8 @@ import {
   Lock,
   Unlock,
   Globe,
+  Phone,
+  History,
 } from 'lucide-react';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../../lib/firebase';
@@ -37,6 +39,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import type { AppUser, UserRole } from '../../types/auth';
+import { isValidPhoneNumber } from '../../types/auth';
 import {
   subscribeToAllUsers,
   subscribeToDepartmentUsers,
@@ -410,11 +413,13 @@ const EditableCell: React.FC<EditableCellProps> = ({
 export interface UserManagementPanelProps {
   activeSubTab?: 'accounts' | 'permissions';
   onSubTabChange?: (tab: 'accounts' | 'permissions') => void;
+  onViewUserLogs?: (user: AppUser) => void;
 }
 
 export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   activeSubTab: propSubTab,
   onSubTabChange,
+  onViewUserLogs,
 }) => {
   const { user: currentUser, authConfig, isAdmin, isHead, isDeputyHead } = useAuth();
   const { config } = useConfig();
@@ -437,8 +442,9 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
 
   // User Management Modals State
   const [editingUser, setEditingUser] = useState<AppUser | null>(null);
-  const [editFormData, setEditFormData] = useState<{ displayName: string; department: string; role: UserRole }>({
+  const [editFormData, setEditFormData] = useState<{ displayName: string; phone: string; department: string; role: UserRole }>({
     displayName: '',
+    phone: '',
     department: '',
     role: 'staff',
   });
@@ -598,6 +604,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     setEditingUser(u);
     setEditFormData({
       displayName: u.displayName || u.nickname,
+      phone: u.phone || '',
       department: u.department || '',
       role: u.role,
     });
@@ -609,8 +616,14 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       showMsg('error', 'Họ và tên không được để trống!');
       return;
     }
-    const updates: { displayName: string; department?: string; role?: UserRole } = {
+    const cleanPhone = editFormData.phone.trim();
+    if (cleanPhone && !isValidPhoneNumber(cleanPhone)) {
+      showMsg('error', 'Số điện thoại không hợp lệ. Vui lòng nhập đúng 10 số (vd: 0912345678).');
+      return;
+    }
+    const updates: { displayName: string; phone?: string; department?: string; role?: UserRole } = {
       displayName: editFormData.displayName.trim(),
+      phone: cleanPhone,
       department: editFormData.department,
     };
     const canChangeRoleInEdit =
@@ -757,6 +770,18 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
           />
         </td>
 
+        {/* Số điện thoại */}
+        <td className="px-3 py-2.5 text-gray-600 font-mono text-[11px]">
+          {u.phone ? (
+            <span className="inline-flex items-center gap-1 text-slate-700">
+              <Phone className="w-3 h-3 text-slate-400" />
+              {u.phone}
+            </span>
+          ) : (
+            <span className="text-gray-300 italic">Chưa có</span>
+          )}
+        </td>
+
         {/* Department */}
         <td className="px-3 py-2.5 text-gray-600">
           {isAdmin ? (
@@ -831,6 +856,17 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
         {/* Actions */}
         <td className="px-3 py-2.5 text-center">
           <div className="flex items-center justify-center gap-1">
+            {/* Xem nhật ký thao tác & đăng nhập của user */}
+            {onViewUserLogs && (
+              <button
+                onClick={() => onViewUserLogs(u)}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
+                title={`Xem lịch sử đăng nhập & thao tác của ${u.displayName || u.nickname}`}
+              >
+                <History className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {/* Sửa thông tin tài khoản */}
             <button
               onClick={() => openEditModal(u)}
@@ -1296,6 +1332,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                 <tr className="bg-gray-50 border-b border-gray-200">
                   <th className="px-3 py-2.5 text-left font-semibold text-gray-600">Thành viên</th>
                   <th className="px-3 py-2.5 text-left font-semibold text-gray-600">Tên hiển thị</th>
+                  <th className="px-3 py-2.5 text-left font-semibold text-gray-600">Số điện thoại</th>
                   <th className="px-3 py-2.5 text-left font-semibold text-gray-600">Khoa trực thuộc</th>
                   <th className="px-3 py-2.5 text-center font-semibold text-gray-600">Vai trò</th>
                   <th className="px-3 py-2.5 text-center font-semibold text-gray-600">Trạng thái</th>
@@ -1359,6 +1396,25 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                   placeholder="Ví dụ: BSCKII. Nguyễn Văn A"
                   autoFocus
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Số điện thoại di động
+                  <span className="text-gray-400 font-normal ml-1">(10 chữ số)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400">
+                    <Phone className="w-3.5 h-3.5" />
+                  </div>
+                  <input
+                    type="tel"
+                    placeholder="vd: 0912345678"
+                    value={editFormData.phone}
+                    onChange={(e) => setEditFormData((prev) => ({ ...prev, phone: e.target.value.replace(/[^0-9]/g, '').slice(0, 10) }))}
+                    className="w-full pl-8 pr-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50/50 focus:bg-white transition-all outline-none"
+                  />
+                </div>
               </div>
 
               <div>

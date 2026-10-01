@@ -212,8 +212,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [authConfig.requireApproval]);
 
   const logout = useCallback(async (): Promise<void> => {
-    await authLogout();
-  }, []);
+    await authLogout(authState.user);
+  }, [authState.user]);
 
   // ── RBAC Permissions Resolution ──
   const [globalRolePerms, setGlobalRolePerms] = useState<{

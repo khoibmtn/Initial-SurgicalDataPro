@@ -14,7 +14,11 @@ export type AuditAction =
   | 'USER_APPROVE'
   | 'USER_REJECT'
   | 'USER_ROLE_CHANGE'
-  | 'SYSTEM_CONFIG';
+  | 'SYSTEM_CONFIG'
+  | 'USER_LOGIN'
+  | 'USER_LOGOUT'
+  | 'DUTY_SCHEDULE_EDIT'
+  | 'PACKAGE_ASSIGNMENT_EDIT';
 
 export interface FieldDiff {
   fieldKey: string;
@@ -22,6 +26,14 @@ export interface FieldDiff {
   before: any;
   after: any;
 }
+
+export type AuditTargetType =
+  | 'surgery_record'
+  | 'report'
+  | 'user'
+  | 'config'
+  | 'duty_schedule'
+  | 'service_package';
 
 export interface AuditLogEntry {
   id: string;
@@ -31,7 +43,7 @@ export interface AuditLogEntry {
   userRole: UserRole | 'guest';
   userDepartment?: string;
   action: AuditAction;
-  targetType: 'surgery_record' | 'report' | 'user' | 'config';
+  targetType: AuditTargetType;
   targetId?: string;
   targetLabel?: string; // e.g. "BN Nguyễn Văn A (123456)" hoặc "Tháng 09/2026"
   periodKey?: string; // e.g. "2026-09" hoặc "2026-09-13"
@@ -46,7 +58,7 @@ export interface CreateAuditLogParams {
   userRole: UserRole | 'guest';
   userDepartment?: string;
   action: AuditAction;
-  targetType: 'surgery_record' | 'report' | 'user' | 'config';
+  targetType: AuditTargetType;
   targetId?: string;
   targetLabel?: string;
   periodKey?: string;
@@ -61,5 +73,6 @@ export interface AuditFilterParams {
   action?: AuditAction | 'ALL';
   searchTerm?: string;
   userRole?: string;
+  userId?: string;
   limit?: number;
 }

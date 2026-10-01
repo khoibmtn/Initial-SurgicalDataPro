@@ -80,14 +80,15 @@ describe('RBAC Permission Ceiling & Resolution', () => {
       const perms = resolveEffectivePermissions('head', 'Ngoại Tổng Hợp', globalPerms);
       expect(hasPermission(perms, 'approve_users')).toBe(true);
       expect(hasPermission(perms, 'manage_admin_settings')).toBe(true);
+      expect(hasPermission(perms, 'view_audit_log')).toBe(true);
       expect(hasPermission(perms, 'system_config')).toBe(false);
     });
 
-    it('should grant deputy_head permissions to deputy department head', () => {
+    it('should grant deputy_head permissions to deputy department head (excluding audit log)', () => {
       const perms = resolveEffectivePermissions('deputy_head', 'Ngoại Tổng Hợp', globalPerms);
       expect(hasPermission(perms, 'approve_users')).toBe(true);
       expect(hasPermission(perms, 'lock_report')).toBe(true);
-      expect(hasPermission(perms, 'view_audit_log')).toBe(true);
+      expect(hasPermission(perms, 'view_audit_log')).toBe(false);
       expect(hasPermission(perms, 'manage_admin_settings')).toBe(true);
       expect(hasPermission(perms, 'system_config')).toBe(false);
     });

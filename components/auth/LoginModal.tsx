@@ -71,7 +71,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
         result = await login(ADMIN_EMAIL, password);
       } else {
         if (!nickname.trim()) {
-          setMessage({ type: 'error', text: 'Vui lòng nhập nickname.' });
+          setMessage({ type: 'error', text: 'Vui lòng nhập nickname hoặc số điện thoại.' });
           setIsLoading(false);
           return;
         }
@@ -177,17 +177,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 </div>
               )}
 
-              {/* Staff: nhập nickname */}
+              {/* Staff: nhập nickname hoặc số điện thoại */}
               {loginMode === 'staff' && (
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Nickname</label>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1.5">Nickname hoặc Số điện thoại</label>
                   <div className="relative">
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                       <User className="w-4 h-4" />
                     </div>
                     <input
                       type="text"
-                      placeholder="nickname"
+                      placeholder="vd: nguyenvana hoặc 0912345678"
                       value={nickname}
                       onChange={(e) => setNickname(e.target.value)}
                       onKeyDown={handleKeyDown}
