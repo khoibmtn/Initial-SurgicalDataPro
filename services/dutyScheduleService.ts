@@ -66,12 +66,20 @@ export function getDayOfWeekLabel(dateStr: string): string {
 
 /**
  * Xác định ngày của tua trực (Tua trực 24h) từ mốc thời gian thực tế:
- * Tua trực ngày T bắt đầu từ morningStart (ví dụ 07:00) đến trước morningStart ngày T+1 (06:59).
+ * Tua trực ngày T bắt đầu từ morningStart (ví dụ 07:00 hè, 07:30 đông) đến trước giờ làm việc sáng ngày T+1.
  * Nếu thời gian < morningStart: thuộc tua trực của ngày hôm trước (T - 1 ngày).
  * Nếu thời gian >= morningStart: thuộc tua trực của ngày hiện tại (T).
  */
-export function getDutyDateKey(date: Date, morningStart: string = '07:00'): string {
-  const [startH, startM] = morningStart.split(':').map(Number);
+export function getDutyDateKey(date: Date, morningStart?: string): string {
+  let effectiveMorningStart = morningStart;
+  if (!effectiveMorningStart) {
+    const m = date.getMonth() + 1; // 1-12
+    const d = date.getDate();
+    // Quy ước mùa mặc định: Mùa hè 01/05 - 30/09 (07:00), Mùa đông 01/10 - 30/04 (07:30)
+    const isSummer = (m > 5 || (m === 5 && d >= 1)) && (m < 9 || (m === 9 && d <= 30));
+    effectiveMorningStart = isSummer ? '07:00' : '07:30';
+  }
+  const [startH, startM] = effectiveMorningStart.split(':').map(Number);
   const currentMinutes = date.getHours() * 60 + date.getMinutes();
   const startMinutes = (startH || 7) * 60 + (startM || 0);
 

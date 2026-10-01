@@ -259,4 +259,73 @@ describe('calculateOvertimeRows', () => {
     const hasNguyenA = rows.some(r => r.ptChinh === 'BS Nguyễn A');
     expect(hasNguyenA).toBe(false);
   });
+
+  it('chuyển mùa hè -> đông (30/09 sang 01/10): ca mổ lúc 07:10 - 07:25 ngày 01/10 vẫn thuộc tua trực 30/09', () => {
+    // Ngày 30/09 (hè): 07:00 - 11:30. Ngày 01/10 (đông): 07:30 - 12:00.
+    // Tua trực 30/09 kéo dài đến 07:30 ngày 01/10.
+    // Ca mổ lúc 07:10 - 07:25 ngày 01/10:
+    // - Bác sĩ trực 30/09: vẫn đang trong ca trực -> KHÔNG tính ngoài giờ
+    // - Bác sĩ không trực: tính ngoài giờ "Kíp tăng cường" (vì trước 07:30 giờ HC sáng đông)
+    const records = [makeSurgeryRecord({
+      start: new Date(2026, 9, 1, 7, 10), // Oct 1, 07:10
+      end: new Date(2026, 9, 1, 7, 25),   // Oct 1, 07:25
+      ngayBD: '01/10/2026 07:10',
+      ngayKT: '01/10/2026 07:25',
+      ptChinh: 'BS Trực 30/9',
+      ptPhu: 'BS Ngoài Giờ',
+    })];
+    const dutySchedules: Record<string, DutyScheduleDateConfig> = {
+      '2026-09-30': {
+        date: '2026-09-30',
+        isHoliday: false,
+        onCallStaff: ['BS Trực 30/9'],
+      },
+      '2026-10-01': {
+        date: '2026-10-01',
+        isHoliday: false,
+        onCallStaff: ['BS Trực 1/10'],
+      },
+    };
+    const rows = calculateOvertimeRows(records, dutySchedules);
+    expect(rows.length).toBeGreaterThan(0);
+    // Bác sĩ trực 30/09 không được tính ngoài giờ vì vẫn trong ca trực đến 07:30
+    expect(rows.some(r => r.ptChinh === 'BS Trực 30/9')).toBe(false);
+    // Bác sĩ ngoài giờ được tính Kíp tăng cường 15 phút
+    const rowPtPhu = rows.find(r => r.ptPhu === 'BS Ngoài Giờ');
+    expect(rowPtPhu).toBeDefined();
+    expect(rowPtPhu?.ghiChu).toBe('Kíp tăng cường');
+    expect(rowPtPhu?.durationMinutes).toBe(15);
+  });
+
+  it('chuyển mùa đông -> hè (30/04 sang 01/05): ca mổ lúc 07:10 - 07:25 ngày 01/05 đã thuộc tua trực 01/05', () => {
+    // Ngày 30/04 (đông): 07:30 - 12:00. Ngày 01/05 (hè): 07:00 - 11:30.
+    // Tua trực 30/04 kết thúc lúc 07:00 ngày 01/05.
+    // Ca mổ lúc 07:10 - 07:25 ngày 01/05 thuộc tua trực 01/05 (bắt đầu từ 07:00).
+    const records = [makeSurgeryRecord({
+      start: new Date(2026, 4, 1, 7, 10), // May 1, 07:10
+      end: new Date(2026, 4, 1, 7, 25),   // May 1, 07:25
+      ngayBD: '01/05/2026 07:10',
+      ngayKT: '01/05/2026 07:25',
+      ptChinh: 'BS Trực 1/5',
+      ptPhu: 'BS Ngoài Giờ',
+    })];
+    const dutySchedules: Record<string, DutyScheduleDateConfig> = {
+      '2026-04-30': {
+        date: '2026-04-30',
+        isHoliday: true,
+        onCallStaff: ['BS Trực 30/4'],
+      },
+      '2026-05-01': {
+        date: '2026-05-01',
+        isHoliday: true, // Ngày lễ 01/05
+        onCallStaff: ['BS Trực 1/5'],
+      },
+    };
+    const rows = calculateOvertimeRows(records, dutySchedules);
+    expect(rows.length).toBeGreaterThan(0);
+    // BS Trực 1/5 đang trong ca trực ngày 01/05 (bắt đầu 07:00) -> không tính ngoài giờ
+    expect(rows.some(r => r.ptChinh === 'BS Trực 1/5')).toBe(false);
+    // BS Ngoài Giờ làm ngày lễ -> được tính ngoài giờ
+    expect(rows.some(r => r.ptPhu === 'BS Ngoài Giờ')).toBe(true);
+  });
 });

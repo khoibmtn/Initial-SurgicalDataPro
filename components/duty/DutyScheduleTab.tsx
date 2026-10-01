@@ -381,9 +381,14 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
       const sched = getScheduleForDate(dateObj, config?.workingHours);
       const morningFrom = sched?.morningFrom || '07:00';
 
-      const [h, m] = morningFrom.split(':').map(Number);
-      let endH = isNaN(h) ? 6 : h;
-      let endM = (isNaN(m) ? 0 : m) - 1;
+      // Tính giờ kết thúc ca trực của ngày T: trước giờ làm việc sáng của ngày T+1 đúng 1 phút
+      const nextDateObj = new Date(parts[0], parts[1] - 1, parts[2] + 1, 12, 0, 0);
+      const nextSched = getScheduleForDate(nextDateObj, config?.workingHours);
+      const nextMorningFrom = nextSched?.morningFrom || '07:00';
+
+      const [nextH, nextM] = nextMorningFrom.split(':').map(Number);
+      let endH = isNaN(nextH) ? 6 : nextH;
+      let endM = (isNaN(nextM) ? 0 : nextM) - 1;
       if (endM < 0) {
         endM = 59;
         endH = (endH - 1 + 24) % 24;
@@ -391,7 +396,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
       const endShift = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
 
       const lastSeg = segments[segments.length - 1];
-      if (lastSeg && lastSeg.morningFrom === morningFrom) {
+      if (lastSeg && lastSeg.startShift === morningFrom && lastSeg.endShift === endShift) {
         lastSeg.endDate = d;
       } else {
         segments.push({

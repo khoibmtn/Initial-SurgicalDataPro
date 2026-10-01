@@ -117,24 +117,25 @@ export function useStorageQuery({
       return;
     }
 
-    const dateFrom = new Date(dateFromStr);
-
     // Step 2: Calculate dateTo = dateFrom + 1 day
-    const dateTo = new Date(dateFrom);
-    dateTo.setDate(dateTo.getDate() + 1);
-    const dateToStr = dateTo.toISOString().split('T')[0]; // YYYY-MM-DD
+    const [y, m, d] = dateFromStr.split('-').map(Number);
+    const dateFrom = new Date(y, m - 1, d, 12, 0, 0);
+    const dateTo = new Date(y, m - 1, d + 1, 12, 0, 0);
+    const dateToStr = `${dateTo.getFullYear()}-${String(dateTo.getMonth() + 1).padStart(2, '0')}-${String(dateTo.getDate()).padStart(2, '0')}`;
 
-    // Step 3: Determine season
-    const season = determineSeason(dateFrom, config.workingHours);
+    // Step 3: Determine season for both dateFrom and dateTo
+    const seasonFrom = determineSeason(dateFrom, config.workingHours);
+    const seasonTo = determineSeason(dateTo, config.workingHours);
 
-    // Step 4: Get morningFrom time from matching season
-    const morningFrom =
-      season === 'summer'
-        ? config.workingHours.summer.morningFrom
-        : config.workingHours.winter.morningFrom;
+    // Step 4: Get morningFrom time for dateFrom and morningFrom for dateTo
+    const summerMorningFrom = config.workingHours?.summer?.morningFrom || '07:00';
+    const winterMorningFrom = config.workingHours?.winter?.morningFrom || '07:30';
 
-    // Step 5: Calculate timeTo = morningFrom - 1 minute
-    const [hours, minutes] = morningFrom.split(':').map(Number);
+    const morningFrom = seasonFrom === 'summer' ? summerMorningFrom : winterMorningFrom;
+    const nextMorningFrom = seasonTo === 'summer' ? summerMorningFrom : winterMorningFrom;
+
+    // Step 5: Calculate timeTo = nextMorningFrom - 1 minute (hết ca trực ngay trước giờ giao ban sáng ngày hôm sau)
+    const [hours, minutes] = nextMorningFrom.split(':').map(Number);
     let toMinutes = minutes - 1;
     let toHours = hours;
 

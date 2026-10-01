@@ -293,5 +293,72 @@ describe('Refactored Modules & Task 1.3 Verification', () => {
       expect(calculateTimeTo('07:30')).toBe('07:29');
       expect(calculateTimeTo('00:00')).toBe('23:59'); // Wrap midnight
     });
+
+    it('24h Shift calculation chuyển mùa: 30/09 -> 01/10 (07:00 đến 07:29) và 30/04 -> 01/05 (07:30 đến 06:59)', () => {
+      const workingHours = {
+        summer: {
+          dateFrom: '01/05',
+          dateTo: '30/09',
+          morningFrom: '07:00',
+          morningTo: '11:30',
+          afternoonFrom: '13:30',
+          afternoonTo: '17:00',
+        },
+        winter: {
+          dateFrom: '01/10',
+          dateTo: '30/04',
+          morningFrom: '07:30',
+          morningTo: '12:00',
+          afternoonFrom: '13:30',
+          afternoonTo: '17:00',
+        },
+      };
+
+      const calculateShift24h = (dateFromStr: string) => {
+        const [y, m, d] = dateFromStr.split('-').map(Number);
+        const dateFrom = new Date(y, m - 1, d, 12, 0, 0);
+        const dateTo = new Date(y, m - 1, d + 1, 12, 0, 0);
+        const dateToStr = `${dateTo.getFullYear()}-${String(dateTo.getMonth() + 1).padStart(2, '0')}-${String(dateTo.getDate()).padStart(2, '0')}`;
+
+        const seasonFrom = determineSeason(dateFrom, workingHours);
+        const seasonTo = determineSeason(dateTo, workingHours);
+
+        const morningFrom = seasonFrom === 'summer' ? workingHours.summer.morningFrom : workingHours.winter.morningFrom;
+        const nextMorningFrom = seasonTo === 'summer' ? workingHours.summer.morningFrom : workingHours.winter.morningFrom;
+
+        const [hours, minutes] = nextMorningFrom.split(':').map(Number);
+        let toMinutes = minutes - 1;
+        let toHours = hours;
+        if (toMinutes < 0) {
+          toMinutes = 59;
+          toHours = (toHours - 1 + 24) % 24;
+        }
+        const timeTo = `${String(toHours).padStart(2, '0')}:${String(toMinutes).padStart(2, '0')}`;
+
+        return { dateFromStr, timeFrom: morningFrom, dateToStr, timeTo };
+      };
+
+      // 1. Ngày 30/09 (hè) sang 01/10 (đông): ca trực từ 07:00 ngày 30/09 đến 07:29 ngày 01/10
+      const shiftSep30 = calculateShift24h('2026-09-30');
+      expect(shiftSep30.timeFrom).toBe('07:00');
+      expect(shiftSep30.dateToStr).toBe('2026-10-01');
+      expect(shiftSep30.timeTo).toBe('07:29');
+
+      // 2. Ngày 30/04 (đông) sang 01/05 (hè): ca trực từ 07:30 ngày 30/04 đến 06:59 ngày 01/05
+      const shiftApr30 = calculateShift24h('2026-04-30');
+      expect(shiftApr30.timeFrom).toBe('07:30');
+      expect(shiftApr30.dateToStr).toBe('2026-05-01');
+      expect(shiftApr30.timeTo).toBe('06:59');
+
+      // 3. Ngày hè thông thường: 07:00 đến 06:59 hôm sau
+      const shiftSummer = calculateShift24h('2026-07-15');
+      expect(shiftSummer.timeFrom).toBe('07:00');
+      expect(shiftSummer.timeTo).toBe('06:59');
+
+      // 4. Ngày đông thông thường: 07:30 đến 07:29 hôm sau
+      const shiftWinter = calculateShift24h('2026-12-15');
+      expect(shiftWinter.timeFrom).toBe('07:30');
+      expect(shiftWinter.timeTo).toBe('07:29');
+    });
   });
 });
