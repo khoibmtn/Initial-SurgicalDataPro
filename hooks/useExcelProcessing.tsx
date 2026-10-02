@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useCallback } from 'react';
+import React, { useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   SurgeryConfig,
   StaffMember,
@@ -39,6 +39,9 @@ export function useExcelProcessing({
   monthlyUploadState,
   addToast,
 }: UseExcelProcessingOptions) {
+  const isProcessingRef = useRef(false);
+  const handleProcessRef = useRef<(type: 'daily' | 'monthly') => Promise<void>>();
+
   // Validate File
   const checkFile = useCallback(
     (f: File) => {
@@ -115,7 +118,9 @@ export function useExcelProcessing({
     async (type: 'daily' | 'monthly') => {
       const report = getState(type, 'upload');
       if (!report.listFile) return;
+      if (isProcessingRef.current) return;
 
+      isProcessingRef.current = true;
       updateReportState(type, { isProcessing: true }, 'upload');
       clearPackageDrafts();
       try {
@@ -338,6 +343,8 @@ export function useExcelProcessing({
           },
           'upload'
         );
+      } finally {
+        isProcessingRef.current = false;
       }
     },
     [
@@ -368,15 +375,19 @@ export function useExcelProcessing({
     [config]
   );
 
+  // Keep ref in sync so the effect doesn't depend on handleProcess identity
+  handleProcessRef.current = handleProcess;
+
   useEffect(() => {
     const processReports = () => {
-      if (dailyUploadState.listFile) handleProcess('daily');
-      if (monthlyUploadState.listFile) handleProcess('monthly');
+      if (isProcessingRef.current) return;
+      if (dailyUploadState.listFile) handleProcessRef.current?.('daily');
+      if (monthlyUploadState.listFile) handleProcessRef.current?.('monthly');
     };
 
     const timer = setTimeout(processReports, 300);
     return () => clearTimeout(timer);
-  }, [processingConfigHash, dailyUploadState.listFile, monthlyUploadState.listFile, handleProcess]);
+  }, [processingConfigHash, dailyUploadState.listFile, monthlyUploadState.listFile]);
 
   return {
     checkFile,
