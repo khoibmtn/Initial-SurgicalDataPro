@@ -3,7 +3,7 @@
  * Firebase RTDB CRUD operations for surgery schedule entries.
  * Path: surgery_schedules/{date}/{id}
  */
-import { ref, push, set, update, remove, onValue, get, off } from 'firebase/database';
+import { ref, push, set, update, remove, onValue, get } from 'firebase/database';
 import { db } from '../lib/firebase';
 import type { ScheduledSurgery, ScheduledSurgeryInput } from '../types/schedule';
 
@@ -79,20 +79,19 @@ export function subscribeScheduleForDate(
 ): () => void {
   const dateRef = ref(db, datePath(date));
 
-  const handler = onValue(dateRef, (snapshot) => {
+  const unsub = onValue(dateRef, (snapshot) => {
     if (!snapshot.exists()) {
       callback([]);
       return;
     }
     const data = snapshot.val() as Record<string, ScheduledSurgery>;
     const entries = Object.values(data).sort((a, b) => {
-      // Sort by startTime
       return a.startTime.localeCompare(b.startTime);
     });
     callback(entries);
   });
 
-  return () => off(dateRef, 'value', handler);
+  return unsub;
 }
 
 /**

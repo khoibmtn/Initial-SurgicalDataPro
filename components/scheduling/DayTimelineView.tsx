@@ -171,7 +171,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
       {/* Scrollable container */}
       <div ref={containerRef} className="overflow-x-auto overflow-y-hidden">
-        <div style={{ width: totalWidth + LEFT_GUTTER, minHeight: Math.max(totalHeight, 160) }} className="relative">
+        <div style={{ width: totalWidth + LEFT_GUTTER, minHeight: Math.max(totalHeight, 220) }} className="relative">
           {/* Time axis header */}
           <div className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200" style={{ height: HEADER_HEIGHT }}>
             {visibleHours.map((h) => (

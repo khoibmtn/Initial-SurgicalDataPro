@@ -16,6 +16,8 @@ interface ScheduleSurgeryModalProps {
   machineRegistry: MachineEntry[];
   surgeryNames: SurgeryNamePrice[];
   roleFilters: RoleFilterConfig;
+  /** True = chế độ xem, không cho sửa */
+  readOnly?: boolean;
 }
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -34,6 +36,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   machineRegistry,
   surgeryNames,
   roleFilters,
+  readOnly = false,
 }) => {
   const [patientId, setPatientId] = useState('');
   const [patientName, setPatientName] = useState('');
@@ -149,7 +152,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-[9000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose}>
       <div
         className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-in"
         onClick={(e) => e.stopPropagation()}
@@ -157,7 +160,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 border-b border-gray-200 bg-primary-50/50">
           <h2 className="text-sm font-bold text-primary-900">
-            {editingEntry ? '✏️ Sửa ca mổ' : '➕ Đăng ký ca mổ'}
+            {readOnly ? '👁️ Xem ca mổ' : editingEntry ? '✏️ Sửa ca mổ' : '➕ Đăng ký ca mổ'}
           </h2>
           <button
             onClick={onClose}
@@ -168,7 +171,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
           {/* Bệnh nhân */}
           <div className="grid grid-cols-5 gap-3">
             <div className="col-span-2">
@@ -245,7 +248,18 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
               </label>
               <select
                 value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                onChange={(e) => {
+                  const newStart = e.target.value;
+                  setStartTime(newStart);
+                  // Auto-adjust endTime if it becomes invalid
+                  if (endTime <= newStart) {
+                    const nextSlotIdx = TIME_OPTIONS.findIndex((t) => t > newStart);
+                    // Default to 1 hour after start, or next available slot
+                    const oneHourLater = TIME_OPTIONS.find((t) => t >= newStart.split(':')[0].padStart(2, '0') + ':' + (parseInt(newStart.split(':')[1]) === 0 ? '00' : '30'));
+                    const autoEnd = nextSlotIdx >= 0 ? TIME_OPTIONS[Math.min(nextSlotIdx + 1, TIME_OPTIONS.length - 1)] : '23:30';
+                    setEndTime(autoEnd);
+                  }
+                }}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer"
               >
                 {TIME_OPTIONS.map((t) => (
@@ -368,24 +382,35 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 bg-gray-50/50">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
-          >
-            Hủy
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isSaving || !patientId.trim() || !patientName.trim() || !tenKT.trim() || startTime >= endTime}
-            className={`px-5 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
-              isSaving || !patientId.trim() || !patientName.trim() || !tenKT.trim() || startTime >= endTime
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
-            }`}
-          >
-            {isSaving ? 'Đang lưu...' : editingEntry ? 'Cập nhật' : 'Đăng ký ca mổ'}
-          </button>
+        <div className="flex items-center justify-end gap-2 px-4 sm:px-5 py-3 border-t border-gray-200 bg-gray-50/50">
+          {readOnly ? (
+            <button
+              onClick={onClose}
+              className="px-5 py-2 text-xs font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors cursor-pointer"
+            >
+              Đóng
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={isSaving || !patientId.trim() || !patientName.trim() || !tenKT.trim() || startTime >= endTime}
+                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                  isSaving || !patientId.trim() || !patientName.trim() || !tenKT.trim() || startTime >= endTime
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
+                }`}
+              >
+                {isSaving ? 'Đang lưu...' : editingEntry ? 'Cập nhật' : 'Đăng ký ca mổ'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

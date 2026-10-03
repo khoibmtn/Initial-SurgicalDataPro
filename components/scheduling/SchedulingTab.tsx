@@ -128,14 +128,11 @@ export const SchedulingTab: React.FC = () => {
     }
   }, [user, editingEntry]);
 
-  // Click entry
+  // Click entry — always open, permission checked in FAB/save
   const handleEntryClick = useCallback((entry: ScheduledSurgery) => {
-    const canEdit = entry.createdBy === user?.uid || canManageAll;
-    if (canEdit) {
-      setEditingEntry(entry);
-      setShowModal(true);
-    }
-  }, [user, canManageAll]);
+    setEditingEntry(entry);
+    setShowModal(true);
+  }, []);
 
   // Delete
   const handleDelete = useCallback(async () => {
@@ -328,6 +325,7 @@ export const SchedulingTab: React.FC = () => {
         machineRegistry={config.machineRegistry || []}
         surgeryNames={surgeryNames}
         roleFilters={roleFilters}
+        readOnly={!!editingEntry && editingEntry.createdBy !== user?.uid && !canManageAll}
       />
 
       {/* ── Action FAB (when editing) ── */}

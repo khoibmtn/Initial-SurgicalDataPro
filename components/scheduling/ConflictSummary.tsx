@@ -15,12 +15,13 @@ export const ConflictSummary: React.FC<ConflictSummaryProps> = ({
   const staffConflicts = conflicts.filter((c) => c.type === 'STAFF');
 
   if (conflicts.length === 0) {
+    // Don't show anything when there are no surgeries at all
+    if (totalEntries === 0) return null;
+
     return (
       <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 font-medium">
         <span className="text-emerald-500">✓</span>
-        {totalEntries > 0
-          ? `${totalEntries} ca mổ — Không có xung đột`
-          : 'Chưa có ca mổ nào'}
+        {`${totalEntries} ca mổ — Không có xung đột`}
       </div>
     );
   }
