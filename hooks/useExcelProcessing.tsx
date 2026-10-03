@@ -168,7 +168,8 @@ export function useExcelProcessing({
         // Auto-apply pricing for monthly reports
         if (type === 'monthly' && res.validRecords) {
           if (cachedServiceGroups.length > 0) {
-            matchAndApplyServicePrices(res.validRecords, cachedServiceGroups);
+            const priceResult = matchAndApplyServicePrices(res.validRecords, cachedServiceGroups);
+            res.validRecords = priceResult.updatedRecords;
           }
 
           res.validRecords.forEach((r) => {
