@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar, List, BarChart3 } from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { DayTimelineView } from './DayTimelineView';
+import { DayTimelineView, type ZoomLevel } from './DayTimelineView';
+import { MobileScheduleList } from './MobileScheduleList';
+import { WeekOverview } from './WeekOverview';
 import { ConflictSummary } from './ConflictSummary';
 import { ScheduleSurgeryModal } from './ScheduleSurgeryModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -18,7 +20,6 @@ import type { ScheduledSurgery, ScheduledSurgeryInput } from '../../types/schedu
 import type { SurgeryNamePrice } from '../../types';
 import { Tooltip } from '../common/Tooltip';
 
-/** Format yyyy-mm-dd */
 function toDateString(d: Date): string {
   const y = d.getFullYear();
   const m = (d.getMonth() + 1).toString().padStart(2, '0');
@@ -26,7 +27,6 @@ function toDateString(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Format hiển thị: Thứ X, dd/mm/yyyy */
 function formatDisplayDate(d: Date): string {
   const dayNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
   const dayName = dayNames[d.getDay()];
@@ -35,92 +35,105 @@ function formatDisplayDate(d: Date): string {
   return `${dayName}, ${dd}/${mm}/${d.getFullYear()}`;
 }
 
+/** Short format for mobile: dd/mm */
+function formatShortDate(d: Date): string {
+  const dd = d.getDate().toString().padStart(2, '0');
+  const mm = (d.getMonth() + 1).toString().padStart(2, '0');
+  return `${dd}/${mm}`;
+}
+
+/** Get Monday of the week containing date */
+function getWeekStart(d: Date): Date {
+  const result = new Date(d);
+  const day = result.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  result.setDate(result.getDate() + diff);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+/** Hook: detect mobile viewport */
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [breakpoint]);
+
+  return isMobile;
+}
+
 export const SchedulingTab: React.FC = () => {
   const { config } = useConfig();
   const { user, isAdmin, isHead } = useAuth();
   const canManageAll = isAdmin || isHead;
+  const isMobile = useIsMobile();
 
-  // Navigation state
+  // Navigation
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const dateStr = useMemo(() => toDateString(currentDate), [currentDate]);
+  const weekStart = useMemo(() => getWeekStart(currentDate), [currentDate]);
 
-  // Data state
+  // View mode: on desktop show timeline, on mobile show list by default
+  const [showWeek, setShowWeek] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(120);
+
+  // Data
   const [entries, setEntries] = useState<ScheduledSurgery[]>([]);
   const [surgeryNames, setSurgeryNames] = useState<SurgeryNamePrice[]>([]);
 
-  // Modal state
+  // Modal
   const [showModal, setShowModal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<ScheduledSurgery | undefined>();
-
-  // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<ScheduledSurgery | null>(null);
 
-  // Subscribe to schedule data
+  // Subscribe data
   useEffect(() => {
     const unsub = subscribeScheduleForDate(dateStr, setEntries);
     return () => unsub();
   }, [dateStr]);
 
-  // Subscribe to surgery name catalog
   useEffect(() => {
     const unsub = subscribeToSurgeryNamePrices((prices) => setSurgeryNames(prices));
     return () => unsub();
   }, []);
 
-  // Conflict detection
+  // Conflicts
   const roleFilters = config.reportRoleFilters;
-  const conflicts = useMemo(
-    () => detectConflicts(entries, roleFilters),
-    [entries, roleFilters]
-  );
+  const conflicts = useMemo(() => detectConflicts(entries, roleFilters), [entries, roleFilters]);
   const conflictedIds = useMemo(() => getConflictedSurgeryIds(conflicts), [conflicts]);
 
-  // Date navigation
-  const goToPrevDay = () => {
-    setCurrentDate((d) => {
-      const n = new Date(d);
-      n.setDate(n.getDate() - 1);
-      return n;
-    });
-  };
-
-  const goToNextDay = () => {
-    setCurrentDate((d) => {
-      const n = new Date(d);
-      n.setDate(n.getDate() + 1);
-      return n;
-    });
-  };
-
+  // Navigation
+  const goToPrevDay = () => setCurrentDate((d) => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
+  const goToNextDay = () => setCurrentDate((d) => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; });
   const goToToday = () => setCurrentDate(new Date());
 
-  // Save handler (add or update)
-  const handleSave = useCallback(
-    async (data: ScheduledSurgeryInput) => {
-      if (!user) return;
-      if (editingEntry) {
-        await updateScheduledSurgery(editingEntry.date, editingEntry.id, data);
-      } else {
-        await addScheduledSurgery(data, user.uid, user.displayName || 'Unknown');
-      }
-    },
-    [user, editingEntry]
-  );
+  // Save
+  const handleSave = useCallback(async (data: ScheduledSurgeryInput) => {
+    if (!user) return;
+    if (editingEntry) {
+      await updateScheduledSurgery(editingEntry.date, editingEntry.id, data);
+    } else {
+      await addScheduledSurgery(data, user.uid, user.displayName || 'Unknown');
+    }
+  }, [user, editingEntry]);
 
-  // Click on a surgery bar
-  const handleEntryClick = useCallback(
-    (entry: ScheduledSurgery) => {
-      // Can edit if owner or admin/head
-      const canEdit = entry.createdBy === user?.uid || canManageAll;
-      if (canEdit) {
-        setEditingEntry(entry);
-        setShowModal(true);
-      }
-    },
-    [user, canManageAll]
-  );
+  // Click entry
+  const handleEntryClick = useCallback((entry: ScheduledSurgery) => {
+    const canEdit = entry.createdBy === user?.uid || canManageAll;
+    if (canEdit) {
+      setEditingEntry(entry);
+      setShowModal(true);
+    }
+  }, [user, canManageAll]);
 
-  // Delete handler
+  // Delete
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
     await deleteScheduledSurgery(deleteTarget.date, deleteTarget.id);
@@ -129,92 +142,138 @@ export const SchedulingTab: React.FC = () => {
     setShowModal(false);
   }, [deleteTarget]);
 
-  // Open new modal
-  const handleAddNew = () => {
-    setEditingEntry(undefined);
-    setShowModal(true);
-  };
+  const handleAddNew = () => { setEditingEntry(undefined); setShowModal(true); };
 
   const isToday = toDateString(new Date()) === dateStr;
 
-  return (
-    <div className="flex flex-col gap-3 p-4 animate-fade-in max-w-[1800px] mx-auto w-full">
-      {/* ── Header: Date navigation ── */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Tooltip content="Ngày trước" position="bottom">
-            <button
-              onClick={goToPrevDay}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors cursor-pointer"
-            >
-              <ChevronLeft size={18} />
-            </button>
-          </Tooltip>
+  // Swipe support for mobile
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const handleTouchStart = (e: React.TouchEvent) => setTouchStartX(e.touches[0].clientX);
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX === null) return;
+    const diff = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(diff) > 80) {
+      diff > 0 ? goToPrevDay() : goToNextDay();
+    }
+    setTouchStartX(null);
+  };
 
-          <div className="flex items-center gap-2">
-            <Calendar size={16} className="text-primary-600" />
-            <h2 className="text-sm font-bold text-gray-800">
-              {formatDisplayDate(currentDate)}
+  return (
+    <div className="flex flex-col gap-2 sm:gap-3 p-3 sm:p-4 animate-fade-in max-w-[1800px] mx-auto w-full">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between gap-2">
+        {/* Left: Navigation */}
+        <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1">
+          <button
+            onClick={goToPrevDay}
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors cursor-pointer shrink-0"
+          >
+            <ChevronLeft size={isMobile ? 16 : 18} />
+          </button>
+
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Calendar size={14} className="text-primary-600 shrink-0 hidden sm:block" />
+            <h2 className="text-xs sm:text-sm font-bold text-gray-800 truncate">
+              {isMobile ? formatShortDate(currentDate) : formatDisplayDate(currentDate)}
             </h2>
             {!isToday && (
               <button
                 onClick={goToToday}
-                className="text-[10px] font-semibold text-primary-600 hover:text-primary-800 underline cursor-pointer"
+                className="text-[10px] font-semibold text-primary-600 hover:text-primary-800 underline cursor-pointer shrink-0"
               >
-                Hôm nay
+                Nay
               </button>
             )}
           </div>
 
-          <Tooltip content="Ngày sau" position="bottom">
-            <button
-              onClick={goToNextDay}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors cursor-pointer"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </Tooltip>
+          <button
+            onClick={goToNextDay}
+            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors cursor-pointer shrink-0"
+          >
+            <ChevronRight size={isMobile ? 16 : 18} />
+          </button>
 
-          {/* Date picker */}
+          {/* Date picker — hidden on mobile */}
           <input
             type="date"
             value={dateStr}
             onChange={(e) => setCurrentDate(new Date(e.target.value + 'T00:00:00'))}
-            className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 cursor-pointer focus:border-primary-400 outline-none"
+            className="hidden sm:block text-xs border border-gray-300 rounded-lg px-2 py-1.5 cursor-pointer focus:border-primary-400 outline-none"
           />
         </div>
 
-        <Tooltip content="Đăng ký ca mổ mới cho ngày này" position="bottom">
-          <button
-            onClick={handleAddNew}
-            className="flex items-center gap-1.5 px-4 py-2 bg-primary-700 text-white font-bold text-xs rounded-xl
-                       hover:bg-primary-800 active:scale-95 transition-all shadow-sm cursor-pointer"
-          >
-            <Plus size={14} />
-            Thêm ca mổ
-          </button>
-        </Tooltip>
+        {/* Right: Actions */}
+        <div className="flex items-center gap-1.5">
+          {/* Week toggle */}
+          <Tooltip content={showWeek ? 'Ẩn tuần' : 'Xem tổng quan tuần'} position="bottom">
+            <button
+              onClick={() => setShowWeek((v) => !v)}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                showWeek ? 'bg-primary-100 text-primary-700' : 'hover:bg-gray-100 text-gray-500'
+              }`}
+            >
+              <BarChart3 size={isMobile ? 14 : 16} />
+            </button>
+          </Tooltip>
+
+          {/* Add button */}
+          <Tooltip content="Đăng ký ca mổ mới" position="bottom">
+            <button
+              onClick={handleAddNew}
+              className="flex items-center gap-1 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-700 text-white font-bold
+                         text-[11px] sm:text-xs rounded-xl hover:bg-primary-800 active:scale-95 transition-all
+                         shadow-sm cursor-pointer"
+            >
+              <Plus size={14} />
+              <span className="hidden sm:inline">Thêm ca mổ</span>
+            </button>
+          </Tooltip>
+        </div>
       </div>
+
+      {/* ── Week Overview (collapsible) ── */}
+      {showWeek && (
+        <div className="animate-slide-down">
+          <WeekOverview
+            weekStart={weekStart}
+            onDayClick={(d) => setCurrentDate(d)}
+            roleFilters={roleFilters}
+            selectedDate={dateStr}
+          />
+        </div>
+      )}
 
       {/* ── Conflict Summary ── */}
       <ConflictSummary conflicts={conflicts} totalEntries={entries.length} />
 
-      {/* ── Timeline ── */}
-      <DayTimelineView
-        entries={entries}
-        conflictedIds={conflictedIds}
-        conflicts={conflicts}
-        onEntryClick={handleEntryClick}
-        currentUserId={user?.uid}
-      />
+      {/* ── Main Content: Timeline (desktop) or Card List (mobile) ── */}
+      <div
+        onTouchStart={isMobile ? handleTouchStart : undefined}
+        onTouchEnd={isMobile ? handleTouchEnd : undefined}
+      >
+        {isMobile ? (
+          <MobileScheduleList
+            entries={entries}
+            conflictedIds={conflictedIds}
+            onEntryClick={handleEntryClick}
+          />
+        ) : (
+          <DayTimelineView
+            entries={entries}
+            conflictedIds={conflictedIds}
+            conflicts={conflicts}
+            onEntryClick={handleEntryClick}
+            currentUserId={user?.uid}
+            hourWidth={zoomLevel}
+            onZoomChange={setZoomLevel}
+          />
+        )}
+      </div>
 
-      {/* ── Modal: Thêm / Sửa ca mổ ── */}
+      {/* ── Modal ── */}
       <ScheduleSurgeryModal
         isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingEntry(undefined);
-        }}
+        onClose={() => { setShowModal(false); setEditingEntry(undefined); }}
         onSave={handleSave}
         editingEntry={editingEntry}
         date={dateStr}
@@ -224,21 +283,17 @@ export const SchedulingTab: React.FC = () => {
         roleFilters={roleFilters}
       />
 
-      {/* ── Delete inside edit modal: context menu ── */}
-      {showModal && editingEntry && (
+      {/* ── Delete FAB (when editing) ── */}
+      {showModal && editingEntry && (editingEntry.createdBy === user?.uid || canManageAll) && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9001]">
-          {(editingEntry.createdBy === user?.uid || canManageAll) && (
-            <Tooltip content="Xóa ca mổ này khỏi lịch" position="top">
-              <button
-                onClick={() => setDeleteTarget(editingEntry)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-full
-                           hover:bg-red-700 active:scale-95 transition-all shadow-lg cursor-pointer"
-              >
-                <Trash2 size={14} />
-                Xóa ca mổ
-              </button>
-            </Tooltip>
-          )}
+          <button
+            onClick={() => setDeleteTarget(editingEntry)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-full
+                       hover:bg-red-700 active:scale-95 transition-all shadow-lg cursor-pointer"
+          >
+            <Trash2 size={14} />
+            Xóa ca mổ
+          </button>
         </div>
       )}
 

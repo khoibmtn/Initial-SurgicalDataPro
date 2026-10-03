@@ -149,13 +149,13 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9000] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-[9000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col overflow-hidden animate-slide-in"
+        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-200 bg-primary-50/50">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 border-b border-gray-200 bg-primary-50/50">
           <h2 className="text-sm font-bold text-primary-900">
             {editingEntry ? '✏️ Sửa ca mổ' : '➕ Đăng ký ca mổ'}
           </h2>
