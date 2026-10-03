@@ -44,3 +44,10 @@ describe('schedule per-date cache', () => {
     expect(getCachedSchedule('2026-10-05')).toEqual([]);
   });
 });
+
+describe('stripUndefined (RTDB rejects undefined values)', () => {
+  it('removes undefined keys but keeps falsy values', async () => {
+    const { stripUndefined } = await import('../services/scheduleService');
+    expect(stripUndefined({ a: 1, note: undefined, b: '', c: 0 })).toEqual({ a: 1, b: '', c: 0 });
+  });
+});

@@ -14,6 +14,11 @@ function datePath(date: string) {
   return `${SCHEDULE_ROOT}/${date}`;
 }
 
+/** RTDB từ chối ghi giá trị undefined (vd note trống) → loại bỏ các key undefined. */
+export function stripUndefined<T extends object>(obj: T): T {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined)) as T;
+}
+
 /** Thêm ca mổ mới vào lịch */
 export async function addScheduledSurgery(
   input: ScheduledSurgeryInput,
@@ -33,7 +38,7 @@ export async function addScheduledSurgery(
     updatedAt: now,
   };
 
-  await set(newRef, entry);
+  await set(newRef, stripUndefined(entry));
   return newRef.key!;
 }
 
@@ -45,7 +50,9 @@ export async function updateScheduledSurgery(
 ): Promise<void> {
   const entryRef = ref(db, `${datePath(date)}/${id}`);
   await update(entryRef, {
-    ...updates,
+    ...stripUndefined(updates),
+    // note bị xoá trắng → null để RTDB xoá field cũ
+    ...('note' in updates && updates.note === undefined ? { note: null } : {}),
     updatedAt: Date.now(),
   });
 }

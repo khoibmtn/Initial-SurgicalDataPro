@@ -65,6 +65,10 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   const [staff, setStaff] = useState<Record<string, string>>({});
   const [note, setNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  useEffect(() => {
+    if (isOpen) setSaveError('');
+  }, [isOpen, editingEntry]);
 
   // Duty shift season & start hour (07:30 in winter, 07:00 in summer)
   const seasonSchedule = useMemo(() => {
@@ -320,6 +324,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     if (!isTimeValid) return;
 
     setIsSaving(true);
+    setSaveError('');
     try {
       // Chỉ lưu các vị trí hợp lệ trong displayRoles (đã được kiểm tra trùng)
       const cleanStaff: Record<string, string> = {};
@@ -338,12 +343,18 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         machineCode,
         machineName,
         staff: cleanStaff,
-        note: note.trim() || undefined,
+        ...(note.trim() ? { note: note.trim() } : {}),
       };
       await onSave(data);
       onClose();
     } catch (err) {
       console.error('Error saving schedule entry:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError(
+        /permission/i.test(msg)
+          ? 'Không có quyền lưu lịch mổ. Vui lòng đăng nhập lại.'
+          : `Không lưu được ca mổ: ${msg}`
+      );
     } finally {
       setIsSaving(false);
     }
@@ -770,6 +781,9 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
           )}
 
           <div className="flex items-center gap-2">
+            {saveError && (
+              <span role="alert" className="text-[11px] font-semibold text-red-600 max-w-[260px]">{saveError}</span>
+            )}
             {readOnly ? (
               <button onClick={onClose} className="px-5 py-2 text-xs font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors cursor-pointer">
                 Đóng
