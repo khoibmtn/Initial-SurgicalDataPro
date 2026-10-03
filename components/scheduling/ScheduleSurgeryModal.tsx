@@ -92,16 +92,17 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
 
   // Filtered surgery names for autocomplete
   const filteredSurgeryNames = useMemo(() => {
-    if (!tenKTSearch.trim()) return surgeryNames.slice(0, 20);
+    const valid = surgeryNames.filter((s) => s.name);
+    if (!tenKTSearch.trim()) return valid.slice(0, 20);
     const q = tenKTSearch.toLowerCase();
-    return surgeryNames.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 20);
+    return valid.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 20);
   }, [surgeryNames, tenKTSearch]);
 
   // Filtered staff for a specific role
   const getFilteredStaff = useCallback(
     (role: string) => {
       const q = (staffSearches[role] || '').toLowerCase();
-      const surgicalStaff = staffList.filter((s) => !s.nonSurgical);
+      const surgicalStaff = staffList.filter((s) => !s.nonSurgical && s.name);
       if (!q) return surgicalStaff.slice(0, 15);
       return surgicalStaff.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 15);
     },
