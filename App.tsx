@@ -48,6 +48,8 @@ import { useReportPersistence } from './hooks/useReportPersistence';
 import { usePrintController } from './hooks/usePrintController';
 import { useExcelProcessing } from './hooks/useExcelProcessing';
 import { useStorageQuery } from './hooks/useStorageQuery';
+import { useVersionCheck } from './hooks/useVersionCheck';
+import { VersionUpdateBanner } from './components/common/VersionUpdateBanner';
 import { useAppCommandPalette } from './hooks/useAppCommandPalette';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LoginModal } from './components/auth/LoginModal';
@@ -184,6 +186,7 @@ const InnerApp: React.FC = () => {
   } = useReportTableSettings({ config, updateConfig, currentType });
 
   const { toasts, addToast, removeToast } = useToast();
+  const { hasNewVersion, reloadPage } = useVersionCheck();
 
   // ── Khóa / Mở khóa báo cáo (Report Lock / Unlock) ──
   const [allLocks, setAllLocks] = useState<Record<string, ReportLock>>({});
@@ -626,6 +629,7 @@ const InnerApp: React.FC = () => {
         hospitalName={config.hospitalName}
         {...printConfig}
       />
+      {hasNewVersion && <VersionUpdateBanner onReload={reloadPage} />}
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       <CommandPalette commands={commandItems} isOpen={cmdPaletteOpen} onClose={() => setCmdPaletteOpen(false)} />
 

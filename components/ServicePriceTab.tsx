@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Tooltip } from './common/Tooltip';
 import {
   FileSpreadsheet,
   Zap,
@@ -342,59 +343,67 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
               </div>
             ) : (
               <>
-                <button
-                  onClick={handleProcess}
-                  disabled={!selectedFile}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-sm ${
-                    selectedFile
-                      ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95'
-                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  <Zap className="h-4 w-4" />
-                  Đối chiếu & Áp giá
-                </button>
-                {selectedFile && (
+                <Tooltip content="Tự động đối chiếu từng ca phẫu thuật với file DVKT theo Mã KCB + Tên kỹ thuật, sau đó áp Mã tương đương và Đơn giá vào từng ca" position="bottom">
                   <button
-                    onClick={handleReset}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 active:scale-95 transition-all"
+                    onClick={handleProcess}
+                    disabled={!selectedFile}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-sm ${
+                      selectedFile
+                        ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95'
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    }`}
                   >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    Hủy
+                    <Zap className="h-4 w-4" />
+                    Đối chiếu & Áp giá
                   </button>
+                </Tooltip>
+                {selectedFile && (
+                  <Tooltip content="Xóa file đã chọn và đặt lại trạng thái đối chiếu" position="bottom">
+                    <button
+                      onClick={handleReset}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl font-bold text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 active:scale-95 transition-all"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Hủy
+                    </button>
+                  </Tooltip>
                 )}
               </>
             )}
 
             {/* Nút lưu vào Firestore */}
             {matchResult && matchResult.matchedCount > 0 && (
-              <button
-                onClick={handleSaveToFirestore}
-                disabled={isSaving}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-sm ${
-                  isSaving
-                    ? 'bg-amber-100 text-amber-700 cursor-wait'
-                    : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95'
-                }`}
-              >
-                {isSaving ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {isSaving ? 'Đang lưu vào CSDL...' : 'Lưu vào Lưu trữ (Firestore)'}
-              </button>
+              <Tooltip content="Cập nhật Mã tương đương và Đơn giá đã khớp vào CSDL Lưu trữ (Firestore) — chỉ cập nhật các ca đã lưu trước đó" position="bottom">
+                <button
+                  onClick={handleSaveToFirestore}
+                  disabled={isSaving}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-sm ${
+                    isSaving
+                      ? 'bg-amber-100 text-amber-700 cursor-wait'
+                      : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95'
+                  }`}
+                >
+                  {isSaving ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {isSaving ? 'Đang lưu vào CSDL...' : 'Lưu vào Lưu trữ (Firestore)'}
+                </button>
+              </Tooltip>
             )}
 
             {/* Nút Refill vào Danh mục giá */}
             {matchResult && matchResult.matchedCount > 0 && (
-              <button
-                onClick={handleOpenRefillModal}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm"
-              >
-                <Sparkles className="h-4 w-4 text-emerald-200" />
-                Refill vào Danh mục giá
-              </button>
+              <Tooltip content="Tự động bổ sung / cập nhật Mã tương đương và Đơn giá từ file DVKT vào Danh mục giá PTTT (tạo mới hoặc cập nhật bản ghi hiện có)" position="bottom">
+                <button
+                  onClick={handleOpenRefillModal}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm"
+                >
+                  <Sparkles className="h-4 w-4 text-emerald-200" />
+                  Refill vào Danh mục giá
+                </button>
+              </Tooltip>
             )}
           </div>
         </div>

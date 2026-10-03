@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2, Lock, Unlock, History } from 'lucide-react';
+import { Tooltip } from '../common/Tooltip';
 
 export interface ReportActionBarProps {
   dateRangeText?: string;
@@ -78,15 +79,17 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
       <div className="flex items-center gap-2 shrink-0">
         {/* Print Dropdown */}
         <div className="relative" ref={printDropdownRef}>
-          <button
-            onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm cursor-pointer"
-          >
-            <Printer className="h-3.5 w-3.5" /> In
-            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
+          <Tooltip content="In báo cáo danh sách PT, bảng thanh toán hoặc giấy báo ngoài giờ (chọn định dạng A4 dọc/ngang)" position="bottom">
+            <button
+              onClick={() => setIsPrintDropdownOpen(!isPrintDropdownOpen)}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5" /> In
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </Tooltip>
 
           {isPrintDropdownOpen && (
             <div className="fb-dropdown top-full right-0 mt-1 w-52 z-30">
@@ -211,15 +214,17 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
 
         {/* Excel Download Dropdown */}
         <div className="relative" ref={excelDropdownRef}>
-          <button
-            onClick={() => setIsExcelDropdownOpen(!isExcelDropdownOpen)}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-accent-600 text-white font-semibold rounded-lg text-[11px] hover:bg-accent-700 transition-colors shadow-sm cursor-pointer"
-          >
-            <Download className="h-3.5 w-3.5" /> Excel
-            <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
+          <Tooltip content="Tải xuống file Excel (có thể chọn định dạng hoặc không định dạng)" position="bottom">
+            <button
+              onClick={() => setIsExcelDropdownOpen(!isExcelDropdownOpen)}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-accent-600 text-white font-semibold rounded-lg text-[11px] hover:bg-accent-700 transition-colors shadow-sm cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5" /> Excel
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </Tooltip>
           {isExcelDropdownOpen && (
             <div className="fb-dropdown top-full right-0 mt-1 w-48 z-30">
               <button
@@ -249,20 +254,21 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
 
         {/* Audit Log History Button */}
         {onOpenAuditLog && (
-          <button
-            type="button"
-            onClick={onOpenAuditLog}
-            className="flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-gray-100 text-gray-700 font-semibold rounded-lg text-[11px] border border-gray-300 transition-colors shadow-2xs cursor-pointer"
-            title="Xem nhật ký truy vết & kiểm toán số liệu kỳ này"
-          >
-            <History className="h-3.5 w-3.5 text-gray-600" />
-            <span>Nhật ký</span>
-            {auditLogCount !== undefined && auditLogCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-800 font-bold border border-blue-200">
-                {auditLogCount}
-              </span>
-            )}
-          </button>
+          <Tooltip content="Xem nhật ký truy vết và kiểm toán toàn bộ thao tác trên báo cáo kỳ này" position="bottom">
+            <button
+              type="button"
+              onClick={onOpenAuditLog}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-gray-100 text-gray-700 font-semibold rounded-lg text-[11px] border border-gray-300 transition-colors shadow-2xs cursor-pointer"
+            >
+              <History className="h-3.5 w-3.5 text-gray-600" />
+              <span>Nhật ký</span>
+              {auditLogCount !== undefined && auditLogCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 text-blue-800 font-bold border border-blue-200">
+                  {auditLogCount}
+                </span>
+              )}
+            </button>
+          </Tooltip>
         )}
 
         {/* Smart Staging & Validation Button (Tạm thời ẩn theo yêu cầu) */}
@@ -294,53 +300,56 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
               <span>Đã khóa</span>
             </span>
             {canManageLock && onUnlockClick && (
-              <button
-                type="button"
-                onClick={onUnlockClick}
-                className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
-                title="Mở khóa báo cáo để chỉnh sửa số liệu"
-              >
-                <Unlock className="h-3 w-3" />
-                <span>Mở khóa</span>
-              </button>
+              <Tooltip content="Mở khóa báo cáo để cho phép chỉnh sửa số liệu" position="bottom">
+                <button
+                  type="button"
+                  onClick={onUnlockClick}
+                  className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
+                >
+                  <Unlock className="h-3 w-3" />
+                  <span>Mở khóa</span>
+                </button>
+              </Tooltip>
             )}
           </div>
         ) : (
           canManageLock && onLockClick && (
-            <button
-              type="button"
-              onClick={onLockClick}
-              className="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
-              title="Chốt số liệu và khóa báo cáo kỳ này"
-            >
-              <Lock className="h-3 w-3" />
-              <span>Khóa sổ</span>
-            </button>
+            <Tooltip content="Chốt số liệu và khóa báo cáo kỳ này — sau khi khóa chỉ Admin/Trưởng khoa mới được mở khóa" position="bottom">
+              <button
+                type="button"
+                onClick={onLockClick}
+                className="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
+              >
+                <Lock className="h-3 w-3" />
+                <span>Khóa sổ</span>
+              </button>
+            </Tooltip>
           )
         )}
 
         {/* Save Data */}
-        <button
-          onClick={onSaveData}
-          disabled={!canSave || isReportLocked}
-          className={`flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm ${
-            !canSave || isReportLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-          }`}
-          title={
-            isReportLocked
-              ? 'Báo cáo đã khóa sổ — Toàn bộ số liệu đang ở chế độ Chỉ xem (Read-only)'
-              : saveTooltip || 'Lưu dữ liệu vào hệ thống'
-          }
-        >
-          {isSaving ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : isReportLocked ? (
-            <Lock className="h-3.5 w-3.5" />
-          ) : (
-            <Save className="h-3.5 w-3.5" />
-          )}
-          {isSaving ? 'Lưu...' : isReportLocked ? 'Đã khóa' : 'Lưu'}
-        </button>
+        <Tooltip content={
+          isReportLocked
+            ? 'Báo cáo đã khóa sổ — toàn bộ số liệu ở chế độ Chỉ xem (Read-only)'
+            : 'Lưu toàn bộ dữ liệu báo cáo (danh sách PT, thanh toán, ngoài giờ) vào CSDL Lưu trữ'
+        } position="bottom">
+          <button
+            onClick={onSaveData}
+            disabled={!canSave || isReportLocked}
+            className={`flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm ${
+              !canSave || isReportLocked ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+            }`}
+          >
+            {isSaving ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isReportLocked ? (
+              <Lock className="h-3.5 w-3.5" />
+            ) : (
+              <Save className="h-3.5 w-3.5" />
+            )}
+            {isSaving ? 'Lưu...' : isReportLocked ? 'Đã khóa' : 'Lưu'}
+          </button>
+        </Tooltip>
       </div>
     </div>
   );

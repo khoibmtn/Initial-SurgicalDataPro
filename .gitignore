@@ -24,3 +24,4 @@ dist-ssr
 .vercel
 /excel/
 *.xlsx
+public/version.json
