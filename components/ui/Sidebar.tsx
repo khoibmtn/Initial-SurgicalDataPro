@@ -7,6 +7,7 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeft,
+  ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { UserMenuButton } from '../auth/UserMenuButton';
@@ -18,7 +19,7 @@ import {
 } from '../../services/notificationService';
 import type { AppNotification } from '../../types/notification';
 
-export type TabKey = 'daily' | 'monthly' | 'statistics' | 'config';
+export type TabKey = 'daily' | 'monthly' | 'scheduling' | 'statistics' | 'config';
 
 interface NavItem {
   key: TabKey;
@@ -29,6 +30,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { key: 'daily', label: 'BC hàng ngày', icon: LayoutDashboard },
   { key: 'monthly', label: 'BC tháng', icon: Calendar },
+  { key: 'scheduling', label: 'Lịch mổ', icon: ClipboardList },
   { key: 'statistics', label: 'Thống kê', icon: BarChart3 },
   { key: 'config', label: 'Cấu hình', icon: Settings },
 ];

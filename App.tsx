@@ -5,6 +5,7 @@ import { PrintPreview } from './components/PrintPreview';
 import { ConfigProvider, useConfig } from './contexts/ConfigContext';
 import { StatisticsTab } from './components/statistics/StatisticsTab';
 import { ServicePriceTab } from './components/ServicePriceTab';
+import { SchedulingTab } from './components/scheduling/SchedulingTab';
 import { subscribeToSurgeryNamePrices } from './services/surgeryNamePriceService';
 import { PatientServicePriceGroup, SurgeryNamePrice } from './types';
 import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
@@ -1018,6 +1019,12 @@ const InnerApp: React.FC = () => {
               <StatisticsTab />
             </ErrorBoundary>
           </div>
+        )}
+
+        {activeTab === 'scheduling' && (
+          <ErrorBoundary fallbackTitle="Không thể tải Lịch mổ">
+            <SchedulingTab />
+          </ErrorBoundary>
         )}
 
         {activeTab === 'config' && (
