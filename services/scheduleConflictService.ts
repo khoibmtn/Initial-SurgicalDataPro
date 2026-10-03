@@ -5,19 +5,44 @@
 import type { ScheduledSurgery, ScheduleConflict } from '../types/schedule';
 import type { RoleFilterConfig } from '../contexts/ConfigContext';
 
-/** Kiểm tra 2 khoảng thời gian có overlap không */
-function timeOverlaps(
+/**
+ * Convert time string to shift hours (0 to 36+)
+ * e.g. If duty starts at 07:30:
+ * - "08:00" => 8.0
+ * - "23:30" => 23.5
+ * - "01:00 (+1)" or "01:00" (< 7.5) => 25.0 (post-midnight of the 24h duty shift)
+ */
+export function parseTimeToShiftHours(t: string, dutyStartHour: number = 7.5): number {
+  if (!t) return dutyStartHour;
+  const isExplicitNextDay = t.includes('+1') || t.toLowerCase().includes('hs') || t.toLowerCase().includes('hôm sau');
+  const isExplicitTodayEarly = t.toLowerCase().includes('sớm') || t.toLowerCase().includes('hôm nay');
+  
+  const clean = t.replace(/[^\d:]/g, '').trim();
+  const [h, m] = clean.split(':').map(Number);
+  let hour = (isNaN(h) ? 0 : h) + (isNaN(m) ? 0 : m) / 60;
+  
+  if (isExplicitNextDay) {
+    return hour + 24;
+  }
+  if (!isExplicitTodayEarly && hour < dutyStartHour) {
+    return hour + 24;
+  }
+  return hour;
+}
+
+/** Kiểm tra 2 khoảng thời gian có overlap không trong ca trực 24h */
+export function timeOverlaps(
   s1Start: string, s1End: string,
   s2Start: string, s2End: string,
+  dutyStartHour: number = 7.5,
 ): boolean {
-  // Convert "HH:mm" to minutes since midnight
-  const toMin = (t: string) => {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-  };
+  const a1 = parseTimeToShiftHours(s1Start, dutyStartHour);
+  let a2 = parseTimeToShiftHours(s1End, dutyStartHour);
+  if (a2 <= a1) a2 += 24;
 
-  const a1 = toMin(s1Start), a2 = toMin(s1End);
-  const b1 = toMin(s2Start), b2 = toMin(s2End);
+  const b1 = parseTimeToShiftHours(s2Start, dutyStartHour);
+  let b2 = parseTimeToShiftHours(s2End, dutyStartHour);
+  if (b2 <= b1) b2 += 24;
 
   // Overlap if one starts before the other ends
   return a1 < b2 && b1 < a2;
@@ -28,11 +53,13 @@ function timeOverlaps(
  *
  * @param entries Danh sách ca mổ trong ngày
  * @param roleFilters Config vị trí cần check (từ AppConfig)
+ * @param dutyStartHour Giờ bắt đầu ca trực hành chính (7.5 mùa đông, 7.0 mùa hè)
  * @returns Danh sách xung đột
  */
 export function detectConflicts(
   entries: ScheduledSurgery[],
   roleFilters?: RoleFilterConfig,
+  dutyStartHour: number = 7.5,
 ): ScheduleConflict[] {
   const conflicts: ScheduleConflict[] = [];
   if (entries.length < 2) return conflicts;
@@ -44,7 +71,7 @@ export function detectConflicts(
       const b = entries[j];
 
       // Chỉ check nếu trùng thời gian
-      if (!timeOverlaps(a.startTime, a.endTime, b.startTime, b.endTime)) {
+      if (!timeOverlaps(a.startTime, a.endTime, b.startTime, b.endTime, dutyStartHour)) {
         continue;
       }
 

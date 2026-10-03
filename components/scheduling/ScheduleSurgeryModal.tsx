@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, Clock, User, Cpu, FileText, Search } from 'lucide-react';
-import type { ScheduledSurgery, ScheduledSurgeryInput } from '../../types/schedule';
-import { STAFF_ROLE_LABELS } from '../../types/schedule';
-import type { StaffMember, MachineEntry, SurgeryNamePrice } from '../../types';
-import type { RoleFilterConfig } from '../../contexts/ConfigContext';
+import { X, Clock, User, Cpu, FileText, Search, AlertTriangle, Trash2 } from 'lucide-react';
+import type { ScheduledSurgery, ScheduledSurgeryInput, ScheduleConflict } from '../../types/schedule';
+import type { StaffMember, MachineEntry, SurgeryNamePrice, LaborTableItem } from '../../types';
+import type { RoleFilterConfig, WorkingHours } from '../../contexts/ConfigContext';
+import { getScheduleForDate } from '../../services/overtimeCalculationService';
+import { parseTimeToShiftHours } from '../../services/scheduleConflictService';
 
 interface ScheduleSurgeryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: ScheduledSurgeryInput) => Promise<void>;
+  /** Xóa ca mổ đang sửa */
+  onDelete?: (entry: ScheduledSurgery) => void;
   /** Nếu có = chế độ sửa, không có = chế độ thêm mới */
   editingEntry?: ScheduledSurgery;
   date: string;
@@ -16,27 +19,36 @@ interface ScheduleSurgeryModalProps {
   machineRegistry: MachineEntry[];
   surgeryNames: SurgeryNamePrice[];
   roleFilters: RoleFilterConfig;
+  /** Định mức bàn mổ — danh sách các vị trí kíp mổ */
+  tableItems?: LaborTableItem[];
+  /** Danh sách xung đột để hiển thị cảnh báo chi tiết */
+  conflicts?: ScheduleConflict[];
+  /** Toàn bộ danh sách ca mổ trong ngày để tham chiếu ca trùng */
+  allEntries?: ScheduledSurgery[];
+  /** Chuyển sang xem ca mổ khác khi nhấn vào ca bị trùng */
+  onSelectEntry?: (entry: ScheduledSurgery) => void;
   /** True = chế độ xem, không cho sửa */
   readOnly?: boolean;
+  workingHours?: WorkingHours;
 }
-
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
-  const h = Math.floor(i / 2).toString().padStart(2, '0');
-  const m = i % 2 === 0 ? '00' : '30';
-  return `${h}:${m}`;
-});
 
 export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  onDelete,
   editingEntry,
   date,
   staffList,
   machineRegistry,
   surgeryNames,
   roleFilters,
+  tableItems = [],
+  conflicts = [],
+  allEntries = [],
+  onSelectEntry,
   readOnly = false,
+  workingHours,
 }) => {
   const [patientId, setPatientId] = useState('');
   const [patientName, setPatientName] = useState('');
@@ -49,11 +61,88 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   const [note, setNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  // Duty shift season & start hour (07:30 in winter, 07:00 in summer)
+  const seasonSchedule = useMemo(() => {
+    const dateObj = date ? new Date(date + 'T00:00:00') : new Date();
+    return getScheduleForDate(dateObj, workingHours);
+  }, [date, workingHours]);
+
+  const dutyStartStr = seasonSchedule?.morningFrom || '07:30';
+  const dutyStartHour = useMemo(() => {
+    const [h, m] = dutyStartStr.split(':').map(Number);
+    return (isNaN(h) ? 7 : h) + (isNaN(m) ? 30 : m) / 60;
+  }, [dutyStartStr]);
+
+  // Generate 24h duty shift time options starting from early morning through next morning
+  const shiftTimeOptions = useMemo(() => {
+    const options: { value: string; label: string; shiftHours: number }[] = [];
+    const startH = Math.max(dutyStartHour - 1, 5);
+    const endH = dutyStartHour + 25;
+
+    for (let h = startH; h <= endH; h += 0.5) {
+      const isNextDay = h >= 24;
+      const actualH = isNextDay ? h - 24 : h;
+      const hours = Math.floor(actualH);
+      const mins = Math.round((actualH - hours) * 60);
+      const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+
+      let label = timeStr;
+      let val = timeStr;
+      if (Math.abs(h - dutyStartHour) < 0.05) {
+        label = `${timeStr} (Bắt đầu trực)`;
+      } else if (Math.abs(h - (dutyStartHour + 24)) < 0.05) {
+        label = `${timeStr} (+1 Hôm sau - Hết trực)`;
+        val = `${timeStr} (+1)`;
+      } else if (isNextDay) {
+        label = `${timeStr} (+1 Hôm sau)`;
+        val = `${timeStr} (+1)`;
+      } else if (h < dutyStartHour) {
+        label = `${timeStr} (Sớm)`;
+        val = `${timeStr} (sớm)`;
+      }
+
+      options.push({ value: val, label, shiftHours: h });
+    }
+    return options;
+  }, [dutyStartHour]);
+
+  // Ensure current startTime and endTime are in dropdown options even if custom/irregular
+  const enrichedStartOptions = useMemo(() => {
+    if (!startTime || shiftTimeOptions.some((opt) => opt.value === startTime)) {
+      return shiftTimeOptions;
+    }
+    const custom = {
+      value: startTime,
+      label: startTime,
+      shiftHours: parseTimeToShiftHours(startTime, dutyStartHour),
+    };
+    return [...shiftTimeOptions, custom].sort((a, b) => a.shiftHours - b.shiftHours);
+  }, [shiftTimeOptions, startTime, dutyStartHour]);
+
+  const enrichedEndOptions = useMemo(() => {
+    const sShift = parseTimeToShiftHours(startTime, dutyStartHour);
+    let opts = shiftTimeOptions.filter((opt) => opt.shiftHours > sShift);
+    if (endTime && !opts.some((opt) => opt.value === endTime)) {
+      opts = [
+        ...opts,
+        {
+          value: endTime,
+          label: endTime,
+          shiftHours: parseTimeToShiftHours(endTime, dutyStartHour),
+        },
+      ].sort((a, b) => a.shiftHours - b.shiftHours);
+    }
+    return opts;
+  }, [shiftTimeOptions, startTime, endTime, dutyStartHour]);
+
   // Autocomplete states
   const [tenKTSearch, setTenKTSearch] = useState('');
   const [showTenKTDropdown, setShowTenKTDropdown] = useState(false);
   const [staffSearches, setStaffSearches] = useState<Record<string, string>>({});
   const [activeStaffDropdown, setActiveStaffDropdown] = useState<string | null>(null);
+  // Machine search
+  const [machineSearch, setMachineSearch] = useState('');
+  const [showMachineDropdown, setShowMachineDropdown] = useState(false);
 
   // Populate when editing
   useEffect(() => {
@@ -67,38 +156,159 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
       setMachineName(editingEntry.machineName);
       setStaff(editingEntry.staff || {});
       setNote(editingEntry.note || '');
+      setMachineSearch(editingEntry.machineName || '');
     } else {
       setPatientId('');
       setPatientName('');
       setTenKT('');
-      setStartTime('08:00');
-      setEndTime('09:00');
+      setStartTime(dutyStartStr);
+      const nextH = Math.floor(dutyStartHour + 1);
+      const nextM = Math.round(((dutyStartHour + 1) - nextH) * 60);
+      setEndTime(`${nextH.toString().padStart(2, '0')}:${nextM.toString().padStart(2, '0')}`);
       setMachineCode('');
       setMachineName('');
       setStaff({});
       setNote('');
+      setMachineSearch('');
     }
     setTenKTSearch('');
     setStaffSearches({});
     setActiveStaffDropdown(null);
-  }, [editingEntry, isOpen]);
+    setShowMachineDropdown(false);
+  }, [editingEntry, isOpen, dutyStartStr, dutyStartHour]);
 
-  // Active roles from config
-  const activeRoles = useMemo(() => {
-    return Object.entries(roleFilters)
+  // ── ROLES from tableItems (Định mức bàn mổ) ──
+  // Nếu ở cấu hình cài đặt không check trùng (limit <= 0 hoặc roleFilters tắt) thì KHÔNG hiển thị
+  const scheduleRoles = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const effective = tableItems.filter((item) => {
+      if (item.effectiveFrom > today) return false;
+      if (item.effectiveTo && item.effectiveTo < today) return false;
+      return true;
+    });
+    const latestByKey = new Map<string, LaborTableItem>();
+    for (const item of effective) {
+      const existing = latestByKey.get(item.posKey);
+      if (!existing || item.effectiveFrom > existing.effectiveFrom) {
+        latestByKey.set(item.posKey, item);
+      }
+    }
+    const ORDER = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'];
+    return Array.from(latestByKey.values())
+      .filter((item) => {
+        // Loại bỏ các vị trí không kiểm tra trùng (limit <= 0)
+        if (item.limit <= 0) return false;
+        // Loại bỏ các vị trí bị tắt trong roleFilters
+        if (roleFilters && item.posKey in roleFilters && !roleFilters[item.posKey as keyof RoleFilterConfig]) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => ORDER.indexOf(a.posKey) - ORDER.indexOf(b.posKey));
+  }, [tableItems, roleFilters]);
+
+  // Fallback: if no tableItems, use roleFilters
+  const displayRoles = useMemo(() => {
+    if (scheduleRoles.length > 0) return scheduleRoles;
+    const LABELS: Record<string, string> = {
+      ptChinh: 'BS PT chính', ptPhu: 'BS PT phụ',
+      bsGM: 'BS gây mê hồi sức', ktvGM: 'KTV gây mê',
+      tdc: 'Tít dụng cụ', gv: 'Giúp việc',
+    };
+    return Object.entries(roleFilters || {})
       .filter(([, enabled]) => enabled)
-      .map(([key]) => key);
-  }, [roleFilters]);
+      .map(([key]) => ({
+        posKey: key, label: LABELS[key] || key, limit: 1,
+        id: key, effectiveFrom: '2020-01-01', effectiveTo: null,
+        createdAt: 0, updatedAt: 0,
+      } as LaborTableItem));
+  }, [scheduleRoles, roleFilters]);
 
-  // Filtered surgery names for autocomplete
+  // ── Conflicts for editingEntry ──
+  const entryConflicts = useMemo(() => {
+    if (!editingEntry) return [];
+    return conflicts.filter((c) => c.surgeryIds.includes(editingEntry.id));
+  }, [editingEntry, conflicts]);
+
+  const machineConflicts = useMemo(
+    () => entryConflicts.filter((c) => c.type === 'MACHINE'),
+    [entryConflicts]
+  );
+
+  const staffConflicts = useMemo(
+    () => entryConflicts.filter((c) => c.type === 'STAFF'),
+    [entryConflicts]
+  );
+
+  const conflictingStaffRoles = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of staffConflicts) {
+      for (const [roleKey, name] of Object.entries(staff || {})) {
+        if (name && name.trim().toLowerCase() === c.resource.trim().toLowerCase()) {
+          set.add(roleKey);
+        }
+      }
+    }
+    return set;
+  }, [staffConflicts, staff]);
+
+  // ── Surgery name autocomplete — Filter only currently active items on target date ──
+  const activeSurgeryCatalog = useMemo(() => {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    // Filter active items (effectiveFrom <= date and !effectiveTo or effectiveTo >= date)
+    const active = surgeryNames.filter((s) => {
+      const name = s.tenKT || (s as any).name;
+      if (!name) return false;
+      if (s.effectiveFrom && s.effectiveFrom > targetDate) return false;
+      if (s.effectiveTo && s.effectiveTo < targetDate) return false;
+      return true;
+    });
+
+    // Deduplicate by normalized name, keeping the one with newest effectiveFrom or valid maTuongDuong
+    const map = new Map<string, SurgeryNamePrice>();
+    for (const item of active) {
+      const name = (item.tenKT || (item as any).name).trim();
+      const key = name.toLowerCase();
+      const existing = map.get(key);
+      if (!existing || (item.effectiveFrom && (!existing.effectiveFrom || item.effectiveFrom > existing.effectiveFrom))) {
+        map.set(key, item);
+      }
+    }
+
+    // Fallback: if no active items found for date, use all surgeryNames
+    if (map.size === 0 && surgeryNames.length > 0) {
+      for (const item of surgeryNames) {
+        const name = (item.tenKT || (item as any).name || '').trim();
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (!map.has(key)) map.set(key, item);
+      }
+    }
+
+    return Array.from(map.values());
+  }, [surgeryNames, date]);
+
   const filteredSurgeryNames = useMemo(() => {
-    const valid = surgeryNames.filter((s) => s.name);
-    if (!tenKTSearch.trim()) return valid.slice(0, 20);
-    const q = tenKTSearch.toLowerCase();
-    return valid.filter((s) => s.name.toLowerCase().includes(q)).slice(0, 20);
-  }, [surgeryNames, tenKTSearch]);
+    const removeVnTones = (str: string) =>
+      (str || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'D')
+        .toLowerCase();
 
-  // Filtered staff for a specific role
+    if (!tenKTSearch.trim()) return activeSurgeryCatalog.slice(0, 50);
+    const q = removeVnTones(tenKTSearch.trim());
+    return activeSurgeryCatalog
+      .filter((s) => {
+        const name = s.tenKT || (s as any).name || '';
+        const mtd = s.maTuongDuong || '';
+        return removeVnTones(name).includes(q) || removeVnTones(mtd).includes(q);
+      })
+      .slice(0, 50);
+  }, [activeSurgeryCatalog, tenKTSearch]);
+
+  // ── Staff autocomplete ──
   const getFilteredStaff = useCallback(
     (role: string) => {
       const q = (staffSearches[role] || '').toLowerCase();
@@ -109,14 +319,28 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     [staffList, staffSearches]
   );
 
-  // Active machines
-  const activeMachines = useMemo(() => {
-    return machineRegistry.filter((m) => m.active);
-  }, [machineRegistry]);
+  // ── Machine search/filter ──
+  const activeMachines = useMemo(() => machineRegistry.filter((m) => m.active), [machineRegistry]);
+
+  const filteredMachines = useMemo(() => {
+    if (!machineSearch.trim()) return activeMachines;
+    const q = machineSearch.toLowerCase();
+    return activeMachines.filter(
+      (m) => m.machineName.toLowerCase().includes(q) || m.machineCode.toLowerCase().includes(q)
+    );
+  }, [activeMachines, machineSearch]);
 
   const handleMachineSelect = (machine: MachineEntry) => {
     setMachineCode(machine.machineCode);
     setMachineName(machine.machineName);
+    setMachineSearch(machine.machineName);
+    setShowMachineDropdown(false);
+  };
+
+  const handleMachineClear = () => {
+    setMachineCode('');
+    setMachineName('');
+    setMachineSearch('');
   };
 
   const handleStaffChange = (role: string, name: string) => {
@@ -124,11 +348,20 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   };
 
   const handleSubmit = async () => {
+    const sShift = parseTimeToShiftHours(startTime, dutyStartHour);
+    const eShift = parseTimeToShiftHours(endTime, dutyStartHour);
     if (!patientId.trim() || !patientName.trim() || !tenKT.trim()) return;
-    if (!startTime || !endTime || startTime >= endTime) return;
+    if (!startTime || !endTime || sShift >= eShift) return;
 
     setIsSaving(true);
     try {
+      // Chỉ lưu các vị trí hợp lệ trong displayRoles (đã được kiểm tra trùng)
+      const cleanStaff: Record<string, string> = {};
+      for (const role of displayRoles) {
+        const val = staff[role.posKey]?.trim();
+        if (val) cleanStaff[role.posKey] = val;
+      }
+
       const data: ScheduledSurgeryInput = {
         date,
         patientId: patientId.trim(),
@@ -138,7 +371,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         endTime,
         machineCode,
         machineName,
-        staff,
+        staff: cleanStaff,
         note: note.trim() || undefined,
       };
       await onSave(data);
@@ -160,82 +393,210 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 border-b border-gray-200 bg-primary-50/50">
-          <h2 className="text-sm font-bold text-primary-900">
-            {readOnly ? '👁️ Xem ca mổ' : editingEntry ? '✏️ Sửa ca mổ' : '➕ Đăng ký ca mổ'}
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors cursor-pointer"
-          >
+          <div>
+            <h2 className="text-sm font-bold text-primary-950">
+              {readOnly ? 'Chi tiết ca mổ' : editingEntry ? 'Chỉnh sửa ca mổ' : 'Đăng ký ca mổ mới'}
+            </h2>
+            <p className="text-[11px] text-gray-500 mt-0.5">
+              {editingEntry
+                ? 'Điều chỉnh giờ mổ, máy hoặc nhân sự để sắp xếp lại ca mổ và khắc phục trùng lịch'
+                : `Thêm ca phẫu thuật / thủ thuật vào lịch ngày ${date}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors cursor-pointer">
             <X size={18} />
           </button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
+          {/* ⚠️ Xung đột phát hiện trên ca này */}
+          {entryConflicts.length > 0 && (
+            <div className="rounded-xl border border-red-200 bg-red-50/90 p-3 sm:p-3.5 space-y-2.5 animate-fade-in shadow-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-red-800">
+                  <AlertTriangle size={16} className="shrink-0 text-red-600 animate-pulse" />
+                  <span>Phát hiện {entryConflicts.length} xung đột ở ca này:</span>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-red-200 text-red-900 rounded-full">
+                  Cần điều chỉnh
+                </span>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                {machineConflicts.map((c, i) => {
+                  const otherId = c.surgeryIds.find((id) => id !== editingEntry?.id);
+                  const otherSurgery = allEntries?.find((e) => e.id === otherId);
+                  return (
+                    <div
+                      key={`mc-${i}`}
+                      className="p-2.5 rounded-lg bg-white border border-red-200 shadow-xs flex items-start justify-between gap-2"
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <span className="p-1 rounded bg-red-100 text-red-600 shrink-0 mt-0.5">
+                          <Cpu size={14} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-red-900 leading-tight">
+                            Trùng máy: <span className="underline decoration-red-300">{c.resource}</span>
+                          </p>
+                          {otherSurgery ? (
+                            <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                              Trùng giờ với ca <strong className="text-gray-900">{otherSurgery.patientName}</strong> ({otherSurgery.startTime}–{otherSurgery.endTime})
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-gray-500 mt-0.5">{c.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      {otherSurgery && onSelectEntry && (
+                        <button
+                          type="button"
+                          onClick={() => onSelectEntry(otherSurgery)}
+                          className="shrink-0 px-2.5 py-1.5 bg-red-100 hover:bg-red-200 active:scale-95 text-red-800 text-[11px] font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap"
+                        >
+                          Xem ca trùng →
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {staffConflicts.map((c, i) => {
+                  const otherId = c.surgeryIds.find((id) => id !== editingEntry?.id);
+                  const otherSurgery = allEntries?.find((e) => e.id === otherId);
+                  const roleKey = Object.entries(editingEntry?.staff || {}).find(([, name]) => name && name.trim().toLowerCase() === c.resource.trim().toLowerCase())?.[0];
+                  const roleLabel = displayRoles.find((r) => r.posKey === roleKey)?.label || 'Nhân sự';
+                  return (
+                    <div
+                      key={`sc-${i}`}
+                      className="p-2.5 rounded-lg bg-white border border-blue-200 shadow-xs flex items-start justify-between gap-2"
+                    >
+                      <div className="flex items-start gap-2 min-w-0">
+                        <span className="p-1 rounded bg-blue-100 text-blue-600 shrink-0 mt-0.5">
+                          <User size={14} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-blue-950 leading-tight">
+                            Trùng {roleLabel}: <span className="underline decoration-blue-300">{c.resource}</span>
+                          </p>
+                          {otherSurgery ? (
+                            <p className="text-[11px] text-gray-600 mt-1 leading-snug">
+                              Tham gia ca <strong className="text-gray-900">{otherSurgery.patientName}</strong> ({otherSurgery.startTime}–{otherSurgery.endTime})
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-gray-500 mt-0.5">{c.description}</p>
+                          )}
+                        </div>
+                      </div>
+                      {otherSurgery && onSelectEntry && (
+                        <button
+                          type="button"
+                          onClick={() => onSelectEntry(otherSurgery)}
+                          className="shrink-0 px-2.5 py-1.5 bg-blue-100 hover:bg-blue-200 active:scale-95 text-blue-800 text-[11px] font-bold rounded-lg transition-all cursor-pointer whitespace-nowrap"
+                        >
+                          Xem ca trùng →
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Bệnh nhân */}
           <div className="grid grid-cols-5 gap-3">
             <div className="col-span-2">
-              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                Mã KCB
-              </label>
-              <input
-                type="text"
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all"
-                placeholder="VD: 2600125423"
-              />
+              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">Mã KCB</label>
+              <input type="text" value={patientId} onChange={(e) => setPatientId(e.target.value)} disabled={readOnly}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
+                placeholder="VD: 2600125423" />
             </div>
             <div className="col-span-3">
-              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                Họ tên BN
-              </label>
-              <input
-                type="text"
-                value={patientName}
-                onChange={(e) => setPatientName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all"
-                placeholder="Nguyễn Văn A"
-              />
+              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">Họ tên BN</label>
+              <input type="text" value={patientName} onChange={(e) => setPatientName(e.target.value)} disabled={readOnly}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
+                placeholder="Nguyễn Văn A" />
             </div>
           </div>
 
           {/* Tên kỹ thuật (autocomplete) */}
           <div className="relative">
-            <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-              <FileText className="inline h-3 w-3 mr-1" />
-              Tên phẫu thuật / thủ thuật
-            </label>
-            <input
-              type="text"
-              value={tenKT}
-              onChange={(e) => {
-                setTenKT(e.target.value);
-                setTenKTSearch(e.target.value);
-                setShowTenKTDropdown(true);
-              }}
-              onFocus={() => setShowTenKTDropdown(true)}
-              onBlur={() => setTimeout(() => setShowTenKTDropdown(false), 200)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all"
-              placeholder="Gõ tên hoặc chọn từ danh mục..."
-            />
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                <FileText className="inline h-3 w-3 mr-1" />
+                Tên phẫu thuật / thủ thuật
+              </label>
+              {activeSurgeryCatalog.length > 0 && (
+                <span className="text-[10px] text-gray-400">
+                  {activeSurgeryCatalog.length.toLocaleString('vi-VN')} PTTT hiệu lực
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              <input
+                type="text"
+                value={tenKT}
+                onChange={(e) => {
+                  setTenKT(e.target.value);
+                  setTenKTSearch(e.target.value);
+                  setShowTenKTDropdown(true);
+                }}
+                onFocus={() => {
+                  setTenKTSearch(tenKT);
+                  setShowTenKTDropdown(true);
+                }}
+                onBlur={() => setTimeout(() => setShowTenKTDropdown(false), 250)}
+                disabled={readOnly}
+                className="w-full pl-8 pr-8 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
+                placeholder="Gõ để tìm theo tên hoặc mã tương đương..."
+              />
+              {tenKT && !readOnly && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTenKT('');
+                    setTenKTSearch('');
+                    setShowTenKTDropdown(true);
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
             {showTenKTDropdown && filteredSurgeryNames.length > 0 && (
-              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-40 overflow-y-auto">
-                {filteredSurgeryNames.map((s, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    className="w-full px-3 py-1.5 text-left text-xs hover:bg-primary-50 transition-colors cursor-pointer"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      setTenKT(s.name);
-                      setShowTenKTDropdown(false);
-                    }}
-                  >
-                    {s.name}
-                  </button>
-                ))}
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-56 overflow-y-auto">
+                {filteredSurgeryNames.map((s) => {
+                  const name = s.tenKT || (s as any).name;
+                  return (
+                    <button
+                      key={s.id || name}
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-primary-50 transition-colors cursor-pointer flex items-center justify-between border-b border-gray-50 last:border-0"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setTenKT(name);
+                        setTenKTSearch('');
+                        setShowTenKTDropdown(false);
+                      }}
+                    >
+                      <span className="font-medium text-gray-800">{name}</span>
+                      {s.maTuongDuong && (
+                        <span className="text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded text-[10px] shrink-0 font-mono ml-2 border border-primary-100">
+                          {s.maTuongDuong}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {showTenKTDropdown && filteredSurgeryNames.length === 0 && tenKTSearch.trim() && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-3 text-center text-xs text-gray-400">
+                Không tìm thấy phẫu thuật phù hợp trong danh mục hiệu lực
               </div>
             )}
           </div>
@@ -244,174 +605,213 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                <Clock className="inline h-3 w-3 mr-1" />
-                Giờ bắt đầu
+                <Clock className="inline h-3 w-3 mr-1" /> Giờ bắt đầu
               </label>
               <select
                 value={startTime}
+                disabled={readOnly}
                 onChange={(e) => {
                   const newStart = e.target.value;
                   setStartTime(newStart);
-                  // Auto-adjust endTime if it becomes invalid
-                  if (endTime <= newStart) {
-                    const nextSlotIdx = TIME_OPTIONS.findIndex((t) => t > newStart);
-                    // Default to 1 hour after start, or next available slot
-                    const oneHourLater = TIME_OPTIONS.find((t) => t >= newStart.split(':')[0].padStart(2, '0') + ':' + (parseInt(newStart.split(':')[1]) === 0 ? '00' : '30'));
-                    const autoEnd = nextSlotIdx >= 0 ? TIME_OPTIONS[Math.min(nextSlotIdx + 1, TIME_OPTIONS.length - 1)] : '23:30';
-                    setEndTime(autoEnd);
+                  const newStartShift = parseTimeToShiftHours(newStart, dutyStartHour);
+                  const currentEndShift = parseTimeToShiftHours(endTime, dutyStartHour);
+                  if (currentEndShift <= newStartShift) {
+                    const nextSlot = shiftTimeOptions.find((opt) => opt.shiftHours > newStartShift);
+                    if (nextSlot) setEndTime(nextSlot.value);
                   }
                 }}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer"
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer disabled:opacity-50 disabled:bg-gray-50"
               >
-                {TIME_OPTIONS.map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                {enrichedStartOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
             <div>
               <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                <Clock className="inline h-3 w-3 mr-1" />
-                Giờ kết thúc
+                <Clock className="inline h-3 w-3 mr-1" /> Giờ kết thúc
               </label>
               <select
                 value={endTime}
+                disabled={readOnly}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer"
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer disabled:opacity-50 disabled:bg-gray-50"
               >
-                {TIME_OPTIONS.filter((t) => t > startTime).map((t) => (
-                  <option key={t} value={t}>{t}</option>
+                {enrichedEndOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Máy thực hiện */}
-          <div>
+          {/* Máy thực hiện — searchable dropdown */}
+          <div className="relative">
             <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-              <Cpu className="inline h-3 w-3 mr-1" />
-              Máy thực hiện
+              <Cpu className="inline h-3 w-3 mr-1" /> Máy thực hiện
             </label>
-            <select
-              value={machineCode}
-              onChange={(e) => {
-                const selected = activeMachines.find((m) => m.machineCode === e.target.value);
-                setMachineCode(e.target.value);
-                setMachineName(selected?.machineName || e.target.value);
-              }}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer"
-            >
-              <option value="">— Không chọn —</option>
-              {activeMachines.map((m) => (
-                <option key={m.machineCode} value={m.machineCode}>
-                  {m.machineName} ({m.machineCode})
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              <input type="text" value={machineSearch}
+                onChange={(e) => { setMachineSearch(e.target.value); setShowMachineDropdown(true); if (!e.target.value.trim()) handleMachineClear(); }}
+                onFocus={() => setShowMachineDropdown(true)}
+                onBlur={() => setTimeout(() => setShowMachineDropdown(false), 200)}
+                disabled={readOnly}
+                className="w-full pl-8 pr-8 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
+                placeholder="Gõ để tìm máy..." />
+              {machineCode && !readOnly && (
+                <button type="button" onClick={handleMachineClear}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-gray-400 hover:text-gray-600 cursor-pointer">
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            {machineCode && (
+              <div className="mt-1">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-primary-100 text-primary-700 rounded-full">
+                  <Cpu size={10} /> {machineName} ({machineCode})
+                </span>
+              </div>
+            )}
+            {machineConflicts.length > 0 && (
+              <div className="mt-1.5 p-1.5 rounded-md bg-red-100/90 border border-red-300 text-red-800 text-[11px] font-semibold flex items-center gap-1.5">
+                <AlertTriangle size={13} className="shrink-0 text-red-600" />
+                <span>Máy "{machineName}" đang bị trùng giờ! Vui lòng chọn máy khác hoặc đổi giờ mổ.</span>
+              </div>
+            )}
+            {showMachineDropdown && filteredMachines.length > 0 && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                {filteredMachines.map((m) => (
+                  <button key={m.machineCode} type="button"
+                    className={`w-full px-3 py-1.5 text-left text-xs hover:bg-primary-50 transition-colors cursor-pointer flex items-center gap-2 ${machineCode === m.machineCode ? 'bg-primary-50 font-bold' : ''}`}
+                    onMouseDown={(e) => { e.preventDefault(); handleMachineSelect(m); }}>
+                    <Cpu size={11} className="text-gray-400 shrink-0" />
+                    <span className="font-medium">{m.machineName}</span>
+                    <span className="text-gray-400 ml-auto text-[10px]">{m.machineCode}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {showMachineDropdown && filteredMachines.length === 0 && machineSearch.trim() && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-3 text-center text-xs text-gray-400">
+                Không tìm thấy máy phù hợp
+              </div>
+            )}
           </div>
 
-          {/* Kíp mổ */}
+          {/* Kíp mổ — roles from tableItems */}
           <div>
             <label className="block text-[11px] font-bold text-gray-500 mb-2 uppercase tracking-wide">
-              <User className="inline h-3 w-3 mr-1" />
-              Kíp mổ
+              <User className="inline h-3 w-3 mr-1" /> Kíp mổ
             </label>
             <div className="space-y-2">
-              {activeRoles.map((role) => (
-                <div key={role} className="relative">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold text-gray-600 w-20 shrink-0">
-                      {STAFF_ROLE_LABELS[role] || role}
-                    </span>
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        value={staff[role] || ''}
-                        onChange={(e) => {
-                          handleStaffChange(role, e.target.value);
-                          setStaffSearches((p) => ({ ...p, [role]: e.target.value }));
-                          setActiveStaffDropdown(role);
-                        }}
-                        onFocus={() => {
-                          setStaffSearches((p) => ({ ...p, [role]: staff[role] || '' }));
-                          setActiveStaffDropdown(role);
-                        }}
-                        onBlur={() => setTimeout(() => setActiveStaffDropdown(null), 200)}
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs focus:border-primary-400 focus:ring-1 focus:ring-primary-200 outline-none transition-all"
-                        placeholder={`Chọn ${STAFF_ROLE_LABELS[role] || role}...`}
-                      />
-                      {activeStaffDropdown === role && (
-                        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-32 overflow-y-auto">
-                          {getFilteredStaff(role).map((s) => (
-                            <button
-                              key={s.id}
-                              type="button"
-                              className="w-full px-2.5 py-1.5 text-left text-xs hover:bg-primary-50 transition-colors cursor-pointer"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                handleStaffChange(role, s.name);
-                                setActiveStaffDropdown(null);
-                              }}
-                            >
-                              <span className="font-medium">{s.name}</span>
-                              {s.position && (
-                                <span className="text-gray-400 ml-1">({s.position})</span>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+              {displayRoles.map((role) => {
+                const isRoleConflicted = conflictingStaffRoles.has(role.posKey);
+                return (
+                  <div key={role.posKey} className="relative">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold w-24 shrink-0 text-gray-700">
+                        {role.label}
+                      </span>
+                      <div className="relative flex-1">
+                        <input type="text" value={staff[role.posKey] || ''}
+                          onChange={(e) => { handleStaffChange(role.posKey, e.target.value); setStaffSearches((p) => ({ ...p, [role.posKey]: e.target.value })); setActiveStaffDropdown(role.posKey); }}
+                          onFocus={() => { setStaffSearches((p) => ({ ...p, [role.posKey]: staff[role.posKey] || '' })); setActiveStaffDropdown(role.posKey); }}
+                          onBlur={() => setTimeout(() => setActiveStaffDropdown(null), 200)}
+                          disabled={readOnly}
+                          className={`w-full px-2.5 py-1.5 rounded-lg border text-xs focus:ring-1 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50 ${
+                            isRoleConflicted
+                              ? 'border-orange-400 bg-orange-50/30 focus:border-orange-500 focus:ring-orange-200'
+                              : 'border-gray-200 focus:border-primary-400 focus:ring-primary-200'
+                          }`}
+                          placeholder={`Chọn ${role.label}...`} />
+                        {activeStaffDropdown === role.posKey && (
+                          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-32 overflow-y-auto">
+                            {getFilteredStaff(role.posKey).map((s) => (
+                              <button key={s.id} type="button"
+                                className="w-full px-2.5 py-1.5 text-left text-xs hover:bg-primary-50 transition-colors cursor-pointer"
+                                onMouseDown={(e) => { e.preventDefault(); handleStaffChange(role.posKey, s.name); setActiveStaffDropdown(null); }}>
+                                <span className="font-medium">{s.name}</span>
+                                {s.position && <span className="text-gray-400 ml-1">({s.position})</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
+                    {isRoleConflicted && (
+                      <div className="ml-26 mt-0.5 flex items-center gap-1 text-[10px] text-orange-700 font-semibold">
+                        <AlertTriangle size={11} className="shrink-0 text-orange-500" />
+                        <span>{role.label} "{staff[role.posKey]}" đang bị trùng giờ ở ca khác!</span>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
           {/* Ghi chú */}
           <div>
-            <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-              Ghi chú
-            </label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all resize-none"
-              placeholder="Ghi chú thêm (nếu có)..."
-            />
+            <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">Ghi chú</label>
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} disabled={readOnly}
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all resize-none disabled:opacity-50 disabled:bg-gray-50"
+              placeholder="Ghi chú thêm (nếu có)..." />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-4 sm:px-5 py-3 border-t border-gray-200 bg-gray-50/50">
-          {readOnly ? (
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-t border-gray-200 bg-gray-50/50">
+          {editingEntry && onDelete && !readOnly ? (
             <button
-              onClick={onClose}
-              className="px-5 py-2 text-xs font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors cursor-pointer"
+              type="button"
+              onClick={() => {
+                if (window.confirm(`Bạn có chắc chắn muốn xóa ca mổ của bệnh nhân "${editingEntry.patientName}"?`)) {
+                  onDelete(editingEntry);
+                }
+              }}
+              className="px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 hover:border-red-300 border border-red-200 rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
             >
-              Đóng
+              <Trash2 size={13} />
+              <span>Xóa ca mổ</span>
             </button>
           ) : (
-            <>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={isSaving || !patientId.trim() || !patientName.trim() || !tenKT.trim() || startTime >= endTime}
-                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
-                  isSaving || !patientId.trim() || !patientName.trim() || !tenKT.trim() || startTime >= endTime
-                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
-                }`}
-              >
-                {isSaving ? 'Đang lưu...' : editingEntry ? 'Cập nhật' : 'Đăng ký ca mổ'}
-              </button>
-            </>
+            <div />
           )}
+
+          <div className="flex items-center gap-2">
+            {readOnly ? (
+              <button onClick={onClose} className="px-5 py-2 text-xs font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors cursor-pointer">
+                Đóng
+              </button>
+            ) : (
+              <>
+                <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer">Hủy</button>
+                <button onClick={handleSubmit}
+                  disabled={
+                    isSaving ||
+                    !patientId.trim() ||
+                    !patientName.trim() ||
+                    !tenKT.trim() ||
+                    parseTimeToShiftHours(startTime, dutyStartHour) >= parseTimeToShiftHours(endTime, dutyStartHour)
+                  }
+                  className={`px-5 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                    isSaving ||
+                    !patientId.trim() ||
+                    !patientName.trim() ||
+                    !tenKT.trim() ||
+                    parseTimeToShiftHours(startTime, dutyStartHour) >= parseTimeToShiftHours(endTime, dutyStartHour)
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
+                  }`}>
+                  {isSaving ? 'Đang lưu...' : editingEntry ? 'Lưu thay đổi' : 'Đăng ký ca mổ'}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>
