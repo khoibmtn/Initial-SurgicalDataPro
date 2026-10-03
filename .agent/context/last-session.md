@@ -1,108 +1,146 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 01/10/2026 17:15 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `main` (remote: `origin/main`), đã đồng bộ hoàn toàn với `version2` (`origin/version2`)  
-> **Commit mới nhất (main & version2):** `241c121` (`fix(app): resolve TDZ ReferenceError for useAuth in AppContent`)  
+> **Thời gian cập nhật:** 03/10/2026 23:35 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `main` (commit `bb495f3`), nhánh làm việc tạm: `temp-03-10-2026-23h25`  
+> **Remote:** `origin/main` đã push đầy đủ lên GitHub  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
-> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build, dist/assets/index-CL2lkbLa.js)`  
-> **Trạng thái Test:** `290 / 290 tests PASS` (19 test suites, 100% pass)  
+> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build, 6.51s)`  
+> **Trạng thái Test:** `331 / 331 tests PASS` (23 test suites, 100% pass)  
 
 ---
 
 ## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
 
-### 1.1. Chuẩn Hóa Logic Ca Trực 24h & Ngoài Giờ Tại Các Mốc Giao Mùa
-- **Bối cảnh quy định**:
-  - Giờ làm việc Mùa Hè (01/05 – 30/09): Sáng từ 07:00 đến 11:30.
-  - Giờ làm việc Mùa Đông (01/10 – 30/04 năm sau): Sáng từ 07:30 đến 12:00.
-- **Tính toán mốc thời gian chuyển tiếp (Boundary Conditions)**:
-  - **Tua trực ngày 30/09**: Bắt đầu lúc 07:00 ngày 30/09 và kết thúc vào giờ làm việc hành chính sáng hôm sau (ngày 01/10 bắt đầu mùa đông lúc 07:30, do đó ca trực kéo dài đến **07:29 ngày 01/10** — dài hơn 30 phút so với các ngày thường).
-  - **Tua trực ngày 30/04**: Bắt đầu lúc 07:30 ngày 30/04 và kết thúc vào giờ làm việc hành chính sáng hôm sau (ngày 01/05 bắt đầu mùa hè lúc 07:00, do đó ca trực kết thúc lúc **06:59 ngày 01/05** — ngắn hơn 30 phút so với các ngày thường).
-- **Đồng bộ hóa Nút bấm "Lấy dữ liệu trực" & Logic Tính Ngoài Giờ (`overtimeCalculation.ts`)**:
-  - Khắc phục triệt để sai lệch lấy thiếu/thừa 30 phút ở cả 2 nút lấy dữ liệu tự động.
-  - Hàm xác định ngoài giờ `isOvertimeSurgery` sử dụng thời điểm giữa cuộc mổ (`midPoint`) đối chiếu chính xác theo từng phút với khung giờ chuyển mùa này.
-  - Đã bổ sung 26/26 bộ unit test chuyên biệt trong `__tests__/overtimeCalculation.test.ts`.
+### 1.1. Tối Ưu Tốc Độ Tải Lịch Mổ (Stale-While-Revalidate & Prefetching)
+- **Cơ chế Cache 2 tầng**:
+  - Lưu trữ tạm thời lịch mổ của từng ngày trong bộ nhớ RAM (`memoryCache`) và `localStorage` (`schedule_cache_v1:{date}`, tối đa 21 ngày gần nhất).
+  - Khi mở tab Lịch mổ hoặc chuyển ngày, dữ liệu cache được hiển thị **tức thì (0ms)**, đồng thời Firebase RTDB listener kích hoạt ngầm để cập nhật dữ liệu mới nhất.
+  - Cạnh tiêu đề ngày có biểu tượng xoay kèm trạng thái rõ ràng: "Đang tải" (chưa có cache) hoặc "Đang đồng bộ" (đang hiển thị cache và chờ dữ liệu thời gian thực).
+- **Prefetching ngày trước & ngày sau**:
+  - Khi ngày hiện tại đã đồng bộ xong (`live`), hệ thống tự động tải trước dữ liệu của ngày hôm trước (d-1) và ngày hôm sau (d+1), giúp thao tác bấm ◀ / ▶ chuyển ngày diễn ra ngay lập tức.
+- **Trì hoãn tải danh mục giá (`surgery_name_prices`)**:
+  - Danh mục giá phẫu thuật (~2.5 MB, hơn 3.000 mục) chia sẻ chung kết nối WebSocket Firebase. Trong tab Lịch mổ, danh mục này được trì hoãn và chỉ nạp khi người dùng mở modal thêm/sửa ca mổ, loại bỏ hoàn toàn hiện tượng nghẽn đường truyền lúc mới tải lịch.
+- **Bộ nhớ đệm tuần (`WeekOverview.tsx`)**:
+  - Tổng quan tuần khởi tạo trực tiếp từ cache và memo hóa việc phát hiện xung đột, không tính toán lại dư thừa khi re-render.
 
 ---
 
-### 1.2. Nâng Cấp Xác Thực: Bắt Buộc Số Điện Thoại & Đăng Nhập Linh Hoạt
-- **Bắt buộc số điện thoại khi đăng ký**:
-  - Trường `phoneNumber` được lưu trữ dạng chuỗi văn bản (`string`) để bảo tồn số `0` ở đầu.
-  - Kiểm tra tính duy nhất (Unique check) trên hệ cơ sở dữ liệu: không cho phép đăng ký trùng số điện thoại.
-  - Validate định dạng số điện thoại chuẩn Việt Nam (10 chữ số, bắt đầu bằng 03, 05, 07, 08, 09).
-- **Hỗ trợ đăng nhập đa kênh**:
-  - Người dùng có thể đăng nhập bằng **Nickname/Username** HOẶC **Số điện thoại** cùng với mật khẩu.
-  - Cập nhật giao diện `LoginModal.tsx` và dịch vụ `authService.ts`.
+### 1.2. Nhập Giờ Tự Do 24h & Khắc Phục Lỗi AM/PM (`TimeInput24`)
+- **Vấn đề trước đây**: Thẻ `<input type="time">` phụ thuộc vào locale của trình duyệt và hệ điều hành, thường hiển thị dạng 12h (AM/PM, ví dụ `01:05 PM`).
+- **Giải pháp**: Xây dựng component chuyên dụng [TimeInput24.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/common/TimeInput24.tsx):
+  - Luôn hiển thị định dạng chuẩn 24h (ví dụ `13:05`, không có AM/PM).
+  - Hỗ trợ gõ tắt linh hoạt tự động chuẩn hóa: `1305` ➔ `13:05`, `801` ➔ `08:01`, `13h` ➔ `13:00`, `8` ➔ `08:00`.
+  - Phím tắt bàn phím: Bấm phím mũi tên `↑` / `↓` để tăng/giảm từng 1 phút; giữ `Shift + ↑ / ↓` để tăng/giảm 15 phút.
+  - Tự động điều chỉnh giờ kết thúc khi đổi giờ bắt đầu nếu giờ kết thúc cũ không còn hợp lệ.
 
 ---
 
-### 1.3. Hệ Thống Ghi Dấu Thao Tác (Audit Log) & Lịch Sử Đăng Nhập
-- **Ghi nhận toàn diện các hành vi**:
-  - Đăng nhập, đăng xuất, đổi mật khẩu.
-  - Thêm, sửa, xóa ca phẫu thuật / thủ thuật.
-  - Khóa / mở khóa báo cáo ngày và báo cáo tháng.
-  - Xuất dữ liệu Excel, cập nhật danh mục, cấu hình hệ thống.
-- **Phân quyền bảo mật cao cấp (Admin & Trưởng khoa)**:
-  - Chỉ tài khoản có vai trò **Admin (`isAdmin`)** hoặc **Trưởng khoa (`isHead`)** mới có quyền truy cập tab Nhật ký thao tác và Lịch sử đăng nhập.
-  - Toàn bộ các tài khoản khác bị chặn cả ở mức giao diện người dùng và API/Service rules.
-  - Bổ sung 19 bài kiểm thử chuyên sâu trong `__tests__/auditLog.test.ts` và `__tests__/authPhoneAndAudit.test.ts`.
+### 1.3. Chuẩn Hóa Khung Giờ Ca Trực 24h & Loại Bỏ Ký Hiệu "+1" Trên Timeline
+- **Khung ca trực 24h**: Bắt đầu từ giờ hành chính sáng (07:30 mùa đông, 07:00 mùa hè) kéo dài đến trước giờ hành chính sáng hôm sau (07:29 hoặc 06:59).
+- **Loại bỏ ký hiệu "+1"**:
+  - Theo yêu cầu người dùng, các mốc giờ sau nửa đêm thuộc ca trực (00:00 – 07:29) được hiển thị dạng `HH:mm` thuần túy, không kèm ký hiệu `+1` ở mốc đo thời gian (ticks), trên thẻ ca mổ (timeline cards) và trong danh sách.
+  - Header tua trực hiển thị mốc kết thúc chính xác là `dutyStartHour - 1 phút` (ví dụ: `07:30 đến 07:29`).
+- **Khắc phục lỗi hàm parse thời gian (`scheduleConflictService.ts`)**:
+  - Sửa lỗi regex cũ `t.replace(/[^\d:]/g, '')` vô tình biến chuỗi `"07:30 (+1)"` thành `"07:301"` khiến giờ bị tính sai thành ~12h trưa. Sử dụng regex bóc tách nhóm `(\d{1,2})(?:\s*[:hH]\s*(\d{1,2}))?` chuẩn xác.
 
 ---
 
-### 1.4. Khắc Phục Lỗi Production Temporal Dead Zone (TDZ)
-- **Hiện tượng**: Bản build production tại `https://initial-surgical-data-pro.vercel.app` gặp sự cố tải do ErrorBoundary bắt lỗi `Cannot access 'le' before initialization`.
-- **Nguyên nhân**: Trong `App.tsx`, `useDutyScheduleState` được gọi với tham số `currentUser: user` trước khi khai báo `const { user, ... } = useAuth();`.
-- **Xử lý**: Đã di chuyển dòng `const { user, isAdmin, isHead, currentRole, can } = useAuth();` lên trước `useDutyScheduleState`.
-- **Kiểm thử**: Đã chạy Browser Subagent kiểm tra trực tiếp môi trường Localhost Preview và Vercel Production, xác nhận hệ thống tải mượt mà 100%, không còn bất kỳ lỗi khởi tạo nào.
+### 1.4. Khắc Phục Triệt Để Lỗi Không Thêm Được Ca Mổ Mới
+- **Hiện tượng**: Bấm "Thêm ca mổ", điền thông tin và bấm "Đăng ký ca mổ" nhưng modal không phản hồi và ca mổ không được lưu.
+- **Nguyên nhân gốc rễ**:
+  - Firebase Realtime Database (RTDB) cấm hoàn toàn giá trị `undefined` trong object gửi lên.
+  - Khi người dùng để trống ô **Ghi chú**, trường `note` nhận giá trị `undefined` (`note: undefined`).
+  - Firebase SDK ném ngoại lệ client-side: `set failed: value argument contains undefined in property 'surgery_schedules.YYYY-MM-DD.<id>.note'`.
+  - Ngoại lệ bị khối `try...catch` cũ bắt mà không hiển thị thông báo lỗi lên UI, khiến nút bấm dường như bị vô hiệu hóa.
+- **Xử lý**:
+  - Viết hàm [stripUndefined](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/services/scheduleService.ts#L18-L20) trong `scheduleService.ts` tự động loại bỏ toàn bộ key `undefined` trước khi thực hiện `set` / `update`.
+  - Trong `ScheduleSurgeryModal.tsx`, chỉ truyền `note` khi có nội dung thực tế (`...(note.trim() ? { note: note.trim() } : {})`).
+  - Thêm hiển thị thông báo lỗi `saveError` (màu đỏ, trợ năng `role="alert"`) ngay cạnh nút lưu để cảnh báo ngay nếu gặp lỗi phân quyền hoặc lỗi mạng.
+  - Khi cập nhật ca mổ mà xóa trắng ghi chú, trường `note` được đặt thành `null` để Firebase RTDB xóa sạch key cũ.
+  - Đã kiểm thử trực tiếp thao tác ghi / đọc / xóa với Firebase RTDB qua script Node.js và unit test (`__tests__/verifyAddSurgery.test.ts`).
+
+---
+
+### 1.5. Rà Soát Kíp Mổ & Kiểm Tra Trùng Giờ Theo Định Mức Bàn Mổ
+- **Sửa lỗi kíp mổ chỉ hiện BS GMHS**:
+  - Nguyên nhân: Trước đó code lấy nhầm bộ lọc từ `reportRoleFilters` (vốn là bộ lọc nhập file báo cáo ngoài giờ với cấu hình mặc định chỉ chọn BS GMHS).
+  - Khắc phục: Phân hệ xếp lịch mổ lấy danh sách vị trí từ `STAFF_POSITIONS` kết hợp với `tableItems` ("Định mức bàn mổ") có `limit > 0`.
+  - Vị trí Giúp việc (`gv` có `limit = 0`) được ẩn theo đúng quy chế khoa phòng; các vị trí Phẫu thuật chính, Phẫu thuật phụ, Bác sĩ GMHS, Kỹ thuật viên GM, Tít dụng cụ hiển thị đầy đủ.
+- **Kiểm tra trùng giờ thông minh theo Định mức bàn mổ (`roleLimits`)**:
+  - Bác sĩ GMHS có định mức bàn mổ = 2 (có thể phụ trách tối đa 2 bàn mổ cùng lúc). Khi BS GMHS tham gia 2 ca mổ trùng giờ nhau, hệ thống **KHÔNG báo trùng**. Chỉ khi tham gia từ ca thứ 3 trở lên trong cùng khoảng thời gian mới kích hoạt cảnh báo xung đột nhân sự.
+
+---
+
+### 1.6. Chế Độ Màn Hình Chiếu (Projector Mode)
+- **Mục đích**: Tối ưu cho màn hình TV lớn / máy chiếu trong phòng theo dõi sắp xếp ca mổ.
+- **Giao diện [ProjectorView.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/scheduling/ProjectorView.tsx)**:
+  - Nút biểu tượng `MonitorPlay` trên thanh công cụ của desktop.
+  - Đồng hồ điện tử kích thước lớn hiển thị thời gian thực theo từng giây (`HH:mm:ss`).
+  - Thống kê trực quan: Tổng ca, Đang mổ, Sắp tới, Đã xong, Số ca xung đột.
+  - Bố cục chia 2 vùng: Bên trái là Timeline 24h tự động co giãn vừa khung hình (zoom 40/60/80); bên phải là danh sách ca mổ phân theo trạng thái.
+  - Hỗ trợ nút "Toàn màn hình" (Fullscreen API), phím `Esc` để thoát; nhấp vào bất kỳ ca mổ nào vẫn mở modal chỉnh sửa bình thường.
+
+---
+
+### 1.7. Tối Ưu Trải Nghiệm Trên Điện Thoại (Mobile Experience)
+- **Giao diện [MobileScheduleList.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/scheduling/MobileScheduleList.tsx)**:
+  - Tự động gom nhóm ca mổ theo 3 trạng thái: **Đang mổ**, **Sắp tới**, **Đã xong** dựa trên thời gian thực của ca trực.
+  - Ca đang mổ có thanh tiến độ (progress bar) trực quan ở chân thẻ.
+  - Thẻ ca mổ được thiết kế lại: Tên bệnh nhân luôn hiển thị trọn vẹn ở dòng trên cùng, dòng tiếp theo là thời gian và phẫu thuật viên chính, dòng dưới là tên kỹ thuật mổ.
+  - Nút bấm tròn nổi (+) (Floating Action Button) cố định ở góc dưới bên phải màn hình giúp thao tác thêm ca mổ bằng một tay thuận tiện.
+  - Hỗ trợ cử chỉ vuốt ngón tay (Swipe ◀ / ▶) để chuyển ngày mượt mà.
 
 ---
 
 ## 📐 2. Cấu Trúc Dữ Liệu & Schema Trọng Điểm
 
-### 2.1. Audit Log Schema (`types/auditLog.ts`)
+### 2.1. Scheduled Surgery Schema (`types/schedule.ts`)
 ```typescript
-export interface AuditLogEntry {
+export interface ScheduledSurgery {
   id: string;
-  userId: string;
-  userName: string;
-  userRole: string;
-  action: 'LOGIN' | 'LOGOUT' | 'CREATE' | 'UPDATE' | 'DELETE' | 'LOCK_REPORT' | 'UNLOCK_REPORT' | 'EXPORT_EXCEL' | 'CONFIG_CHANGE';
-  targetType: 'SURGERY' | 'DUTY_SCHEDULE' | 'SERVICE_PACKAGE' | 'REPORT_LOCK' | 'SYSTEM_CONFIG' | 'AUTH';
-  targetId?: string;
-  details?: string;
-  previousData?: any;
-  newData?: any;
-  ipAddress?: string;
-  timestamp: number;
+  date: string;             // yyyy-mm-dd
+  patientId: string;        // Mã KCB
+  patientName: string;      // Họ tên BN
+  tenKT: string;            // Tên phẫu thuật / thủ thuật
+
+  startTime: string;        // HH:mm (24h)
+  endTime: string;          // HH:mm (24h)
+
+  machineCode: string;
+  machineName: string;
+
+  staff: Record<string, string>; // { ptChinh, ptPhu, bsGM, ktvGM, tdc }
+  note?: string;
+
+  createdBy: string;        // uid
+  createdByName: string;    // display name
+  createdAt: number;        // timestamp ms
+  updatedAt: number;        // timestamp ms
 }
+
+export type ScheduledSurgeryInput = Omit<ScheduledSurgery, 'id' | 'createdBy' | 'createdByName' | 'createdAt' | 'updatedAt'>;
 ```
 
-### 2.2. User Profile Schema với Phone Number
+### 2.2. Conflict Detection với Định Mức Bàn Mổ
 ```typescript
-export interface UserProfile {
-  uid: string;
-  username: string;
-  fullName: string;
-  phoneNumber: string;       // Lưu dạng chuỗi text: '0987654321'
-  role: 'admin' | 'head' | 'doctor' | 'nurse' | 'viewer';
-  departmentId?: string;
-  active: boolean;
-  createdAt: number;
-  lastLoginAt?: number;
-}
+export function detectConflicts(
+  entries: ScheduledSurgery[],
+  roleFilters?: RoleFilterConfig,
+  dutyStartHour: number = 7.5,
+  roleLimits?: Partial<Record<string, number>>, // { ptChinh: 1, ptPhu: 1, bsGM: 2, ktvGM: 1, tdc: 1 }
+): ScheduleConflict[];
 ```
 
 ---
 
 ## 🚀 3. Trạng Thái Git, Build & Deploy
 
-- **Nhánh `main` & `version2`**: Đã merge và push đầy đủ lên GitHub remote (`origin/main`, `origin/version2`).
-- **Commit mới nhất**: `241c121` (`fix(app): resolve TDZ ReferenceError for useAuth in AppContent`).
-- **Kiểm thử (Vitest)**: **19 test suites, 290 / 290 tests PASS (100%)**.
-- **Build (Vite v6.4.1)**: Build production bundle thành công không có lỗi.
-- **Deploy**:
-  - Vercel Production: `https://initial-surgical-data-pro.vercel.app` (Đang hoạt động ổn định).
-- **Tuân thủ quy chuẩn**:
-  - Clean Code, AAA Testing pattern.
-  - Tuân thủ nghiêm ngặt quy tắc Purple Ban và giao diện y tế cao cấp.
+- **Nhánh `main`**: Đã merge commit `bb495f3` và push lên GitHub (`origin/main`).
+- **Nhánh làm việc tạm**: `temp-03-10-2026-23h25`.
+- **Deploy Vercel Production**: Thành công 100% tại `https://initial-surgical-data-pro.vercel.app`.
+- **Bộ kiểm thử tự động**: 23 test suites, 331 tests passed.
+- **Tuân thủ quy tắc dự án**:
+  - Không vi phạm Purple Ban (không sử dụng màu tím/violet).
+  - Không phụ thuộc vào `reportRoleFilters` trong phân hệ xếp lịch.
+  - Giữ nguyên các vị trí định mức bàn mổ và quy chế trực 24h.
