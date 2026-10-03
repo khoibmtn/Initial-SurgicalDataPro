@@ -239,40 +239,68 @@ export function getNamePriceFast(
   };
 }
 
-// --- Realtime Subscription ---
+// --- Realtime Subscription (shared) ---
+// Danh mục ~2.5 MB: dùng chung 1 listener + 1 lần parse/sort cho mọi nơi đăng ký,
+// lần mở tab sau nhận dữ liệu ngay từ cache thay vì parse lại.
+
+const viCollator = new Intl.Collator('vi');
+let cachedPrices: SurgeryNamePrice[] | null = null;
+const priceListeners = new Set<(prices: SurgeryNamePrice[]) => void>();
+let stopPriceListener: (() => void) | null = null;
+let stopTimer: ReturnType<typeof setTimeout> | null = null;
+
+function parsePrices(data: Record<string, any> | null): SurgeryNamePrice[] {
+  if (!data) return [];
+  const prices: SurgeryNamePrice[] = Object.entries(data).map(([key, val]: [string, any]) => ({
+    id: key,
+    tenKT: val.tenKT || '',
+    price: val.price || 0,
+    effectiveFrom: normalizeStoredDate(val.effectiveFrom),  // yyyymmdd → yyyy-mm-dd
+    effectiveTo: val.effectiveTo ? normalizeStoredDate(val.effectiveTo) : null,  // yyyymmdd → yyyy-mm-dd
+    createdAt: val.createdAt || 0,
+    maTuongDuong: val.maTuongDuong || val.note || '',
+  }));
+
+  // Sort by tenKT then effectiveFrom desc
+  prices.sort((a, b) => {
+    const cmp = viCollator.compare(a.tenKT, b.tenKT);
+    if (cmp !== 0) return cmp;
+    return b.effectiveFrom.localeCompare(a.effectiveFrom);
+  });
+  return prices;
+}
 
 export function subscribeToSurgeryNamePrices(
   callback: (prices: SurgeryNamePrice[]) => void
 ): () => void {
-  const pricesRef = ref(db, NAME_PRICES_PATH);
-  const unsubscribe = onValue(pricesRef, (snapshot) => {
-    const data = snapshot.val();
-    if (!data) {
-      callback([]);
-      return;
-    }
+  priceListeners.add(callback);
+  if (stopTimer) {
+    clearTimeout(stopTimer);
+    stopTimer = null;
+  }
+  if (cachedPrices) callback(cachedPrices);
 
-    const prices: SurgeryNamePrice[] = Object.entries(data).map(([key, val]: [string, any]) => ({
-      id: key,
-      tenKT: val.tenKT || '',
-      price: val.price || 0,
-      effectiveFrom: normalizeStoredDate(val.effectiveFrom),  // yyyymmdd → yyyy-mm-dd
-      effectiveTo: val.effectiveTo ? normalizeStoredDate(val.effectiveTo) : null,  // yyyymmdd → yyyy-mm-dd
-      createdAt: val.createdAt || 0,
-      maTuongDuong: val.maTuongDuong || val.note || '',
-    }));
-
-    // Sort by tenKT then effectiveFrom desc
-    prices.sort((a, b) => {
-      const cmp = a.tenKT.localeCompare(b.tenKT, 'vi');
-      if (cmp !== 0) return cmp;
-      return b.effectiveFrom.localeCompare(a.effectiveFrom);
+  if (!stopPriceListener) {
+    stopPriceListener = onValue(ref(db, NAME_PRICES_PATH), (snapshot) => {
+      cachedPrices = parsePrices(snapshot.val());
+      priceListeners.forEach((listener) => listener(cachedPrices!));
     });
+  }
 
-    callback(prices);
-  });
-
-  return unsubscribe;
+  return () => {
+    priceListeners.delete(callback);
+    // Giữ listener thêm 1 phút để chuyển tab qua lại không phải tải lại
+    if (priceListeners.size === 0 && !stopTimer) {
+      stopTimer = setTimeout(() => {
+        stopTimer = null;
+        if (priceListeners.size === 0 && stopPriceListener) {
+          stopPriceListener();
+          stopPriceListener = null;
+          cachedPrices = null;
+        }
+      }, 60_000);
+    }
+  };
 }
 
 // --- CRUD ---

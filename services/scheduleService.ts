@@ -69,6 +69,41 @@ export async function getScheduleForDate(date: string): Promise<ScheduledSurgery
   return Object.values(data);
 }
 
+// ── Per-date cache (stale-while-revalidate) ──
+const CACHE_PREFIX = 'schedule_cache_v1:';
+const CACHE_INDEX_KEY = 'schedule_cache_v1__index';
+const CACHE_MAX_DATES = 21;
+const memoryCache = new Map<string, ScheduledSurgery[]>();
+
+/** Lấy lịch đã cache của 1 ngày (bộ nhớ → localStorage). undefined = chưa từng tải. */
+export function getCachedSchedule(date: string): ScheduledSurgery[] | undefined {
+  const mem = memoryCache.get(date);
+  if (mem) return mem;
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + date);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as ScheduledSurgery[];
+    if (!Array.isArray(parsed)) return undefined;
+    memoryCache.set(date, parsed);
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeCache(date: string, entries: ScheduledSurgery[]): void {
+  memoryCache.set(date, entries);
+  try {
+    localStorage.setItem(CACHE_PREFIX + date, JSON.stringify(entries));
+    const index: string[] = JSON.parse(localStorage.getItem(CACHE_INDEX_KEY) || '[]');
+    const next = [date, ...index.filter((d) => d !== date)];
+    next.slice(CACHE_MAX_DATES).forEach((d) => localStorage.removeItem(CACHE_PREFIX + d));
+    localStorage.setItem(CACHE_INDEX_KEY, JSON.stringify(next.slice(0, CACHE_MAX_DATES)));
+  } catch {
+    // quota / private mode — memory cache vẫn hoạt động
+  }
+}
+
 /**
  * Subscribe realtime ca mổ theo ngày.
  * Trả về hàm unsubscribe.
@@ -80,14 +115,12 @@ export function subscribeScheduleForDate(
   const dateRef = ref(db, datePath(date));
 
   const unsub = onValue(dateRef, (snapshot) => {
-    if (!snapshot.exists()) {
-      callback([]);
-      return;
-    }
-    const data = snapshot.val() as Record<string, ScheduledSurgery>;
-    const entries = Object.values(data).sort((a, b) => {
-      return a.startTime.localeCompare(b.startTime);
-    });
+    const entries = snapshot.exists()
+      ? Object.values(snapshot.val() as Record<string, ScheduledSurgery>).sort((a, b) =>
+          a.startTime.localeCompare(b.startTime),
+        )
+      : [];
+    writeCache(date, entries);
     callback(entries);
   });
 
@@ -106,7 +139,7 @@ export function subscribeScheduleForWeek(
   const unsubs: (() => void)[] = [];
 
   dates.forEach((date) => {
-    result[date] = [];
+    result[date] = getCachedSchedule(date) ?? [];
     const unsub = subscribeScheduleForDate(date, (entries) => {
       result[date] = entries;
       // Trigger callback with fresh copy

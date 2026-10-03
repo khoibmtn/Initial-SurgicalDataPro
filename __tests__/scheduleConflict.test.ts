@@ -184,3 +184,38 @@ describe('scheduleConflictService', () => {
     });
   });
 });
+
+describe('scheduling roles derived from Định mức bàn mổ', () => {
+  it('checks every position with limit > 0 and skips Giúp việc (limit 0)', async () => {
+    const { getTableLimitForRole } = await import('../services/laborConfigService');
+    const items = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'].map((posKey) => ({
+      id: posKey, posKey, label: posKey, limit: posKey === 'gv' ? 0 : posKey === 'bsGM' ? 2 : 1,
+      effectiveFrom: '2020-01-01', effectiveTo: null, createdAt: 0, updatedAt: 0,
+    }));
+    const enabled = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv']
+      .filter((k) => getTableLimitForRole(k, '2026-10-03', items as any) > 0);
+    expect(enabled).toEqual(['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc']);
+  });
+});
+
+describe('staff conflicts respect Định mức bàn mổ (roleLimits)', () => {
+  const filters = { ptChinh: true, ptPhu: true, bsGM: true, ktvGM: true, tdc: true };
+  const limits = { ptChinh: 1, ptPhu: 1, bsGM: 2, ktvGM: 1, tdc: 1 };
+  const gm = (id: string, startTime: string, endTime: string) =>
+    makeSurgery({ id, startTime, endTime, staff: { bsGM: 'BS GM Lê' } });
+
+  it('allows BS GMHS in 2 concurrent surgeries when limit is 2', () => {
+    const conflicts = detectConflicts([gm('a', '08:00', '10:00'), gm('b', '09:00', '11:00')], filters, 7.5, limits);
+    expect(conflicts.filter((c) => c.type === 'STAFF')).toHaveLength(0);
+  });
+
+  it('flags BS GMHS when 3 surgeries overlap beyond limit 2', () => {
+    const conflicts = detectConflicts(
+      [gm('a', '08:00', '10:00'), gm('b', '08:30', '10:30'), gm('c', '09:00', '11:00')],
+      filters, 7.5, limits,
+    );
+    const staff = conflicts.filter((c) => c.type === 'STAFF');
+    expect(staff.length).toBeGreaterThan(0);
+    expect(staff[0].description).toContain('quá 2 ca');
+  });
+});

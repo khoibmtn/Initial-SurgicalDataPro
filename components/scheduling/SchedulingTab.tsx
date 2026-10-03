@@ -2,18 +2,20 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Calendar,
   BarChart3, Download, Copy, Filter, Cpu, User, X,
-  List, Clock, MoveHorizontal, MoveVertical,
+  List, Clock, MoveHorizontal, MoveVertical, MonitorPlay,
 } from 'lucide-react';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useConfig, type RoleFilterConfig } from '../../contexts/ConfigContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { DayTimelineView, type ZoomLevel, type TimelineOrientation } from './DayTimelineView';
 import { MobileScheduleList } from './MobileScheduleList';
 import { WeekOverview } from './WeekOverview';
+import { ProjectorView } from './ProjectorView';
 import { ConflictSummary } from './ConflictSummary';
 import { ScheduleSurgeryModal } from './ScheduleSurgeryModal';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import {
   subscribeScheduleForDate,
+  getCachedSchedule,
   addScheduledSurgery,
   updateScheduledSurgery,
   deleteScheduledSurgery,
@@ -22,6 +24,7 @@ import { detectConflicts, getConflictedSurgeryIds } from '../../services/schedul
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
 import { exportScheduleToExcel } from '../../services/scheduleExportService';
 import { getScheduleForDate } from '../../services/overtimeCalculationService';
+import { getTableLimitForRole } from '../../services/laborConfigService';
 import type { ScheduledSurgery, ScheduledSurgeryInput } from '../../types/schedule';
 import type { SurgeryNamePrice } from '../../types';
 import { Tooltip } from '../common/Tooltip';
@@ -87,6 +90,7 @@ export const SchedulingTab: React.FC = () => {
     typeof window !== 'undefined' && window.innerWidth < 768 ? 80 : 120
   );
   const [viewMode, setViewMode] = useState<'timeline' | 'list'>('timeline');
+  const [showProjector, setShowProjector] = useState(false);
   const [timelineOrientation, setTimelineOrientation] = useState<TimelineOrientation>(() => {
     if (typeof window !== 'undefined') {
       const isSmall = window.innerWidth < 768;
@@ -146,16 +150,43 @@ export const SchedulingTab: React.FC = () => {
   const [filterStaff, setFilterStaff] = useState<string>('');
   const [showFilterBar, setShowFilterBar] = useState(false);
 
-  // Subscribe
+  // Subscribe — hiển thị ngay dữ liệu cache, rồi cập nhật realtime
+  const [scheduleStatus, setScheduleStatus] = useState<'loading' | 'cached' | 'live'>(() =>
+    getCachedSchedule(toDateString(new Date())) ? 'cached' : 'loading'
+  );
   useEffect(() => {
-    const unsub = subscribeScheduleForDate(dateStr, setEntries);
+    const cached = getCachedSchedule(dateStr);
+    setEntries(cached ?? []);
+    setScheduleStatus(cached ? 'cached' : 'loading');
+    const unsub = subscribeScheduleForDate(dateStr, (next) => {
+      setEntries(next);
+      setScheduleStatus('live');
+    });
     return () => unsub();
   }, [dateStr]);
 
+  // Prefetch ngày trước/sau để chuyển ngày tức thì (payload nhỏ)
   useEffect(() => {
+    if (scheduleStatus !== 'live') return;
+    const shift = (days: number) => {
+      const d = new Date(currentDate);
+      d.setDate(d.getDate() + days);
+      return toDateString(d);
+    };
+    const unsubs = [shift(-1), shift(1)].map((d) => subscribeScheduleForDate(d, () => {}));
+    return () => unsubs.forEach((u) => u());
+  }, [currentDate, scheduleStatus === 'live']); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Danh mục tên PT (~2.5MB) chỉ cần cho modal → tải khi mở modal lần đầu
+  const [needSurgeryNames, setNeedSurgeryNames] = useState(false);
+  useEffect(() => {
+    if (showModal) setNeedSurgeryNames(true);
+  }, [showModal]);
+  useEffect(() => {
+    if (!needSurgeryNames) return;
     const unsub = subscribeToSurgeryNamePrices((prices) => setSurgeryNames(prices));
     return () => unsub();
-  }, []);
+  }, [needSurgeryNames]);
 
   // Duty shift season & start hour (07:30 in winter, 07:00 in summer)
   const seasonSchedule = useMemo(() => {
@@ -168,9 +199,25 @@ export const SchedulingTab: React.FC = () => {
     return (isNaN(h) ? 7 : h) + (isNaN(m) ? 30 : m) / 60;
   }, [dutyStartStr]);
 
-  // Conflicts
-  const roleFilters = config.reportRoleFilters;
-  const allConflicts = useMemo(() => detectConflicts(entries, roleFilters, dutyStartHour), [entries, roleFilters, dutyStartHour]);
+  // Conflicts — vị trí cần check trùng lấy từ "Định mức bàn mổ" (limit > 0),
+  // KHÔNG dùng reportRoleFilters (đó là bộ lọc nhập báo cáo, không liên quan xếp lịch)
+  const roleLimits = useMemo<Record<string, number>>(() => {
+    const keys = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc'];
+    return Object.fromEntries(
+      keys.map((k) => [k, getTableLimitForRole(k, dateStr, config.tableItems, config.staffLimits)])
+    );
+  }, [config.tableItems, config.staffLimits, dateStr]);
+  const roleFilters = useMemo<RoleFilterConfig>(() => ({
+    ptChinh: roleLimits.ptChinh > 0,
+    ptPhu: roleLimits.ptPhu > 0,
+    bsGM: roleLimits.bsGM > 0,
+    ktvGM: roleLimits.ktvGM > 0,
+    tdc: roleLimits.tdc > 0,
+  }), [roleLimits]);
+  const allConflicts = useMemo(
+    () => detectConflicts(entries, roleFilters, dutyStartHour, roleLimits),
+    [entries, roleFilters, dutyStartHour, roleLimits]
+  );
   
   // Filtered conflicts based on filter selections
   const conflicts = useMemo(() => {
@@ -310,6 +357,15 @@ export const SchedulingTab: React.FC = () => {
             <h2 className="text-xs sm:text-sm font-bold text-gray-800 truncate">
               {isMobile ? formatShortDate(currentDate) : formatDisplayDate(currentDate)}
             </h2>
+            {scheduleStatus !== 'live' && (
+              <span
+                className="flex items-center gap-1 text-[10px] font-medium text-gray-400 shrink-0"
+                title={scheduleStatus === 'cached' ? 'Đang hiển thị bản lưu gần nhất, đang đồng bộ…' : 'Đang tải lịch mổ…'}
+              >
+                <span className="w-2.5 h-2.5 border-2 border-primary-300 border-t-transparent rounded-full animate-spin" />
+                <span className="hidden sm:inline">{scheduleStatus === 'cached' ? 'Đang đồng bộ' : 'Đang tải'}</span>
+              </span>
+            )}
             {!isToday && (
               <button
                 onClick={goToToday}
@@ -395,6 +451,19 @@ export const SchedulingTab: React.FC = () => {
             </div>
           )}
 
+          {/* Projector / large screen mode */}
+          {!isMobile && (
+            <Tooltip content="Màn hình chiếu (theo dõi toàn màn hình)" position="bottom">
+              <button
+                id="schedule-projector-btn"
+                onClick={() => setShowProjector(true)}
+                className="p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer shrink-0 hover:bg-gray-100 text-gray-500"
+              >
+                <MonitorPlay size={16} />
+              </button>
+            </Tooltip>
+          )}
+
           {/* Export */}
           <Tooltip content="Xuất lịch mổ ra Excel" position="bottom">
             <button
@@ -442,6 +511,8 @@ export const SchedulingTab: React.FC = () => {
             weekStart={weekStart}
             onDayClick={(d) => setCurrentDate(d)}
             roleFilters={roleFilters}
+            roleLimits={roleLimits}
+            dutyStartHour={dutyStartHour}
             selectedDate={dateStr}
           />
         </div>
@@ -565,6 +636,7 @@ export const SchedulingTab: React.FC = () => {
             conflicts={conflicts}
             onEntryClick={handleEntryClick}
             dutyStartHour={dutyStartHour}
+            selectedDate={dateStr}
           />
         ) : (
           <DayTimelineView
@@ -582,6 +654,36 @@ export const SchedulingTab: React.FC = () => {
           />
         )}
       </div>
+
+      {/* ── Mobile FAB: thêm ca mổ ── */}
+      {isMobile && !showModal && (
+        <button
+          id="schedule-add-fab"
+          onClick={handleAddNew}
+          aria-label="Thêm ca mổ"
+          className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 h-14 w-14 rounded-full bg-primary-700 text-white shadow-lg shadow-primary-900/30 flex items-center justify-center active:scale-90 transition-transform cursor-pointer"
+        >
+          <Plus size={26} />
+        </button>
+      )}
+
+      {/* ── Projector mode ── */}
+      {showProjector && (
+        <ProjectorView
+          entries={entries}
+          conflicts={allConflicts}
+          conflictedIds={conflictedIds}
+          onEntryClick={handleEntryClick}
+          onClose={() => setShowProjector(false)}
+          selectedDate={dateStr}
+          dateLabel={formatDisplayDate(currentDate)}
+          dutyStartHour={dutyStartHour}
+          dutyStartStr={dutyStartStr}
+          workingHours={config.workingHours}
+          currentUserId={user?.uid}
+          isModalOpen={showModal || !!deleteTarget || !!duplicateTarget}
+        />
+      )}
 
       {/* ── Modal ── */}
       <ScheduleSurgeryModal

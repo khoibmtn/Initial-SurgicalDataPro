@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { subscribeScheduleForWeek } from '../../services/scheduleService';
+import { subscribeScheduleForWeek, getCachedSchedule } from '../../services/scheduleService';
 import { detectConflicts } from '../../services/scheduleConflictService';
 import type { ScheduledSurgery } from '../../types/schedule';
 import type { RoleFilterConfig } from '../../contexts/ConfigContext';
@@ -10,6 +10,9 @@ interface WeekOverviewProps {
   weekStart: Date;
   onDayClick: (date: Date) => void;
   roleFilters: RoleFilterConfig;
+  /** Định mức bàn mổ theo vị trí (số ca đồng thời tối đa) */
+  roleLimits?: Partial<Record<string, number>>;
+  dutyStartHour?: number;
   /** Currently selected date string (yyyy-mm-dd) */
   selectedDate: string;
 }
@@ -31,6 +34,8 @@ export const WeekOverview: React.FC<WeekOverviewProps> = ({
   weekStart,
   onDayClick,
   roleFilters,
+  roleLimits,
+  dutyStartHour = 7.5,
   selectedDate,
 }) => {
   const [entriesByDate, setEntriesByDate] = useState<Record<string, ScheduledSurgery[]>>({});
@@ -46,9 +51,23 @@ export const WeekOverview: React.FC<WeekOverviewProps> = ({
   const dateStrings = useMemo(() => dates.map(toDateString), [dates]);
 
   useEffect(() => {
+    setEntriesByDate(
+      Object.fromEntries(dateStrings.map((d) => [d, getCachedSchedule(d) ?? []]))
+    );
     const unsub = subscribeScheduleForWeek(dateStrings, setEntriesByDate);
     return () => unsub();
   }, [dateStrings]);
+
+  const conflictsByDate = useMemo(
+    () =>
+      Object.fromEntries(
+        dateStrings.map((d) => [
+          d,
+          detectConflicts(entriesByDate[d] || [], roleFilters, dutyStartHour, roleLimits),
+        ])
+      ),
+    [dateStrings, entriesByDate, roleFilters, dutyStartHour, roleLimits]
+  );
 
   const todayStr = toDateString(new Date());
 
@@ -57,7 +76,7 @@ export const WeekOverview: React.FC<WeekOverviewProps> = ({
       {dates.map((date, i) => {
         const dateStr = dateStrings[i];
         const dayEntries = entriesByDate[dateStr] || [];
-        const conflicts = detectConflicts(dayEntries, roleFilters);
+        const conflicts = conflictsByDate[dateStr] || [];
         const isToday = dateStr === todayStr;
         const isSelected = dateStr === selectedDate;
         const dd = date.getDate();

@@ -8,7 +8,7 @@ import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
 import { STAFF_ROLE_LABELS } from '../../types/schedule';
 import type { WorkingHours } from '../../contexts/ConfigContext';
 import { getScheduleForDate } from '../../services/overtimeCalculationService';
-import { parseTimeToShiftHours } from '../../services/scheduleConflictService';
+import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
 
 export type ZoomLevel = 40 | 60 | 80 | 120 | 180;
 export type TimelineOrientation = 'horizontal' | 'vertical';
@@ -56,16 +56,15 @@ const ZOOM_LABELS: Record<ZoomLevel, string> = {
 };
 
 function formatRange(start: string, end: string): string {
-  return `${start} – ${end}`;
+  return `${formatDisplayTime(start)} – ${formatDisplayTime(end)}`;
 }
 
 function formatTickLabel(shiftH: number): string {
-  const isNextDay = shiftH >= 24;
-  const normalizedH = isNextDay ? shiftH - 24 : shiftH;
-  const h = Math.floor(normalizedH);
-  const m = Math.round((normalizedH - h) * 60);
-  const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-  return isNextDay ? `${timeStr} +1` : timeStr;
+  const normalizedH = ((shiftH % 24) + 24) % 24;
+  let h = Math.floor(normalizedH);
+  let m = Math.round((normalizedH - h) * 60);
+  if (m === 60) { h = (h + 1) % 24; m = 0; }
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
 /** Assign horizontal lanes (first-fit greedy based on duty shift hours) */
@@ -530,7 +529,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   }, [verticalHourHeight]);
 
   // Horizontal zoom controls
-  const currentZoomIdx = Math.max(0, ZOOM_LEVELS.indexOf(hourWidth));
+  const currentZoomIdx = Math.max(0, ZOOM_LEVELS.indexOf(hourWidth as ZoomLevel));
   const canZoomInH = currentZoomIdx < ZOOM_LEVELS.length - 1;
   const canZoomOutH = currentZoomIdx > 0;
 
@@ -823,7 +822,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
         {/* Duty shift window badge */}
         <div className="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 bg-gray-100/80 px-2 py-0.5 rounded-md border border-gray-200/60">
           <Clock size={11} className="text-primary-600" />
-          <span>Tua trực: <strong className="text-gray-800">{dutyStartStr}</strong> đến <strong className="text-gray-800">{dutyStartStr} (+1)</strong></span>
+          <span>Tua trực: <strong className="text-gray-800">{dutyStartStr}</strong> đến <strong className="text-gray-800">{formatTickLabel(dutyStartHour - 1 / 60)}</strong></span>
           {totalTimelineHours > 24 && (
             <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1 rounded">Tự mở rộng ({totalTimelineHours}h)</span>
           )}
@@ -1014,7 +1013,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                           </div>
                         ) : (
                           <span className="text-[7px] font-bold text-gray-500 tabular-nums shrink-0">
-                            {entry.startTime}
+                            {formatDisplayTime(entry.startTime)}
                           </span>
                         )}
                       </div>
@@ -1024,7 +1023,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                         <div className="flex items-center justify-between gap-0.5 mb-0.5">
                           <div className={`flex items-center gap-0.5 ${isNarrow ? 'text-[7.5px]' : zoomConfig.timeTextClass} text-gray-600 tabular-nums`}>
                             <Clock size={isNarrow ? 8 : zoomConfig.iconSize} className="shrink-0 text-primary-600" />
-                            <span>{entry.startTime}–{entry.endTime}</span>
+                            <span>{formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}</span>
                           </div>
                           {isConflicted && (
                             <AlertTriangle size={isNarrow ? 9 : 10} className="text-red-500 shrink-0" />
@@ -1068,7 +1067,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                           <div className="flex items-center justify-between gap-1 mb-0.5">
                             <div className={`flex items-center gap-1 ${isNarrow ? 'text-[8.5px]' : zoomConfig.timeTextClass} text-gray-700 tabular-nums`}>
                               <Clock size={isNarrow ? 9 : zoomConfig.iconSize} className="shrink-0 text-primary-600" />
-                              <span>{entry.startTime}–{entry.endTime}</span>
+                              <span>{formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}</span>
                             </div>
 
                             {isConflicted && (
@@ -1237,7 +1236,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                     {/* Row 2: Surgery Time Range (Below patient name) */}
                     <div className="flex items-center gap-1 text-[8.5px] text-gray-500 font-semibold tabular-nums leading-none">
                       <Clock size={8} className="shrink-0 text-primary-600" />
-                      <span>{entry.startTime}–{entry.endTime}</span>
+                      <span>{formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}</span>
                     </div>
 
                     {/* Bottom Area: Badges arranged below patient name OR procedure info */}

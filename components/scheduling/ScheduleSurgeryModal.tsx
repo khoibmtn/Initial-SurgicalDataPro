@@ -4,7 +4,8 @@ import type { ScheduledSurgery, ScheduledSurgeryInput, ScheduleConflict } from '
 import type { StaffMember, MachineEntry, SurgeryNamePrice, LaborTableItem } from '../../types';
 import type { RoleFilterConfig, WorkingHours } from '../../contexts/ConfigContext';
 import { getScheduleForDate } from '../../services/overtimeCalculationService';
-import { parseTimeToShiftHours } from '../../services/scheduleConflictService';
+import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
+import { TimeInput24 } from '../common/TimeInput24';
 import { STAFF_POSITIONS } from '../../services/laborConfigService';
 
 interface ScheduleSurgeryModalProps {
@@ -77,67 +78,30 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     return (isNaN(h) ? 7 : h) + (isNaN(m) ? 30 : m) / 60;
   }, [dutyStartStr]);
 
-  // Generate 24h duty shift time options starting from early morning through next morning
-  const shiftTimeOptions = useMemo(() => {
-    const options: { value: string; label: string; shiftHours: number }[] = [];
-    const startH = Math.max(dutyStartHour - 1, 5);
-    const endH = dutyStartHour + 25;
+  // ── Giờ tự do (đến từng phút) ──
+  // Giá trị lưu dạng "HH:mm". Giờ < giờ bắt đầu trực tự động hiểu là hôm sau (+1)
+  // trong ca trực 24h (xem parseTimeToShiftHours).
+  const toInputTime = (t: string) => (t ? formatDisplayTime(t) : '');
 
-    for (let h = startH; h <= endH; h += 0.5) {
-      const isNextDay = h >= 24;
-      const actualH = isNextDay ? h - 24 : h;
-      const hours = Math.floor(actualH);
-      const mins = Math.round((actualH - hours) * 60);
-      const timeStr = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  const addMinutes = (t: string, mins: number) => {
+    const [h, m] = toInputTime(t).split(':').map(Number);
+    const total = (((h * 60 + m + mins) % 1440) + 1440) % 1440;
+    return `${Math.floor(total / 60).toString().padStart(2, '0')}:${(total % 60).toString().padStart(2, '0')}`;
+  };
 
-      let label = timeStr;
-      let val = timeStr;
-      if (Math.abs(h - dutyStartHour) < 0.05) {
-        label = `${timeStr} (Bắt đầu trực)`;
-      } else if (Math.abs(h - (dutyStartHour + 24)) < 0.05) {
-        label = `${timeStr} (+1 Hôm sau - Hết trực)`;
-        val = `${timeStr} (+1)`;
-      } else if (isNextDay) {
-        label = `${timeStr} (+1 Hôm sau)`;
-        val = `${timeStr} (+1)`;
-      } else if (h < dutyStartHour) {
-        label = `${timeStr} (Sớm)`;
-        val = `${timeStr} (sớm)`;
-      }
+  const startShift = parseTimeToShiftHours(startTime, dutyStartHour);
+  const rawEndShift = parseTimeToShiftHours(endTime, dutyStartHour);
+  // Kết thúc đúng giờ giao ca sáng hôm sau (vd 07:30) → +24h
+  const endsAtShiftEnd = rawEndShift <= startShift && Math.abs(rawEndShift - dutyStartHour) < 0.01;
+  const endShift = endsAtShiftEnd ? rawEndShift + 24 : rawEndShift;
+  const durationMins = Math.round((endShift - startShift) * 60);
+  const isTimeValid = !!startTime && !!endTime && durationMins > 0;
 
-      options.push({ value: val, label, shiftHours: h });
-    }
-    return options;
-  }, [dutyStartHour]);
-
-  // Ensure current startTime and endTime are in dropdown options even if custom/irregular
-  const enrichedStartOptions = useMemo(() => {
-    if (!startTime || shiftTimeOptions.some((opt) => opt.value === startTime)) {
-      return shiftTimeOptions;
-    }
-    const custom = {
-      value: startTime,
-      label: startTime,
-      shiftHours: parseTimeToShiftHours(startTime, dutyStartHour),
-    };
-    return [...shiftTimeOptions, custom].sort((a, b) => a.shiftHours - b.shiftHours);
-  }, [shiftTimeOptions, startTime, dutyStartHour]);
-
-  const enrichedEndOptions = useMemo(() => {
-    const sShift = parseTimeToShiftHours(startTime, dutyStartHour);
-    let opts = shiftTimeOptions.filter((opt) => opt.shiftHours > sShift);
-    if (endTime && !opts.some((opt) => opt.value === endTime)) {
-      opts = [
-        ...opts,
-        {
-          value: endTime,
-          label: endTime,
-          shiftHours: parseTimeToShiftHours(endTime, dutyStartHour),
-        },
-      ].sort((a, b) => a.shiftHours - b.shiftHours);
-    }
-    return opts;
-  }, [shiftTimeOptions, startTime, endTime, dutyStartHour]);
+  const formatDuration = (mins: number) => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return h > 0 ? `${h}h${m > 0 ? m.toString().padStart(2, '0') : ''}` : `${m} phút`;
+  };
 
   // Autocomplete states
   const [tenKTSearch, setTenKTSearch] = useState('');
@@ -242,7 +206,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     const set = new Set<string>();
     for (const c of staffConflicts) {
       for (const [roleKey, name] of Object.entries(staff || {})) {
-        if (name && name.trim().toLowerCase() === c.resource.trim().toLowerCase()) {
+        if (name && String(name).trim().toLowerCase() === c.resource.trim().toLowerCase()) {
           set.add(roleKey);
         }
       }
@@ -251,7 +215,9 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   }, [staffConflicts, staff]);
 
   // ── Surgery name autocomplete — Filter only currently active items on target date ──
+  // Chỉ tính khi modal mở (danh mục ~3.000+ mục) để không làm chậm lúc tải lịch
   const activeSurgeryCatalog = useMemo(() => {
+    if (!isOpen) return [] as SurgeryNamePrice[];
     const targetDate = date || new Date().toISOString().split('T')[0];
     // Filter active items (effectiveFrom <= date and !effectiveTo or effectiveTo >= date)
     const active = surgeryNames.filter((s) => {
@@ -284,27 +250,31 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     }
 
     return Array.from(map.values());
-  }, [surgeryNames, date]);
+  }, [surgeryNames, date, isOpen]);
+
+  // Khóa tìm kiếm không dấu tính sẵn 1 lần, không tính lại mỗi lần gõ phím
+  const removeVnTones = (str: string) =>
+    (str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/g, 'd')
+      .replace(/Đ/g, 'D')
+      .toLowerCase();
+
+  const catalogSearchKeys = useMemo(
+    () => activeSurgeryCatalog.map((s) => removeVnTones(`${s.tenKT || (s as any).name || ''} ${s.maTuongDuong || ''}`)),
+    [activeSurgeryCatalog]
+  );
 
   const filteredSurgeryNames = useMemo(() => {
-    const removeVnTones = (str: string) =>
-      (str || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/đ/g, 'd')
-        .replace(/Đ/g, 'D')
-        .toLowerCase();
-
     if (!tenKTSearch.trim()) return activeSurgeryCatalog.slice(0, 50);
     const q = removeVnTones(tenKTSearch.trim());
-    return activeSurgeryCatalog
-      .filter((s) => {
-        const name = s.tenKT || (s as any).name || '';
-        const mtd = s.maTuongDuong || '';
-        return removeVnTones(name).includes(q) || removeVnTones(mtd).includes(q);
-      })
-      .slice(0, 50);
-  }, [activeSurgeryCatalog, tenKTSearch]);
+    const result: SurgeryNamePrice[] = [];
+    for (let i = 0; i < activeSurgeryCatalog.length && result.length < 50; i++) {
+      if (catalogSearchKeys[i].includes(q)) result.push(activeSurgeryCatalog[i]);
+    }
+    return result;
+  }, [activeSurgeryCatalog, catalogSearchKeys, tenKTSearch]);
 
   // ── Staff autocomplete ──
   const getFilteredStaff = useCallback(
@@ -346,10 +316,8 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    const sShift = parseTimeToShiftHours(startTime, dutyStartHour);
-    const eShift = parseTimeToShiftHours(endTime, dutyStartHour);
     if (!patientId.trim() || !patientName.trim() || !tenKT.trim()) return;
-    if (!startTime || !endTime || sShift >= eShift) return;
+    if (!isTimeValid) return;
 
     setIsSaving(true);
     try {
@@ -366,7 +334,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         patientName: patientName.trim(),
         tenKT: tenKT.trim(),
         startTime,
-        endTime,
+        endTime: endsAtShiftEnd ? `${toInputTime(endTime)} (+1)` : endTime,
         machineCode,
         machineName,
         staff: cleanStaff,
@@ -463,7 +431,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                 {staffConflicts.map((c, i) => {
                   const otherId = c.surgeryIds.find((id) => id !== editingEntry?.id);
                   const otherSurgery = allEntries?.find((e) => e.id === otherId);
-                  const roleKey = Object.entries(editingEntry?.staff || {}).find(([, name]) => name && name.trim().toLowerCase() === c.resource.trim().toLowerCase())?.[0];
+                  const roleKey = Object.entries(editingEntry?.staff || {}).find(([, name]) => name && String(name).trim().toLowerCase() === c.resource.trim().toLowerCase())?.[0];
                   const roleLabel = displayRoles.find((r) => r.posKey === roleKey)?.label || 'Nhân sự';
                   return (
                     <div
@@ -599,51 +567,56 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
             )}
           </div>
 
-          {/* Thời gian */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                <Clock className="inline h-3 w-3 mr-1" /> Giờ bắt đầu
-              </label>
-              <select
-                value={startTime}
-                disabled={readOnly}
-                onChange={(e) => {
-                  const newStart = e.target.value;
-                  setStartTime(newStart);
-                  const newStartShift = parseTimeToShiftHours(newStart, dutyStartHour);
-                  const currentEndShift = parseTimeToShiftHours(endTime, dutyStartHour);
-                  if (currentEndShift <= newStartShift) {
-                    const nextSlot = shiftTimeOptions.find((opt) => opt.shiftHours > newStartShift);
-                    if (nextSlot) setEndTime(nextSlot.value);
-                  }
-                }}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer disabled:opacity-50 disabled:bg-gray-50"
-              >
-                {enrichedStartOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+          {/* Thời gian — nhập tự do đến từng phút */}
+          <div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="schedule-start-time" className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
+                  <Clock className="inline h-3 w-3 mr-1" /> Giờ bắt đầu
+                </label>
+                <TimeInput24
+                  id="schedule-start-time"
+                  value={toInputTime(startTime)}
+                  disabled={readOnly}
+                  onChange={(newStart) => {
+                    setStartTime(newStart);
+                    const prevDuration = isTimeValid ? durationMins : 60;
+                    if (parseTimeToShiftHours(endTime, dutyStartHour) <= parseTimeToShiftHours(newStart, dutyStartHour)) {
+                      setEndTime(addMinutes(newStart, prevDuration));
+                    }
+                  }}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm tabular-nums focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
+                />
+                {startShift >= 24 && (
+                  <span className="inline-block mt-1 text-[10px] font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">Hôm sau (+1)</span>
+                )}
+              </div>
+              <div>
+                <label htmlFor="schedule-end-time" className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
+                  <Clock className="inline h-3 w-3 mr-1" /> Giờ kết thúc
+                </label>
+                <TimeInput24
+                  id="schedule-end-time"
+                  value={toInputTime(endTime)}
+                  disabled={readOnly}
+                  aria-invalid={!isTimeValid}
+                  onChange={setEndTime}
+                  className={`w-full px-3 py-2 rounded-lg border text-sm tabular-nums focus:ring-1 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50 ${
+                    isTimeValid
+                      ? 'border-gray-300 focus:border-primary-500 focus:ring-primary-200'
+                      : 'border-red-400 bg-red-50/40 focus:border-red-500 focus:ring-red-200'
+                  }`}
+                />
+                {endShift >= 24 && isTimeValid && (
+                  <span className="inline-block mt-1 text-[10px] font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">Hôm sau (+1)</span>
+                )}
+              </div>
             </div>
-            <div>
-              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                <Clock className="inline h-3 w-3 mr-1" /> Giờ kết thúc
-              </label>
-              <select
-                value={endTime}
-                disabled={readOnly}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all cursor-pointer disabled:opacity-50 disabled:bg-gray-50"
-              >
-                {enrichedEndOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <p className={`mt-1.5 text-[10.5px] ${isTimeValid ? 'text-gray-500' : 'text-red-600 font-semibold'}`}>
+              {isTimeValid
+                ? <>Thời lượng: <span className="font-bold text-gray-700">{formatDuration(durationMins)}</span> · Ca trực bắt đầu {dutyStartStr}, giờ trước {dutyStartStr} tính là hôm sau</>
+                : 'Giờ kết thúc phải sau giờ bắt đầu (trong ca trực 24h)'}
+            </p>
           </div>
 
           {/* Máy thực hiện — searchable dropdown */}
@@ -810,14 +783,14 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                     !patientId.trim() ||
                     !patientName.trim() ||
                     !tenKT.trim() ||
-                    parseTimeToShiftHours(startTime, dutyStartHour) >= parseTimeToShiftHours(endTime, dutyStartHour)
+                    !isTimeValid
                   }
                   className={`px-4 sm:px-5 py-1.5 sm:py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
                     isSaving ||
                     !patientId.trim() ||
                     !patientName.trim() ||
                     !tenKT.trim() ||
-                    parseTimeToShiftHours(startTime, dutyStartHour) >= parseTimeToShiftHours(endTime, dutyStartHour)
+                    !isTimeValid
                       ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                       : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
                   }`}>
