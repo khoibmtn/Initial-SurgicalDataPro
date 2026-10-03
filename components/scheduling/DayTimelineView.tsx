@@ -976,7 +976,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               const isCompact = verticalHourHeight <= 38 || height < 46;
 
               return (
-                <Tooltip key={entry.id} content={tooltipContent(entry)} position="right" maxWidth={320}>
+                <Tooltip key={entry.id} content={tooltipContent(entry)} position="right" maxWidth={320} disabled={isMobile}>
                   <div
                     onClick={() => onEntryClick(entry)}
                     className={`absolute ${zoomConfig.radiusClass} ${isNarrow ? 'p-1 px-1.5' : zoomConfig.paddingClass}
@@ -1215,7 +1215,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               const shouldStackBadges = width < 230 || hasBothMachineAndStaff;
 
               return (
-                <Tooltip key={entry.id} content={tooltipContent(entry)} position="bottom" maxWidth={320}>
+                <Tooltip key={entry.id} content={tooltipContent(entry)} position="bottom" maxWidth={320} disabled={isMobile}>
                   <div
                     className={`absolute rounded-xl ${color.bg} ${color.border} ${color.text}
                       cursor-pointer hover:shadow-sm transition-all duration-150

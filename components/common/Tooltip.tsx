@@ -38,13 +38,25 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
   const show = useCallback(() => {
     if (disabled) return;
-    timeoutRef.current = setTimeout(() => setVisible(true), delay);
+    if (typeof document !== 'undefined' && document.querySelector('[role="dialog"], .fixed.inset-0.z-\\[9000\\], .fixed.inset-0.z-50')) {
+      return;
+    }
+    timeoutRef.current = setTimeout(() => {
+      if (typeof document !== 'undefined' && document.querySelector('[role="dialog"], .fixed.inset-0.z-\\[9000\\], .fixed.inset-0.z-50')) {
+        return;
+      }
+      setVisible(true);
+    }, delay);
   }, [disabled, delay]);
 
   const hide = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setVisible(false);
   }, []);
+
+  const handleClick = useCallback(() => {
+    hide();
+  }, [hide]);
 
   // Tính toán vị trí khi visible thay đổi
   useEffect(() => {
@@ -118,6 +130,8 @@ export const Tooltip: React.FC<TooltipProps> = ({
         onMouseLeave={hide}
         onFocus={show}
         onBlur={hide}
+        onClick={handleClick}
+        onTouchStart={hide}
         className="inline-flex"
         style={{ display: 'inline-flex' }}
       >
@@ -128,7 +142,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         <div
           ref={tooltipRef}
           role="tooltip"
-          className={`fixed z-[99999] px-3 py-2 rounded-lg text-xs font-medium
+          className={`fixed z-40 px-3 py-2 rounded-lg text-xs font-medium
             bg-gray-900 text-white shadow-xl
             pointer-events-none select-none
             animate-tooltip-fade-in

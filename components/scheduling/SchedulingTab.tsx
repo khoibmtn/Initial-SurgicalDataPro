@@ -589,6 +589,11 @@ export const SchedulingTab: React.FC = () => {
         onClose={closeModal}
         onSave={handleSave}
         onDelete={handleDeleteDirect}
+        onDuplicate={(entry) => {
+          setDuplicateTarget(entry);
+          setDuplicateDate('');
+          closeModal();
+        }}
         editingEntry={editingEntry}
         date={dateStr}
         staffList={config.staffList || []}
@@ -602,36 +607,6 @@ export const SchedulingTab: React.FC = () => {
         onSelectEntry={(entry) => setEditingEntry(entry)}
         workingHours={config.workingHours}
       />
-
-      {/* ── Action FAB (when editing) ── */}
-      {showModal && editingEntry && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9001] flex items-center gap-2">
-          <Tooltip content="Sao chép ca mổ sang ngày khác" position="top">
-            <button
-              onClick={() => {
-                setDuplicateTarget(editingEntry);
-                setDuplicateDate('');
-                closeModal();
-              }}
-              className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 text-white text-xs font-bold rounded-full
-                         hover:bg-sky-700 active:scale-95 transition-all shadow-lg cursor-pointer"
-            >
-              <Copy size={14} />
-              Sao chép
-            </button>
-          </Tooltip>
-          <Tooltip content="Xóa ca mổ này khỏi lịch" position="top">
-            <button
-              onClick={() => setDeleteTarget(editingEntry)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-full
-                         hover:bg-red-700 active:scale-95 transition-all shadow-lg cursor-pointer"
-            >
-              <Trash2 size={14} />
-              Xóa
-            </button>
-          </Tooltip>
-        </div>
-      )}
 
       {/* ── Delete Confirm ── */}
       <ConfirmDialog
@@ -647,7 +622,7 @@ export const SchedulingTab: React.FC = () => {
 
       {/* ── Duplicate Dialog ── */}
       {duplicateTarget && (
-        <div className="fixed inset-0 z-[9000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-sm sm:mx-4 p-5 animate-slide-in">
             <h3 className="text-sm font-bold text-gray-800 mb-3">
               📋 Sao chép ca mổ sang ngày khác

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, Clock, User, Cpu, FileText, Search, AlertTriangle, Trash2 } from 'lucide-react';
+import { X, Clock, User, Cpu, FileText, Search, AlertTriangle, Trash2, Copy } from 'lucide-react';
 import type { ScheduledSurgery, ScheduledSurgeryInput, ScheduleConflict } from '../../types/schedule';
 import type { StaffMember, MachineEntry, SurgeryNamePrice, LaborTableItem } from '../../types';
 import type { RoleFilterConfig, WorkingHours } from '../../contexts/ConfigContext';
 import { getScheduleForDate } from '../../services/overtimeCalculationService';
 import { parseTimeToShiftHours } from '../../services/scheduleConflictService';
+import { STAFF_POSITIONS } from '../../services/laborConfigService';
 
 interface ScheduleSurgeryModalProps {
   isOpen: boolean;
@@ -12,6 +13,8 @@ interface ScheduleSurgeryModalProps {
   onSave: (data: ScheduledSurgeryInput) => Promise<void>;
   /** Xóa ca mổ đang sửa */
   onDelete?: (entry: ScheduledSurgery) => void;
+  /** Sao chép ca mổ sang ngày khác */
+  onDuplicate?: (entry: ScheduledSurgery) => void;
   /** Nếu có = chế độ sửa, không có = chế độ thêm mới */
   editingEntry?: ScheduledSurgery;
   date: string;
@@ -37,6 +40,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   onClose,
   onSave,
   onDelete,
+  onDuplicate,
   editingEntry,
   date,
   staffList,
@@ -177,52 +181,46 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     setShowMachineDropdown(false);
   }, [editingEntry, isOpen, dutyStartStr, dutyStartHour]);
 
-  // ── ROLES from tableItems (Định mức bàn mổ) ──
-  // Nếu ở cấu hình cài đặt không check trùng (limit <= 0 hoặc roleFilters tắt) thì KHÔNG hiển thị
-  const scheduleRoles = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const effective = tableItems.filter((item) => {
-      if (item.effectiveFrom > today) return false;
-      if (item.effectiveTo && item.effectiveTo < today) return false;
+  // ── ROLES: Lấy từ STAFF_POSITIONS kết hợp tableItems (Định mức bàn mổ) & roleFilters ──
+  // Quy tắc chuẩn:
+  // - Duyệt qua tất cả vị trí tiêu chuẩn từ STAFF_POSITIONS (ptChinh, ptPhu, bsGM, ktvGM, tdc, gv).
+  // - Tra cứu xem có mốc hiệu lực trong tableItems trên ngày `date` hay không (nếu có dùng limit/label đó, nếu không dùng pos.defaultLimit).
+  // - Nếu limit <= 0 (như Giúp việc 'gv' mặc định limit = 0): KHÔNG hiển thị.
+  // - Nếu bị tắt trong roleFilters (reportRoleFilters): KHÔNG hiển thị.
+  // - Còn lại: hiển thị đầy đủ (BS PT chính, BS PT phụ, BS gây mê hồi sức, KTV gây mê, Tít dụng cụ).
+  const displayRoles = useMemo(() => {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    return STAFF_POSITIONS.map((pos) => {
+      const candidates = tableItems
+        .filter((item) => item.posKey === pos.key && (!item.effectiveFrom || item.effectiveFrom <= targetDate))
+        .filter((item) => !item.effectiveTo || item.effectiveTo >= targetDate)
+        .sort((a, b) => (b.effectiveFrom || '').localeCompare(a.effectiveFrom || ''));
+
+      const activeItem = candidates[0];
+      const limit = activeItem ? Number(activeItem.limit) : pos.defaultLimit;
+      const label = activeItem?.label || pos.label;
+
+      return {
+        id: activeItem?.id || pos.key,
+        posKey: pos.key,
+        label,
+        limit,
+        effectiveFrom: activeItem?.effectiveFrom || '2020-01-01',
+        effectiveTo: activeItem?.effectiveTo || null,
+        createdAt: activeItem?.createdAt || 0,
+        updatedAt: activeItem?.updatedAt || 0,
+      } as LaborTableItem;
+    }).filter((item) => {
+      // Loại bỏ vị trí có định mức <= 0 (như giúp việc gv mặc định limit = 0)
+      if (item.limit <= 0) return false;
+      // Loại bỏ nếu roleFilters tắt vị trí này
+      if (roleFilters && item.posKey in roleFilters && !roleFilters[item.posKey as keyof RoleFilterConfig]) {
+        return false;
+      }
       return true;
     });
-    const latestByKey = new Map<string, LaborTableItem>();
-    for (const item of effective) {
-      const existing = latestByKey.get(item.posKey);
-      if (!existing || item.effectiveFrom > existing.effectiveFrom) {
-        latestByKey.set(item.posKey, item);
-      }
-    }
-    const ORDER = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'];
-    return Array.from(latestByKey.values())
-      .filter((item) => {
-        // Loại bỏ các vị trí không kiểm tra trùng (limit <= 0)
-        if (item.limit <= 0) return false;
-        // Loại bỏ các vị trí bị tắt trong roleFilters
-        if (roleFilters && item.posKey in roleFilters && !roleFilters[item.posKey as keyof RoleFilterConfig]) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => ORDER.indexOf(a.posKey) - ORDER.indexOf(b.posKey));
-  }, [tableItems, roleFilters]);
-
-  // Fallback: if no tableItems, use roleFilters
-  const displayRoles = useMemo(() => {
-    if (scheduleRoles.length > 0) return scheduleRoles;
-    const LABELS: Record<string, string> = {
-      ptChinh: 'BS PT chính', ptPhu: 'BS PT phụ',
-      bsGM: 'BS gây mê hồi sức', ktvGM: 'KTV gây mê',
-      tdc: 'Tít dụng cụ', gv: 'Giúp việc',
-    };
-    return Object.entries(roleFilters || {})
-      .filter(([, enabled]) => enabled)
-      .map(([key]) => ({
-        posKey: key, label: LABELS[key] || key, limit: 1,
-        id: key, effectiveFrom: '2020-01-01', effectiveTo: null,
-        createdAt: 0, updatedAt: 0,
-      } as LaborTableItem));
-  }, [scheduleRoles, roleFilters]);
+  }, [tableItems, roleFilters, date]);
 
   // ── Conflicts for editingEntry ──
   const entryConflicts = useMemo(() => {
@@ -386,7 +384,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[9000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose}>
       <div
         className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-in"
         onClick={(e) => e.stopPropagation()}
@@ -764,20 +762,36 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-t border-gray-200 bg-gray-50/50">
-          {editingEntry && onDelete && !readOnly ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm(`Bạn có chắc chắn muốn xóa ca mổ của bệnh nhân "${editingEntry.patientName}"?`)) {
-                  onDelete(editingEntry);
-                }
-              }}
-              className="px-3 py-2 text-xs font-bold text-red-600 hover:bg-red-50 hover:border-red-300 border border-red-200 rounded-lg transition-all cursor-pointer flex items-center gap-1.5"
-            >
-              <Trash2 size={13} />
-              <span>Xóa ca mổ</span>
-            </button>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 sm:px-5 py-3 border-t border-gray-200 bg-gray-50/50">
+          {editingEntry && !readOnly ? (
+            <div className="flex items-center gap-1.5">
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(`Bạn có chắc chắn muốn xóa ca mổ của bệnh nhân "${editingEntry.patientName}"?`)) {
+                      onDelete(editingEntry);
+                    }
+                  }}
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold text-red-600 hover:bg-red-50 hover:border-red-300 border border-red-200 rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                  title="Xóa ca mổ khỏi lịch"
+                >
+                  <Trash2 size={13} />
+                  <span>Xóa ca mổ</span>
+                </button>
+              )}
+              {onDuplicate && (
+                <button
+                  type="button"
+                  onClick={() => onDuplicate(editingEntry)}
+                  className="px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-bold text-sky-700 hover:bg-sky-50 hover:border-sky-300 border border-sky-200 rounded-lg transition-all cursor-pointer flex items-center gap-1"
+                  title="Sao chép ca mổ sang ngày khác"
+                >
+                  <Copy size={13} />
+                  <span>Sao chép</span>
+                </button>
+              )}
+            </div>
           ) : (
             <div />
           )}
@@ -789,7 +803,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
               </button>
             ) : (
               <>
-                <button onClick={onClose} className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer">Hủy</button>
+                <button onClick={onClose} className="px-3.5 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer">Hủy</button>
                 <button onClick={handleSubmit}
                   disabled={
                     isSaving ||
@@ -798,7 +812,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                     !tenKT.trim() ||
                     parseTimeToShiftHours(startTime, dutyStartHour) >= parseTimeToShiftHours(endTime, dutyStartHour)
                   }
-                  className={`px-5 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                  className={`px-4 sm:px-5 py-1.5 sm:py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
                     isSaving ||
                     !patientId.trim() ||
                     !patientName.trim() ||
