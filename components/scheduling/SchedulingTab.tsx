@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Trash2, Calendar, List, BarChart3 } from 'lucide-react';
+import {
+  ChevronLeft, ChevronRight, Plus, Trash2, Calendar,
+  BarChart3, Download, Copy,
+} from 'lucide-react';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { DayTimelineView, type ZoomLevel } from './DayTimelineView';
@@ -16,6 +19,7 @@ import {
 } from '../../services/scheduleService';
 import { detectConflicts, getConflictedSurgeryIds } from '../../services/scheduleConflictService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
+import { exportScheduleToExcel } from '../../services/scheduleExportService';
 import type { ScheduledSurgery, ScheduledSurgeryInput } from '../../types/schedule';
 import type { SurgeryNamePrice } from '../../types';
 import { Tooltip } from '../common/Tooltip';
@@ -35,14 +39,12 @@ function formatDisplayDate(d: Date): string {
   return `${dayName}, ${dd}/${mm}/${d.getFullYear()}`;
 }
 
-/** Short format for mobile: dd/mm */
 function formatShortDate(d: Date): string {
   const dd = d.getDate().toString().padStart(2, '0');
   const mm = (d.getMonth() + 1).toString().padStart(2, '0');
   return `${dd}/${mm}`;
 }
 
-/** Get Monday of the week containing date */
 function getWeekStart(d: Date): Date {
   const result = new Date(d);
   const day = result.getDay();
@@ -52,12 +54,10 @@ function getWeekStart(d: Date): Date {
   return result;
 }
 
-/** Hook: detect mobile viewport */
 function useIsMobile(breakpoint = 768) {
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
   );
-
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
@@ -65,7 +65,6 @@ function useIsMobile(breakpoint = 768) {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [breakpoint]);
-
   return isMobile;
 }
 
@@ -80,7 +79,7 @@ export const SchedulingTab: React.FC = () => {
   const dateStr = useMemo(() => toDateString(currentDate), [currentDate]);
   const weekStart = useMemo(() => getWeekStart(currentDate), [currentDate]);
 
-  // View mode: on desktop show timeline, on mobile show list by default
+  // View
   const [showWeek, setShowWeek] = useState(false);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(120);
 
@@ -93,7 +92,12 @@ export const SchedulingTab: React.FC = () => {
   const [editingEntry, setEditingEntry] = useState<ScheduledSurgery | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<ScheduledSurgery | null>(null);
 
-  // Subscribe data
+  // Duplicate
+  const [duplicateTarget, setDuplicateTarget] = useState<ScheduledSurgery | null>(null);
+  const [duplicateDate, setDuplicateDate] = useState('');
+  const [isDuplicating, setIsDuplicating] = useState(false);
+
+  // Subscribe
   useEffect(() => {
     const unsub = subscribeScheduleForDate(dateStr, setEntries);
     return () => unsub();
@@ -109,7 +113,7 @@ export const SchedulingTab: React.FC = () => {
   const conflicts = useMemo(() => detectConflicts(entries, roleFilters), [entries, roleFilters]);
   const conflictedIds = useMemo(() => getConflictedSurgeryIds(conflicts), [conflicts]);
 
-  // Navigation
+  // Nav
   const goToPrevDay = () => setCurrentDate((d) => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
   const goToNextDay = () => setCurrentDate((d) => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; });
   const goToToday = () => setCurrentDate(new Date());
@@ -142,19 +146,51 @@ export const SchedulingTab: React.FC = () => {
     setShowModal(false);
   }, [deleteTarget]);
 
+  // Duplicate — copy surgery to another date
+  const handleDuplicateConfirm = useCallback(async () => {
+    if (!duplicateTarget || !duplicateDate || !user) return;
+    setIsDuplicating(true);
+    try {
+      const input: ScheduledSurgeryInput = {
+        date: duplicateDate,
+        patientId: duplicateTarget.patientId,
+        patientName: duplicateTarget.patientName,
+        tenKT: duplicateTarget.tenKT,
+        startTime: duplicateTarget.startTime,
+        endTime: duplicateTarget.endTime,
+        machineCode: duplicateTarget.machineCode,
+        machineName: duplicateTarget.machineName,
+        staff: { ...duplicateTarget.staff },
+        note: duplicateTarget.note,
+      };
+      await addScheduledSurgery(input, user.uid, user.displayName || 'Unknown');
+      setDuplicateTarget(null);
+      setDuplicateDate('');
+      // Navigate to the duplicated date
+      setCurrentDate(new Date(duplicateDate + 'T00:00:00'));
+    } finally {
+      setIsDuplicating(false);
+    }
+  }, [duplicateTarget, duplicateDate, user]);
+
+  // Export
+  const handleExport = useCallback(() => {
+    if (entries.length === 0) return;
+    exportScheduleToExcel(entries, dateStr);
+  }, [entries, dateStr]);
+
   const handleAddNew = () => { setEditingEntry(undefined); setShowModal(true); };
+  const closeModal = () => { setShowModal(false); setEditingEntry(undefined); };
 
   const isToday = toDateString(new Date()) === dateStr;
 
-  // Swipe support for mobile
+  // Swipe
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const handleTouchStart = (e: React.TouchEvent) => setTouchStartX(e.touches[0].clientX);
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX === null) return;
     const diff = e.changedTouches[0].clientX - touchStartX;
-    if (Math.abs(diff) > 80) {
-      diff > 0 ? goToPrevDay() : goToNextDay();
-    }
+    if (Math.abs(diff) > 80) { diff > 0 ? goToPrevDay() : goToNextDay(); }
     setTouchStartX(null);
   };
 
@@ -162,7 +198,6 @@ export const SchedulingTab: React.FC = () => {
     <div className="flex flex-col gap-2 sm:gap-3 p-3 sm:p-4 animate-fade-in max-w-[1800px] mx-auto w-full">
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-2">
-        {/* Left: Navigation */}
         <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1">
           <button
             onClick={goToPrevDay}
@@ -193,7 +228,6 @@ export const SchedulingTab: React.FC = () => {
             <ChevronRight size={isMobile ? 16 : 18} />
           </button>
 
-          {/* Date picker — hidden on mobile */}
           <input
             type="date"
             value={dateStr}
@@ -203,7 +237,20 @@ export const SchedulingTab: React.FC = () => {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-1.5">
+          {/* Export */}
+          <Tooltip content="Xuất lịch mổ ra Excel" position="bottom">
+            <button
+              onClick={handleExport}
+              disabled={entries.length === 0}
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer shrink-0 ${
+                entries.length === 0 ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-gray-100 text-gray-500'
+              }`}
+            >
+              <Download size={isMobile ? 14 : 16} />
+            </button>
+          </Tooltip>
+
           {/* Week toggle */}
           <Tooltip content={showWeek ? 'Ẩn tuần' : 'Xem tổng quan tuần'} position="bottom">
             <button
@@ -216,7 +263,7 @@ export const SchedulingTab: React.FC = () => {
             </button>
           </Tooltip>
 
-          {/* Add button */}
+          {/* Add */}
           <Tooltip content="Đăng ký ca mổ mới" position="bottom">
             <button
               onClick={handleAddNew}
@@ -231,7 +278,7 @@ export const SchedulingTab: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Week Overview (collapsible) ── */}
+      {/* ── Week Overview ── */}
       {showWeek && (
         <div className="animate-slide-down">
           <WeekOverview
@@ -246,7 +293,7 @@ export const SchedulingTab: React.FC = () => {
       {/* ── Conflict Summary ── */}
       <ConflictSummary conflicts={conflicts} totalEntries={entries.length} />
 
-      {/* ── Main Content: Timeline (desktop) or Card List (mobile) ── */}
+      {/* ── Main Content ── */}
       <div
         onTouchStart={isMobile ? handleTouchStart : undefined}
         onTouchEnd={isMobile ? handleTouchEnd : undefined}
@@ -273,7 +320,7 @@ export const SchedulingTab: React.FC = () => {
       {/* ── Modal ── */}
       <ScheduleSurgeryModal
         isOpen={showModal}
-        onClose={() => { setShowModal(false); setEditingEntry(undefined); }}
+        onClose={closeModal}
         onSave={handleSave}
         editingEntry={editingEntry}
         date={dateStr}
@@ -283,17 +330,33 @@ export const SchedulingTab: React.FC = () => {
         roleFilters={roleFilters}
       />
 
-      {/* ── Delete FAB (when editing) ── */}
+      {/* ── Action FAB (when editing) ── */}
       {showModal && editingEntry && (editingEntry.createdBy === user?.uid || canManageAll) && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9001]">
-          <button
-            onClick={() => setDeleteTarget(editingEntry)}
-            className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-full
-                       hover:bg-red-700 active:scale-95 transition-all shadow-lg cursor-pointer"
-          >
-            <Trash2 size={14} />
-            Xóa ca mổ
-          </button>
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9001] flex items-center gap-2">
+          <Tooltip content="Sao chép ca mổ sang ngày khác" position="top">
+            <button
+              onClick={() => {
+                setDuplicateTarget(editingEntry);
+                setDuplicateDate('');
+                closeModal();
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 bg-sky-600 text-white text-xs font-bold rounded-full
+                         hover:bg-sky-700 active:scale-95 transition-all shadow-lg cursor-pointer"
+            >
+              <Copy size={14} />
+              Sao chép
+            </button>
+          </Tooltip>
+          <Tooltip content="Xóa ca mổ này khỏi lịch" position="top">
+            <button
+              onClick={() => setDeleteTarget(editingEntry)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-full
+                         hover:bg-red-700 active:scale-95 transition-all shadow-lg cursor-pointer"
+            >
+              <Trash2 size={14} />
+              Xóa
+            </button>
+          </Tooltip>
         </div>
       )}
 
@@ -308,6 +371,52 @@ export const SchedulingTab: React.FC = () => {
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
+
+      {/* ── Duplicate Dialog ── */}
+      {duplicateTarget && (
+        <div className="fixed inset-0 z-[9000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-sm sm:mx-4 p-5 animate-slide-in">
+            <h3 className="text-sm font-bold text-gray-800 mb-3">
+              📋 Sao chép ca mổ sang ngày khác
+            </h3>
+            <div className="bg-gray-50 rounded-lg p-3 mb-4 text-xs text-gray-600">
+              <p className="font-semibold text-gray-800">{duplicateTarget.patientName}</p>
+              <p>{duplicateTarget.tenKT}</p>
+              <p className="text-gray-400">{duplicateTarget.startTime}–{duplicateTarget.endTime}</p>
+            </div>
+
+            <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">
+              Chọn ngày đích
+            </label>
+            <input
+              type="date"
+              value={duplicateDate}
+              onChange={(e) => setDuplicateDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none mb-4"
+            />
+
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => { setDuplicateTarget(null); setDuplicateDate(''); }}
+                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleDuplicateConfirm}
+                disabled={!duplicateDate || isDuplicating}
+                className={`px-5 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                  !duplicateDate || isDuplicating
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-sky-600 text-white hover:bg-sky-700 active:scale-95 cursor-pointer'
+                }`}
+              >
+                {isDuplicating ? 'Đang sao chép...' : 'Sao chép'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
