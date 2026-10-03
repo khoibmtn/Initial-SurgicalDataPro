@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import {
   AlertTriangle, Clock, Cpu, User, ZoomIn, ZoomOut,
   MoveHorizontal, MoveVertical,
@@ -30,8 +30,8 @@ interface DayTimelineViewProps {
 }
 
 // Horizontal metrics
-const H_BAR_HEIGHT = 44;
-const H_BAR_GAP = 6;
+const H_BAR_HEIGHT = 68;
+const H_BAR_GAP = 8;
 const H_HEADER_HEIGHT = 34;
 const H_LEFT_GUTTER = 56;
 
@@ -505,34 +505,183 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   const nowOffsetHours = nowShiftHours - timelineStart;
   const isNowVisible = isToday && nowOffsetHours >= 0 && nowOffsetHours <= totalTimelineHours;
 
-  // Auto-scroll on mount
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Refs to track zoom levels and scroll state to anchor view on zoom instead of jumping to current time
+  const prevHourWidthRef = useRef<number>(hourWidth);
+  const prevVZoomHeightRef = useRef<number>(verticalHourHeight);
+  const lastScrolledKeyRef = useRef<string>('');
+  const visibleCenterHourRef = useRef<number | null>(null);
+  const visibleCenterVHourRef = useRef<number | null>(null);
 
-    if (orientation === 'horizontal') {
-      const scrollOffset = isNowVisible ? nowOffsetHours : (dutyStartHour - timelineStart);
-      const scrollTo = Math.max(scrollOffset * hourWidth - 100, 0);
-      containerRef.current.scrollLeft = scrollTo;
-    } else if (!isMobile) {
-      let targetHour = dutyStartHour;
-      if (entries.length > 0) {
-        const minH = Math.min(...entries.map((e) => parseTimeToShiftHours(e.startTime, dutyStartHour)));
-        targetHour = Math.max(minH - 0.5, timelineStart);
-      } else if (isNowVisible) {
-        targetHour = Math.max(nowShiftHours - 1, timelineStart);
-      }
-      containerRef.current.scrollTop = Math.max((targetHour - timelineStart) * verticalHourHeight, 0);
+  // Track manual scrolling to keep focal center time accurate across user interactions
+  const handleHorizontalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (hourWidth > 0 && target.clientWidth > 0) {
+      const centerPx = target.scrollLeft + target.clientWidth / 2;
+      visibleCenterHourRef.current = (centerPx - H_LEFT_GUTTER) / hourWidth;
     }
-  }, [orientation, hourWidth, verticalHourHeight, isMobile, dutyStartHour, timelineStart, isNowVisible, nowOffsetHours, nowShiftHours, entries]);
+  }, [hourWidth]);
+
+  const handleVerticalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    if (verticalHourHeight > 0 && target.clientHeight > 0) {
+      const centerPx = target.scrollTop + target.clientHeight / 2;
+      visibleCenterVHourRef.current = centerPx / verticalHourHeight;
+    }
+  }, [verticalHourHeight]);
 
   // Horizontal zoom controls
-  const currentZoomIdx = ZOOM_LEVELS.indexOf(hourWidth);
+  const currentZoomIdx = Math.max(0, ZOOM_LEVELS.indexOf(hourWidth));
   const canZoomInH = currentZoomIdx < ZOOM_LEVELS.length - 1;
   const canZoomOutH = currentZoomIdx > 0;
 
   // Vertical zoom controls
   const canZoomInV = vZoomIdx < V_ZOOM_LEVELS.length - 1;
   const canZoomOutV = vZoomIdx > 0;
+
+  const handleZoomIn = useCallback(() => {
+    if (orientation === 'horizontal') {
+      if (canZoomInH && onZoomChange) {
+        onZoomChange(ZOOM_LEVELS[currentZoomIdx + 1]);
+      }
+    } else {
+      if (canZoomInV) {
+        setVZoomIdx((i) => Math.min(i + 1, V_ZOOM_LEVELS.length - 1));
+      }
+    }
+  }, [orientation, canZoomInH, onZoomChange, currentZoomIdx, canZoomInV]);
+
+  const handleZoomOut = useCallback(() => {
+    if (orientation === 'horizontal') {
+      if (canZoomOutH && onZoomChange) {
+        onZoomChange(ZOOM_LEVELS[currentZoomIdx - 1]);
+      }
+    } else {
+      if (canZoomOutV) {
+        setVZoomIdx((i) => Math.max(i - 1, 0));
+      }
+    }
+  }, [orientation, canZoomOutH, onZoomChange, currentZoomIdx, canZoomOutV]);
+
+  // Keyboard shortcuts: '+' (or '=') to zoom in, '-' (or '_') to zoom out
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Do not intercept browser page zoom shortcuts like Ctrl/Cmd + / -
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // Ignore if user is currently typing in an input, textarea, or select
+      const target = e.target as HTMLElement | null;
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isInput =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        Boolean(target?.isContentEditable) ||
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl instanceof HTMLSelectElement ||
+        Boolean((activeEl as HTMLElement)?.isContentEditable);
+
+      if (isInput) return;
+
+      // Do not zoom if a modal/dialog overlay is open
+      if (document.querySelector('[role="dialog"], .fixed.inset-0.z-\\[9000\\], .fixed.inset-0.z-50')) {
+        return;
+      }
+
+      if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') {
+        e.preventDefault();
+        handleZoomIn();
+      } else if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') {
+        e.preventDefault();
+        handleZoomOut();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleZoomIn, handleZoomOut]);
+
+  // Auto-scroll on mount/date change AND anchor view position on zoom
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const currentKey = `${selectedDate || 'today'}_${orientation}`;
+    const isNewContext = lastScrolledKeyRef.current !== currentKey;
+
+    if (isNewContext) {
+      lastScrolledKeyRef.current = currentKey;
+      prevHourWidthRef.current = hourWidth;
+      prevVZoomHeightRef.current = verticalHourHeight;
+
+      if (orientation === 'horizontal') {
+        const scrollOffset = isNowVisible ? nowOffsetHours : (dutyStartHour - timelineStart);
+        const scrollTo = Math.max(scrollOffset * hourWidth - 100, 0);
+        containerRef.current.scrollLeft = scrollTo;
+        const centerPx = scrollTo + containerRef.current.clientWidth / 2;
+        visibleCenterHourRef.current = (centerPx - H_LEFT_GUTTER) / hourWidth;
+      } else if (!isMobile) {
+        let targetHour = dutyStartHour;
+        if (entries.length > 0) {
+          const minH = Math.min(...entries.map((e) => parseTimeToShiftHours(e.startTime, dutyStartHour)));
+          targetHour = Math.max(minH - 0.5, timelineStart);
+        } else if (isNowVisible) {
+          targetHour = Math.max(nowShiftHours - 1, timelineStart);
+        }
+        const scrollTop = Math.max((targetHour - timelineStart) * verticalHourHeight, 0);
+        containerRef.current.scrollTop = scrollTop;
+        const centerPx = scrollTop + containerRef.current.clientHeight / 2;
+        visibleCenterVHourRef.current = centerPx / verticalHourHeight;
+      }
+      return;
+    }
+
+    // Context is the same -> check if ZOOM changed and keep user's current visible center anchored!
+    if (orientation === 'horizontal') {
+      const oldHourWidth = prevHourWidthRef.current;
+      const newHourWidth = hourWidth;
+      if (oldHourWidth > 0 && oldHourWidth !== newHourWidth && containerRef.current) {
+        const container = containerRef.current;
+        const centerHourOffset =
+          visibleCenterHourRef.current !== null
+            ? visibleCenterHourRef.current
+            : (container.scrollLeft + container.clientWidth / 2 - H_LEFT_GUTTER) / oldHourWidth;
+
+        const newCenterPx = H_LEFT_GUTTER + centerHourOffset * newHourWidth;
+        const newScrollLeft = Math.max(newCenterPx - container.clientWidth / 2, 0);
+        container.scrollLeft = newScrollLeft;
+        visibleCenterHourRef.current = centerHourOffset;
+      }
+      prevHourWidthRef.current = newHourWidth;
+    } else if (!isMobile) {
+      const oldVHeight = prevVZoomHeightRef.current;
+      const newVHeight = verticalHourHeight;
+      if (oldVHeight > 0 && oldVHeight !== newVHeight && containerRef.current) {
+        const container = containerRef.current;
+        const centerHourOffset =
+          visibleCenterVHourRef.current !== null
+            ? visibleCenterVHourRef.current
+            : (container.scrollTop + container.clientHeight / 2) / oldVHeight;
+
+        const newCenterPx = centerHourOffset * newVHeight;
+        const newScrollTop = Math.max(newCenterPx - container.clientHeight / 2, 0);
+        container.scrollTop = newScrollTop;
+        visibleCenterVHourRef.current = centerHourOffset;
+      }
+      prevVZoomHeightRef.current = newVHeight;
+    }
+  }, [
+    orientation,
+    hourWidth,
+    verticalHourHeight,
+    isMobile,
+    dutyStartHour,
+    timelineStart,
+    isNowVisible,
+    nowOffsetHours,
+    nowShiftHours,
+    selectedDate,
+    entries,
+  ]);
 
   const tooltipContent = (entry: ScheduledSurgery) => {
     const staffEntries = Object.entries(entry.staff || {}).filter(([, v]) => v);
@@ -685,25 +834,25 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
           {orientation === 'horizontal' ? (
             <>
               <button
-                onClick={() => canZoomOutH && onZoomChange && onZoomChange(ZOOM_LEVELS[currentZoomIdx - 1])}
+                onClick={handleZoomOut}
                 disabled={!canZoomOutH || !onZoomChange}
                 className={`p-1 rounded transition-colors cursor-pointer ${
                   canZoomOutH && onZoomChange ? 'hover:bg-gray-100 text-gray-600' : 'text-gray-300'
                 }`}
-                title="Thu nhỏ tỉ lệ giờ"
+                title="Thu nhỏ tỉ lệ giờ (-)"
               >
                 <ZoomOut size={12} />
               </button>
-              <span className="text-[10px] font-bold text-gray-600 px-1 text-center min-w-9">
+              <span className="text-[10px] font-bold text-gray-600 px-1 text-center min-w-9 select-none" title="Phím tắt: + phóng to, - thu nhỏ">
                 {ZOOM_LABELS[hourWidth]}
               </span>
               <button
-                onClick={() => canZoomInH && onZoomChange && onZoomChange(ZOOM_LEVELS[currentZoomIdx + 1])}
+                onClick={handleZoomIn}
                 disabled={!canZoomInH || !onZoomChange}
                 className={`p-1 rounded transition-colors cursor-pointer ${
                   canZoomInH && onZoomChange ? 'hover:bg-gray-100 text-gray-600' : 'text-gray-300'
                 }`}
-                title="Phóng to tỉ lệ giờ"
+                title="Phóng to tỉ lệ giờ (+)"
               >
                 <ZoomIn size={12} />
               </button>
@@ -711,25 +860,25 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
           ) : (
             <>
               <button
-                onClick={() => canZoomOutV && setVZoomIdx((i) => i - 1)}
+                onClick={handleZoomOut}
                 disabled={!canZoomOutV}
                 className={`p-1 rounded transition-colors cursor-pointer ${
                   canZoomOutV ? 'hover:bg-gray-100 text-gray-600' : 'text-gray-300'
                 }`}
-                title="Thu nhỏ chiều cao khung giờ"
+                title="Thu nhỏ chiều cao khung giờ (-)"
               >
                 <ZoomOut size={12} />
               </button>
-              <span className="text-[10px] font-bold text-gray-600 px-1 text-center min-w-12">
+              <span className="text-[10px] font-bold text-gray-600 px-1 text-center min-w-12 select-none" title="Phím tắt: + phóng to, - thu nhỏ">
                 {V_ZOOM_LABELS[verticalHourHeight]}
               </span>
               <button
-                onClick={() => canZoomInV && setVZoomIdx((i) => i + 1)}
+                onClick={handleZoomIn}
                 disabled={!canZoomInV}
                 className={`p-1 rounded transition-colors cursor-pointer ${
                   canZoomInV ? 'hover:bg-gray-100 text-gray-600' : 'text-gray-300'
                 }`}
-                title="Phóng to chiều cao khung giờ"
+                title="Phóng to chiều cao khung giờ (+)"
               >
                 <ZoomIn size={12} />
               </button>
@@ -744,6 +893,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       {orientation === 'vertical' && (
         <div
           ref={containerRef}
+          onScroll={handleVerticalScroll}
           className={`relative touch-pan-y ${
             isMobile
               ? 'overflow-x-hidden w-full'
@@ -1002,7 +1152,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       {/* ── MODE 2: HORIZONTAL TIMELINE (NGANG ↔) ── */}
       {/* ═════════════════════════════════════════════════════════════════════ */}
       {orientation === 'horizontal' && (
-        <div ref={containerRef} className="overflow-x-auto overflow-y-hidden touch-pan-x overscroll-x-contain">
+        <div ref={containerRef} onScroll={handleHorizontalScroll} className="overflow-x-auto overflow-y-hidden touch-pan-x overscroll-x-contain">
           <div style={{ width: totalWidth + H_LEFT_GUTTER + 24, minHeight: Math.max(totalHeight, 220) }} className="relative">
             {/* Time axis header */}
             <div className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200" style={{ height: H_HEADER_HEIGHT }}>
@@ -1060,61 +1210,81 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
               const { color, isConflicted, confInfo, hasMachine, hasStaff } = getCardTheme(entry, idx);
               const hasOverlap = confInfo?.hasOverlap;
+              const hasBothMachineAndStaff = (confInfo?.machineConflicts.length || 0) > 0 && (confInfo?.staffConflicts.length || 0) > 0;
+              // If card is narrow or has both machine and staff conflicts, stack staff badge below machine badge
+              const shouldStackBadges = width < 230 || hasBothMachineAndStaff;
 
               return (
                 <Tooltip key={entry.id} content={tooltipContent(entry)} position="bottom" maxWidth={320}>
                   <div
-                    className={`absolute rounded-lg ${color.bg} ${color.border} ${color.text}
+                    className={`absolute rounded-xl ${color.bg} ${color.border} ${color.text}
                       cursor-pointer hover:shadow-sm transition-all duration-150
-                      flex items-center gap-1.5 px-2 overflow-hidden select-none shadow-2xs
+                      flex flex-col justify-between py-1 px-2 overflow-hidden select-none shadow-2xs
                     `}
                     style={{ left, top, width, height: H_BAR_HEIGHT }}
                     onClick={() => onEntryClick(entry)}
                   >
-                    {isConflicted && (
-                      <AlertTriangle size={12} className="shrink-0 text-red-600 animate-pulse" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[11px] font-bold truncate leading-tight flex items-center gap-1">
-                        <span>{entry.patientName}</span>
-                      </div>
-                      {width > 80 && (
-                        <div className="text-[10px] opacity-75 truncate leading-tight">
-                          {entry.tenKT}
-                        </div>
+                    {/* Row 1: Full Patient Name (Takes 100% width, never truncated by time) */}
+                    <div className="flex items-center gap-1 w-full min-w-0">
+                      {isConflicted && (
+                        <AlertTriangle size={11} className="shrink-0 text-red-600 animate-pulse" />
                       )}
+                      <span className="text-[10.5px] sm:text-[11px] font-bold text-gray-900 truncate leading-tight">
+                        {entry.patientName}
+                      </span>
                     </div>
 
-                    {/* Conflict Badges: Machine = RED, Staff = BLUE */}
-                    {isConflicted && (
-                      <div className="flex items-center gap-1 shrink-0">
+                    {/* Row 2: Surgery Time Range (Below patient name) */}
+                    <div className="flex items-center gap-1 text-[8.5px] text-gray-500 font-semibold tabular-nums leading-none">
+                      <Clock size={8} className="shrink-0 text-primary-600" />
+                      <span>{entry.startTime}–{entry.endTime}</span>
+                    </div>
+
+                    {/* Bottom Area: Badges arranged below patient name OR procedure info */}
+                    {isConflicted ? (
+                      <div className={`flex ${shouldStackBadges ? 'flex-col items-start gap-0.5' : 'flex-wrap items-center gap-1'} w-full min-w-0 mt-0.5`}>
+                        {/* Machine Conflict Badge (RED) */}
                         {confInfo?.machineConflicts.map((c, i) => (
                           <span
                             key={`hmc-${i}`}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-600 text-white text-[9px] font-bold rounded shadow-xs"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-red-600 text-white text-[8px] sm:text-[8.5px] font-bold rounded shadow-2xs max-w-full"
                             title={`Trùng máy: ${c.resource}`}
                           >
-                            <Cpu size={9} />
-                            {c.resource}
+                            <Cpu size={8} className="shrink-0" />
+                            <span className="truncate">{c.resource}</span>
                           </span>
                         ))}
+
+                        {/* Staff Conflict Badge (BLUE) - stacked below machine badge */}
                         {confInfo?.staffConflicts.map((c, i) => (
                           <span
                             key={`hsc-${i}`}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-600 text-white text-[9px] font-bold rounded shadow-xs"
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.2 bg-blue-600 text-white text-[8px] sm:text-[8.5px] font-bold rounded shadow-2xs max-w-full"
                             title={`Trùng NV: ${c.resource}`}
                           >
-                            <User size={9} />
-                            {c.resource}
+                            <User size={8} className="shrink-0" />
+                            <span className="truncate">{c.resource}</span>
                           </span>
                         ))}
-                        {!hasMachine && !hasStaff && hasOverlap && width > 130 && (
+
+                        {!hasMachine && !hasStaff && hasOverlap && (
                           <span
-                            className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-amber-100 text-amber-800 border border-amber-300 text-[9px] font-medium rounded"
+                            className="inline-flex items-center gap-0.5 px-1 py-0.2 bg-amber-100 text-amber-800 border border-amber-300 text-[8px] font-medium rounded max-w-full"
                             title="Trùng khung giờ với ca khác"
                           >
-                            <Clock size={8} />
-                            Trùng ca
+                            <Clock size={7.5} className="shrink-0" />
+                            <span className="truncate">Trùng ca</span>
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      /* Non-conflicted: procedure name and room/machine */
+                      <div className="flex items-center justify-between gap-1 w-full min-w-0 text-[9px] text-gray-600 mt-0.5">
+                        <span className="truncate leading-none">{entry.tenKT}</span>
+                        {entry.machineName && width >= 140 && (
+                          <span className="inline-flex items-center gap-0.5 text-emerald-700 font-medium shrink-0 text-[8px]">
+                            <Cpu size={7.5} />
+                            <span className="truncate max-w-[70px]">{entry.machineName}</span>
                           </span>
                         )}
                       </div>
