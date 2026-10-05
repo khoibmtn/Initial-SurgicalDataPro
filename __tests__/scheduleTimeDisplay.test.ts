@@ -42,3 +42,59 @@ describe('getNowShiftHours', () => {
     expect(getNowShiftHours('2026-10-03', 7.5, new Date(2026, 9, 3, 13, 30))).toBeCloseTo(13.5);
   });
 });
+
+import { computeOffHoursIntervals } from '../components/scheduling/DayTimelineView';
+
+describe('computeOffHoursIntervals', () => {
+  const winterSchedule = {
+    morningFrom: '07:30',
+    morningTo: '12:00',
+    afternoonFrom: '13:30',
+    afternoonTo: '17:00',
+  };
+
+  const summerSchedule = {
+    morningFrom: '07:00',
+    morningTo: '11:30',
+    afternoonFrom: '13:30',
+    afternoonTo: '17:00',
+  };
+
+  it('computes winter off-hours with standard 24h duty shift (07:30 to 31.5)', () => {
+    const intervals = computeOffHoursIntervals(7.5, 31.5, winterSchedule, winterSchedule);
+    expect(intervals).toHaveLength(2);
+    // 1. Lunch break
+    expect(intervals[0].start).toBeCloseTo(12.0);
+    expect(intervals[0].end).toBeCloseTo(13.5);
+    expect(intervals[0].label).toContain('12:00');
+    expect(intervals[0].label).toContain('13:30');
+    // 2. Evening through next morning duty start
+    expect(intervals[1].start).toBeCloseTo(17.0);
+    expect(intervals[1].end).toBeCloseTo(31.5);
+    expect(intervals[1].label).toContain('17:00');
+    expect(intervals[1].label).toContain('07:30');
+  });
+
+  it('computes summer off-hours with standard 24h duty shift (07:00 to 31.0)', () => {
+    const intervals = computeOffHoursIntervals(7.0, 31.0, summerSchedule, summerSchedule);
+    expect(intervals).toHaveLength(2);
+    // 1. Lunch break
+    expect(intervals[0].start).toBeCloseTo(11.5);
+    expect(intervals[0].end).toBeCloseTo(13.5);
+    expect(intervals[0].label).toContain('11:30');
+    expect(intervals[0].label).toContain('13:30');
+    // 2. Evening through next morning duty start
+    expect(intervals[1].start).toBeCloseTo(17.0);
+    expect(intervals[1].end).toBeCloseTo(31.0);
+    expect(intervals[1].label).toContain('17:00');
+    expect(intervals[1].label).toContain('07:00');
+  });
+
+  it('includes early morning off-hours if timeline is expanded before duty start', () => {
+    const intervals = computeOffHoursIntervals(5.0, 31.5, winterSchedule, winterSchedule);
+    expect(intervals[0].start).toBeCloseTo(5.0);
+    expect(intervals[0].end).toBeCloseTo(7.5);
+    expect(intervals[0].label).toContain('Ngoài giờ');
+  });
+});
+

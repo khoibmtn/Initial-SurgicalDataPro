@@ -6,8 +6,8 @@ import {
 import { Tooltip } from '../common/Tooltip';
 import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
 import { STAFF_ROLE_LABELS } from '../../types/schedule';
-import type { WorkingHours } from '../../contexts/ConfigContext';
-import { getScheduleForDate } from '../../services/overtimeCalculationService';
+import type { WorkingHours, SeasonSchedule } from '../../contexts/ConfigContext';
+import { getScheduleForDate, getSeasonForDate } from '../../services/overtimeCalculationService';
 import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
 
 export type ZoomLevel = 40 | 60 | 80 | 120 | 180;
@@ -280,6 +280,82 @@ const BAR_COLORS = [
   { bg: 'bg-white', border: 'border border-gray-200 border-l-[3px] border-l-rose-600', text: 'text-gray-900' },
 ];
 
+export interface OffHoursInterval {
+  start: number;
+  end: number;
+  label: string;
+}
+
+export function computeOffHoursIntervals(
+  timelineStart: number,
+  timelineEnd: number,
+  seasonSchedule?: SeasonSchedule,
+  nextSchedule?: SeasonSchedule
+): OffHoursInterval[] {
+  if (!seasonSchedule) return [];
+
+  const parseH = (t?: string, defaultH = 0) => {
+    if (!t) return defaultH;
+    const [h, m] = t.split(':').map(Number);
+    return (isNaN(h) ? 0 : h) + (isNaN(m) ? 0 : m) / 60;
+  };
+
+  const mFrom = parseH(seasonSchedule.morningFrom, 7.5);
+  const mTo = parseH(seasonSchedule.morningTo, 12.0);
+  const aFrom = parseH(seasonSchedule.afternoonFrom, 13.5);
+  const aTo = parseH(seasonSchedule.afternoonTo, 17.0);
+
+  const nextMFrom = 24 + parseH(nextSchedule?.morningFrom, 7.5);
+  const nextMTo = 24 + parseH(nextSchedule?.morningTo, 12.0);
+  const nextAFrom = 24 + parseH(nextSchedule?.afternoonFrom, 13.5);
+  const nextATo = 24 + parseH(nextSchedule?.afternoonTo, 17.0);
+
+  const intervals: OffHoursInterval[] = [];
+
+  // 1. Sáng sớm trước giờ làm việc nếu timeline mở rộng
+  if (timelineStart < mFrom) {
+    intervals.push({
+      start: timelineStart,
+      end: mFrom,
+      label: `Ngoài giờ (${formatTickLabel(timelineStart)} – ${seasonSchedule.morningFrom})`,
+    });
+  }
+
+  // 2. Buổi trưa giữa ca sáng và ca chiều
+  if (mTo < aFrom) {
+    intervals.push({
+      start: mTo,
+      end: aFrom,
+      label: `Nghỉ trưa (${seasonSchedule.morningTo} – ${seasonSchedule.afternoonFrom})`,
+    });
+  }
+
+  // 3. Từ chiều tối (sau ca chiều) đến ca sáng hôm sau
+  intervals.push({
+    start: aTo,
+    end: nextMFrom,
+    label: `Ngoài giờ (${seasonSchedule.afternoonTo} – ${nextSchedule?.morningFrom || '07:30'})`,
+  });
+
+  // 4. Nếu timeline mở rộng qua sáng hôm sau
+  if (timelineEnd > nextMTo) {
+    intervals.push({
+      start: nextMTo,
+      end: Math.min(nextAFrom, timelineEnd),
+      label: `Nghỉ trưa hôm sau (${nextSchedule?.morningTo || '12:00'} – ${nextSchedule?.afternoonFrom || '13:30'})`,
+    });
+  }
+  if (timelineEnd > nextATo) {
+    intervals.push({
+      start: nextATo,
+      end: timelineEnd,
+      label: `Ngoài giờ hôm sau (${nextSchedule?.afternoonTo || '17:00'}...)`,
+    });
+  }
+
+  return intervals;
+}
+
 export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   entries,
   conflictedIds,
@@ -321,9 +397,13 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   const isMobile = containerWidth < 640;
 
   // ── Duty shift season & start hour (07:30 in winter, 07:00 in summer) ──
-  const seasonSchedule = useMemo(() => {
+  const { seasonSchedule, nextSchedule, isSummer } = useMemo(() => {
     const dateObj = selectedDate ? new Date(selectedDate + 'T00:00:00') : new Date();
-    return getScheduleForDate(dateObj, workingHours);
+    const nextDate = new Date(dateObj.getTime() + 86400000);
+    const schedule = getScheduleForDate(dateObj, workingHours);
+    const next = getScheduleForDate(nextDate, workingHours);
+    const summer = getSeasonForDate(dateObj, workingHours) === 'summer';
+    return { seasonSchedule: schedule, nextSchedule: next, isSummer: summer };
   }, [selectedDate, workingHours]);
 
   const dutyStartStr = seasonSchedule?.morningFrom || '07:30';
@@ -366,6 +446,12 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       totalTimelineHours: Math.max(actualEnd - actualStart, 24),
     };
   }, [entries, dutyStartHour]);
+
+  // ── Off-hours intervals (Ngoài giờ hành chính) across timeline ──
+  const offHoursIntervals = useMemo(
+    () => computeOffHoursIntervals(timelineStart, timelineEnd, seasonSchedule, nextSchedule),
+    [timelineStart, timelineEnd, seasonSchedule, nextSchedule]
+  );
 
   // ── Timeline tick marks across duty shift ──
   const timelineTicks = useMemo(() => {
@@ -819,10 +905,14 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
           </div>
         </div>
 
-        {/* Duty shift window badge */}
-        <div className="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 bg-gray-100/80 px-2 py-0.5 rounded-md border border-gray-200/60">
+        {/* Duty shift window badge & Season indicator */}
+        <div className="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 bg-gray-100/80 px-2 py-0.5 rounded-md border border-gray-200/60 flex-wrap">
           <Clock size={11} className="text-primary-600" />
           <span>Tua trực: <strong className="text-gray-800">{dutyStartStr}</strong> đến <strong className="text-gray-800">{formatTickLabel(dutyStartHour - 1 / 60)}</strong></span>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded font-bold text-[9px] bg-amber-100/90 text-amber-900 border border-amber-300/60 shadow-2xs">
+            <span>{isSummer ? '☀️ Mùa hè' : '❄️ Mùa đông'}</span>
+            <span className="font-medium text-amber-800 text-[8.5px] hidden sm:inline">(HC: {seasonSchedule.morningFrom}–{seasonSchedule.morningTo}, {seasonSchedule.afternoonFrom}–{seasonSchedule.afternoonTo})</span>
+          </span>
           {totalTimelineHours > 24 && (
             <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1 rounded">Tự mở rộng ({totalTimelineHours}h)</span>
           )}
@@ -929,6 +1019,32 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               ))}
             </div>
 
+            {/* ── Off-Hours Background Highlights (Ngoài giờ hành chính) ── */}
+            {offHoursIntervals.map((interval, idx) => {
+              const s = Math.max(interval.start, timelineStart);
+              const e = Math.min(interval.end, timelineEnd);
+              if (e <= s) return null;
+              const top = (s - timelineStart) * verticalHourHeight;
+              const height = (e - s) * verticalHourHeight;
+
+              return (
+                <div
+                  key={`v-off-${idx}`}
+                  className="absolute right-0 bg-amber-50/70 border-t border-b border-amber-200/50 pointer-events-none z-0"
+                  style={{
+                    top,
+                    height,
+                    left: effectiveGutter,
+                  }}
+                >
+                  <div className="absolute right-2 top-1 text-[8.5px] sm:text-[9.5px] font-bold text-amber-800/80 uppercase tracking-wide bg-amber-100/90 px-1.5 py-0.5 rounded border border-amber-300/60 shadow-2xs select-none flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span>{interval.label}</span>
+                  </div>
+                </div>
+              );
+            })}
+
             {/* Horizontal Grid Lines */}
             {timelineTicks.map((tick) => (
               <div
@@ -936,7 +1052,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                 className={`absolute left-0 right-0 ${
                   tick.isDutyStart || tick.isDutyEnd
                     ? 'border-t-2 border-primary-200 z-10'
-                    : 'border-t border-gray-100'
+                    : 'border-t border-gray-100/80 z-[1]'
                 }`}
                 style={{ top: tick.offsetHours * verticalHourHeight, left: effectiveGutter }}
               />
@@ -978,7 +1094,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                 <Tooltip key={entry.id} content={tooltipContent(entry)} position="right" maxWidth={320} disabled={isMobile}>
                   <div
                     onClick={() => onEntryClick(entry)}
-                    className={`absolute ${zoomConfig.radiusClass} ${isNarrow ? 'p-1 px-1.5' : zoomConfig.paddingClass}
+                    className={`absolute z-10 ${zoomConfig.radiusClass} ${isNarrow ? 'p-1 px-1.5' : zoomConfig.paddingClass}
                       ${color.bg} ${color.border} ${color.text}
                       cursor-pointer hover:shadow-sm active:scale-[0.99] transition-all duration-150
                       overflow-hidden select-none flex flex-col justify-between shadow-2xs
@@ -1173,6 +1289,28 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               ))}
             </div>
 
+            {/* ── Off-Hours Background Highlights (Ngoài giờ hành chính) ── */}
+            {offHoursIntervals.map((interval, idx) => {
+              const s = Math.max(interval.start, timelineStart);
+              const e = Math.min(interval.end, timelineEnd);
+              if (e <= s) return null;
+              const left = H_LEFT_GUTTER + (s - timelineStart) * hourWidth;
+              const width = (e - s) * hourWidth;
+
+              return (
+                <div
+                  key={`h-off-${idx}`}
+                  className="absolute top-0 bottom-0 bg-amber-50/70 border-l border-r border-amber-200/50 pointer-events-none z-0"
+                  style={{ left, width }}
+                >
+                  <div className="sticky top-2 left-2 text-[8.5px] sm:text-[9.5px] font-bold text-amber-800/80 uppercase tracking-wide bg-amber-100/90 px-1.5 py-0.5 rounded border border-amber-300/60 shadow-2xs select-none inline-flex items-center gap-1 mt-1 ml-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span>{interval.label}</span>
+                  </div>
+                </div>
+              );
+            })}
+
             {/* Grid lines */}
             {timelineTicks.map((tick) => (
               <div
@@ -1180,7 +1318,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                 className={`absolute top-0 bottom-0 ${
                   tick.isDutyStart || tick.isDutyEnd
                     ? 'border-l-2 border-primary-200 z-10'
-                    : 'border-l border-gray-100'
+                    : 'border-l border-gray-100/80 z-[1]'
                 }`}
                 style={{ left: H_LEFT_GUTTER + tick.offsetHours * hourWidth }}
               />
@@ -1216,7 +1354,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               return (
                 <Tooltip key={entry.id} content={tooltipContent(entry)} position="bottom" maxWidth={320} disabled={isMobile}>
                   <div
-                    className={`absolute rounded-xl ${color.bg} ${color.border} ${color.text}
+                    className={`absolute z-10 rounded-xl ${color.bg} ${color.border} ${color.text}
                       cursor-pointer hover:shadow-sm transition-all duration-150
                       flex flex-col justify-between py-1 px-2 overflow-hidden select-none shadow-2xs
                     `}
