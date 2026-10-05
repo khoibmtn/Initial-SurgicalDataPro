@@ -6,30 +6,34 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
+
+    function hasUserDoc() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
     
     function getUserData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
     
     function isAdmin() {
-      return isAuthenticated() && getUserData().role == 'admin';
+      return hasUserDoc() && getUserData().role == 'admin';
     }
     
     function isHead() {
-      return isAuthenticated() && getUserData().role == 'head';
+      return hasUserDoc() && (getUserData().role == 'head' || getUserData().role == 'deputy_head');
     }
     
     function isActiveUser() {
-      return isAuthenticated() && getUserData().status == 'active';
+      return hasUserDoc() && getUserData().status == 'active';
     }
     
-    // ── Users collection (KHÓA BẢO MẬT) ──────────────────────────────
+    // ── Users collection (Phân quyền người dùng) ─────────────────────
     match /users/{userId} {
       // Cho phép đọc: cần thiết cho việc đăng nhập bằng SĐT, kiểm tra trùng SĐT và đồng bộ profile
       allow read: if true;
       // Đăng ký: tạo doc cho chính mình
       allow create: if isAuthenticated() && request.auth.uid == userId;
-      // Sửa: admin, chính mình, hoặc Trưởng khoa sửa nhân viên cùng khoa (không được đổi role thành admin/head)
+      // Sửa: admin, chính mình, hoặc Lãnh đạo khoa sửa nhân viên cùng khoa (không được nâng quyền thành admin/head)
       allow update: if isAuthenticated() && (
         request.auth.uid == userId || 
         isAdmin() || 
@@ -44,64 +48,69 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     
-    // ── Surgery data (GIỮ MỞ TẠM — Phase Guest-First) ────────────────
-    // Sẽ đóng khi admin bật "Bắt buộc đăng nhập"
+    // ── Dữ liệu Báo cáo & Phẫu thuật thủ thuật (Yêu cầu tài khoản đã duyệt - active) ──
     
-    // Collection group query cho processed_records
+    // Collection group query cho processed_records (tra cứu nhanh giá dịch vụ)
     match /{document=**}/processed_records/{recordId} {
-      allow read, write: if true;
+      allow read, write: if isActiveUser();
     }
     
     // Reports & nested processed_records
     match /reports/{reportId} {
-      allow read, write: if true;
+      allow read, create, update: if isActiveUser();
+      allow delete: if isAdmin() || isHead();
 
       match /processed_records/{recordId} {
-        allow read, write: if true;
+        allow read, create, update: if isActiveUser();
+        allow delete: if isAdmin() || isHead();
       }
     }
 
-    // Surgery profiles
+    // Surgery profiles (Hồ sơ ca mổ)
     match /surgery_profiles/{profileId} {
-      allow read, write: if true;
+      allow read, write: if isActiveUser();
     }
 
-    // Duty schedules
+    // Duty schedules (Lịch trực)
     match /duty_schedules/{dateKey} {
-      allow read, write: if true;
+      allow read, write: if isActiveUser();
     }
 
-    // ── Service Package Module ──────────────────────────────────────
-    // Position catalog (DM Vị trí)
+    // ── Phân hệ Gói Dịch Vụ ──────────────────────────────────────────
+    // Danh mục vị trí tham gia gói
     match /position_catalog/{positionId} {
-      allow read, write: if true;
+      allow read: if isActiveUser();
+      allow write: if isAdmin() || isHead();
     }
 
-    // Service package definitions (Cấu hình gói DV)
+    // Định nghĩa gói dịch vụ kỹ thuật
     match /service_packages/{packageId} {
-      allow read, write: if true;
+      allow read: if isActiveUser();
+      allow write: if isAdmin() || isHead();
     }
 
-    // Service package assignments (Gán gói cho BN)
+    // Gán gói dịch vụ cho bệnh nhân
     match /service_package_assignments/{assignmentId} {
-      allow read, write: if true;
+      allow read, write: if isActiveUser();
     }
 
-    // Service package module config
+    // Cấu hình phân hệ gói DV
     match /service_package_module_config/{docId} {
-      allow read, write: if true;
+      allow read: if isActiveUser();
+      allow write: if isAdmin();
     }
 
-    // Service package payment lists (danh sách thanh toán gói dịch vụ)
+    // Danh sách thanh toán gói dịch vụ
     match /payment_lists/{listId} {
-      allow read, write: if true;
+      allow read, create, update: if isActiveUser();
+      allow delete: if isAdmin() || isHead();
     }
 
-    // ── Audit Logs (Nhật ký truy vết & kiểm toán - Chỉ Admin và Trưởng khoa xem được)
+    // ── Audit Logs (Nhật ký truy vết & kiểm toán - Chỉ Admin và Lãnh đạo khoa xem được) ──
     match /audit_logs/{logId} {
       allow read: if isAdmin() || isHead();
-      allow create: if true;
-      allow update, delete: if false;
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Không được sửa hay xóa log kiểm toán
     }
   }
 }

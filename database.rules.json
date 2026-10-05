@@ -1,0 +1,66 @@
+{
+  "rules": {
+    "auth_config": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "notifications": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["createdAt"]
+    },
+    "audit_logs": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      ".indexOn": ["timestamp"]
+    },
+    "schedules": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "surgery_name_prices": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "surgery_cost_items": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "chapter_catalog": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "labor_config": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "record_locks": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "report_locks": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "kpi_config": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "department_permissions": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "required_machines": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "app_config": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "$other": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
