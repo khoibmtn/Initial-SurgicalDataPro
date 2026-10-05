@@ -5,7 +5,15 @@ import { ReportState } from '../types/reportState';
 import { ColumnDef } from '../components/common/DynamicTable';
 import { buildPrintConfig } from '../components/surgery/printConfigBuilder';
 import { ToastType } from '../components/common/ToastContainer';
-import { ServicePackageAssignment, ServicePackageDefinition, ServicePackageModuleConfig, DEFAULT_MODULE_CONFIG } from '../types/servicePackage';
+import {
+  ServicePackageAssignment,
+  ServicePackageDefinition,
+  ServicePackageModuleConfig,
+  PositionCatalogItem,
+  DEFAULT_MODULE_CONFIG,
+  formatDeductionValue,
+} from '../types/servicePackage';
+import { buildPackagePaymentRows } from '../services/packagePaymentRows';
 import { StaffMember } from '../types';
 
 export interface UsePrintControllerOptions {
@@ -25,6 +33,7 @@ export interface UsePrintControllerOptions {
   packageAssignments: ServicePackageAssignment[];
   packageDefinitions: ServicePackageDefinition[];
   staffList: StaffMember[];
+  positionCatalog?: PositionCatalogItem[];
   packagePaymentMode?: 'count' | 'amount';
   packageModuleConfig?: ServicePackageModuleConfig;
 }
@@ -45,6 +54,7 @@ export function usePrintController({
   packageAssignments,
   packageDefinitions,
   staffList,
+  positionCatalog,
   packagePaymentMode,
   packageModuleConfig,
 }: UsePrintControllerOptions) {
@@ -74,6 +84,7 @@ export function usePrintController({
           assignments: packageAssignments,
           packages: packageDefinitions,
           staffList,
+          positionCatalog,
           dateRangeText: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
           orientation,
           config,
@@ -129,6 +140,7 @@ export function usePrintController({
       packageAssignments,
       packageDefinitions,
       staffList,
+      positionCatalog,
       packagePaymentMode,
       packageModuleConfig,
     ]
@@ -171,21 +183,12 @@ export interface BuildPackagePaymentParams {
   assignments: ServicePackageAssignment[];
   packages: ServicePackageDefinition[];
   staffList: StaffMember[];
+  positionCatalog?: PositionCatalogItem[];
   dateRangeText: string;
   orientation: 'portrait' | 'landscape';
   config: any;
   packagePaymentMode?: 'count' | 'amount';
   packageModuleConfig?: ServicePackageModuleConfig;
-}
-
-interface PkgPaymentRow {
-  stt: number;
-  department: string;
-  taxId: string;
-  staffName: string;
-  cells: Record<string, Record<string, { count: number; amount: number }>>;
-  total: number;
-  totalCount: number;
 }
 
 export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams): any | null {
@@ -218,41 +221,9 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
     })),
   }));
 
-  // Build rows grouped by staffName
-  const staffMap = new Map<string, PkgPaymentRow>();
-  for (const a of assignments) {
-    for (const sa of a.staffAssignments) {
-      if (!sa.staffName) continue;
-      let row = staffMap.get(sa.staffName);
-      if (!row) {
-        const member = staffList.find(s => s.name === sa.staffName);
-        row = {
-          stt: 0,
-          staffName: sa.staffName,
-          department: member?.department || '',
-          taxId: member?.taxId || '',
-          cells: {},
-          total: 0,
-          totalCount: 0,
-        };
-        staffMap.set(sa.staffName, row);
-      }
-      if (!row.cells[a.packageId]) row.cells[a.packageId] = {};
-      if (!row.cells[a.packageId][sa.positionKey]) {
-        row.cells[a.packageId][sa.positionKey] = { count: 0, amount: 0 };
-      }
-      row.cells[a.packageId][sa.positionKey].count += 1;
-      row.cells[a.packageId][sa.positionKey].amount += sa.amount;
-      row.total += sa.amount;
-      row.totalCount += 1;
-    }
-  }
-
-  const rows = Array.from(staffMap.values()).sort((a, b) => {
-    if (a.department !== b.department) return a.department.localeCompare(b.department);
-    return a.staffName.localeCompare(b.staffName);
-  });
-  rows.forEach((r, i) => r.stt = i + 1);
+  // Staff rows + "virtual staff" rows for positions not yet assigned to anyone
+  const rows = buildPackagePaymentRows(assignments, packages, staffList, params.positionCatalog || [], params.config?.departments || [])
+    .map((r, i) => ({ ...r, stt: i + 1 }));
 
   const totalCols = columnStructure.reduce((s, c) => s + c.positions.length, 0);
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
@@ -336,7 +307,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
   ]);
 
   // Footer row with totals
-  const extraFooterRow = React.createElement('tr', { className: 'font-bold border-t-2 border-black' }, [
+  const totalFooterRow = React.createElement('tr', { key: 'totals', className: 'font-bold border-t-2 border-black' }, [
     React.createElement('td', { key: 'span', colSpan: 4, className: 'px-1 py-1 border border-black text-center font-bold text-[10px]' }, 'TỔNG CỘNG'),
     ...columnStructure.flatMap(pkg =>
       pkg.positions.map(pos => {
@@ -359,6 +330,21 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
     React.createElement('td', { key: 'total', className: 'px-1 py-1 border border-black text-right font-bold text-[10px]' }, grandTotal.toLocaleString('vi-VN')),
   ]);
 
+  const deductionPkgs = columnStructure
+    .map(c => packages.find(p => p.id === c.packageId))
+    .filter((p): p is ServicePackageDefinition => !!p && !!p.deduction && p.deduction.value > 0);
+
+  const deductionNoteRows = deductionPkgs.map(p =>
+    React.createElement('tr', { key: `ded-${p.id}` }, [
+      React.createElement('td', {
+        key: 'note',
+        colSpan: 4 + totalCols + 2,
+        className: 'px-1 py-0.5 border border-black text-left text-[9px] italic',
+      }, `${p.shortName || p.name}: thực lĩnh đã trừ khấu trừ ${formatDeductionValue(p.deduction)}/vị trí${p.deduction?.note ? ` — ${p.deduction.note}` : ''}`),
+    ])
+  );
+
+  const extraFooterRow = React.createElement(React.Fragment, null, [totalFooterRow, ...deductionNoteRows]);
   const printTitle = params.packageModuleConfig?.printTitle || DEFAULT_MODULE_CONFIG.printTitle || 'BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU';
 
   return {

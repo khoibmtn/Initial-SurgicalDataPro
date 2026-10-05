@@ -47,6 +47,7 @@ import { useToast } from './hooks/useToast';
 import { useSurgeryTableData } from './hooks/useSurgeryTableData';
 import { useReportPersistence } from './hooks/useReportPersistence';
 import { usePrintController } from './hooks/usePrintController';
+import { usePaymentLists, PaymentListsContext, LookupRecord } from './hooks/usePaymentLists';
 import { useExcelProcessing } from './hooks/useExcelProcessing';
 import { useStorageQuery } from './hooks/useStorageQuery';
 import { useVersionCheck } from './hooks/useVersionCheck';
@@ -75,6 +76,7 @@ import {
 import {
   ServicePackageAssignment,
   ServicePackageDefinition,
+  PositionCatalogItem,
   ServicePackageModuleConfig,
   DEFAULT_MODULE_CONFIG,
   getRecordDateString,
@@ -82,7 +84,7 @@ import {
   clearPackageDrafts,
   LS_DRAFT_KEY,
 } from './types/servicePackage';
-import { subscribeToAssignments, subscribeToServicePackages, subscribeToModuleConfig } from './services/servicePackageService';
+import { subscribeToAssignments, subscribeToServicePackages, subscribeToModuleConfig, subscribeToPositionCatalog } from './services/servicePackageService';
 import { subscribeAuditLogs, logAuditEvent } from './services/auditLogService';
 import { sendNotification } from './services/notificationService';
 
@@ -204,6 +206,7 @@ const InnerApp: React.FC = () => {
   // ── Package data subscriptions ──
   const [packageAssignments, setPackageAssignments] = useState<ServicePackageAssignment[]>([]);
   const [packageDefinitions, setPackageDefinitions] = useState<ServicePackageDefinition[]>([]);
+  const [positionCatalog, setPositionCatalog] = useState<PositionCatalogItem[]>([]);
   const [packageModuleConfig, setPackageModuleConfig] = useState<ServicePackageModuleConfig>(DEFAULT_MODULE_CONFIG);
   const [packagePaymentMode, setPackagePaymentMode] = useState<'count' | 'amount'>(() => {
     try {
@@ -229,8 +232,9 @@ const InnerApp: React.FC = () => {
 
   useEffect(() => {
     const unsub = subscribeToServicePackages(setPackageDefinitions);
+    const unsubCatalog = subscribeToPositionCatalog(setPositionCatalog);
     const unsubConfig = subscribeToModuleConfig(setPackageModuleConfig);
-    return () => { unsub(); unsubConfig(); };
+    return () => { unsub(); unsubCatalog(); unsubConfig(); };
   }, []);
 
   useEffect(() => {
@@ -308,6 +312,28 @@ const InnerApp: React.FC = () => {
     if (isAdmin) return true;
     return can('lock_report') && !!user?.department;
   }, [isAdmin, can, user?.department, currentType]);
+
+  // Service-package payment lists: monthly report only (daily report unchanged)
+  const paymentListData = usePaymentLists({
+    enabled: currentType === 'monthly',
+    dateFrom: currentReport.dateFrom,
+    dateTo: currentReport.dateTo,
+  });
+  const paymentListsCtx = useMemo<PaymentListsContext | undefined>(() => {
+    if (currentType !== 'monthly') return undefined;
+    const reportRecords = (currentReport.result?.validRecords || []) as LookupRecord[];
+    return {
+      lists: paymentListData.lists,
+      allAssignments: paymentListData.allAssignments,
+      membershipIndex: paymentListData.membershipIndex,
+      discharge: paymentListData.discharge,
+      records: [...reportRecords, ...paymentListData.lookupRecords],
+      ensureRecordsLoaded: paymentListData.ensureRecordsLoaded,
+      canManage: canManageLock,
+      userName: user?.name || user?.email || 'Người dùng',
+      periodKey: currentPeriodKey,
+    };
+  }, [currentType, paymentListData, currentReport.result, canManageLock, user?.name, user?.email, currentPeriodKey]);
 
   const canUnlockCurrentReport = useMemo(() => {
     // Chỉ áp dụng khóa sổ cho Báo cáo tháng
@@ -550,6 +576,7 @@ const InnerApp: React.FC = () => {
     packageAssignments,
     packageDefinitions,
     staffList: config.staffList || [],
+    positionCatalog,
     packagePaymentMode,
     packageModuleConfig,
   });
@@ -997,7 +1024,9 @@ const InnerApp: React.FC = () => {
                             setIsPrintOpen(true);
                           }}
                           packageAssignments={packageAssignments}
+                          paymentLists={paymentListsCtx}
                           packageDefinitions={packageDefinitions}
+                          positionCatalog={positionCatalog}
                           onAssignPackage={handleAssignPackage}
                           packagePaymentMode={packagePaymentMode}
                           onPackagePaymentModeChange={setPackagePaymentMode}

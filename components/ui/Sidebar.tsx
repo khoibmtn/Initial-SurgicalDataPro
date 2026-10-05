@@ -158,10 +158,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {!collapsed && (
               <div className="min-w-0">
                 <h1 className="text-sm font-bold text-gray-900 truncate leading-tight tracking-tight">
-                  SurgicalDataPro
+                  Quản lý PTTT
                 </h1>
-                <span className="text-[10px] text-gray-400 font-medium tracking-wide uppercase">
-                  Enterprise v2.0
+                <span
+                  className="block text-[10px] text-gray-400 font-medium tracking-wide truncate"
+                  title={`Cập nhật ${__BUILD_TIME__}`}
+                >
+                  Cập nhật {__BUILD_TIME__}
                 </span>
               </div>
             )}

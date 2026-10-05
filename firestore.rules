@@ -92,6 +92,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Service package payment lists (danh sách thanh toán gói dịch vụ)
+    match /payment_lists/{listId} {
+      allow read, write: if true;
+    }
+
     // ── Audit Logs (Nhật ký truy vết & kiểm toán - Chỉ Admin và Trưởng khoa xem được)
     match /audit_logs/{logId} {
       allow read: if isAdmin() || isHead();

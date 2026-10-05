@@ -56,12 +56,24 @@ export const DEFAULT_POSITIONS: Omit<PositionCatalogItem, 'id' | 'createdAt' | '
 
 // ─── Service Package Definition ──────────────────────────────────────────────
 
+/** Cách tính khấu trừ thêm: % trên số tiền vị trí, hoặc số tiền cố định cho mỗi vị trí */
+export type DeductionType = 'percent' | 'amount';
+
+/** Khấu trừ thêm áp dụng cho từng vị trí trong gói */
+export interface PackageDeduction {
+  type: DeductionType;
+  value: number;             // % (0-100) hoặc số tiền VNĐ tuỳ theo type
+  note?: string;             // Diễn giải lý do khấu trừ
+}
+
 /** Cấu hình 1 gói dịch vụ */
 export interface ServicePackageDefinition {
   id: string;
   name: string;              // "Phẫu thuật chọn bác sĩ", "PT chọn BS sản khoa"...
   shortName?: string;        // Tên rút gọn hiển thị trên bảng, e.g. "BS yêu cầu"
   totalAmount: number;       // Tổng số tiền gói (VNĐ), e.g. 2_000_000
+  taxPercent?: number;       // Thuế (%) tính trên tổng số tiền gói
+  deduction?: PackageDeduction;  // Khấu trừ thêm cho từng vị trí khi tính thực lĩnh
   positions: ServicePackagePosition[];  // Danh sách vị trí + số tiền
   active: boolean;           // true = đang hoạt động, false = ẩn/disabled
   sortOrder: number;
@@ -134,6 +146,50 @@ export const DEFAULT_MODULE_CONFIG: ServicePackageModuleConfig = {
   allowOverrideAutoFilledStaff: true,
   printTitle: 'BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU',
 };
+
+// ─── Tax / Deduction Calculations ────────────────────────────────────────────
+
+/** Tiền thuế của gói = tổng gói × thuế% */
+export function calcTaxAmount(totalAmount: number, taxPercent?: number): number {
+  if (!totalAmount || !taxPercent || taxPercent <= 0) return 0;
+  return Math.round(totalAmount * taxPercent / 100);
+}
+
+/** Số tiền bị khấu trừ trên 1 vị trí (không vượt quá số tiền của vị trí) */
+export function calcDeductionAmount(positionAmount: number, deduction?: PackageDeduction): number {
+  if (!deduction || !deduction.value || deduction.value <= 0 || positionAmount <= 0) return 0;
+  const raw = deduction.type === 'percent'
+    ? Math.round(positionAmount * deduction.value / 100)
+    : deduction.value;
+  return Math.min(raw, positionAmount);
+}
+
+/** Số tiền thực lĩnh của 1 vị trí = số tiền vị trí − khấu trừ thêm */
+export function calcNetPositionAmount(positionAmount: number, deduction?: PackageDeduction): number {
+  return Math.max(0, (positionAmount || 0) - calcDeductionAmount(positionAmount || 0, deduction));
+}
+
+/** Số tiền còn phải kê cho các vị trí = tổng gói − thuế − tổng đã kê (không tính khấu trừ) */
+export function calcPackageRemaining(totalAmount: number, taxPercent: number | undefined, positionsSum: number): number {
+  return (totalAmount || 0) - calcTaxAmount(totalAmount, taxPercent) - (positionsSum || 0);
+}
+
+/** Tìm định nghĩa gói của 1 lần gán (ưu tiên id, sau đó theo tên) */
+export function findPackageForAssignment(
+  a: Pick<ServicePackageAssignment, 'packageId' | 'packageName'>,
+  packages: ServicePackageDefinition[],
+): ServicePackageDefinition | undefined {
+  return packages.find(p => p.id && a.packageId && p.id === a.packageId)
+    || packages.find(p => p.name && a.packageName && p.name.trim().toLowerCase() === a.packageName.trim().toLowerCase());
+}
+
+/** Mô tả ngắn khấu trừ để hiển thị: "20%" hoặc "300.000 đ" */
+export function formatDeductionValue(deduction?: PackageDeduction): string {
+  if (!deduction || !deduction.value) return '';
+  return deduction.type === 'percent'
+    ? `${deduction.value}%`
+    : `${deduction.value.toLocaleString('vi-VN')} đ`;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

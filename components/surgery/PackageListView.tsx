@@ -41,10 +41,15 @@ import {
   normalizeForKey,
   clearPackageDrafts,
   LS_DRAFT_KEY,
+  calcNetPositionAmount,
+  findPackageForAssignment,
 } from '../../types/servicePackage';
 import { SurgeryRecord, StaffMember } from '../../types';
 import { deleteAssignment } from '../../services/servicePackageService';
 import { PackageAssignmentModal } from './PackageAssignmentModal';
+import { PaymentListsContext } from '../../hooks/usePaymentLists';
+import { PaymentListSelector, PaymentListSelection } from './PaymentListSelector';
+import { PaymentListManagerModal } from './PaymentListManagerModal';
 
 interface Props {
   assignments: ServicePackageAssignment[];
@@ -53,10 +58,19 @@ interface Props {
   staffList: StaffMember[];
   searchTerm: string;
   onSearchChange: (val: string) => void;
+  /** Monthly report only: adds a payment-status column and filter */
+  paymentLists?: PaymentListsContext;
 }
 
 function fmt(n: number | undefined | null): string {
   return (n ?? 0).toLocaleString('vi-VN');
+}
+
+function formatDischargeDate(dtStr?: string): string {
+  if (!dtStr) return '';
+  const d = dtStr.substring(0, 10).split('-');
+  if (d.length === 3) return `${d[2]}/${d[1]}/${d[0]}`;
+  return dtStr;
 }
 
 type FilterMode = 'all' | 'assigned' | 'unassigned';
@@ -128,7 +142,10 @@ export const PackageListView: React.FC<Props> = ({
   staffList,
   searchTerm,
   onSearchChange,
+  paymentLists,
 }) => {
+  const [listFilter, setListFilter] = useState<PaymentListSelection>('all');
+  const [showListManager, setShowListManager] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [config, setConfig] = useState<ViewConfig>(loadConfig);
   const [configOpen, setConfigOpen] = useState(false);
@@ -342,6 +359,13 @@ export const PackageListView: React.FC<Props> = ({
     let result = enrichedRecords;
     if (filterMode === 'assigned') result = result.filter(r => r.assignment);
     if (filterMode === 'unassigned') result = result.filter(r => !r.assignment);
+    if (paymentLists && listFilter !== 'all') {
+      result = result.filter(({ record: r }) => {
+        const m = paymentLists.membershipIndex.get((r.patientId || '').trim());
+        if (listFilter === 'unpaid') return m?.status !== 'locked';
+        return m?.listId === listFilter;
+      });
+    }
     if (searchTerm.trim()) {
       const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean);
       result = result.filter(({ record: r, assignment: a }) => {
@@ -355,7 +379,7 @@ export const PackageListView: React.FC<Props> = ({
       });
     }
     return result;
-  }, [enrichedRecords, filterMode, searchTerm, packages]);
+  }, [enrichedRecords, filterMode, searchTerm, packages, paymentLists, listFilter]);
 
   const assignedCount = enrichedRecords.filter(r => r.assignment).length;
   const unassignedCount = enrichedRecords.length - assignedCount;
@@ -449,6 +473,7 @@ export const PackageListView: React.FC<Props> = ({
     BASE_STAFF_COLS.forEach(c => { if (isColVisible(c.key)) count++; });
     extraPositionCols.forEach(([k]) => { if (isColVisible(k)) count++; });
     if (isColVisible('goiDV')) count++;
+    if (paymentLists) count++;
     return count;
   }, [config.hiddenCols, extraPositionCols]);
 
@@ -597,6 +622,16 @@ export const PackageListView: React.FC<Props> = ({
           </button>
         </div>
 
+        {paymentLists && (
+          <PaymentListSelector
+            lists={paymentLists.lists}
+            value={listFilter}
+            onChange={setListFilter}
+            onManage={() => setShowListManager(true)}
+            allowUnpaid
+          />
+        )}
+
         {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -661,6 +696,9 @@ export const PackageListView: React.FC<Props> = ({
                     <span>Gói DV</span>
                   </div>
                 </th>
+              )}
+              {paymentLists && (
+                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[130px]`}>Thanh toán</th>
               )}
               {/* Action column */}
               <th className={`px-1 ${cellPy} w-[55px] text-center text-gray-500`}></th>
@@ -779,6 +817,43 @@ export const PackageListView: React.FC<Props> = ({
                     </td>
                   )}
 
+                  {paymentLists && (() => {
+                    const pid = (r.patientId || '').trim();
+                    const m = paymentLists.membershipIndex.get(pid);
+                    const dc = paymentLists.discharge[pid];
+                    return (
+                      <td className={`px-2 ${cellPy} border-r border-gray-100 whitespace-normal`}>
+                        {m ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className={`inline-block rounded px-1.5 py-0.5 text-[0.85em] font-semibold ${m.status === 'locked' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
+                              {m.status === 'locked' ? '🔒 ' : 'Nháp: '}{m.listName}
+                            </span>
+                            {dc && (
+                              <span className="text-[10px] text-gray-500 font-mono" title={`Quyết toán BHYT: T${dc.thangQt}/${dc.namQt}`}>
+                                Ra: {formatDischargeDate(dc.ngayRa)}
+                              </span>
+                            )}
+                          </div>
+                        ) : a ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[0.85em] font-semibold text-amber-700">
+                              Chưa thanh toán
+                            </span>
+                            {dc ? (
+                              <span className="text-[10px] text-emerald-700 font-medium font-mono" title={`Quyết toán BHYT: T${dc.thangQt}/${dc.namQt}`}>
+                                Ra: {formatDischargeDate(dc.ngayRa)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 italic">
+                                Chưa có ngày ra
+                              </span>
+                            )}
+                          </div>
+                        ) : null}
+                      </td>
+                    );
+                  })()}
+
                   {/* Actions column */}
                   <td className={`px-1 ${cellPy} text-center w-[55px]`}>
                     <div className="flex items-center justify-center gap-0.5">
@@ -832,7 +907,10 @@ export const PackageListView: React.FC<Props> = ({
           <span className="font-semibold text-teal-800">Tổng kết gói DV:</span>
           <span className="text-teal-700 font-medium">{assignedCount} ca đã gán gói</span>
           <span className="text-teal-800 font-mono font-bold ml-auto text-sm">
-            {fmt(assignments.reduce((s, a) => s + a.staffAssignments.reduce((ss, sa) => ss + (sa.amount || 0), 0), 0))} đ
+            {fmt(assignments.reduce((s, a) => {
+              const deduction = findPackageForAssignment(a, packages)?.deduction;
+              return s + a.staffAssignments.reduce((ss, sa) => ss + calcNetPositionAmount(sa.amount || 0, deduction), 0);
+            }, 0))} đ
           </span>
         </div>
       )}
@@ -897,6 +975,18 @@ export const PackageListView: React.FC<Props> = ({
           staffList={staffList}
           existingAssignment={modalExistingAssignment}
           onSaved={handleModalSaved}
+        />
+      )}
+
+      {paymentLists && showListManager && (
+        <PaymentListManagerModal
+          ctx={paymentLists}
+          onClose={() => setShowListManager(false)}
+          onAssignPackage={(recs) => {
+            setModalRecords(recs);
+            setModalExistingAssignment(null);
+            setModalOpen(true);
+          }}
         />
       )}
     </div>

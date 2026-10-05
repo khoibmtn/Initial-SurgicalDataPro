@@ -312,6 +312,18 @@ input[type="color"]:hover {
     min-width: 180px;
 }
 
+/* Menu đặt sát mép phải: mở về bên trái để không tràn màn hình */
+.dt-menu-right .fb-dropdown.left-0 {
+    left: auto;
+    right: 0;
+}
+.dt-menu-right .fb-dropdown[class*="left-[95%]"] {
+    left: auto;
+    right: 95%;
+    margin-left: 0;
+    margin-right: -4px;
+}
+
 .fb-dropdown-item {
     display: flex;
     align-items: center;

@@ -41,6 +41,8 @@ export interface PaymentTableViewProps {
   rowsPerPage: number;
   onRowsPerPageChange: (rows: number) => void;
   config: AppConfig;
+  configSlot?: HTMLElement | null;
+  searchSlot?: HTMLElement | null;
 }
 
 export const PaymentTableView: React.FC<PaymentTableViewProps> = ({
@@ -54,6 +56,8 @@ export const PaymentTableView: React.FC<PaymentTableViewProps> = ({
   rowsPerPage,
   onRowsPerPageChange,
   config,
+  configSlot,
+  searchSlot,
 }) => {
   if (!paymentDataPrepared) return null;
 
@@ -258,6 +262,8 @@ export const PaymentTableView: React.FC<PaymentTableViewProps> = ({
       customThead={CustomThead}
       customTfoot={ExtraFooter}
       extraHeaderRow={ExtraHeader}
+      configSlot={configSlot}
+      searchSlot={searchSlot}
       customRowRender={customRowRender}
     />
   );

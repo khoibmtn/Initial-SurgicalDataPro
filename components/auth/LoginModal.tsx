@@ -122,7 +122,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 {viewMode === 'login' ? 'Đăng nhập' : 'Đăng ký tài khoản'}
               </h3>
               <p className="text-[11px] text-gray-500">
-                {viewMode === 'login' ? 'SurgicalDataPro Enterprise' : 'Tạo tài khoản nhân viên mới'}
+                {viewMode === 'login' ? 'Quản lý PTTT' : 'Tạo tài khoản nhân viên mới'}
               </p>
             </div>
           </div>

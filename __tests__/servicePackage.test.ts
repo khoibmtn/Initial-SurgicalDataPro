@@ -10,6 +10,11 @@ import {
   clearPackageDrafts,
   LS_DRAFT_KEY,
   DEFAULT_POSITIONS,
+  calcTaxAmount,
+  calcDeductionAmount,
+  calcNetPositionAmount,
+  calcPackageRemaining,
+  findPackageForAssignment,
   type PositionCatalogItem,
   type ServicePackageDefinition,
   type ServicePackageAssignment,
@@ -17,6 +22,51 @@ import {
 } from '../types/servicePackage';
 
 describe('Service Package Module', () => {
+
+  // ─── Tax / Deduction ───────────────────────────────────────────────────
+
+  describe('tax & extra deduction', () => {
+    it('calculates tax on the package total', () => {
+      expect(calcTaxAmount(2_000_000, 2)).toBe(40_000);
+      expect(calcTaxAmount(2_000_000, undefined)).toBe(0);
+      expect(calcTaxAmount(0, 2)).toBe(0);
+    });
+
+    it('subtracts a fixed amount from each position', () => {
+      expect(calcNetPositionAmount(700_000, { type: 'amount', value: 300_000 })).toBe(400_000);
+    });
+
+    it('subtracts a percentage of each position amount', () => {
+      expect(calcNetPositionAmount(700_000, { type: 'percent', value: 20 })).toBe(560_000);
+    });
+
+    it('never deducts more than the position amount', () => {
+      expect(calcDeductionAmount(50_000, { type: 'amount', value: 300_000 })).toBe(50_000);
+      expect(calcNetPositionAmount(50_000, { type: 'amount', value: 300_000 })).toBe(0);
+      expect(calcNetPositionAmount(0, { type: 'amount', value: 300_000 })).toBe(0);
+    });
+
+    it('leaves the amount untouched without a deduction', () => {
+      expect(calcNetPositionAmount(700_000, undefined)).toBe(700_000);
+      expect(calcNetPositionAmount(700_000, { type: 'percent', value: 0 })).toBe(700_000);
+    });
+
+    it('computes remaining to allocate = total - tax - allocated (deduction excluded)', () => {
+      expect(calcPackageRemaining(2_000_000, 2, 960_000)).toBe(1_000_000);
+      expect(calcPackageRemaining(2_000_000, 2, 1_960_000)).toBe(0);
+      expect(calcPackageRemaining(2_000_000, 2, 2_000_000)).toBe(-40_000);
+    });
+
+    it('finds the package definition by id then by name', () => {
+      const pkgs = [
+        { id: 'a', name: 'Gói A' },
+        { id: 'b', name: 'Gói B' },
+      ] as ServicePackageDefinition[];
+      expect(findPackageForAssignment({ packageId: 'b', packageName: 'x' }, pkgs)?.id).toBe('b');
+      expect(findPackageForAssignment({ packageId: 'zzz', packageName: ' gói a ' }, pkgs)?.id).toBe('a');
+      expect(findPackageForAssignment({ packageId: 'zzz', packageName: 'none' }, pkgs)).toBeUndefined();
+    });
+  });
   // ─── Composite Key & Date Helpers ─────────────────────────────────────
 
   describe('clearPackageDrafts()', () => {

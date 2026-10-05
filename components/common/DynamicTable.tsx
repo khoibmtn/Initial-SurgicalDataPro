@@ -1,4 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Settings,
   ChevronDown,
@@ -187,6 +188,12 @@ export interface DynamicTableProps<T> {
   // Assistant Input Callback
   onSaveAssistant?: (val: string) => void;
   extraSearchContent?: React.ReactNode;
+  /**
+   * Portal mode: when defined (even null = slot not mounted yet), the config button and the
+   * search box are rendered into these external elements instead of the inline toolbar.
+   */
+  configSlot?: HTMLElement | null;
+  searchSlot?: HTMLElement | null;
   onEditRecord?: () => void;
   onRowDoubleClick?: (row: T) => void;
 }
@@ -220,6 +227,8 @@ export const DynamicTable = <T extends Record<string, any>>({
   onDelete,
   onSaveAssistant,
   extraSearchContent,
+  configSlot,
+  searchSlot,
   onEditRecord,
   onRowDoubleClick,
   currentPage: externalPage,
@@ -463,10 +472,15 @@ export const DynamicTable = <T extends Record<string, any>>({
 
   const DATE_FORMATS = ['dd/mm/yyyy', 'dd/mm/yyyy hh:mm', 'dd/mm hh:mm', 'hh:mm'];
 
+  const portalMode = configSlot !== undefined || searchSlot !== undefined;
+  const portalWrap = (slot: HTMLElement | null | undefined, node: React.ReactNode) =>
+    portalMode ? (slot ? createPortal(node, slot) : null) : node;
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col font-inter w-full">
-      <div className="p-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center gap-4">
-        <div className="relative" ref={configDropdownRef}>
+      <div className={`${portalMode && !enableSelection ? 'hidden' : ''} p-3 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center flex-wrap gap-4`}>
+        {portalWrap(configSlot, (
+        <div className={portalMode ? 'relative dt-menu-right' : 'relative'} ref={configDropdownRef}>
           <button
             onClick={() => setIsConfigDropdownOpen(!isConfigDropdownOpen)}
             title="Cấu hình"
@@ -664,14 +678,15 @@ export const DynamicTable = <T extends Record<string, any>>({
             </div>
           )}
         </div>
+        ))}
 
-        {onSearchChange !== undefined ? (
-          <div className="flex items-center gap-3 flex-1 max-w-md lg:max-w-xl">
-            <span className="text-sm font-bold text-gray-700 whitespace-nowrap flex items-center gap-2">
+        {portalWrap(searchSlot, onSearchChange !== undefined ? (
+          <div className={portalMode ? 'flex items-center gap-2 w-[300px] max-w-full' : 'flex items-center gap-3 flex-1 min-w-[350px] max-w-full lg:max-w-3xl'}>
+            <span className="text-sm font-bold text-gray-700 whitespace-nowrap flex items-center gap-2 shrink-0">
               Tìm kiếm:
             </span>
-            <div className="relative flex-1 flex items-center gap-2">
-              <div className="relative flex-1">
+            <div className="relative flex-1 flex items-center gap-2 min-w-[150px]">
+              <div className="relative flex-1 min-w-[150px]">
                 <input
                   type="text"
                   value={searchTerm || ""}
@@ -691,7 +706,7 @@ export const DynamicTable = <T extends Record<string, any>>({
               </div>
 
               {searchTerm && (
-                <span className="text-[10px] font-medium text-primary-700 bg-primary-50 px-2 py-1 rounded-md border border-primary-100 whitespace-nowrap animate-in fade-in slide-in-from-left-2">
+                <span className="text-[10px] font-medium text-primary-700 bg-primary-50 px-2 py-1 rounded-md border border-primary-100 whitespace-nowrap animate-in fade-in slide-in-from-left-2 shrink-0">
                   Có {data.length} kết quả
                 </span>
               )}
@@ -704,11 +719,11 @@ export const DynamicTable = <T extends Record<string, any>>({
             {tableName}
             <span className="text-[10px] font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{rowCountLabel || `${data.length} dòng`}</span>
           </h3>
-        )}
+        ))}
 
         {/* BULK EDIT UI */}
         {enableSelection && (
-          <div className="flex items-center gap-2 flex-1 justify-center px-4 overflow-visible">
+          <div className="flex items-center gap-2 flex-1 justify-center px-4 overflow-visible min-w-[300px]">
             <div className="flex-1 text-center min-w-0 flex flex-col items-center justify-center h-full">
               {selectedIds.length === 1 && (() => {
                 const rec = data.find(r => (r.key || r.id) === selectedIds[0]);

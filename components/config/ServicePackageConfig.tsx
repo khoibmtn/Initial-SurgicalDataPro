@@ -8,7 +8,13 @@ import {
   PositionCatalogItem,
   ServicePackageDefinition,
   ServicePackagePosition,
+  DeductionType,
   getSurgeryMappingLabel,
+  calcTaxAmount,
+  calcDeductionAmount,
+  calcNetPositionAmount,
+  calcPackageRemaining,
+  formatDeductionValue,
 } from '../../types/servicePackage';
 import {
   subscribeToPositionCatalog,
@@ -26,6 +32,10 @@ interface PackageFormState {
   name: string;
   shortName: string;
   totalAmount: number;
+  taxPercent: number;
+  deductionType: DeductionType;
+  deductionValue: number;
+  deductionNote: string;
   positions: ServicePackagePosition[];
   note: string;
   sortOrder: number;
@@ -36,6 +46,10 @@ const emptyForm = (): PackageFormState => ({
   name: '',
   shortName: '',
   totalAmount: 0,
+  taxPercent: 0,
+  deductionType: 'amount',
+  deductionValue: 0,
+  deductionNote: '',
   positions: [],
   note: '',
   sortOrder: 1,
@@ -60,6 +74,17 @@ export const ServicePackageConfig: React.FC = () => {
   const activePositions = useMemo(() => positionCatalog.filter(p => p.active), [positionCatalog]);
 
   const positionsSum = useMemo(() => form.positions.reduce((s, p) => s + p.amount, 0), [form.positions]);
+
+  const formDeduction = useMemo(
+    () => (form.deductionValue > 0
+      ? { type: form.deductionType, value: form.deductionValue, note: form.deductionNote.trim() }
+      : undefined),
+    [form.deductionType, form.deductionValue, form.deductionNote],
+  );
+  const taxAmount = calcTaxAmount(form.totalAmount, form.taxPercent);
+  const distributable = form.totalAmount - taxAmount;
+  const remaining = calcPackageRemaining(form.totalAmount, form.taxPercent, positionsSum);
+  const totalDeduction = form.positions.reduce((s, p) => s + calcDeductionAmount(p.amount, formDeduction), 0);
 
   const handleAddPosition = (pos: PositionCatalogItem) => {
     if (form.positions.some(p => p.positionKey === pos.key)) return;
@@ -99,6 +124,16 @@ export const ServicePackageConfig: React.FC = () => {
         name: form.name.trim(),
         shortName: form.shortName.trim(),
         totalAmount: form.totalAmount,
+        ...(form.taxPercent > 0 ? { taxPercent: form.taxPercent } : {}),
+        ...(formDeduction
+          ? {
+              deduction: {
+                type: formDeduction.type,
+                value: formDeduction.value,
+                ...(formDeduction.note ? { note: formDeduction.note } : {}),
+              },
+            }
+          : {}),
         positions: form.positions,
         active: form.active,
         sortOrder: form.sortOrder,
@@ -123,6 +158,10 @@ export const ServicePackageConfig: React.FC = () => {
       name: pkg.name,
       shortName: pkg.shortName || '',
       totalAmount: pkg.totalAmount,
+      taxPercent: pkg.taxPercent || 0,
+      deductionType: pkg.deduction?.type || 'amount',
+      deductionValue: pkg.deduction?.value || 0,
+      deductionNote: pkg.deduction?.note || '',
       positions: [...pkg.positions],
       note: pkg.note || '',
       sortOrder: pkg.sortOrder,
@@ -196,6 +235,58 @@ export const ServicePackageConfig: React.FC = () => {
             </div>
           </div>
 
+          {/* Thuế & khấu trừ thêm */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="md:col-span-2">
+              <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Thuế (% tổng gói)</label>
+              <div className="relative">
+                <input
+                  type="number" min={0} max={100} step="any"
+                  value={form.taxPercent || ''}
+                  onChange={(e) => setForm({ ...form, taxPercent: Math.max(0, Number(e.target.value) || 0) })}
+                  placeholder="0"
+                  className="w-full pl-2.5 pr-7 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 outline-none h-[35px]"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+              </div>
+            </div>
+            <div className="md:col-span-3">
+              <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Khấu trừ thêm (mỗi vị trí)</label>
+              <div className="flex gap-1.5">
+                <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden h-[35px] shrink-0">
+                  {(['amount', 'percent'] as DeductionType[]).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setForm({ ...form, deductionType: t })}
+                      className={`px-2.5 text-xs font-semibold transition-colors ${form.deductionType === t ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                    >
+                      {t === 'amount' ? 'đ' : '%'}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="number" min={0} step="any"
+                  value={form.deductionValue || ''}
+                  onChange={(e) => setForm({ ...form, deductionValue: Math.max(0, Number(e.target.value) || 0) })}
+                  placeholder={form.deductionType === 'percent' ? '20' : '300000'}
+                  className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-mono focus:ring-1 focus:ring-indigo-500 outline-none h-[35px]"
+                />
+              </div>
+            </div>
+            <div className="md:col-span-7">
+              <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Diễn giải lý do khấu trừ</label>
+              <input
+                type="text"
+                value={form.deductionNote}
+                onChange={(e) => setForm({ ...form, deductionNote: e.target.value })}
+                placeholder="VD: Trích quỹ khoa, phí quản lý..."
+                disabled={!form.deductionValue}
+                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 outline-none h-[35px] disabled:bg-gray-50 disabled:text-gray-300"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-[10px] font-semibold text-gray-400 mb-0.5">Ghi chú</label>
             <input type="text" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Ghi chú thêm..." className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:ring-1 focus:ring-indigo-500 outline-none h-[35px]" />
@@ -205,13 +296,38 @@ export const ServicePackageConfig: React.FC = () => {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold text-gray-400">Vị trí trong gói ({form.positions.length})</span>
-              {positionsSum !== form.totalAmount && form.totalAmount > 0 && (
-                <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" />
-                  Tổng vị trí ({formatVND(positionsSum)}) ≠ Tổng gói ({formatVND(form.totalAmount)})
-                </span>
-              )}
             </div>
+
+            {/* Live allocation summary */}
+            {form.totalAmount > 0 && (
+              <div
+                role="status"
+                aria-live="polite"
+                className={`rounded-lg border px-3 py-2 text-[11px] space-y-0.5 ${
+                  remaining === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : remaining > 0 ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-red-50 border-red-200 text-red-700'
+                }`}
+              >
+                <div className="font-mono">
+                  Tổng gói {formatVND(form.totalAmount)}
+                  {taxAmount > 0 && <> − Thuế {form.taxPercent}% ({formatVND(taxAmount)}) = Cần kê {formatVND(distributable)}</>}
+                  {' '}· Đã kê {formatVND(positionsSum)}
+                </div>
+                <div className="font-bold flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  {remaining === 0 && 'Đã kê đủ.'}
+                  {remaining > 0 && `Còn ${formatVND(remaining)} chưa kê.`}
+                  {remaining < 0 && `Đã kê vượt ${formatVND(-remaining)}.`}
+                </div>
+                {formDeduction && (
+                  <div className="font-mono text-gray-600">
+                    Khấu trừ thêm {formatDeductionValue(formDeduction)}/vị trí → tổng khấu trừ {formatVND(totalDeduction)}, tổng thực lĩnh {formatVND(positionsSum - totalDeduction)}
+                    {formDeduction.note ? ` (${formDeduction.note})` : ''}
+                  </div>
+                )}
+              </div>
+            )}
 
             {form.positions.map(fp => {
               const catItem = positionCatalog.find(p => p.key === fp.positionKey);
@@ -253,6 +369,11 @@ export const ServicePackageConfig: React.FC = () => {
                       className="w-32 px-2 py-1 border border-gray-200 rounded text-xs font-mono focus:ring-1 focus:ring-indigo-500 outline-none"
                     />
                     <span className="text-[10px] text-gray-400">đ</span>
+                    {formDeduction && fp.amount > 0 && (
+                      <span className="ml-2 text-[10px] font-mono text-gray-500 whitespace-nowrap">
+                        − {formatVND(calcDeductionAmount(fp.amount, formDeduction))} → <span className="font-semibold text-emerald-700">thực lĩnh {formatVND(calcNetPositionAmount(fp.amount, formDeduction))}</span>
+                      </span>
+                    )}
                   </div>
                   <button onClick={() => handleRemovePosition(fp.positionKey)} className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><XCircle className="h-3.5 w-3.5" /></button>
                 </div>
@@ -314,6 +435,12 @@ export const ServicePackageConfig: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-3 text-[11px] text-gray-400 mt-0.5">
                   <span className="font-mono font-semibold text-indigo-600">{formatVND(pkg.totalAmount)}</span>
+                  {!!pkg.taxPercent && <span>Thuế {pkg.taxPercent}%</span>}
+                  {pkg.deduction && pkg.deduction.value > 0 && (
+                    <span className="text-amber-600" title={pkg.deduction.note || ''}>
+                      Khấu trừ {formatDeductionValue(pkg.deduction)}/vị trí{pkg.deduction.note ? ` · ${pkg.deduction.note}` : ''}
+                    </span>
+                  )}
                   <span>{pkg.positions.length} vị trí</span>
                   {pkg.note && <span>· {pkg.note}</span>}
                 </div>
@@ -338,6 +465,7 @@ export const ServicePackageConfig: React.FC = () => {
                     <th className="text-left py-1.5 w-36">Nguồn ánh xạ</th>
                     <th className="text-left py-1.5 w-24 font-mono">Key</th>
                     <th className="text-right py-1.5 w-32">Số tiền</th>
+                    {pkg.deduction && pkg.deduction.value > 0 && <th className="text-right py-1.5 w-32">Thực lĩnh</th>}
                   </tr></thead>
                   <tbody>
                     {pkg.positions.map(p => {
@@ -364,12 +492,18 @@ export const ServicePackageConfig: React.FC = () => {
                           </td>
                           <td className="py-1.5 font-mono text-gray-400">{p.positionKey}</td>
                           <td className="py-1.5 text-right font-mono text-indigo-600 font-semibold">{formatVND(p.amount)}</td>
+                          {pkg.deduction && pkg.deduction.value > 0 && (
+                            <td className="py-1.5 text-right font-mono text-emerald-700 font-semibold">{formatVND(calcNetPositionAmount(p.amount, pkg.deduction))}</td>
+                          )}
                         </tr>
                       );
                     })}
                     <tr className="border-t-2 border-gray-200 font-bold">
                       <td colSpan={4} className="py-1.5 text-gray-600">Tổng cộng</td>
                       <td className="py-1.5 text-right font-mono text-indigo-700">{formatVND(pkg.positions.reduce((s, p) => s + p.amount, 0))}</td>
+                      {pkg.deduction && pkg.deduction.value > 0 && (
+                        <td className="py-1.5 text-right font-mono text-emerald-700">{formatVND(pkg.positions.reduce((s, p) => s + calcNetPositionAmount(p.amount, pkg.deduction), 0))}</td>
+                      )}
                     </tr>
                   </tbody>
                 </table>

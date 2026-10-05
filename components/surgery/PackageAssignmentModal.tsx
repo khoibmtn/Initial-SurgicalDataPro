@@ -4,7 +4,7 @@
  * Flow:
  * 1. Chọn gói dịch vụ (dropdown active packages)
  * 2. Auto-fill nhân sự từ SurgeryRecord cho vị trí có staffFilterKey
- * 3. User chọn nhân sự cho vị trí ngoài cuộc mổ qua Combobox tiêu chuẩn (lọc gõ, bàn phím di chuyển, chỉ chọn trong danh sách)
+ * 3. User chọn nhân sự qua Combobox tiêu chuẩn (lọc gõ, bàn phím di chuyển, chọn trong danh sách hoặc để trống)
  * 4. Lưu ServicePackageAssignment vào Firestore online ngay lập tức
  */
 import React, { useState, useEffect, useMemo, useRef } from 'react';
@@ -80,35 +80,34 @@ const StaffCombobox: React.FC<StaffComboboxProps> = ({
     setInputValue(value || '');
   }, [value]);
 
-  // Outside click to close and validate strictly against list
-  useEffect(() => {
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        const normInput = removeVietnameseTones(inputValue);
-        if (!normInput) {
-          onChange('');
-          setInputValue('');
-        } else {
-          // Strictly check if input matches any option
-          const matched = options.find(o => removeVietnameseTones(o.name) === normInput);
-          if (matched) {
-            onChange(matched.name);
-            setInputValue(matched.name);
-          } else {
-            // Revert back to original selected value
-            setInputValue(value || '');
-          }
-        }
-        setIsOpen(false);
+  const clearSelection = () => {
+    if (value) onChange('');
+    setInputValue('');
+    setIsOpen(false);
+  };
+
+  // Commit on blur: empty input => blank; exact match => select; otherwise revert
+  const commitInput = () => {
+    const normInput = removeVietnameseTones(inputValue);
+    if (!normInput) {
+      if (value) onChange('');
+      setInputValue('');
+    } else {
+      const matched = options.find(o => removeVietnameseTones(o.name) === normInput);
+      if (matched) {
+        if (matched.name !== value) onChange(matched.name);
+        setInputValue(matched.name);
+      } else {
+        setInputValue(value || '');
       }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [inputValue, value, options, onChange]);
+    }
+    setIsOpen(false);
+  };
 
   const filtered = useMemo(() => {
     const term = removeVietnameseTones(inputValue);
-    if (!term) return options.slice(0, 40);
+    // Show full list when empty or when input just mirrors the current selection
+    if (!term || term === removeVietnameseTones(value || '')) return options.slice(0, 40);
     return options
       .filter(o => {
         const nameMatch = removeVietnameseTones(o.name).includes(term);
@@ -154,7 +153,10 @@ const StaffCombobox: React.FC<StaffComboboxProps> = ({
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (isOpen && filtered.length > 0 && filtered[highlightedIndex]) {
+      if (!inputValue.trim() && value) {
+        // User emptied the field deliberately => leave blank
+        clearSelection();
+      } else if (isOpen && filtered.length > 0 && filtered[highlightedIndex]) {
         selectOption(filtered[highlightedIndex].name);
       } else if (filtered.length === 1) {
         selectOption(filtered[0].name);
@@ -171,7 +173,13 @@ const StaffCombobox: React.FC<StaffComboboxProps> = ({
   };
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div
+      ref={containerRef}
+      className="relative w-full"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) commitInput();
+      }}
+    >
       <div className="relative flex items-center">
         <input
           type="text"
@@ -193,11 +201,8 @@ const StaffCombobox: React.FC<StaffComboboxProps> = ({
           {inputValue && (
             <button
               type="button"
-              onClick={() => {
-                onChange('');
-                setInputValue('');
-                setIsOpen(false);
-              }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={clearSelection}
               className="p-0.5 text-gray-400 hover:text-gray-600 rounded transition-colors"
               title="Xóa lựa chọn"
             >
@@ -215,9 +220,22 @@ const StaffCombobox: React.FC<StaffComboboxProps> = ({
       {/* Combobox Dropdown */}
       {isOpen && (
         <div
-          ref={listRef}
-          className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-xl max-h-52 overflow-y-auto divide-y divide-gray-50 py-1"
+          className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-gray-200 rounded-lg shadow-xl max-h-52 overflow-y-auto py-1"
+          onMouseDown={(e) => e.preventDefault()}
         >
+          {value && (
+            <div
+              onMouseDown={(e) => {
+                e.preventDefault();
+                clearSelection();
+              }}
+              className="px-3 py-1.5 flex items-center gap-1.5 cursor-pointer text-xs italic text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors border-b border-gray-100"
+            >
+              <X className="h-3 w-3" />
+              Để trống (xóa lựa chọn)
+            </div>
+          )}
+          <div ref={listRef} className="divide-y divide-gray-50">
           {filtered.length === 0 ? (
             <div className="px-3 py-2 text-xs text-gray-400 italic text-center">
               Không tìm thấy nhân viên trong danh sách
@@ -255,6 +273,7 @@ const StaffCombobox: React.FC<StaffComboboxProps> = ({
               );
             })
           )}
+          </div>
         </div>
       )}
     </div>
@@ -273,6 +292,8 @@ export const PackageAssignmentModal: React.FC<Props> = ({
   const [selectedPkgId, setSelectedPkgId] = useState<string>('');
   const [staffMap, setStaffMap] = useState<Record<string, string>>({}); // positionKey → staffName
   const [saving, setSaving] = useState(false);
+  // Auto-fill runs once per (package, record) so cleared cells are not refilled
+  const autoFillDoneRef = useRef<string>('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -284,7 +305,10 @@ export const PackageAssignmentModal: React.FC<Props> = ({
 
   // Pre-fill from existing assignment or initialize
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      autoFillDoneRef.current = '';
+      return;
+    }
     if (existingAssignment) {
       setSelectedPkgId(existingAssignment.packageId);
       const map: Record<string, string> = {};
@@ -311,16 +335,28 @@ export const PackageAssignmentModal: React.FC<Props> = ({
     }
   }, [isOpen, existingAssignment, selectedPkgId, activePackages]);
 
-  // When package or record is ready, auto-fill staff from records for any mapped positions not yet filled
+  // When package or record is ready, auto-fill staff from the record once.
+  // Positions already saved in an existing assignment (even blank) are respected.
   useEffect(() => {
-    if (!isOpen || !selectedPkg) return;
+    if (!isOpen || !selectedPkg || positions.length === 0) return;
     const rec = records[0];
     if (!rec) return;
+
+    const fillKey = `${selectedPkg.id}|${rec.key || rec.id || rec.patientId}`;
+    if (autoFillDoneRef.current === fillKey) return;
+    autoFillDoneRef.current = fillKey;
+
+    const savedKeys = new Set(
+      existingAssignment && existingAssignment.packageId === selectedPkg.id
+        ? existingAssignment.staffAssignments.map(sa => sa.positionKey)
+        : []
+    );
 
     setStaffMap(prev => {
       const next = { ...prev };
       let changed = false;
       for (const pos of selectedPkg.positions) {
+        if (savedKeys.has(pos.positionKey)) continue;
         // Auto-fill if position is currently blank or not set
         if (!next[pos.positionKey] || next[pos.positionKey].trim() === '') {
           const catalogItem = positions.find(p => p.key === pos.positionKey);
@@ -335,7 +371,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
       }
       return changed ? next : prev;
     });
-  }, [isOpen, selectedPkgId, selectedPkg, records, positions]);
+  }, [isOpen, selectedPkg, records, positions, existingAssignment]);
 
   const getStaffOptions = (posKey: string): StaffMember[] => {
     const catalogItem = positions.find(p => p.key === posKey);
@@ -424,7 +460,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
           targetType: 'service_package',
           targetId: id,
           targetLabel: `Gói ${selectedPkg.name} - BN ${rec.patientName}`,
-          periodKey: assignment.surgeryDate ? assignment.surgeryDate.slice(0, 7) : undefined,
+          periodKey: assignment.ngayBD ? assignment.ngayBD.slice(0, 7) : undefined,
           description: `Gán gói dịch vụ "${selectedPkg.name}" cho bệnh nhân ${rec.patientName} (${rec.patientId || ''})`,
         }).catch((e) => console.warn('[auditLog] Failed to log package assignment:', e));
       }

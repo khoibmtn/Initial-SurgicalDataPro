@@ -12,6 +12,13 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3002,
       host: '0.0.0.0',
+      proxy: {
+        '/api/bq': {
+          target: env.VITE_CPBQ_API_URL || 'https://cpbq-react.vercel.app',
+          changeOrigin: true,
+          secure: true,
+        },
+      },
     },
     plugins: [tailwindcss(), react(), versionStampPlugin()],
     define: {
