@@ -833,7 +833,7 @@ const InnerApp: React.FC = () => {
               {!isAuthenticated ? (
                 <AuthGuardView
                   featureName={currentType === 'daily' ? 'Lưu trữ Báo cáo hàng ngày' : 'Lưu trữ Báo cáo tháng'}
-                  description="Dữ liệu phẫu thuật lưu trữ được truy vấn trực tiếp từ cơ sở dữ liệu bệnh viện. Vui lòng đăng nhập tài khoản nhân viên để tra cứu hoặc chuyển sang tab Minh Lộ để xử lý file Excel tạm thời."
+                  description="Dữ liệu phẫu thuật được truy vấn trực tiếp từ dữ liệu lưu trữ. Vui lòng đăng nhập tài khoản nhân viên để tra cứu hoặc chuyển sang tab Minh Lộ để xử lý file Excel tạm thời."
                   onSwitchToLocalExcel={() => setActiveDataTab('upload')}
                 />
               ) : (

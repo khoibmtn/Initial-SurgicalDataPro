@@ -98,7 +98,7 @@ export const AuthGuardView: React.FC<AuthGuardViewProps> = ({
         {/* Status tag */}
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 border border-gray-200 mb-3">
           <Lock className="w-3.5 h-3.5 text-gray-500" />
-          <span>Bảo mật dữ liệu bệnh viện · Yêu cầu xác thực</span>
+          <span>Bảo mật dữ liệu lưu trữ · Yêu cầu xác thực</span>
         </div>
 
         {/* Title */}

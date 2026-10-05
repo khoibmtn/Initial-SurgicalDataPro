@@ -347,7 +347,7 @@ export const SchedulingTab: React.FC = () => {
       <div className="flex flex-col flex-1 h-full min-h-0 bg-gray-50/50 p-4">
         <AuthGuardView
           featureName="Lịch mổ phẫu thuật"
-          description="Lịch mổ và kíp mổ trực tuyến được đồng bộ realtime từ cơ sở dữ liệu bệnh viện. Vui lòng đăng nhập để theo dõi và sắp xếp lịch mổ."
+          description="Lịch mổ và kíp mổ trực tuyến được đồng bộ realtime từ dữ liệu lưu trữ. Vui lòng đăng nhập để theo dõi và sắp xếp lịch mổ."
         />
       </div>
     );

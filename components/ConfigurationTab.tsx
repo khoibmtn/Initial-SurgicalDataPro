@@ -92,7 +92,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                 <ContextToolbar title="Cấu hình hệ thống" />
                 <AuthGuardView
                     featureName="Phân hệ Cấu hình hệ thống"
-                    description="Cấu hình định mức, danh mục kỹ thuật, danh sách nhân sự và phân quyền được lưu trữ trên CSDL máy chủ. Vui lòng đăng nhập với tài khoản có thẩm quyền để xem và chỉnh sửa."
+                    description="Cấu hình định mức, danh mục kỹ thuật, danh sách nhân sự và phân quyền thuộc dữ liệu lưu trữ. Vui lòng đăng nhập với tài khoản có thẩm quyền để xem và chỉnh sửa."
                 />
             </div>
         );

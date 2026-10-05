@@ -474,7 +474,7 @@ export const StatisticsTab: React.FC = () => {
         <ContextToolbar title="Thống kê phẫu thuật" />
         <AuthGuardView
           featureName="Phân hệ Thống kê phẫu thuật"
-          description="Dữ liệu tổng hợp, phân tích so sánh và các chỉ số quản trị phòng mổ được truy vấn trực tiếp từ cơ sở dữ liệu bệnh viện. Vui lòng đăng nhập để truy cập dữ liệu thống kê."
+          description="Dữ liệu tổng hợp, phân tích so sánh và các chỉ số quản trị phòng mổ được truy vấn trực tiếp từ dữ liệu lưu trữ. Vui lòng đăng nhập để truy cập dữ liệu thống kê."
         />
       </div>
     );
