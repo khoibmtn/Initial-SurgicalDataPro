@@ -236,6 +236,8 @@ export function useExcelProcessing({
             config,
             res.dateRangeText || ''
           );
+          finalResult.filterSummary = res.filterSummary;
+          finalResult.anesthesiaMergeSummary = res.anesthesiaMergeSummary;
         }
 
         updateReportState(
@@ -256,6 +258,24 @@ export function useExcelProcessing({
           if (updateGvCount > 0) autoFillMsg.push(`${updateGvCount} giúp việc`);
           if (updateMachineCount > 0) autoFillMsg.push(`${updateMachineCount} mã máy`);
           addToast(`Đã tự động điền ${autoFillMsg.join(' và ')} từ BC hàng ngày.`, 'success');
+        }
+
+        if (res.anesthesiaMergeSummary) {
+          const { mergedCount, targetProceduresCount, orphanCount } = res.anesthesiaMergeSummary;
+          if (mergedCount > 0) {
+            addToast(
+              `⚡ Đã tự động gộp kíp gây mê & máy từ ${mergedCount} lượt "Gây mê khác" vào ${targetProceduresCount} thủ thuật.`,
+              'success',
+              7000
+            );
+          }
+          if (orphanCount > 0) {
+            addToast(
+              `⚠️ Phát hiện ${orphanCount} dòng "Gây mê khác" không tìm thấy thủ thuật tương ứng của BN (đã loại bỏ khỏi báo cáo).`,
+              'warning',
+              9000
+            );
+          }
         }
 
         if (res.filterSummary) {

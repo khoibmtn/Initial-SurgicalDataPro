@@ -1,5 +1,12 @@
 import * as XLSX from "xlsx";
-import { ProcessingResult, SurgeryRecord, MachineEntry } from "../types";
+import {
+  ProcessingResult,
+  SurgeryRecord,
+  MachineEntry,
+  AnesthesiaMergeSummary,
+  AnesthesiaMergeItem,
+  AnesthesiaOrphanItem,
+} from "../types";
 import { reprocessSurgicalRecords } from "./reprocess";
 
 
@@ -231,11 +238,148 @@ export function determineLoaiPTTT(row: any[]): string {
   return ""; // fallback nhưng trường hợp này gần như không xảy ra
 }
 
+/**
+ * Kiểm tra một bản ghi phẫu thuật / thủ thuật có phải là dòng "Gây mê khác" không.
+ * Căn cứ: tên kỹ thuật chứa chính xác cụm "gây mê khác" (chuẩn hóa không phân biệt hoa thường).
+ */
+export function isAnesthesiaRecord(rec: Partial<SurgeryRecord>): boolean {
+  if (!rec.tenKT) return false;
+  const clean = rec.tenKT.toLowerCase().replace(/\s+/g, ' ').trim();
+  return clean.includes('gây mê khác');
+}
+
+/**
+ * Gộp thông tin kíp gây mê (BS GM, KTV GM) và Máy thực hiện từ các dòng "Gây mê khác"
+ * vào tất cả các thủ thuật của cùng bệnh nhân có thời gian nằm trọn trong khoảng thời gian gây mê.
+ * Sau khi gộp, loại bỏ hoàn toàn các dòng "Gây mê khác" khỏi danh sách import.
+ * Nếu phát hiện dòng "Gây mê khác" mồ côi (không tìm thấy thủ thuật tương ứng),
+ * dòng đó sẽ bị loại bỏ và ghi nhận vào cảnh báo orphanItems.
+ */
+export function mergeAnesthesiaProcedures(
+  records: SurgeryRecord[]
+): {
+  processedRecords: SurgeryRecord[];
+  mergeSummary: AnesthesiaMergeSummary;
+} {
+  const mergeSummary: AnesthesiaMergeSummary = {
+    mergedCount: 0,
+    targetProceduresCount: 0,
+    orphanCount: 0,
+    mergedItems: [],
+    orphanItems: [],
+  };
+
+  const gmRecords: SurgeryRecord[] = [];
+  const otherRecords: SurgeryRecord[] = [];
+
+  for (const r of records) {
+    if (isAnesthesiaRecord(r)) {
+      gmRecords.push(r);
+    } else {
+      otherRecords.push(r);
+    }
+  }
+
+  // Nếu không có ca Gây mê khác nào, trả về danh sách ban đầu
+  if (gmRecords.length === 0) {
+    return {
+      processedRecords: records,
+      mergeSummary,
+    };
+  }
+
+  // Xử lý từng ca Gây mê khác
+  for (const gm of gmRecords) {
+    const cleanGmData = {
+      patientId: (gm.patientId || '').trim().toLowerCase(),
+      patientName: (gm.patientName || '').trim().toLowerCase(),
+      startMs: gm.start ? gm.start.getTime() : null,
+      endMs: gm.end ? gm.end.getTime() : null,
+    };
+
+    // Tìm các thủ thuật của cùng bệnh nhân mà thời gian nằm trọn trong thời gian gây mê:
+    // gmStart <= ttStart && ttEnd <= gmEnd
+    const matchingProcedures = otherRecords.filter((proc) => {
+      const procPatientId = (proc.patientId || '').trim().toLowerCase();
+      const procPatientName = (proc.patientName || '').trim().toLowerCase();
+
+      // Khớp bệnh nhân (theo mã BN nếu có, hoặc theo họ tên nếu thiếu mã)
+      const samePatient =
+        cleanGmData.patientId && procPatientId
+          ? cleanGmData.patientId === procPatientId
+          : cleanGmData.patientName && procPatientName
+          ? cleanGmData.patientName === procPatientName
+          : false;
+
+      if (!samePatient) return false;
+
+      // Kiểm tra khoảng thời gian
+      if (cleanGmData.startMs === null || cleanGmData.endMs === null) return false;
+      const procStartMs = proc.start ? proc.start.getTime() : null;
+      const procEndMs = proc.end ? proc.end.getTime() : null;
+      if (procStartMs === null || procEndMs === null) return false;
+
+      // Quy tắc P0.2: thời gian thủ thuật luôn nằm trong thời gian gây mê
+      return cleanGmData.startMs <= procStartMs && procEndMs <= cleanGmData.endMs;
+    });
+
+    if (matchingProcedures.length > 0) {
+      // Gộp thông tin kíp gây mê và máy vào TẤT CẢ các thủ thuật khớp
+      for (const proc of matchingProcedures) {
+        if (gm.bsGM) proc.bsGM = gm.bsGM;
+        if (gm.ktvGM) proc.ktvGM = gm.ktvGM;
+        if (gm.machine) proc.machine = gm.machine;
+        if (gm.machineCode) proc.machineCode = gm.machineCode;
+        if (gm.machineId) proc.machineId = gm.machineId;
+      }
+
+      mergeSummary.mergedCount++;
+      mergeSummary.targetProceduresCount += matchingProcedures.length;
+      mergeSummary.mergedItems.push({
+        patientId: gm.patientId,
+        patientName: gm.patientName,
+        gmTimeRange: `${gm.ngayBD || ''} – ${gm.ngayKT || ''}`.trim(),
+        bsGM: gm.bsGM,
+        ktvGM: gm.ktvGM,
+        machine: gm.machine,
+        machineCode: gm.machineCode,
+        mergedProcedures: matchingProcedures.map((p) => ({
+          tenKT: p.tenKT,
+          timeRange: `${p.ngayBD || ''} – ${p.ngayKT || ''}`.trim(),
+          ptChinh: p.ptChinh,
+        })),
+      });
+    } else {
+      // P1.3: Dòng Gây mê khác mồ côi (không tìm thấy thủ thuật tương ứng)
+      // Không import và ghi nhận để cảnh báo người dùng
+      mergeSummary.orphanCount++;
+      mergeSummary.orphanItems.push({
+        patientId: gm.patientId,
+        patientName: gm.patientName,
+        gmTimeRange: `${gm.ngayBD || ''} – ${gm.ngayKT || ''}`.trim(),
+        bsGM: gm.bsGM,
+        ktvGM: gm.ktvGM,
+        machine: gm.machine,
+        reason: 'Không tìm thấy thủ thuật nào của bệnh nhân trong khoảng thời gian gây mê này.',
+      });
+    }
+  }
+
+  // Đánh lại STT liên tục cho danh sách thủ thuật còn lại (đã loại bỏ dòng gây mê khác)
+  otherRecords.forEach((r, idx) => {
+    r.stt = idx + 1;
+  });
+
+  return {
+    processedRecords: otherRecords,
+    mergeSummary,
+  };
+}
 
 function processListData(
   listData: any[][],
   machineRegistry: MachineEntry[] = []
-): SurgeryRecord[] {
+): { records: SurgeryRecord[]; mergeSummary: AnesthesiaMergeSummary } {
   // Kiểm tra ca mổ trùng lặp ngay trong file Excel (cùng mã BN, cùng PT, cùng khoảng thời gian BĐ/KT)
   const duplicateError = checkDuplicateSurgeriesInExcel(listData);
   if (duplicateError) {
@@ -350,7 +494,10 @@ function processListData(
     });
   }
 
-  return records;
+  // Gộp kíp gây mê và máy từ các dòng 'Gây mê khác' vào thủ thuật tương ứng
+  const { processedRecords, mergeSummary } = mergeAnesthesiaProcedures(records);
+
+  return { records: processedRecords, mergeSummary };
 }
 
 
@@ -540,8 +687,8 @@ export async function processSurgicalFiles(
 
   const dateRangeText = listDateRange;
 
-  // 2. Xử lý danh sách PT thành records chuẩn (mã máy lấy từ cột AB)
-  const rawRecords = processListData(listData, config.machineRegistry || []);
+  // 2. Xử lý danh sách PT thành records chuẩn (mã máy lấy từ cột AB, gộp Gây mê khác)
+  const { records: rawRecords, mergeSummary } = processListData(listData, config.machineRegistry || []);
   console.log("DEBUG rawRecords mẫu:", rawRecords.slice(0, 5));
 
   // 2.1. Lọc theo danh mục Khoa/Phòng và 5 vị trí kíp mổ cấu hình
@@ -573,11 +720,13 @@ export async function processSurgicalFiles(
       thanhToanData: { columns: [], rows: [] },
       dateRangeText,
       filterSummary,
+      anesthesiaMergeSummary: mergeSummary,
     };
   }
 
   // 3. Phát hiện trùng & tạo báo cáo
   const result = reprocessSurgicalRecords(filteredRecords, config, dateRangeText);
   result.filterSummary = filterSummary;
+  result.anesthesiaMergeSummary = mergeSummary;
   return result;
 }

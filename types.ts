@@ -167,6 +167,39 @@ export interface OvertimeRecordRow {
   originalRecord: SurgeryRecord;
 }
 
+export interface AnesthesiaMergeItem {
+  patientId: string;
+  patientName: string;
+  gmTimeRange: string;
+  bsGM: string;
+  ktvGM: string;
+  machine: string;
+  machineCode: string;
+  mergedProcedures: {
+    tenKT: string;
+    timeRange: string;
+    ptChinh: string;
+  }[];
+}
+
+export interface AnesthesiaOrphanItem {
+  patientId: string;
+  patientName: string;
+  gmTimeRange: string;
+  bsGM: string;
+  ktvGM: string;
+  machine: string;
+  reason: string;
+}
+
+export interface AnesthesiaMergeSummary {
+  mergedCount: number;           // Số lượt 'Gây mê khác' đã gộp thành công
+  targetProceduresCount: number; // Tổng số thủ thuật được nhận thông tin gây mê
+  orphanCount: number;           // Số lượt 'Gây mê khác' mồ côi (bị loại bỏ, không tìm thấy thủ thuật)
+  mergedItems: AnesthesiaMergeItem[];
+  orphanItems: AnesthesiaOrphanItem[];
+}
+
 export interface ImportFilterSummary {
   totalInFile: number;
   importedCount: number;
@@ -195,6 +228,7 @@ export interface ProcessingResult {
   maxDate?: Date;
   extractedStaff?: StaffMember[];
   filterSummary?: ImportFilterSummary; // Thống kê bóc tách bộ lọc khoa phòng / vai trò
+  anesthesiaMergeSummary?: AnesthesiaMergeSummary; // Thống kê gộp kíp gây mê và máy từ 'Gây mê khác'
 }
 
 export interface FileState {

@@ -39,6 +39,7 @@ import { StorageQueryBar } from './components/surgery/StorageQueryBar';
 import { UploadFileBar } from './components/surgery/UploadFileBar';
 import { SurgeryTableViewRouter } from './components/surgery/SurgeryTableViewRouter';
 import { MonthlyPriceBanner } from './components/surgery/MonthlyPriceBanner';
+import { AnesthesiaMergeBanner } from './components/statistics/AnesthesiaMergeBanner';
 import { DataTabType } from './types/reportState';
 import { useReportStateManager } from './hooks/useReportStateManager';
 import { useDutyScheduleState } from './hooks/useDutyScheduleState';
@@ -885,6 +886,13 @@ const InnerApp: React.FC = () => {
 
             {activeDataTab !== 'price_service' && currentReport.stats && currentReport.result && (
               <>
+                {/* ── Anesthesia Merge Banner (hiển thị khi có dữ liệu gộp Gây mê khác) ── */}
+                {currentReport.result.anesthesiaMergeSummary && (
+                  <AnesthesiaMergeBanner
+                    summary={currentReport.result.anesthesiaMergeSummary}
+                  />
+                )}
+
                 {/* ── Monthly Price Coverage Banner ── */}
                 {currentType === 'monthly' && (
                   <MonthlyPriceBanner
