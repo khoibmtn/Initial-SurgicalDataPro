@@ -4,11 +4,13 @@ export type MatchStatus = 'assigned' | 'pending' | 'notFound' | 'nameMismatch';
 export interface ParsedEntry {
   patientId: string;
   patientName: string;
+  department?: string;
 }
 
 export interface PaymentListItem {
   patientId: string;
   patientName: string; // tên theo danh sách TCKT
+  department?: string; // khoa nhận diện từ danh sách TCKT
   note?: string;
   addedManually?: boolean;
   /** user đã xác nhận giữ ca dù lệch họ tên */

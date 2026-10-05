@@ -29,7 +29,7 @@ export const PaymentListSelector: React.FC<Props> = ({
       {lists.map(l => (
         <option key={l.id} value={l.id}>{l.status === 'locked' ? '🔒 ' : ''}{l.name} ({l.items.length})</option>
       ))}
-      {allowUnpaid && <option value="unpaid">Chưa thanh toán</option>}
+      {allowUnpaid && <option value="unpaid">Chưa thanh toán gói DV</option>}
     </select>
     {onManage && (
       <button
