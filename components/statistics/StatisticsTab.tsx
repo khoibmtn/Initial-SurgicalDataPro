@@ -18,11 +18,14 @@ import { StatsConfig } from './StatsConfig';
 import { SpecialtyComparisonTab } from './SpecialtyComparisonTab';
 import { ORAnalyticsDashboard } from './ORAnalyticsDashboard';
 import { ContextToolbar, TabLine } from '../ui';
+import { useAuth } from '../../contexts/AuthContext';
+import { AuthGuardView } from '../auth/AuthGuardView';
 
 type SubTab = 'summary' | 'comparison' | 'kpi' | 'config';
 
 export const StatisticsTab: React.FC = () => {
   const { config } = useConfig();
+  const { isAuthenticated } = useAuth();
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentRealMonth = now.getMonth() + 1;
@@ -69,45 +72,50 @@ export const StatisticsTab: React.FC = () => {
 
   // Subscribe to price versions
   useEffect(() => {
+    if (!isAuthenticated) return;
     const unsub = subscribeToPriceVersions((data) => {
       setPriceVersions(data);
       priceVersionsReady.current = true;
     });
     return unsub;
-  }, []);
+  }, [isAuthenticated]);
 
   // Subscribe to surgery name prices
   useEffect(() => {
+    if (!isAuthenticated) return;
     const unsub = subscribeToSurgeryNamePrices((data) => {
       setSurgeryNamePrices(data);
       namePricesReady.current = true;
     });
     return unsub;
-  }, []);
+  }, [isAuthenticated]);
 
   // Subscribe to chapter catalog
   useEffect(() => {
+    if (!isAuthenticated) return;
     const unsub = subscribeToChapterCatalog((data) => {
       setChapters(data);
     });
     return unsub;
-  }, []);
+  }, [isAuthenticated]);
 
   // Subscribe to surgery profiles (Firestore)
   useEffect(() => {
+    if (!isAuthenticated) return;
     const unsub = subscribeToProfiles((data) => {
       setProfiles(data);
     });
     return unsub;
-  }, []);
+  }, [isAuthenticated]);
 
   // Subscribe to surgery cost items (Realtime Database)
   useEffect(() => {
+    if (!isAuthenticated) return;
     const unsub = subscribeToCostItems((data) => {
       setCostItems(data);
     });
     return unsub;
-  }, []);
+  }, [isAuthenticated]);
 
   // --- Full yearly fetch (Firestore queries + 24× aggregation) ---
   const loadYearlyData = useCallback(async (
@@ -459,6 +467,18 @@ export const StatisticsTab: React.FC = () => {
     { value: 'kpi' as const, label: 'Quản trị phòng mổ', icon: Gauge },
     { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col animate-fade-in relative w-full h-full">
+        <ContextToolbar title="Thống kê phẫu thuật" />
+        <AuthGuardView
+          featureName="Phân hệ Thống kê phẫu thuật"
+          description="Dữ liệu tổng hợp, phân tích so sánh và các chỉ số quản trị phòng mổ được truy vấn trực tiếp từ cơ sở dữ liệu bệnh viện. Vui lòng đăng nhập để truy cập dữ liệu thống kê."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col animate-fade-in relative w-full h-full">

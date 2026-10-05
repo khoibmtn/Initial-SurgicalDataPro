@@ -33,6 +33,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { openAuthModal } from './utils/authGuidance';
+import { AuthGuardView } from './components/auth/AuthGuardView';
 import { auth } from './lib/firebase';
 import { ToastContainer } from './components/common/ToastContainer';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
@@ -94,6 +95,7 @@ import { sendNotification } from './services/notificationService';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
+  const { user, isAdmin, isHead, currentRole, can, isAuthenticated } = useAuth();
 
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
   const [hasVisitedStats, setHasVisitedStats] = useState(false);
@@ -129,11 +131,15 @@ const InnerApp: React.FC = () => {
   const [namePrices, setNamePrices] = useState<SurgeryNamePrice[]>([]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setNamePrices([]);
+      return;
+    }
     const unsub = subscribeToSurgeryNamePrices((data) => {
       setNamePrices(data);
     });
     return () => unsub();
-  }, []);
+  }, [isAuthenticated]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('sidebar_collapsed');
@@ -177,9 +183,6 @@ const InnerApp: React.FC = () => {
   } = useReportStateManager({ activeTab });
 
 
-  // ── Người dùng & Quyền hạn (Auth Context) ──
-  const { user, isAdmin, isHead, currentRole, can, isAuthenticated } = useAuth();
-
   // ── Lịch trực & Ngoài giờ (Shared State across Daily & Monthly) ──
   const {
     dutySchedules,
@@ -213,11 +216,15 @@ const InnerApp: React.FC = () => {
   const [lockModalMode, setLockModalMode] = useState<'lock' | 'unlock'>('lock');
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setAllLocks({});
+      return;
+    }
     const unsub = subscribeAllReportLocks((locks) => {
       setAllLocks(locks || {});
     });
     return () => unsub();
-  }, []);
+  }, [isAuthenticated]);
 
   // ── Package data subscriptions ──
   const [packageAssignments, setPackageAssignments] = useState<ServicePackageAssignment[]>([]);
@@ -247,13 +254,23 @@ const InnerApp: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setPackageDefinitions([]);
+      setPositionCatalog([]);
+      setPackageModuleConfig(DEFAULT_MODULE_CONFIG);
+      return;
+    }
     const unsub = subscribeToServicePackages(setPackageDefinitions);
     const unsubCatalog = subscribeToPositionCatalog(setPositionCatalog);
     const unsubConfig = subscribeToModuleConfig(setPackageModuleConfig);
     return () => { unsub(); unsubCatalog(); unsubConfig(); };
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setPackageAssignments([]);
+      return;
+    }
     // Subscribe to assignments based on current report date range
     const dateFrom = currentReport.dateFrom || '';
     const dateTo = currentReport.dateTo || '';
@@ -263,7 +280,7 @@ const InnerApp: React.FC = () => {
     }
     const unsub = subscribeToAssignments(dateFrom, dateTo || dateFrom, setPackageAssignments);
     return () => unsub();
-  }, [currentReport.dateFrom, currentReport.dateTo]);
+  }, [isAuthenticated, currentReport.dateFrom, currentReport.dateTo]);
 
   const currentPeriodKey = useMemo(() => {
     if (currentType === 'monthly') {
@@ -813,28 +830,36 @@ const InnerApp: React.FC = () => {
             {/* ── Data Source Containers (all mounted, CSS display toggle) ── */}
             {/* STORAGE container */}
             <div style={{ display: activeDataTab === 'storage' ? 'block' : 'none' }}>
-              <StorageQueryBar
-                currentType={currentType}
-                monthlyTimeMode={monthlyTimeMode}
-                onMonthlyTimeModeChange={handleMonthlyTimeModeChange}
-                selectedMonthlyYear={selectedMonthlyYear}
-                onMonthlyYearChange={handleMonthlyYearChange}
-                availableMonthlyYears={availableMonthlyYears}
-                selectedMonthlyMonth={selectedMonthlyMonth}
-                onMonthlyMonthChange={handleMonthlyMonthChange}
-                availableMonthlyMonthsMap={availableMonthlyMonthsMap}
-                dateFrom={getState(currentType, 'storage').dateFrom}
-                onDateFromChange={(val) => updateReportState(currentType, { dateFrom: val }, 'storage')}
-                dateTo={getState(currentType, 'storage').dateTo}
-                onDateToChange={(val) => updateReportState(currentType, { dateTo: val }, 'storage')}
-                timeFrom={getState(currentType, 'storage').timeFrom}
-                onTimeFromChange={(val) => updateReportState(currentType, { timeFrom: val }, 'storage')}
-                timeTo={getState(currentType, 'storage').timeTo}
-                onTimeToChange={(val) => updateReportState(currentType, { timeTo: val }, 'storage')}
-                onGetReport={handleGetReport}
-                onAutoFill24hShift={handleAutoFill24hShift}
-                handleTimeChange={handleTimeChange}
-              />
+              {!isAuthenticated ? (
+                <AuthGuardView
+                  featureName={currentType === 'daily' ? 'Lưu trữ Báo cáo hàng ngày' : 'Lưu trữ Báo cáo tháng'}
+                  description="Dữ liệu phẫu thuật lưu trữ được truy vấn trực tiếp từ cơ sở dữ liệu bệnh viện. Vui lòng đăng nhập tài khoản nhân viên để tra cứu hoặc chuyển sang tab Minh Lộ để xử lý file Excel tạm thời."
+                  onSwitchToLocalExcel={() => setActiveDataTab('upload')}
+                />
+              ) : (
+                <StorageQueryBar
+                  currentType={currentType}
+                  monthlyTimeMode={monthlyTimeMode}
+                  onMonthlyTimeModeChange={handleMonthlyTimeModeChange}
+                  selectedMonthlyYear={selectedMonthlyYear}
+                  onMonthlyYearChange={handleMonthlyYearChange}
+                  availableMonthlyYears={availableMonthlyYears}
+                  selectedMonthlyMonth={selectedMonthlyMonth}
+                  onMonthlyMonthChange={handleMonthlyMonthChange}
+                  availableMonthlyMonthsMap={availableMonthlyMonthsMap}
+                  dateFrom={getState(currentType, 'storage').dateFrom}
+                  onDateFromChange={(val) => updateReportState(currentType, { dateFrom: val }, 'storage')}
+                  dateTo={getState(currentType, 'storage').dateTo}
+                  onDateToChange={(val) => updateReportState(currentType, { dateTo: val }, 'storage')}
+                  timeFrom={getState(currentType, 'storage').timeFrom}
+                  onTimeFromChange={(val) => updateReportState(currentType, { timeFrom: val }, 'storage')}
+                  timeTo={getState(currentType, 'storage').timeTo}
+                  onTimeToChange={(val) => updateReportState(currentType, { timeTo: val }, 'storage')}
+                  onGetReport={handleGetReport}
+                  onAutoFill24hShift={handleAutoFill24hShift}
+                  handleTimeChange={handleTimeChange}
+                />
+              )}
             </div>
 
             {/* UPLOAD (Minh Lộ) container */}
@@ -891,43 +916,17 @@ const InnerApp: React.FC = () => {
 
             {/* Empty State — shown before any data is loaded */}
             {activeDataTab !== 'price_service' && !currentReport.result && !currentReport.isProcessing && (
-              <EmptyState
-                icon={Database}
-                title={
-                  activeDataTab === 'storage' && !isAuthenticated
-                    ? 'Yêu cầu đăng nhập để truy vấn'
-                    : 'Chưa có dữ liệu'
-                }
-                description={
-                  activeDataTab === 'storage'
-                    ? !isAuthenticated
-                      ? 'Hệ thống lưu trữ yêu cầu tài khoản đã được phê duyệt. Vui lòng đăng nhập hoặc tạo tài khoản mới để tra cứu dữ liệu.'
-                      : 'Chọn khoảng thời gian và nhấn "Lấy dữ liệu" để truy vấn từ hệ thống lưu trữ.'
-                    : 'Tải lên file Excel từ Minh Lộ để bắt đầu xử lý dữ liệu.'
-                }
-                action={
-                  activeDataTab === 'storage' && !isAuthenticated ? (
-                    <div className="flex items-center justify-center gap-2 mt-2">
-                      <button
-                        type="button"
-                        onClick={() => openAuthModal('login')}
-                        className="px-3 py-1.5 text-xs font-semibold bg-primary-700 hover:bg-primary-800 text-white rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <LogIn className="w-3.5 h-3.5" />
-                        <span>Đăng nhập</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openAuthModal('register')}
-                        className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        <span>Tạo tài khoản</span>
-                      </button>
-                    </div>
-                  ) : undefined
-                }
-              />
+              activeDataTab === 'storage' && !isAuthenticated ? null : (
+                <EmptyState
+                  icon={Database}
+                  title="Chưa có dữ liệu"
+                  description={
+                    activeDataTab === 'storage'
+                      ? 'Chọn khoảng thời gian và nhấn "Lấy dữ liệu" để truy vấn từ hệ thống lưu trữ.'
+                      : 'Tải lên file Excel từ Minh Lộ để bắt đầu xử lý dữ liệu.'
+                  }
+                />
+              )
             )}
 
             {/* Skeleton Loading — shown while data is being fetched */}

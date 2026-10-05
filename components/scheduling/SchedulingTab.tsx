@@ -28,6 +28,7 @@ import { getTableLimitForRole } from '../../services/laborConfigService';
 import type { ScheduledSurgery, ScheduledSurgeryInput } from '../../types/schedule';
 import type { SurgeryNamePrice } from '../../types';
 import { Tooltip } from '../common/Tooltip';
+import { AuthGuardView } from '../auth/AuthGuardView';
 
 function toDateString(d: Date): string {
   const y = d.getFullYear();
@@ -75,7 +76,7 @@ function useIsMobile(breakpoint = 768) {
 
 export const SchedulingTab: React.FC = () => {
   const { config } = useConfig();
-  const { user, isAdmin, isHead } = useAuth();
+  const { user, isAdmin, isHead, isAuthenticated } = useAuth();
   const canManageAll = isAdmin || isHead;
   const isMobile = useIsMobile();
 
@@ -155,6 +156,7 @@ export const SchedulingTab: React.FC = () => {
     getCachedSchedule(toDateString(new Date())) ? 'cached' : 'loading'
   );
   useEffect(() => {
+    if (!isAuthenticated) return;
     const cached = getCachedSchedule(dateStr);
     setEntries(cached ?? []);
     setScheduleStatus(cached ? 'cached' : 'loading');
@@ -163,7 +165,7 @@ export const SchedulingTab: React.FC = () => {
       setScheduleStatus('live');
     });
     return () => unsub();
-  }, [dateStr]);
+  }, [dateStr, isAuthenticated]);
 
   // Prefetch ngày trước/sau để chuyển ngày tức thì (payload nhỏ)
   useEffect(() => {
@@ -339,6 +341,17 @@ export const SchedulingTab: React.FC = () => {
     if (Math.abs(diff) > 80) { diff > 0 ? goToPrevDay() : goToNextDay(); }
     setTouchStartX(null);
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col flex-1 h-full min-h-0 bg-gray-50/50 p-4">
+        <AuthGuardView
+          featureName="Lịch mổ phẫu thuật"
+          description="Lịch mổ và kíp mổ trực tuyến được đồng bộ realtime từ cơ sở dữ liệu bệnh viện. Vui lòng đăng nhập để theo dõi và sắp xếp lịch mổ."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2 sm:gap-3 p-3 sm:p-4 animate-fade-in max-w-[1800px] mx-auto w-full">

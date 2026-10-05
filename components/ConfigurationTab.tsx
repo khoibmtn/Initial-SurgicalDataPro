@@ -20,6 +20,7 @@ import { DepartmentConfig } from './config/DepartmentConfig';
 import { StaffListConfig } from './config/StaffListConfig';
 import { UserManagementPanel } from './auth/UserManagementPanel';
 import { useAuth } from '../contexts/AuthContext';
+import { AuthGuardView } from './auth/AuthGuardView';
 import { PositionCatalogConfig } from './config/PositionCatalogConfig';
 import { ServicePackageConfig } from './config/ServicePackageConfig';
 import { ServicePackageSettingsConfig } from './config/ServicePackageSettingsConfig';
@@ -37,7 +38,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
     onOpenAuditLogWithUser,
 }) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
-    const { isAdmin, isHead, isDeputyHead, pendingApprovalCount, can } = useAuth();
+    const { isAdmin, isHead, isDeputyHead, pendingApprovalCount, can, isAuthenticated } = useAuth();
     const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages'>(
         initialSubTab || ((isHead || isDeputyHead) && !isAdmin ? 'users' : 'norms')
     );
@@ -63,10 +64,11 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
     // --- Timeline-based labor config ---
     const [laborConfigs, setLaborConfigs] = useState<LaborConfigVersion[]>([]);
     useEffect(() => {
+        if (!isAuthenticated) return;
         ensureDefaultLaborConfig(config.priceConfig, config.timeRules).catch(console.error);
         const unsub = subscribeToLaborConfigs(setLaborConfigs);
         return () => unsub();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isAuthenticated]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // --- Subscriptions for migrated tabs ---
     const [surgeryNamePrices, setSurgeryNamePrices] = useState<SurgeryNamePrice[]>([]);
@@ -75,13 +77,26 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
     const [costItems, setCostItems] = useState<SurgeryCostItem[]>([]);
 
     useEffect(() => {
+        if (!isAuthenticated) return;
         const unsub = subscribeToSurgeryNamePrices(setSurgeryNamePrices);
         return () => unsub();
-    }, []);
-    useEffect(() => { const unsub = subscribeToPriceVersions(() => {}); return unsub; }, []);
-    useEffect(() => { const unsub = subscribeToChapterCatalog(setChapters); return unsub; }, []);
-    useEffect(() => { const unsub = subscribeToProfiles(setProfiles); return unsub; }, []);
-    useEffect(() => { const unsub = subscribeToCostItems(setCostItems); return unsub; }, []);
+    }, [isAuthenticated]);
+    useEffect(() => { if (!isAuthenticated) return; const unsub = subscribeToPriceVersions(() => {}); return unsub; }, [isAuthenticated]);
+    useEffect(() => { if (!isAuthenticated) return; const unsub = subscribeToChapterCatalog(setChapters); return unsub; }, [isAuthenticated]);
+    useEffect(() => { if (!isAuthenticated) return; const unsub = subscribeToProfiles(setProfiles); return unsub; }, [isAuthenticated]);
+    useEffect(() => { if (!isAuthenticated) return; const unsub = subscribeToCostItems(setCostItems); return unsub; }, [isAuthenticated]);
+
+    if (!isAuthenticated) {
+        return (
+            <div className="flex flex-col flex-1 min-h-0 font-inter text-sm">
+                <ContextToolbar title="Cấu hình hệ thống" />
+                <AuthGuardView
+                    featureName="Phân hệ Cấu hình hệ thống"
+                    description="Cấu hình định mức, danh mục kỹ thuật, danh sách nhân sự và phân quyền được lưu trữ trên CSDL máy chủ. Vui lòng đăng nhập với tài khoản có thẩm quyền để xem và chỉnh sửa."
+                />
+            </div>
+        );
+    }
 
     if (!isLoaded) return <div>Loading config...</div>;
 
