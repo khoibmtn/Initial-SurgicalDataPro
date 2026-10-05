@@ -19,7 +19,7 @@ export function useToast() {
   }, []);
 
   const addToast = useCallback(
-    (message: React.ReactNode, type: ToastType = 'success', duration = 6000) => {
+    (message: React.ReactNode, type: ToastType = 'success', duration = 6000, title?: string) => {
       // Deduplicate: skip if same message was shown recently
       const messageKey = typeof message === 'string' ? message : String(message);
       const now = Date.now();
@@ -41,7 +41,7 @@ export function useToast() {
 
       setToasts((prev) => {
         // Evict oldest toasts if exceeding max
-        const next = [...prev, { id, message, type }];
+        const next = [...prev, { id, message, type, title }];
         if (next.length > MAX_VISIBLE_TOASTS) {
           const evicted = next.slice(0, next.length - MAX_VISIBLE_TOASTS);
           evicted.forEach((t) => {

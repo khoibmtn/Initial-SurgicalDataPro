@@ -29,7 +29,10 @@ import {
   CalendarDays,
   Clock,
   Package,
+  LogIn,
+  UserPlus,
 } from 'lucide-react';
+import { openAuthModal } from './utils/authGuidance';
 import { auth } from './lib/firebase';
 import { ToastContainer } from './components/common/ToastContainer';
 import { ConfirmDialog } from './components/common/ConfirmDialog';
@@ -95,8 +98,20 @@ const InnerApp: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('daily');
   const [hasVisitedStats, setHasVisitedStats] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginModalView, setLoginModalView] = useState<'login' | 'register'>('login');
   const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [configInitialSubTab, setConfigInitialSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | undefined>(undefined);
+
+  // Lắng nghe sự kiện yêu cầu mở modal đăng nhập / tạo tài khoản từ các toast hoặc bảo vệ tính năng
+  useEffect(() => {
+    const handleOpenAuth = (e: Event) => {
+      const customEvent = e as CustomEvent<{ view?: 'login' | 'register' }>;
+      setLoginModalView(customEvent.detail?.view || 'login');
+      setShowLoginModal(true);
+    };
+    window.addEventListener('app:open-auth-modal', handleOpenAuth);
+    return () => window.removeEventListener('app:open-auth-modal', handleOpenAuth);
+  }, []);
 
   // Clear unassigned draft cases on initial app load / browser refresh
   useEffect(() => {
@@ -163,7 +178,7 @@ const InnerApp: React.FC = () => {
 
 
   // ── Người dùng & Quyền hạn (Auth Context) ──
-  const { user, isAdmin, isHead, currentRole, can } = useAuth();
+  const { user, isAdmin, isHead, currentRole, can, isAuthenticated } = useAuth();
 
   // ── Lịch trực & Ngoài giờ (Shared State across Daily & Monthly) ──
   const {
@@ -694,12 +709,19 @@ const InnerApp: React.FC = () => {
         onToggle={() => setSidebarCollapsed(prev => !prev)}
         userName={auth.currentUser?.email?.split('@')[0]}
         syncStatus={isSaving ? 'processing' : currentReport.isProcessing ? 'processing' : currentReport.result && currentReport.hasAutoFilledData ? 'unsaved' : 'synced'}
-        onLoginClick={() => setShowLoginModal(true)}
+        onLoginClick={() => {
+          setLoginModalView('login');
+          setShowLoginModal(true);
+        }}
         onAccountClick={() => setShowAccountPanel(true)}
       />
 
       {/* Login/Register Modal */}
-      <LoginModal isOpen={showLoginModal} onClose={() => setShowLoginModal(false)} />
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        initialView={loginModalView}
+      />
 
       {/* Account Panel Modal */}
       <AccountPanel
@@ -871,10 +893,39 @@ const InnerApp: React.FC = () => {
             {activeDataTab !== 'price_service' && !currentReport.result && !currentReport.isProcessing && (
               <EmptyState
                 icon={Database}
-                title="Chưa có dữ liệu"
-                description={activeDataTab === 'storage'
-                  ? 'Chọn khoảng thời gian và nhấn "Lấy dữ liệu" để truy vấn từ hệ thống lưu trữ.'
-                  : 'Tải lên file Excel từ Minh Lộ để bắt đầu xử lý dữ liệu.'
+                title={
+                  activeDataTab === 'storage' && !isAuthenticated
+                    ? 'Yêu cầu đăng nhập để truy vấn'
+                    : 'Chưa có dữ liệu'
+                }
+                description={
+                  activeDataTab === 'storage'
+                    ? !isAuthenticated
+                      ? 'Hệ thống lưu trữ yêu cầu tài khoản đã được phê duyệt. Vui lòng đăng nhập hoặc tạo tài khoản mới để tra cứu dữ liệu.'
+                      : 'Chọn khoảng thời gian và nhấn "Lấy dữ liệu" để truy vấn từ hệ thống lưu trữ.'
+                    : 'Tải lên file Excel từ Minh Lộ để bắt đầu xử lý dữ liệu.'
+                }
+                action={
+                  activeDataTab === 'storage' && !isAuthenticated ? (
+                    <div className="flex items-center justify-center gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => openAuthModal('login')}
+                        className="px-3 py-1.5 text-xs font-semibold bg-primary-700 hover:bg-primary-800 text-white rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <LogIn className="w-3.5 h-3.5" />
+                        <span>Đăng nhập</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openAuthModal('register')}
+                        className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>Tạo tài khoản</span>
+                      </button>
+                    </div>
+                  ) : undefined
                 }
               />
             )}

@@ -17,6 +17,8 @@ import { exportFormattedFullExcel } from '../services/excelExportService';
 import type { AppUser, UserRole } from '../types/auth';
 import { logAuditEvent } from '../services/auditLogService';
 import { sendNotification } from '../services/notificationService';
+import { auth } from '../lib/firebase';
+import { notifyAuthRequired, handleActionError } from '../utils/authGuidance';
 
 export interface UseReportPersistenceOptions {
   currentReport: ReportState;
@@ -82,6 +84,11 @@ export function useReportPersistence({
 
       // 1. Chỉ xóa trong CSDL khi nguồn dữ liệu là LƯU TRỮ (STORAGE)
       if (currentReport.dataSource === 'STORAGE') {
+        if (!auth.currentUser) {
+          notifyAuthRequired(addToast, 'xóa dữ liệu khỏi Firestore');
+          return;
+        }
+
         try {
           const recordsInDb = recordsToDelete.filter((r) => !!(r as any).firestorePath);
           const toDelete = recordsInDb.length > 0 ? recordsInDb : recordsToDelete;
@@ -91,7 +98,7 @@ export function useReportPersistence({
           }
         } catch (e) {
           console.error('Delete failed', e);
-          addToast('Lỗi khi xóa từ Firestore. Vui lòng thử lại.', 'error');
+          handleActionError(e, 'Lỗi khi xóa từ Firestore. Vui lòng thử lại.', addToast, 'xóa dữ liệu khỏi Firestore');
           return;
         }
       }
@@ -179,10 +186,15 @@ export function useReportPersistence({
       return false;
     }
 
+    if (!auth.currentUser) {
+      notifyAuthRequired(addToast, 'lưu báo cáo vào hệ thống');
+      return false;
+    }
+
     setIsSaving(true);
     try {
       const type = activeTab === 'monthly' ? 'MONTHLY' : 'DAILY';
-      const userId = 'anonymous_user';
+      const userId = currentUser?.uid || auth.currentUser?.uid || 'anonymous_user';
 
       const { savedCount, skippedCount, updatedCount } = await reportService.saveReport(
         currentReport.result.validRecords,
@@ -278,7 +290,7 @@ export function useReportPersistence({
       return true;
     } catch (error) {
       console.error(error);
-      addToast('Lỗi khi lưu dữ liệu. Vui lòng thử lại.', 'error');
+      handleActionError(error, 'Lỗi khi lưu dữ liệu. Vui lòng thử lại.', addToast, 'lưu dữ liệu vào hệ thống');
       return false;
     } finally {
       setIsSaving(false);

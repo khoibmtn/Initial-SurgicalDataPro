@@ -7,6 +7,7 @@ export interface ToastItem {
   id: string;
   message: React.ReactNode;
   type: ToastType;
+  title?: string;
 }
 
 const ToastIcon: React.FC<{ type: ToastType }> = ({ type }) => {
@@ -23,7 +24,7 @@ const ToastIcon: React.FC<{ type: ToastType }> = ({ type }) => {
 const TOAST_STYLES: Record<ToastType, { border: string; title: string; titleText: string }> = {
   success: { border: 'border-emerald-500', title: 'text-emerald-900', titleText: 'Thành công' },
   error: { border: 'border-red-500', title: 'text-red-900', titleText: 'Lỗi' },
-  warning: { border: 'border-amber-500', title: 'text-amber-900', titleText: 'Lưu ý giá DVKT' },
+  warning: { border: 'border-amber-500', title: 'text-amber-900', titleText: 'Cảnh báo' },
   info: { border: 'border-blue-500', title: 'text-blue-900', titleText: 'Thông tin' },
 };
 
@@ -36,16 +37,16 @@ const SingleToast: React.FC<{
   return (
     <div
       className={`
-        pointer-events-auto min-w-[280px] max-w-[400px] p-3 rounded-xl shadow-xl border-l-4 animate-slide-in flex items-start gap-3 bg-white
+        pointer-events-auto min-w-[280px] max-w-[420px] p-3 rounded-xl shadow-xl border-l-4 animate-slide-in flex items-start gap-3 bg-white
         ${style.border}
       `}
     >
       <ToastIcon type={toast.type} />
       <div className="flex-1 min-w-0">
         <p className={`font-semibold text-sm ${style.title}`}>
-          {style.titleText}
+          {toast.title || style.titleText}
         </p>
-        <div className="text-xs text-gray-700 mt-0.5 whitespace-pre-line break-words line-clamp-3">
+        <div className="text-xs text-gray-700 mt-1 whitespace-pre-line break-words">
           {toast.message}
         </div>
       </div>

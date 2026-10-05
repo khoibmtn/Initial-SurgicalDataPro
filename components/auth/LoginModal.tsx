@@ -31,13 +31,24 @@ type ViewMode = 'login' | 'register';
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialView?: ViewMode;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, initialView = 'login' }) => {
   const { login, loginNickname } = useAuth();
 
-  const [viewMode, setViewMode] = useState<ViewMode>('login');
+  const [viewMode, setViewMode] = useState<ViewMode>(initialView);
   const [loginMode, setLoginMode] = useState<LoginMode>('staff');
+
+  // Sync initial view when modal opens
+  React.useEffect(() => {
+    if (isOpen) {
+      if (initialView) {
+        setViewMode(initialView);
+      }
+      setMessage(null);
+    }
+  }, [isOpen, initialView]);
 
   // Login form state
   const [email, setEmail] = useState('');
@@ -262,14 +273,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-500 leading-snug mt-1">
-                      Bạn có thể trải nghiệm toàn bộ tính năng báo cáo, đối soát và xuất dữ liệu ngay mà không cần đăng nhập.
+                      Chế độ Khách cho phép bạn xem giao diện hoặc xử lý file tạm thời. Để lưu trữ dữ liệu, đối soát và dùng đầy đủ tính năng hệ thống, vui lòng đăng nhập hoặc tạo tài khoản mới.
                     </p>
                     <button
                       type="button"
                       onClick={() => { resetForm(); onClose(); }}
                       className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
                     >
-                      <span>Vào ngay (Khách)</span>
+                      <span>Tiếp tục trải nghiệm (Khách)</span>
                       <ArrowRight className="w-3 h-3" />
                     </button>
                   </div>

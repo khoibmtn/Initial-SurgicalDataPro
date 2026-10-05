@@ -5,6 +5,8 @@ import { ToastType } from '../components/common/ToastContainer';
 import { reportService } from '../services/reportService';
 import { reprocessSurgicalRecords, recalculateResultFromRecords } from '../services/reprocess';
 import { clearPackageDrafts } from '../types/servicePackage';
+import { auth } from '../lib/firebase';
+import { notifyAuthRequired, handleActionError } from '../utils/authGuidance';
 
 export interface UseStorageQueryOptions {
   config: SurgeryConfig;
@@ -226,7 +228,7 @@ export function useStorageQuery({
         addToast(`Đã tải ${persistedRecords.length} ca phẫu thuật từ dữ liệu lưu trữ`, 'success');
       } catch (error: any) {
         console.error('Error fetching report:', error);
-        addToast(`Lỗi khi tải dữ liệu: ${error.message}`, 'error');
+        handleActionError(error, `Lỗi khi tải dữ liệu: ${error?.message || ''}`, addToast, 'tải dữ liệu phẫu thuật');
       }
     })();
   }, [
@@ -265,6 +267,12 @@ export function useStorageQuery({
     const paramsValid = new Date(dateFromStr) <= new Date(dateToStr);
     if (!paramsValid) {
       addToast("Thời gian 'Đến' phải lớn hơn hoặc bằng Thời gian 'Từ'", 'error');
+      return;
+    }
+
+    // Kiểm tra đăng nhập trước khi truy vấn dữ liệu từ Firestore
+    if (!auth.currentUser) {
+      notifyAuthRequired(addToast, 'truy vấn dữ liệu lưu trữ');
       return;
     }
 
@@ -449,7 +457,7 @@ export function useStorageQuery({
       }
     } catch (error) {
       console.error('Error getting report:', error);
-      addToast('Có lỗi xảy ra khi lấy dữ liệu.', 'error');
+      handleActionError(error, 'Có lỗi xảy ra khi lấy dữ liệu.', addToast, 'truy vấn dữ liệu lưu trữ');
     }
   }, [
     currentType,

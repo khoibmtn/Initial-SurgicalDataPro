@@ -30,6 +30,7 @@ import {
 } from '../../services/servicePackageService';
 import { useAuth } from '../../contexts/AuthContext';
 import { logAuditEvent } from '../../services/auditLogService';
+import { isAuthOrPermissionError, openAuthModal } from '../../utils/authGuidance';
 
 interface Props {
   isOpen: boolean;
@@ -292,6 +293,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
   const [selectedPkgId, setSelectedPkgId] = useState<string>('');
   const [staffMap, setStaffMap] = useState<Record<string, string>>({}); // positionKey → staffName
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // Auto-fill runs once per (package, record) so cleared cells are not refilled
   const autoFillDoneRef = useRef<string>('');
 
@@ -447,8 +449,20 @@ export const PackageAssignmentModal: React.FC<Props> = ({
         updatedAt: Date.now(),
       };
 
-      const id = await saveAssignment(assignment);
-      assignment.id = id;
+      setError(null);
+      let id: string;
+      try {
+        id = await saveAssignment(assignment);
+        assignment.id = id;
+      } catch (saveErr) {
+        console.error('Failed to save assignment:', saveErr);
+        if (isAuthOrPermissionError(saveErr) || !user) {
+          setError('Bạn cần đăng nhập để gán gói dịch vụ. Vui lòng đăng nhập hoặc tạo tài khoản mới.');
+        } else {
+          setError(saveErr instanceof Error ? saveErr.message : 'Không thể lưu gán gói dịch vụ.');
+        }
+        return;
+      }
 
       if (user) {
         logAuditEvent({
@@ -603,14 +617,30 @@ export const PackageAssignmentModal: React.FC<Props> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between bg-gray-50/50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-            Hủy
-          </button>
+        <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 bg-gray-50/50 rounded-b-2xl">
+          <div className="flex items-center gap-2 min-w-0">
+            <button onClick={onClose} className="px-4 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer">
+              Hủy
+            </button>
+            {error && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] font-semibold text-red-600 max-w-[280px] leading-tight">{error}</span>
+                {error.includes('đăng nhập') && (
+                  <button
+                    type="button"
+                    onClick={() => openAuthModal('login')}
+                    className="text-[11px] font-bold text-primary-700 hover:underline cursor-pointer"
+                  >
+                    Đăng nhập ngay
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
           <button
             onClick={handleSave}
             disabled={!selectedPkgId || saving}
-            className="px-5 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm"
+            className="px-5 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
           >
             <Save className="h-3.5 w-3.5" />
             {saving ? 'Đang lưu...' : existingAssignment ? 'Cập nhật' : 'Gán gói'}

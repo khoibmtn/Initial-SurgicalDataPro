@@ -7,6 +7,8 @@ import { getScheduleForDate } from '../../services/overtimeCalculationService';
 import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
 import { TimeInput24 } from '../common/TimeInput24';
 import { STAFF_POSITIONS } from '../../services/laborConfigService';
+import { auth } from '../../lib/firebase';
+import { isAuthOrPermissionError, openAuthModal } from '../../utils/authGuidance';
 
 interface ScheduleSurgeryModalProps {
   isOpen: boolean;
@@ -350,11 +352,11 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     } catch (err) {
       console.error('Error saving schedule entry:', err);
       const msg = err instanceof Error ? err.message : String(err);
-      setSaveError(
-        /permission/i.test(msg)
-          ? 'Không có quyền lưu lịch mổ. Vui lòng đăng nhập lại.'
-          : `Không lưu được ca mổ: ${msg}`
-      );
+      if (isAuthOrPermissionError(err) || !auth.currentUser) {
+        setSaveError('Bạn cần đăng nhập để lưu lịch mổ. Vui lòng đăng nhập hoặc tạo tài khoản mới.');
+      } else {
+        setSaveError(`Không lưu được ca mổ: ${msg}`);
+      }
     } finally {
       setIsSaving(false);
     }
@@ -782,7 +784,18 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
 
           <div className="flex items-center gap-2">
             {saveError && (
-              <span role="alert" className="text-[11px] font-semibold text-red-600 max-w-[260px]">{saveError}</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span role="alert" className="text-[11px] font-semibold text-red-600 max-w-[260px]">{saveError}</span>
+                {saveError.includes('đăng nhập') && (
+                  <button
+                    type="button"
+                    onClick={() => openAuthModal('login')}
+                    className="text-[11px] font-bold text-primary-700 hover:underline cursor-pointer"
+                  >
+                    Đăng nhập ngay
+                  </button>
+                )}
+              </div>
             )}
             {readOnly ? (
               <button onClick={onClose} className="px-5 py-2 text-xs font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors cursor-pointer">
