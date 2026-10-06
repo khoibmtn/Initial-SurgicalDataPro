@@ -11,6 +11,7 @@ export type AuditAction =
   | 'ASSISTANT_FILL'
   | 'RECORD_DELETE'
   | 'DATA_SAVE'
+  | 'DATA_IMPORT'
   | 'USER_APPROVE'
   | 'USER_REJECT'
   | 'USER_ROLE_CHANGE'
@@ -18,7 +19,10 @@ export type AuditAction =
   | 'USER_LOGIN'
   | 'USER_LOGOUT'
   | 'DUTY_SCHEDULE_EDIT'
-  | 'PACKAGE_ASSIGNMENT_EDIT';
+  | 'PACKAGE_ASSIGNMENT_EDIT'
+  | 'SCHEDULE_CREATE'
+  | 'SCHEDULE_EDIT'
+  | 'SCHEDULE_DELETE';
 
 export interface FieldDiff {
   fieldKey: string;
@@ -33,7 +37,8 @@ export type AuditTargetType =
   | 'user'
   | 'config'
   | 'duty_schedule'
-  | 'service_package';
+  | 'service_package'
+  | 'schedule';
 
 export interface AuditLogEntry {
   id: string;

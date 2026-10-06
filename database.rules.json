@@ -10,12 +10,16 @@
       ".indexOn": ["createdAt"]
     },
     "audit_logs": {
-      ".read": "auth != null",
-      ".write": "auth != null",
+      ".read": true,
+      ".write": true,
       ".indexOn": ["timestamp"]
     },
     "schedules": {
-      ".read": "auth != null",
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "surgery_schedules": {
+      ".read": true,
       ".write": "auth != null"
     },
     "surgery_name_prices": {

@@ -421,6 +421,18 @@ const InnerApp: React.FC = () => {
       hasAutoFilledData: true,
     });
     addToast(`Đã đối soát và cập nhật ${cleanRecords.length} ca mổ thành công!`, 'success');
+    logAuditEvent({
+      userId: user?.uid || 'unknown',
+      userName: user?.displayName || user?.nickname || user?.name || user?.email || 'Người dùng',
+      userRole: (currentRole as UserRole) || 'staff',
+      userDepartment: user?.department,
+      action: 'DATA_IMPORT',
+      targetType: 'report',
+      targetLabel: `${cleanRecords.length} ca mổ (${currentType === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo ngày'})`,
+      periodKey: currentPeriodKey,
+      department: user?.department,
+      description: `Nhập dữ liệu Excel: đối soát và nạp ${cleanRecords.length} ca mổ vào ${currentType === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo ngày'}`,
+    }).catch((e) => console.warn('[auditLog] Failed to log staging import event:', e));
   };
 
   useEffect(() => {
@@ -631,6 +643,8 @@ const InnerApp: React.FC = () => {
     dailyUploadState,
     monthlyUploadState,
     addToast,
+    currentUser: user,
+    currentRole,
   });
 
   // Storage Query Controller

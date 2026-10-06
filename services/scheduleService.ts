@@ -6,6 +6,7 @@
 import { ref, push, set, update, remove, onValue, get } from 'firebase/database';
 import { db } from '../lib/firebase';
 import type { ScheduledSurgery, ScheduledSurgeryInput } from '../types/schedule';
+import { logAuditEvent } from './auditLogService';
 
 const SCHEDULE_ROOT = 'surgery_schedules';
 
@@ -39,6 +40,20 @@ export async function addScheduledSurgery(
   };
 
   await set(newRef, stripUndefined(entry));
+
+  logAuditEvent({
+    userId,
+    userName,
+    userRole: 'staff',
+    action: 'SCHEDULE_CREATE',
+    targetType: 'schedule',
+    targetId: newRef.key!,
+    targetLabel: `BN ${input.patientName} (${input.patientId || 'Chưa có mã'})`,
+    periodKey: input.date,
+    department: input.department,
+    description: `Đăng ký ca mổ mới: ${input.surgeryName} cho BN ${input.patientName} ngày ${input.date}`,
+  }).catch((e) => console.warn('[auditLog] Failed to log schedule create:', e));
+
   return newRef.key!;
 }
 
@@ -47,6 +62,7 @@ export async function updateScheduledSurgery(
   date: string,
   id: string,
   updates: Partial<ScheduledSurgeryInput>,
+  updaterInfo?: { userId?: string; userName?: string; userRole?: any; department?: string },
 ): Promise<void> {
   const entryRef = ref(db, `${datePath(date)}/${id}`);
   await update(entryRef, {
@@ -55,15 +71,48 @@ export async function updateScheduledSurgery(
     ...('note' in updates && updates.note === undefined ? { note: null } : {}),
     updatedAt: Date.now(),
   });
+
+  if (updaterInfo) {
+    logAuditEvent({
+      userId: updaterInfo.userId || 'unknown',
+      userName: updaterInfo.userName || 'Người dùng',
+      userRole: updaterInfo.userRole || 'staff',
+      userDepartment: updaterInfo.department,
+      action: 'SCHEDULE_EDIT',
+      targetType: 'schedule',
+      targetId: id,
+      targetLabel: updates.patientName ? `BN ${updates.patientName}` : id,
+      periodKey: date,
+      department: updates.department || updaterInfo.department,
+      description: `Cập nhật ca mổ trong lịch ngày ${date}${updates.patientName ? ` (BN ${updates.patientName})` : ''}`,
+    }).catch((e) => console.warn('[auditLog] Failed to log schedule update:', e));
+  }
 }
 
 /** Xóa ca mổ khỏi lịch */
 export async function deleteScheduledSurgery(
   date: string,
   id: string,
+  deleterInfo?: { userId?: string; userName?: string; userRole?: any; department?: string; patientName?: string },
 ): Promise<void> {
   const entryRef = ref(db, `${datePath(date)}/${id}`);
   await remove(entryRef);
+
+  if (deleterInfo) {
+    logAuditEvent({
+      userId: deleterInfo.userId || 'unknown',
+      userName: deleterInfo.userName || 'Người dùng',
+      userRole: deleterInfo.userRole || 'staff',
+      userDepartment: deleterInfo.department,
+      action: 'SCHEDULE_DELETE',
+      targetType: 'schedule',
+      targetId: id,
+      targetLabel: deleterInfo.patientName ? `BN ${deleterInfo.patientName}` : id,
+      periodKey: date,
+      department: deleterInfo.department,
+      description: `Xóa ca mổ khỏi lịch ngày ${date}${deleterInfo.patientName ? ` (BN ${deleterInfo.patientName})` : ''}`,
+    }).catch((e) => console.warn('[auditLog] Failed to log schedule delete:', e));
+  }
 }
 
 /** Lấy toàn bộ ca mổ của 1 ngày (1 lần) */

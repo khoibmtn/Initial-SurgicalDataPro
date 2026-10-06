@@ -28,6 +28,7 @@ import {
   Layers,
   Settings,
   User,
+  FileSpreadsheet,
 } from 'lucide-react';
 import type { AuditLogEntry, AuditAction } from '../../types/auditLog';
 import { filterAuditLogs } from '../../services/auditLogService';
@@ -127,6 +128,30 @@ function getActionMeta(action: AuditAction): {
         label: 'Lưu CSDL',
         colorClass: 'bg-emerald-100 text-emerald-900 border-emerald-300',
         icon: <Save className="w-3.5 h-3.5 text-emerald-700" />,
+      };
+    case 'DATA_IMPORT':
+      return {
+        label: 'Nhập Excel',
+        colorClass: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+        icon: <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />,
+      };
+    case 'SCHEDULE_CREATE':
+      return {
+        label: 'Thêm lịch mổ',
+        colorClass: 'bg-purple-100 text-purple-900 border-purple-300',
+        icon: <Calendar className="w-3.5 h-3.5 text-purple-700" />,
+      };
+    case 'SCHEDULE_EDIT':
+      return {
+        label: 'Sửa lịch mổ',
+        colorClass: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+        icon: <Calendar className="w-3.5 h-3.5 text-indigo-700" />,
+      };
+    case 'SCHEDULE_DELETE':
+      return {
+        label: 'Xóa lịch mổ',
+        colorClass: 'bg-rose-100 text-rose-900 border-rose-300',
+        icon: <Trash2 className="w-3.5 h-3.5 text-rose-700" />,
       };
     case 'USER_APPROVE':
       return {
@@ -287,16 +312,20 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
               className="px-2.5 py-1.5 bg-gray-50 border border-gray-300 rounded-lg text-gray-700 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-medium"
             >
               <option value="ALL">Tất cả hành động</option>
-              <option value="USER_LOGIN">Đăng nhập</option>
-              <option value="USER_LOGOUT">Đăng xuất</option>
+              <option value="DATA_IMPORT">Nhập dữ liệu Excel</option>
+              <option value="DATA_SAVE">Lưu CSDL</option>
               <option value="RECORD_EDIT">Chỉnh sửa ca mổ</option>
               <option value="ASSISTANT_FILL">Người giúp việc</option>
+              <option value="RECORD_DELETE">Xóa dòng</option>
+              <option value="SCHEDULE_CREATE">Thêm ca mổ vào lịch</option>
+              <option value="SCHEDULE_EDIT">Sửa ca mổ trong lịch</option>
+              <option value="SCHEDULE_DELETE">Xóa ca mổ khỏi lịch</option>
               <option value="DUTY_SCHEDULE_EDIT">Lịch trực tua</option>
               <option value="PACKAGE_ASSIGNMENT_EDIT">Gói dịch vụ PT</option>
               <option value="REPORT_LOCK">Khóa sổ báo cáo</option>
               <option value="REPORT_UNLOCK">Mở khóa báo cáo</option>
-              <option value="RECORD_DELETE">Xóa dòng</option>
-              <option value="DATA_SAVE">Lưu CSDL</option>
+              <option value="USER_LOGIN">Đăng nhập</option>
+              <option value="USER_LOGOUT">Đăng xuất</option>
               <option value="USER_APPROVE">Phê duyệt thành viên</option>
               <option value="USER_REJECT">Từ chối thành viên</option>
               <option value="USER_ROLE_CHANGE">Thay đổi vai trò</option>

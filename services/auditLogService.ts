@@ -40,8 +40,16 @@ export async function logAuditEvent(params: CreateAuditLogParams): Promise<strin
       diffs: params.diffs && params.diffs.length > 0 ? params.diffs : undefined,
     };
 
+    // Firebase Realtime Database từ chối các object có trường undefined
+    const cleanEntry: Record<string, any> = {};
+    for (const [key, value] of Object.entries(entry)) {
+      if (value !== undefined) {
+        cleanEntry[key] = value;
+      }
+    }
+
     const logRef = ref(db, `${AUDIT_LOGS_PATH}/${id}`);
-    await set(logRef, entry);
+    await set(logRef, cleanEntry);
 
     return id;
   } catch (err) {

@@ -13,6 +13,8 @@ import { reportService } from '../services/reportService';
 import { getNamePrice } from '../services/surgeryNamePriceService';
 import { matchAndApplyServicePrices } from '../services/servicePriceProcessor';
 import { clearPackageDrafts } from '../types/servicePackage';
+import { logAuditEvent } from '../services/auditLogService';
+import type { AppUser, UserRole } from '../types/auth';
 
 export interface UseExcelProcessingOptions {
   config: SurgeryConfig;
@@ -25,6 +27,8 @@ export interface UseExcelProcessingOptions {
   dailyUploadState: ReportState;
   monthlyUploadState: ReportState;
   addToast: (message: React.ReactNode, type?: ToastType, duration?: number) => void;
+  currentUser?: AppUser | null;
+  currentRole?: UserRole | 'guest';
 }
 
 export function useExcelProcessing({
@@ -38,6 +42,8 @@ export function useExcelProcessing({
   dailyUploadState,
   monthlyUploadState,
   addToast,
+  currentUser,
+  currentRole,
 }: UseExcelProcessingOptions) {
   const isProcessingRef = useRef(false);
   const handleProcessRef = useRef<(type: 'daily' | 'monthly') => Promise<void>>();
@@ -252,6 +258,20 @@ export function useExcelProcessing({
           },
           'upload'
         );
+
+        // Ghi nhận Audit Log khi nạp dữ liệu từ Excel
+        logAuditEvent({
+          userId: currentUser?.uid || 'unknown',
+          userName: currentUser?.displayName || currentUser?.nickname || currentUser?.name || currentUser?.email || 'Người dùng',
+          userRole: (currentRole as UserRole) || 'staff',
+          userDepartment: currentUser?.department,
+          action: 'DATA_IMPORT',
+          targetType: 'report',
+          targetLabel: `${finalResult.validRecords?.length || 0} ca mổ (${type === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo ngày'})`,
+          periodKey: finalResult.dateRangeText || (type === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo ngày'),
+          department: currentUser?.department,
+          description: `Nhập dữ liệu Excel: Xử lý thành công ${finalResult.validRecords?.length || 0} ca mổ vào ${type === 'monthly' ? 'Báo cáo tháng' : 'Báo cáo ngày'}`,
+        }).catch((e) => console.warn('[auditLog] Failed to log excel processing:', e));
 
         if (updateGvCount > 0 || updateMachineCount > 0) {
           const autoFillMsg = [];
