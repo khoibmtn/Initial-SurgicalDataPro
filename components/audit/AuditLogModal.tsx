@@ -227,6 +227,7 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
   initialUserName,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedAction, setSelectedAction] = useState<AuditAction | 'ALL'>(initialAction || 'ALL');
   const [selectedDept, setSelectedDept] = useState<string>(isAdmin ? 'ALL' : department || 'ALL');
   const [selectedUserId, setSelectedUserId] = useState<string>(initialUserId || '');
@@ -255,8 +256,9 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
       department: selectedDept,
       searchTerm,
       userId: selectedUserId || undefined,
+      date: selectedDate || undefined,
     });
-  }, [logs, selectedAction, selectedDept, searchTerm, selectedUserId]);
+  }, [logs, selectedAction, selectedDept, searchTerm, selectedUserId, selectedDate]);
 
   if (!isOpen) return null;
 
@@ -305,6 +307,28 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
               placeholder="Tìm theo tên BN, bác sĩ, mô tả..."
               className="w-full pl-9 pr-3 py-1.5 bg-gray-50 hover:bg-gray-100 focus:bg-white border border-gray-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 transition-all"
             />
+          </div>
+
+          {/* Date Filter */}
+          <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1 text-gray-700 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500">
+            <Calendar className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-transparent text-xs text-gray-700 outline-none cursor-pointer font-medium"
+              title="Lọc nhật ký theo ngày"
+            />
+            {selectedDate && (
+              <button
+                type="button"
+                onClick={() => setSelectedDate('')}
+                className="text-gray-400 hover:text-gray-600 p-0.5 rounded-sm hover:bg-gray-200 transition-colors cursor-pointer"
+                title="Xóa lọc ngày"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           {/* Action Filter */}
@@ -385,8 +409,20 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
               </div>
               <h4 className="text-sm font-bold text-gray-800">Chưa có nhật ký truy vết phù hợp</h4>
               <p className="text-xs text-gray-500 max-w-sm mx-auto mt-1">
-                Các thao tác như chỉnh sửa thông tin ca mổ, lưu người giúp việc, khóa sổ hoặc phê duyệt sẽ được tự động ghi lại tại đây.
+                {selectedDate
+                  ? `Không tìm thấy thao tác nào được thực hiện vào ngày ${selectedDate.split('-').reverse().join('/')}.`
+                  : 'Các thao tác như chỉnh sửa thông tin ca mổ, lưu người giúp việc, khóa sổ hoặc phê duyệt sẽ được tự động ghi lại tại đây.'}
               </p>
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate('')}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-colors cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Xem tất cả các ngày
+                </button>
+              )}
             </div>
           ) : (
             <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">

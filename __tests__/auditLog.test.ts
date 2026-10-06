@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   computeSurgeryRecordDiff,
   filterAuditLogs,
+  getLogLocalDate,
   logAuditEvent,
 } from '../services/auditLogService';
 import type { AuditLogEntry, CreateAuditLogParams } from '../types/auditLog';
@@ -196,9 +197,36 @@ describe('Audit Log Service & Diff Calculation', () => {
       expect(result[0].id).toBe('2');
     });
 
+    it('filters logs by specific date (YYYY-MM-DD)', () => {
+      // Create date matching the local date of log 1:
+      const targetDate = getLogLocalDate(mockLogs[0].timestamp);
+      expect(targetDate).toBeTruthy();
+
+      const result = filterAuditLogs(mockLogs, { date: targetDate });
+      expect(result.length).toBe(mockLogs.length);
+
+      // Filtering with a date where no logs exist returns empty array
+      const emptyResult = filterAuditLogs(mockLogs, { date: '1999-01-01' });
+      expect(emptyResult.length).toBe(0);
+    });
+
     it('returns all logs when filter is empty or set to ALL', () => {
       const result = filterAuditLogs(mockLogs, { action: 'ALL', department: 'ALL' });
       expect(result.length).toBe(4);
+    });
+  });
+
+  describe('getLogLocalDate', () => {
+    it('returns YYYY-MM-DD from Date or ISO string in local time', () => {
+      const d = new Date(2026, 9, 6, 15, 30, 0); // 2026-10-06
+      expect(getLogLocalDate(d)).toBe('2026-10-06');
+      expect(getLogLocalDate(d.toISOString())).toBe('2026-10-06');
+    });
+
+    it('handles invalid or empty dates gracefully', () => {
+      expect(getLogLocalDate('')).toBe('');
+      expect(getLogLocalDate('invalid-date')).toBe('');
+      expect(getLogLocalDate(undefined)).toBe('');
     });
   });
 

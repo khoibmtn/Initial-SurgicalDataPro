@@ -79,5 +79,6 @@ export interface AuditFilterParams {
   searchTerm?: string;
   userRole?: string;
   userId?: string;
+  date?: string; // YYYY-MM-DD
   limit?: number;
 }

@@ -196,6 +196,23 @@ export function matchesDepartment(log: AuditLogEntry, filterDept: string): boole
 }
 
 /**
+ * Lấy chuỗi ngày YYYY-MM-DD theo giờ địa phương từ timestamp ISO hoặc Date
+ */
+export function getLogLocalDate(isoStr?: string | number | Date): string {
+  if (!isoStr) return '';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Lọc danh sách audit log theo điều kiện
  */
 export function filterAuditLogs(
@@ -206,6 +223,16 @@ export function filterAuditLogs(
     // 1. Lọc theo kỳ
     if (filters.periodKey && log.periodKey && log.periodKey !== filters.periodKey) {
       return false;
+    }
+
+    // 1.1. Lọc theo ngày cụ thể (YYYY-MM-DD)
+    if (filters.date && filters.date.trim() !== '') {
+      const targetDate = filters.date.trim();
+      const logDate = getLogLocalDate(log.timestamp);
+      const matches = (logDate && logDate === targetDate) || log.periodKey === targetDate;
+      if (!matches) {
+        return false;
+      }
     }
 
     // 2. Lọc theo khoa (nếu có)
@@ -240,3 +267,4 @@ export function filterAuditLogs(
     return true;
   });
 }
+
