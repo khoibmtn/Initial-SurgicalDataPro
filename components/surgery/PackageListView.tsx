@@ -272,6 +272,7 @@ export const PackageListView: React.FC<Props> = ({
   const [comboboxOpen, setComboboxOpen] = useState(false);
   const [comboboxQuery, setComboboxQuery] = useState('');
   const comboboxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Manage Payment Lists Modal state
   const [manageModalOpen, setManageModalOpen] = useState(false);
@@ -420,7 +421,7 @@ export const PackageListView: React.FC<Props> = ({
 
   const selectedLabel = useMemo(() => {
     if (listFilter === 'all' || !currentList) {
-      return '📂 Tất cả ca gán gói (Toàn viện)';
+      return 'Tất cả ca gán gói (Toàn viện)';
     }
     return getBatchFormattedName(currentList);
   }, [listFilter, currentList, getBatchFormattedName]);
@@ -1093,8 +1094,13 @@ export const PackageListView: React.FC<Props> = ({
             {/* Searchable Combobox chọn Đợt thanh toán (gõ tự do + lọc theo năm) */}
             <div className="relative" ref={comboboxRef}>
               <div
-                onClick={() => setComboboxOpen(prev => !prev)}
-                className={`flex h-8.5 w-72 sm:w-80 items-center justify-between gap-1.5 rounded-lg border bg-white px-2.5 shadow-2xs cursor-pointer transition-all ${
+                onClick={() => {
+                  if (!comboboxOpen) {
+                    setComboboxOpen(true);
+                  }
+                  inputRef.current?.focus();
+                }}
+                className={`flex h-8.5 w-72 sm:w-80 items-center justify-between gap-1.5 rounded-lg border bg-white px-2.5 shadow-2xs cursor-text transition-all ${
                   comboboxOpen
                     ? 'border-teal-600 ring-2 ring-teal-500/20'
                     : 'border-slate-300 hover:border-slate-400'
@@ -1113,17 +1119,28 @@ export const PackageListView: React.FC<Props> = ({
                 </div>
 
                 <input
+                  ref={inputRef}
                   type="text"
                   value={comboboxOpen ? comboboxQuery : selectedLabel}
                   onChange={e => {
                     setComboboxQuery(e.target.value);
                     if (!comboboxOpen) setComboboxOpen(true);
                   }}
-                  onFocus={e => {
-                    setComboboxOpen(true);
-                    e.target.select();
+                  onFocus={() => {
+                    if (!comboboxOpen) setComboboxOpen(true);
                   }}
-                  placeholder="Gõ tìm đợt thanh toán..."
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (!comboboxOpen) setComboboxOpen(true);
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') {
+                      setComboboxOpen(false);
+                      setComboboxQuery('');
+                      inputRef.current?.blur();
+                    }
+                  }}
+                  placeholder={selectedLabel}
                   style={{
                     border: 'none',
                     outline: 'none',
@@ -1132,24 +1149,41 @@ export const PackageListView: React.FC<Props> = ({
                     margin: 0,
                     backgroundColor: 'transparent',
                   }}
-                  className="w-full !border-0 !border-none !outline-none !ring-0 !shadow-none !bg-transparent !p-0 !m-0 text-xs font-bold text-slate-800 placeholder:font-normal placeholder:text-slate-400 cursor-text select-all"
+                  className="w-full !border-0 !border-none !outline-none !ring-0 !shadow-none !bg-transparent !p-0 !m-0 text-xs font-bold text-slate-800 placeholder:font-normal placeholder:text-slate-400 cursor-text"
                 />
 
-                <div className="flex items-center gap-1 text-slate-500 shrink-0">
+                <div className="flex items-center gap-0.5 text-slate-500 shrink-0">
                   {comboboxQuery && (
                     <button
                       type="button"
                       onClick={e => {
                         e.stopPropagation();
                         setComboboxQuery('');
+                        inputRef.current?.focus();
                       }}
-                      className="p-0.5 text-slate-400 hover:text-slate-800 rounded transition-colors"
+                      className="p-1 text-slate-400 hover:text-slate-800 rounded transition-colors cursor-pointer"
                       title="Xóa tìm kiếm"
                     >
                       <X className="h-3 w-3" />
                     </button>
                   )}
-                  <ChevronDown className={`h-3.5 w-3.5 text-slate-500 transition-transform ${comboboxOpen ? 'rotate-180 text-slate-800' : ''}`} />
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (comboboxOpen) {
+                        setComboboxOpen(false);
+                        setComboboxQuery('');
+                      } else {
+                        setComboboxOpen(true);
+                        inputRef.current?.focus();
+                      }
+                    }}
+                    className="p-1 text-slate-500 hover:text-slate-800 rounded transition-colors cursor-pointer"
+                    title={comboboxOpen ? "Đóng danh sách" : "Mở danh sách đợt thanh toán"}
+                  >
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${comboboxOpen ? 'rotate-180 text-teal-700' : ''}`} />
+                  </button>
                 </div>
               </div>
 
