@@ -6,10 +6,10 @@ export interface PermissionDefinition {
   key: string;
   label: string;
   description: string;
-  category: 'Dữ liệu' | 'Thống kê' | 'Cấu hình' | 'Quản trị';
+  category: 'Dữ liệu' | 'Thống kê' | 'Gói DVKT' | 'Cấu hình' | 'Quản trị';
 }
 
-/** Danh sách 16 quyền trong hệ thống */
+/** Danh sách 21 quyền trong hệ thống */
 export const ALL_PERMISSIONS: PermissionDefinition[] = [
   // ── Dữ liệu & Báo cáo ──
   { key: 'view_daily_report', label: 'Xem BC hàng ngày', description: 'Xem báo cáo phẫu thuật hàng ngày', category: 'Dữ liệu' },
@@ -21,6 +21,11 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   // ── Thống kê ──
   { key: 'view_statistics', label: 'Xem thống kê', description: 'Xem trang thống kê tổng hợp', category: 'Thống kê' },
   { key: 'view_cost_report', label: 'Xem chi phí', description: 'Xem báo cáo chi phí phẫu thuật', category: 'Thống kê' },
+  // ── Gói DVKT ──
+  { key: 'view_service_package', label: 'Xem Gói DVKT', description: 'Xem tab Gói DVYC và bảng thanh toán gói dịch vụ', category: 'Gói DVKT' },
+  { key: 'assign_service_package', label: 'Gán & Phân công gói', description: 'Gán gói DVYC, phân công nhân lực, sửa và gỡ gói cho ca mổ', category: 'Gói DVKT' },
+  { key: 'manage_package_payment', label: 'Quản lý đợt thanh toán', description: 'Tạo đợt mới, nhập TCKT, chốt và mở khóa đợt thanh toán', category: 'Gói DVKT' },
+  { key: 'config_service_package', label: 'Cấu hình danh mục gói', description: 'Cấu hình danh mục gói DVKT, vị trí phân công và đơn giá', category: 'Gói DVKT' },
   // ── Cấu hình ──
   { key: 'manage_norms', label: 'Quản lý định mức', description: 'Thay đổi định mức phụ cấp, thời gian', category: 'Cấu hình' },
   { key: 'manage_dmkt', label: 'Quản lý DMKT', description: 'Quản lý danh mục kỹ thuật, giá', category: 'Cấu hình' },
@@ -40,6 +45,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
+    'view_service_package', 'assign_service_package', 'manage_package_payment', 'config_service_package',
     'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
     'approve_users', 'view_audit_log',
   ],
@@ -47,6 +53,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
+    'view_service_package', 'assign_service_package', 'manage_package_payment', 'config_service_package',
     'manage_staff', 'manage_admin_settings',
     'approve_users',
   ],
@@ -54,11 +61,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel',
     'view_statistics',
+    'view_service_package', 'assign_service_package',
   ],
   guest: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel',
     'view_statistics', 'view_cost_report',
+    'view_service_package',
     'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
   ],
 };

@@ -54,12 +54,19 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
     const [pkgSubTab, setPkgSubTab] = useState<'positions' | 'packages' | 'settings'>('positions');
 
     const canManageAdmin = can('manage_admin_settings');
+    const canConfigServicePackage = isAdmin || can('config_service_package');
 
     useEffect(() => {
         if (!canManageAdmin && staffSubTab === 'admin') {
             setStaffSubTab('departments');
         }
     }, [canManageAdmin, staffSubTab]);
+
+    useEffect(() => {
+        if (!canConfigServicePackage && activeSubTab === 'packages') {
+            setActiveSubTab('norms');
+        }
+    }, [canConfigServicePackage, activeSubTab]);
 
     // --- Timeline-based labor config ---
     const [laborConfigs, setLaborConfigs] = useState<LaborConfigVersion[]>([]);
@@ -127,7 +134,9 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                         icon: Building2,
                       }]
                     : []),
-                  { value: 'packages', label: 'Gói dịch vụ', icon: Package },
+                  ...(canConfigServicePackage
+                    ? [{ value: 'packages', label: 'Gói dịch vụ', icon: Package }]
+                    : []),
                 ]}
               />
             </ContextToolbar>

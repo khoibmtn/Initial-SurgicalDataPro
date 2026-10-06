@@ -8,17 +8,40 @@ import {
 } from '../services/permissionService';
 
 describe('RBAC Permission Ceiling & Resolution', () => {
-  it('should have 17 total defined system permissions including lock_report, view_audit_log, and manage_admin_settings', () => {
-    expect(ALL_PERMISSIONS.length).toBe(17);
+  it('should have 21 total defined system permissions including lock_report, view_audit_log, manage_admin_settings, and Gói DVKT permissions', () => {
+    expect(ALL_PERMISSIONS.length).toBe(21);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'lock_report')).toBe(true);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'view_audit_log')).toBe(true);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'manage_admin_settings')).toBe(true);
+
+    // Gói DVKT permissions
+    const packagePermKeys = ['view_service_package', 'assign_service_package', 'manage_package_payment', 'config_service_package'];
+    for (const key of packagePermKeys) {
+      const perm = ALL_PERMISSIONS.find((p) => p.key === key);
+      expect(perm).toBeDefined();
+      expect(perm?.category).toBe('Gói DVKT');
+    }
+
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('view_service_package');
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('assign_service_package');
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('manage_package_payment');
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('config_service_package');
+
+    expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).toContain('manage_package_payment');
+    expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).toContain('config_service_package');
+
+    expect(DEFAULT_ROLE_PERMISSIONS.staff).toContain('view_service_package');
+    expect(DEFAULT_ROLE_PERMISSIONS.staff).toContain('assign_service_package');
+    expect(DEFAULT_ROLE_PERMISSIONS.staff).not.toContain('manage_package_payment');
+    expect(DEFAULT_ROLE_PERMISSIONS.staff).not.toContain('config_service_package');
+
     expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('lock_report');
     expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('view_audit_log');
     expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('manage_admin_settings');
     expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).toContain('manage_admin_settings');
     expect(DEFAULT_ROLE_PERMISSIONS.guest).toContain('manage_admin_settings');
     expect(DEFAULT_ROLE_PERMISSIONS.guest).toContain('view_daily_report');
+    expect(DEFAULT_ROLE_PERMISSIONS.guest).toContain('view_service_package');
     expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain('approve_users');
   });
 

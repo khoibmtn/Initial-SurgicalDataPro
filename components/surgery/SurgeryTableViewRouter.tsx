@@ -22,6 +22,7 @@ import { getTimeRuleForRecord } from '../../services/laborConfigService';
 import { ServicePackageAssignment, ServicePackageDefinition, PositionCatalogItem, getRecordDateString } from '../../types/servicePackage';
 import { PaymentListsContext } from '../../hooks/usePaymentLists';
 import { PaymentListSelector, PaymentListSelection } from './PaymentListSelector';
+import { useAuth } from '../../contexts/AuthContext';
 
 export interface SurgeryTableViewRouterProps {
   currentReport: {
@@ -154,7 +155,10 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
     }
   });
 
+  const { isAdmin, can } = useAuth();
+  const canViewServicePackage = isAdmin || can('view_service_package');
   const paymentMode = propPaymentSubTab !== undefined ? propPaymentSubTab : internalPaymentMode;
+  const effectivePaymentMode = canViewServicePackage ? paymentMode : 'pttt';
   const setPaymentMode = (tab: 'pttt' | 'package') => {
     setInternalPaymentMode(tab);
     try {
@@ -444,20 +448,22 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
           <div className="flex items-center gap-2 bg-gray-100 p-0.5 rounded-lg">
             <button
               onClick={() => setPaymentMode('pttt')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${paymentMode === 'pttt' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${effectivePaymentMode === 'pttt' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
             >
               Phụ cấp PTTT
             </button>
-            <button
-              onClick={() => setPaymentMode('package')}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${paymentMode === 'package' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Gói dịch vụ
-            </button>
+            {canViewServicePackage && (
+              <button
+                onClick={() => setPaymentMode('package')}
+                className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${effectivePaymentMode === 'package' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Gói dịch vụ
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3 ml-auto">
-            {paymentMode === 'pttt' ? (
+            {effectivePaymentMode === 'pttt' ? (
               <>
                 <div ref={setSearchSlotEl} className="flex items-center" />
                 <div ref={setConfigSlotEl} className="flex items-center" />
@@ -501,7 +507,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
           </div>
         </div>
 
-        {paymentMode === 'pttt' ? (
+        {effectivePaymentMode === 'pttt' ? (
           <PaymentTableView
             paymentDataPrepared={paymentDataPrepared}
             searchTerm={currentReport.searchTerms.payment}

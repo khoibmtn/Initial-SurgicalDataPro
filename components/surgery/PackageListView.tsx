@@ -76,8 +76,8 @@ import { PackageAssignmentModal } from './PackageAssignmentModal';
 import { PaymentListsContext, LookupRecord } from '../../hooks/usePaymentLists';
 import { PaymentListImportModal } from './PaymentListImportModal';
 import { PaymentListManagementModal } from './PaymentListManagementModal';
-import { PageCombobox } from '../common/PageCombobox';
 import { formatDate } from '../../utils/dateUtils';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const DATE_FORMATS = ['dd/mm/yyyy', 'dd/mm/yyyy hh:mm', 'dd/mm hh:mm', 'hh:mm'];
 
@@ -254,6 +254,8 @@ export const PackageListView: React.FC<Props> = ({
   onDateFormatChange,
   onListFilterChange,
 }) => {
+  const { isAdmin, can } = useAuth();
+  const canAssign = isAdmin || can('assign_service_package');
   const savedViewState = useMemo(() => loadSavedViewState(), []);
 
   // Selected batch in dropdown ('all' or specific listId)
@@ -1277,17 +1279,19 @@ export const PackageListView: React.FC<Props> = ({
               <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
                 {currentList.status === 'draft' ? (
                   <>
-                    <button
-                      onClick={() => {
-                        setImportTargetListId(currentList.id);
-                        setImportModalOpen(true);
-                      }}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 transition-colors shadow-2xs"
-                      title="Nhập thêm danh sách TCKT vào đợt nháp này"
-                    >
-                      <Upload className="h-3.5 w-3.5 text-slate-600" />
-                      <span>Nhập thêm TCKT</span>
-                    </button>
+                    {paymentLists?.canManage && (
+                      <button
+                        onClick={() => {
+                          setImportTargetListId(currentList.id);
+                          setImportModalOpen(true);
+                        }}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 transition-colors shadow-2xs"
+                        title="Nhập thêm danh sách TCKT vào đợt nháp này"
+                      >
+                        <Upload className="h-3.5 w-3.5 text-slate-600" />
+                        <span>Nhập thêm TCKT</span>
+                      </button>
+                    )}
 
                     {paymentLists.canManage && (
                       <button
@@ -1326,17 +1330,19 @@ export const PackageListView: React.FC<Props> = ({
             <div className="h-5 w-px bg-slate-300 mx-0.5 hidden sm:block" />
 
             {/* Nút Tạo đợt mới (đặt sau chốt đợt theo yêu cầu) */}
-            <button
-              onClick={() => {
-                setImportTargetListId(undefined);
-                setImportModalOpen(true);
-              }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 px-3 text-xs font-bold text-white shadow-2xs transition-colors"
-              title="Tạo đợt thanh toán mới từ danh sách TCKT"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Tạo đợt mới</span>
-            </button>
+            {paymentLists?.canManage && (
+              <button
+                onClick={() => {
+                  setImportTargetListId(undefined);
+                  setImportModalOpen(true);
+                }}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 px-3 text-xs font-bold text-white shadow-2xs transition-colors"
+                title="Tạo đợt thanh toán mới từ danh sách TCKT"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Tạo đợt mới</span>
+              </button>
+            )}
 
             {/* Nút DS đợt thanh toán */}
             <button
@@ -1919,7 +1925,7 @@ export const PackageListView: React.FC<Props> = ({
                   <td className={`px-1.5 ${cellPy} text-center w-[115px]`}>
                     <div className="flex items-center justify-center gap-0.5">
                       {/* 1. icon gán gói: Gán gói dịch vụ yêu cầu cho ca này */}
-                      {!a && (
+                      {!a && canAssign && (
                         <button
                           onClick={() => handleAdd(r)}
                           className="p-1 rounded text-teal-600 hover:bg-teal-50 hover:text-teal-800 transition-colors"
@@ -1930,7 +1936,7 @@ export const PackageListView: React.FC<Props> = ({
                       )}
 
                       {/* 2. icon edit: Chỉnh sửa thông tin gói, nhân lực */}
-                      {a && (
+                      {a && canAssign && (
                         <button
                           onClick={() => handleEdit(r, a)}
                           className="p-1 rounded hover:bg-blue-50 text-gray-500 hover:text-blue-600 transition-colors"
@@ -1941,7 +1947,7 @@ export const PackageListView: React.FC<Props> = ({
                       )}
 
                       {/* 3. icon di chuyển: Chuyển ca này sang đợt thanh toán khác */}
-                      {paymentLists && (
+                      {paymentLists && paymentLists.canManage && (
                         <button
                           onClick={() => handleOpenMoveModal(pid, r.patientName || '', batchInfo)}
                           className="p-1 rounded text-gray-500 hover:bg-sky-50 hover:text-sky-600 transition-colors"
@@ -1952,7 +1958,7 @@ export const PackageListView: React.FC<Props> = ({
                       )}
 
                       {/* 4. icon xóa khỏi gói: Xóa ca này ra khỏi đợt thanh toán này (vẫn giữ gói yêu cầu) */}
-                      {paymentLists && batchInfo && (
+                      {paymentLists && paymentLists.canManage && batchInfo && (
                         <button
                           onClick={() =>
                             handleRequestRemoveFromBatch(
@@ -1976,7 +1982,7 @@ export const PackageListView: React.FC<Props> = ({
                       )}
 
                       {/* 5. icon xóa gói: Hủy bỏ gói yêu cầu khỏi ca này */}
-                      {a ? (
+                      {canAssign && (a ? (
                         <button
                           onClick={(e) => handleRequestDeleteAssignment(e, a, r.patientName, r.patientId || a.patientId)}
                           className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
@@ -1992,7 +1998,7 @@ export const PackageListView: React.FC<Props> = ({
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
-                      ) : null}
+                      ) : null)}
                     </div>
                   </td>
                 </tr>

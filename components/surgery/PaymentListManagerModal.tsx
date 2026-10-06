@@ -130,12 +130,14 @@ export const PaymentListManagerModal: React.FC<Props> = ({ ctx, onClose, onAssig
 
         <div className="flex min-h-0 flex-1">
           <aside className="w-56 shrink-0 space-y-1 overflow-y-auto border-r p-2">
-            <button
-              onClick={() => setActiveId('new')}
-              className={`flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${activeId === 'new' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
-            >
-              <Plus className="h-3.5 w-3.5" /> Nhập danh sách mới
-            </button>
+            {ctx.canManage && (
+              <button
+                onClick={() => setActiveId('new')}
+                className={`flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${activeId === 'new' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+              >
+                <Plus className="h-3.5 w-3.5" /> Nhập danh sách mới
+              </button>
+            )}
             {lists.map(l => (
               <button
                 key={l.id}
@@ -233,7 +235,7 @@ export const PaymentListManagerModal: React.FC<Props> = ({ ctx, onClose, onAssig
                         <Unlock className="h-3.5 w-3.5" /> Mở khóa
                       </button>
                     )}
-                    {!locked && (
+                    {ctx.canManage && !locked && (
                       <button
                         disabled={busy}
                         onClick={() => window.confirm(`Xóa danh sách "${list.name}"?`) && run(async () => { await deletePaymentList(list.id); setActiveId('new'); })}
@@ -245,7 +247,7 @@ export const PaymentListManagerModal: React.FC<Props> = ({ ctx, onClose, onAssig
                   </div>
                 </div>
 
-                {!locked && (
+                {ctx.canManage && !locked && (
                   <div className="flex gap-2">
                     <input value={manual.id} onChange={e => setManual({ ...manual, id: e.target.value })} placeholder="Mã KCB" className="w-36 rounded-md border px-2 py-1 text-xs" />
                     <input value={manual.name} onChange={e => setManual({ ...manual, name: e.target.value })} placeholder="Họ tên" className="w-52 rounded-md border px-2 py-1 text-xs" />
@@ -289,7 +291,7 @@ export const PaymentListManagerModal: React.FC<Props> = ({ ctx, onClose, onAssig
                         </td>
                         <td className="px-2"><span className={`rounded px-1.5 py-0.5 ${STATUS_UI[it.status].cls}`}>{STATUS_UI[it.status].label}</span></td>
                         <td className="px-2">
-                          {!locked && (
+                          {!locked && ctx.canManage && (
                             <div className="flex flex-wrap items-center gap-1">
                               {it.status === 'pending' && <button onClick={() => handleAssign(it)} className="rounded border px-1.5 py-0.5 hover:bg-gray-50">Gán gói</button>}
                               {it.status === 'nameMismatch' && (

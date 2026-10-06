@@ -347,6 +347,28 @@ const InnerApp: React.FC = () => {
     return can('lock_report') && !!user?.department;
   }, [isAdmin, can, user?.department, currentType]);
 
+  const canManagePackagePayment = useMemo(() => {
+    if (currentType !== 'monthly') return false;
+    if (isAdmin) return true;
+    return (can('manage_package_payment') || can('lock_report')) && !!user?.department;
+  }, [isAdmin, can, user?.department, currentType]);
+
+  const canViewServicePackage = useMemo(() => {
+    if (isAdmin) return true;
+    return can('view_service_package');
+  }, [isAdmin, can]);
+
+  const canAssignServicePackage = useMemo(() => {
+    if (isAdmin) return true;
+    return can('assign_service_package');
+  }, [isAdmin, can]);
+
+  useEffect(() => {
+    if (!canViewServicePackage && currentReport.activeTable === 'packages') {
+      setActiveTable('list');
+    }
+  }, [canViewServicePackage, currentReport.activeTable, setActiveTable]);
+
   // Service-package payment lists: monthly report only (daily report unchanged)
   const paymentListData = usePaymentLists({
     enabled: currentType === 'monthly',
@@ -364,13 +386,13 @@ const InnerApp: React.FC = () => {
       records: [...reportRecords, ...paymentListData.lookupRecords],
       ensureRecordsLoaded: paymentListData.ensureRecordsLoaded,
       loadRecordsForPatients: paymentListData.loadRecordsForPatients,
-      canManage: canManageLock,
+      canManage: canManagePackagePayment,
       userName: user?.displayName || user?.nickname || 'Người dùng',
       periodKey: currentPeriodKey,
       dateFrom: currentReport.dateFrom,
       dateTo: currentReport.dateTo,
     };
-  }, [currentType, paymentListData, currentReport.result, canManageLock, user?.displayName, user?.nickname, currentPeriodKey, currentReport.dateFrom, currentReport.dateTo]);
+  }, [currentType, paymentListData, currentReport.result, canManagePackagePayment, user?.displayName, user?.nickname, currentPeriodKey, currentReport.dateFrom, currentReport.dateTo]);
 
   // Active batch filter for tab Gói DVYC (đồng bộ icon & badge khi chọn đợt thanh toán)
   const [packageListFilter, setPackageListFilter] = useState<string>(() => {
@@ -1117,7 +1139,9 @@ const InnerApp: React.FC = () => {
                           { value: 'payment', label: 'Thanh toán', icon: DollarSign, badge: currentReport.result?.paymentData?.rows?.length || 0, badgeColor: 'bg-emerald-100 text-emerald-700' },
                           { value: 'duty', label: 'Lịch trực', icon: CalendarDays, badge: currentReportDutyDateCount || 0 },
                           { value: 'overtime', label: 'Ngoài giờ', icon: Clock, badge: currentReportOvertimeCount || 0, badgeColor: currentReportOvertimeCount > 0 ? 'bg-amber-100 text-amber-800' : undefined },
-                          { value: 'packages', label: packageTabConfig.label, icon: packageTabConfig.icon, badge: packageTabConfig.badge, badgeColor: packageTabConfig.badgeColor },
+                          ...(canViewServicePackage
+                            ? [{ value: 'packages', label: packageTabConfig.label, icon: packageTabConfig.icon, badge: packageTabConfig.badge, badgeColor: packageTabConfig.badgeColor }]
+                            : []),
                         ]}
                       />
                     </div>
@@ -1174,7 +1198,7 @@ const InnerApp: React.FC = () => {
                           paymentLists={paymentListsCtx}
                           packageDefinitions={packageDefinitions}
                           positionCatalog={positionCatalog}
-                          onAssignPackage={handleAssignPackage}
+                          onAssignPackage={canAssignServicePackage ? handleAssignPackage : undefined}
                           packagePaymentMode={packagePaymentMode}
                           onPackagePaymentModeChange={setPackagePaymentMode}
                           paymentSubTab={paymentSubTab}
