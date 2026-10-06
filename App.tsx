@@ -366,8 +366,10 @@ const InnerApp: React.FC = () => {
       canManage: canManageLock,
       userName: user?.name || user?.email || 'Người dùng',
       periodKey: currentPeriodKey,
+      dateFrom: currentReport.dateFrom,
+      dateTo: currentReport.dateTo,
     };
-  }, [currentType, paymentListData, currentReport.result, canManageLock, user?.name, user?.email, currentPeriodKey]);
+  }, [currentType, paymentListData, currentReport.result, canManageLock, user?.name, user?.email, currentPeriodKey, currentReport.dateFrom, currentReport.dateTo]);
 
   const canUnlockCurrentReport = useMemo(() => {
     // Chỉ áp dụng khóa sổ cho Báo cáo tháng

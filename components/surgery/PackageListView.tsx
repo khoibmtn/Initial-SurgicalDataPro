@@ -40,6 +40,8 @@ import {
   UserMinus,
   Sparkles,
   ArrowRightLeft,
+  ListFilter,
+  Check,
 } from 'lucide-react';
 import {
   ServicePackageAssignment,
@@ -68,6 +70,7 @@ import { PaymentList } from '../../types/paymentList';
 import { PackageAssignmentModal } from './PackageAssignmentModal';
 import { PaymentListsContext, LookupRecord } from '../../hooks/usePaymentLists';
 import { PaymentListImportModal } from './PaymentListImportModal';
+import { PaymentListManagementModal } from './PaymentListManagementModal';
 
 interface Props {
   assignments: ServicePackageAssignment[];
@@ -187,15 +190,13 @@ export const PackageListView: React.FC<Props> = ({
   const [missingBatchItems, setMissingBatchItems] = useState<any[]>([]);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importTargetListId, setImportTargetListId] = useState<string | undefined>(undefined);
+  // Searchable combobox for batch selection
+  const [comboboxOpen, setComboboxOpen] = useState(false);
+  const [comboboxQuery, setComboboxQuery] = useState('');
+  const comboboxRef = useRef<HTMLDivElement>(null);
 
-  // Rename batch modal
-  const [renameTargetList, setRenameTargetList] = useState<PaymentList | null>(null);
-  const [renameNameInput, setRenameNameInput] = useState('');
-  const [isRenaming, setIsRenaming] = useState(false);
-
-  // Delete batch confirmation modal
-  const [deleteBatchTarget, setDeleteBatchTarget] = useState<PaymentList | null>(null);
-  const [isDeletingBatch, setIsDeletingBatch] = useState(false);
+  // Manage Payment Lists Modal state
+  const [manageModalOpen, setManageModalOpen] = useState(false);
 
   // Lock / Unlock batch confirmation modal
   const [lockBatchTarget, setLockBatchTarget] = useState<PaymentList | null>(null);
@@ -265,11 +266,14 @@ export const PackageListView: React.FC<Props> = ({
     }
   }, [records]);
 
-  // Close config dropdown on outside click
+  // Close config dropdown and combobox on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (configRef.current && !configRef.current.contains(e.target as Node)) {
         setConfigOpen(false);
+      }
+      if (comboboxRef.current && !comboboxRef.current.contains(e.target as Node)) {
+        setComboboxOpen(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -289,6 +293,75 @@ export const PackageListView: React.FC<Props> = ({
     if (!paymentLists || listFilter === 'all') return undefined;
     return paymentLists.lists.find(l => l.id === listFilter);
   }, [paymentLists, listFilter]);
+
+  // Compute report years range from dateFrom/dateTo/periodKey
+  const reportYears = useMemo<number[]>(() => {
+    const set = new Set<number>();
+    if (paymentLists?.dateFrom) {
+      const y = parseInt(paymentLists.dateFrom.slice(0, 4), 10);
+      if (!isNaN(y)) set.add(y);
+    }
+    if (paymentLists?.dateTo) {
+      const y = parseInt(paymentLists.dateTo.slice(0, 4), 10);
+      if (!isNaN(y)) set.add(y);
+    }
+    if (set.size === 0 && paymentLists?.periodKey) {
+      const y = parseInt(paymentLists.periodKey.slice(0, 4), 10);
+      if (!isNaN(y)) set.add(y);
+    }
+    if (set.size === 0) {
+      set.add(new Date().getFullYear());
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [paymentLists?.dateFrom, paymentLists?.dateTo, paymentLists?.periodKey]);
+
+  // Formatted batch name: e.g. "2026 - thang 7 (88 ca)"
+  const getBatchFormattedName = useCallback((l: PaymentList) => {
+    const y = l.createdAt
+      ? new Date(l.createdAt).getFullYear()
+      : (parseInt(l.periodKey?.slice(0, 4), 10) || new Date().getFullYear());
+    return `${y} - ${l.name} (${l.items.length} ca)`;
+  }, []);
+
+  const selectedLabel = useMemo(() => {
+    if (listFilter === 'all' || !currentList) {
+      return '📂 Tất cả ca gán gói (Toàn viện)';
+    }
+    return getBatchFormattedName(currentList);
+  }, [listFilter, currentList, getBatchFormattedName]);
+
+  const candidateLists = useMemo(() => {
+    if (!paymentLists) return [];
+    const inRange = paymentLists.lists.filter(l => {
+      const y = l.createdAt ? new Date(l.createdAt).getFullYear() : (parseInt(l.periodKey?.slice(0, 4), 10) || new Date().getFullYear());
+      return reportYears.includes(y);
+    });
+
+    if (currentList && !inRange.some(l => l.id === currentList.id)) {
+      inRange.unshift(currentList);
+    }
+
+    return inRange;
+  }, [paymentLists?.lists, reportYears, currentList]);
+
+  const filteredComboboxLists = useMemo(() => {
+    if (!paymentLists) return [];
+    if (!comboboxQuery.trim()) {
+      return candidateLists;
+    }
+    const q = comboboxQuery.toLowerCase().trim();
+    const matched = candidateLists.filter(l => {
+      const formatted = getBatchFormattedName(l).toLowerCase();
+      return formatted.includes(q) || l.name.toLowerCase().includes(q);
+    });
+
+    if (matched.length > 0) return matched;
+
+    return paymentLists.lists.filter(l => {
+      const formatted = getBatchFormattedName(l).toLowerCase();
+      return formatted.includes(q) || l.name.toLowerCase().includes(q);
+    });
+  }, [paymentLists, candidateLists, comboboxQuery, getBatchFormattedName]);
 
   // Auto-fetch surgery records for all patient IDs in the selected batch
   useEffect(() => {
@@ -635,36 +708,6 @@ export const PackageListView: React.FC<Props> = ({
     }
   };
 
-  // Batch action handlers
-  const handleRenameBatch = async () => {
-    if (!renameTargetList || !renameNameInput.trim()) return;
-    setIsRenaming(true);
-    try {
-      await renameList(renameTargetList.id, renameNameInput.trim());
-      setRenameTargetList(null);
-    } catch (err: any) {
-      alert(err?.message || 'Không thể đổi tên đợt thanh toán.');
-    } finally {
-      setIsRenaming(false);
-    }
-  };
-
-  const handleDeleteBatch = async () => {
-    if (!deleteBatchTarget) return;
-    setIsDeletingBatch(true);
-    try {
-      await deletePaymentList(deleteBatchTarget.id);
-      if (listFilter === deleteBatchTarget.id) {
-        setListFilter('all');
-      }
-      setDeleteBatchTarget(null);
-    } catch (err: any) {
-      alert(err?.message || 'Không thể xóa đợt thanh toán.');
-    } finally {
-      setIsDeletingBatch(false);
-    }
-  };
-
   const handleRequestLock = (list: PaymentList) => {
     if (!paymentLists) return;
     const recon = reconcileItems(list.items, {
@@ -835,20 +878,108 @@ export const PackageListView: React.FC<Props> = ({
               Đợt thanh toán:
             </span>
 
-            {/* Dropdown chọn Đợt */}
-            <select
-              value={listFilter}
-              onChange={e => setListFilter(e.target.value)}
-              aria-label="Chọn đợt thanh toán gói dịch vụ"
-              className="h-8 max-w-[260px] rounded-lg border border-teal-300 bg-white px-2.5 text-xs font-bold text-teal-900 shadow-2xs outline-none focus:ring-2 focus:ring-teal-500/20"
-            >
-              <option value="all">📂 Tất cả ca gán gói (Toàn viện)</option>
-              {paymentLists.lists.map(l => (
-                <option key={l.id} value={l.id}>
-                  {l.status === 'locked' ? '🔒 ' : '📝 '} {l.name} ({l.items.length} ca)
-                </option>
-              ))}
-            </select>
+            {/* Searchable Combobox chọn Đợt thanh toán (gõ tự do + lọc theo năm) */}
+            <div className="relative" ref={comboboxRef}>
+              <div
+                onClick={() => setComboboxOpen(prev => !prev)}
+                className="flex h-8 min-w-[240px] max-w-[320px] items-center justify-between gap-1.5 rounded-lg border border-teal-300 bg-white px-2.5 shadow-2xs cursor-pointer focus-within:ring-2 focus-within:ring-teal-500/20"
+              >
+                <input
+                  type="text"
+                  value={comboboxOpen ? comboboxQuery : selectedLabel}
+                  onChange={e => {
+                    setComboboxQuery(e.target.value);
+                    if (!comboboxOpen) setComboboxOpen(true);
+                  }}
+                  onFocus={() => {
+                    setComboboxOpen(true);
+                    setComboboxQuery('');
+                  }}
+                  placeholder="Gõ tìm đợt thanh toán..."
+                  className="w-full bg-transparent text-xs font-bold text-teal-900 outline-none cursor-pointer placeholder:font-normal placeholder:text-gray-400"
+                />
+                <div className="flex items-center gap-1 text-teal-600 shrink-0">
+                  {comboboxQuery && (
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setComboboxQuery('');
+                      }}
+                      className="p-0.5 hover:text-teal-800"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${comboboxOpen ? 'rotate-180' : ''}`} />
+                </div>
+              </div>
+
+              {/* Dropdown Options Menu */}
+              {comboboxOpen && (
+                <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-80 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-xl animate-in fade-in zoom-in-95 duration-100">
+                  <div className="p-1">
+                    {/* Option: Tất cả */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setListFilter('all');
+                        setComboboxOpen(false);
+                        setComboboxQuery('');
+                      }}
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-left transition-colors ${
+                        listFilter === 'all'
+                          ? 'bg-teal-50 font-bold text-teal-800'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span>📂 Tất cả ca gán gói (Toàn viện)</span>
+                      {listFilter === 'all' && <Check className="h-3.5 w-3.5 text-teal-600" />}
+                    </button>
+
+                    {/* Header section */}
+                    <div className="mt-1.5 mb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                      Đợt trong năm {reportYears.join(', ')} ({candidateLists.length} đợt)
+                    </div>
+
+                    {/* List items */}
+                    {filteredComboboxLists.length === 0 ? (
+                      <div className="px-2.5 py-3 text-center text-xs text-gray-400 italic">
+                        Không tìm thấy đợt thanh toán phù hợp
+                      </div>
+                    ) : (
+                      filteredComboboxLists.map(l => {
+                        const isSelected = listFilter === l.id;
+                        const formattedName = getBatchFormattedName(l);
+
+                        return (
+                          <button
+                            key={l.id}
+                            type="button"
+                            onClick={() => {
+                              setListFilter(l.id);
+                              setComboboxOpen(false);
+                              setComboboxQuery('');
+                            }}
+                            className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-left transition-colors ${
+                              isSelected
+                                ? 'bg-teal-50 font-bold text-teal-900'
+                                : 'text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-1.5 truncate">
+                              <span>{l.status === 'locked' ? '🔒' : '📝'}</span>
+                              <span className="truncate">{formattedName}</span>
+                            </div>
+                            {isSelected && <Check className="h-3.5 w-3.5 text-teal-600 shrink-0 ml-1" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Nút Tạo đợt mới */}
             <button
@@ -880,18 +1011,6 @@ export const PackageListView: React.FC<Props> = ({
                       <span>Nhập thêm TCKT</span>
                     </button>
 
-                    <button
-                      onClick={() => {
-                        setRenameTargetList(currentList);
-                        setRenameNameInput(currentList.name);
-                      }}
-                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-                      title="Đổi tên đợt thanh toán"
-                    >
-                      <Edit3 className="h-3.5 w-3.5" />
-                      <span>Đổi tên</span>
-                    </button>
-
                     {paymentLists.canManage && (
                       <button
                         onClick={() => handleRequestLock(currentList)}
@@ -902,15 +1021,6 @@ export const PackageListView: React.FC<Props> = ({
                         <span>Chốt đợt</span>
                       </button>
                     )}
-
-                    <button
-                      onClick={() => setDeleteBatchTarget(currentList)}
-                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-red-200 bg-white px-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors"
-                      title="Xóa đợt thanh toán này"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      <span>Xóa đợt</span>
-                    </button>
                   </>
                 ) : (
                   <>
@@ -933,6 +1043,16 @@ export const PackageListView: React.FC<Props> = ({
                 )}
               </div>
             )}
+
+            {/* Nút DS đợt thanh toán (nằm sau chốt đợt) */}
+            <button
+              onClick={() => setManageModalOpen(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-800 hover:bg-teal-50 shadow-2xs transition-colors"
+              title="Quản lý danh sách các đợt thanh toán, đổi tên và lịch sử chỉnh sửa"
+            >
+              <ListFilter className="h-3.5 w-3.5 text-teal-600" />
+              <span>DS đợt thanh toán</span>
+            </button>
           </div>
 
           {/* Right: Thông báo ca thiếu dữ liệu PT nếu có */}
@@ -1547,108 +1667,19 @@ export const PackageListView: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Rename Batch Modal */}
-      {renameTargetList && (
-        <div
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-xs font-inter"
-          onClick={() => !isRenaming && setRenameTargetList(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full mx-4 border border-gray-200 space-y-4"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-              <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                <Edit3 className="h-4 w-4 text-teal-600" />
-                <span>Đổi tên đợt thanh toán</span>
-              </h4>
-              <button
-                onClick={() => setRenameTargetList(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                Tên đợt mới
-              </label>
-              <input
-                type="text"
-                value={renameNameInput}
-                onChange={e => setRenameNameInput(e.target.value)}
-                autoFocus
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-              <button
-                onClick={() => setRenameTargetList(null)}
-                disabled={isRenaming}
-                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleRenameBatch}
-                disabled={isRenaming || !renameNameInput.trim()}
-                className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all shadow-sm"
-              >
-                {isRenaming ? 'Đang lưu...' : 'Lưu tên'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Batch Confirmation Modal */}
-      {deleteBatchTarget && (
-        <div
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-xs font-inter"
-          onClick={() => !isDeletingBatch && setDeleteBatchTarget(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full mx-4 border border-gray-200 space-y-4"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-red-50 text-red-600 rounded-xl shrink-0 mt-0.5">
-                <Trash2 className="h-5 w-5" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-bold text-gray-800">
-                  Xóa đợt thanh toán
-                </h4>
-                <p className="text-xs text-gray-500 mt-1">
-                  Bạn có chắc muốn xóa đợt &ldquo;<span className="font-semibold text-gray-700">{deleteBatchTarget.name}</span>&rdquo; ({deleteBatchTarget.items.length} ca)?
-                </p>
-                <p className="text-[11px] text-amber-600 mt-2 bg-amber-50 p-2 rounded-lg">
-                  Lưu ý: Các ca trong đợt này sẽ chuyển về trạng thái &ldquo;Chưa thanh toán gói DV&rdquo;, không bị xóa khỏi danh sách phẫu thuật.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-              <button
-                onClick={() => setDeleteBatchTarget(null)}
-                disabled={isDeletingBatch}
-                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleDeleteBatch}
-                disabled={isDeletingBatch}
-                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all shadow-sm flex items-center gap-1.5"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span>{isDeletingBatch ? 'Đang xóa...' : 'Xóa đợt'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Modal Quản lý danh sách đợt thanh toán */}
+      {paymentLists && (
+        <PaymentListManagementModal
+          isOpen={manageModalOpen}
+          onClose={() => setManageModalOpen(false)}
+          lists={paymentLists.lists}
+          currentListId={listFilter}
+          onSelectList={id => {
+            setListFilter(id);
+          }}
+          reportYears={reportYears}
+          userName={paymentLists.userName}
+        />
       )}
 
       {/* Lock Batch Confirmation Modal */}

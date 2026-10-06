@@ -133,6 +133,7 @@ export async function createPaymentList(params: {
     createdBy: params.createdBy,
     createdAt: now,
     updatedAt: now,
+    updatedBy: params.createdBy,
   };
   await runTransaction(firestore, async tx => {
     tx.set(listRef(id), stripUndefined(list));
@@ -140,25 +141,35 @@ export async function createPaymentList(params: {
   return id;
 }
 
-export async function addItems(listId: string, items: Omit<PaymentListItem, 'addedAt'>[]): Promise<void> {
+export async function addItems(listId: string, items: Omit<PaymentListItem, 'addedAt'>[], updatedBy?: string): Promise<void> {
   const conflicts = await findConflicts(items.map(i => i.patientId), listId);
   if (conflicts.length) throw new PaymentListConflictError(conflicts);
   const now = Date.now();
-  await mutateList(listId, l => ({ items: applyAddItems(l.items, items.map(i => ({ ...i, addedAt: now }))) }));
-}
-
-export function updateItem(listId: string, patientId: string, patch: Partial<PaymentListItem>): Promise<void> {
-  return mutateList(listId, l => ({
-    items: l.items.map(i => (i.patientId === patientId ? { ...i, ...patch, patientId } : i)),
+  await mutateList(listId, l => ({
+    items: applyAddItems(l.items, items.map(i => ({ ...i, addedAt: now }))),
+    ...(updatedBy ? { updatedBy } : {}),
   }));
 }
 
-export function removeItem(listId: string, patientId: string): Promise<void> {
-  return mutateList(listId, l => ({ items: applyRemoveItem(l.items, patientId) }));
+export function updateItem(listId: string, patientId: string, patch: Partial<PaymentListItem>, updatedBy?: string): Promise<void> {
+  return mutateList(listId, l => ({
+    items: l.items.map(i => (i.patientId === patientId ? { ...i, ...patch, patientId } : i)),
+    ...(updatedBy ? { updatedBy } : {}),
+  }));
 }
 
-export function renameList(listId: string, name: string): Promise<void> {
-  return mutateList(listId, () => ({ name }));
+export function removeItem(listId: string, patientId: string, updatedBy?: string): Promise<void> {
+  return mutateList(listId, l => ({
+    items: applyRemoveItem(l.items, patientId),
+    ...(updatedBy ? { updatedBy } : {}),
+  }));
+}
+
+export function renameList(listId: string, name: string, updatedBy?: string): Promise<void> {
+  return mutateList(listId, () => ({
+    name,
+    ...(updatedBy ? { updatedBy } : {}),
+  }));
 }
 
 export async function moveItem(fromId: string, toId: string, patientId: string): Promise<void> {

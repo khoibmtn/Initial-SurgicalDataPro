@@ -24,6 +24,8 @@ export interface PaymentListsContext {
   canManage: boolean;
   userName: string;
   periodKey: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 /** First day of the month before `dateFrom` (YYYY-MM-DD) */
