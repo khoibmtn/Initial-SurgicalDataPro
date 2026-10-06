@@ -79,6 +79,7 @@ import { PaymentListManagementModal } from './PaymentListManagementModal';
 import { PageCombobox } from '../common/PageCombobox';
 import { formatDate } from '../../utils/dateUtils';
 import { useAuth } from '../../contexts/AuthContext';
+import { exportPackageListToExcel } from '../../services/servicePackageExportService';
 
 export const DATE_FORMATS = ['dd/mm/yyyy', 'dd/mm/yyyy hh:mm', 'dd/mm hh:mm', 'hh:mm'];
 
@@ -96,6 +97,7 @@ interface Props {
   dateFormat?: string;
   onDateFormatChange?: (fmt: string) => void;
   onListFilterChange?: (filter: string) => void;
+  dateRangeText?: string;
 }
 
 function fmt(n: number | undefined | null): string {
@@ -254,6 +256,7 @@ export const PackageListView: React.FC<Props> = ({
   dateFormat: propDateFormat,
   onDateFormatChange,
   onListFilterChange,
+  dateRangeText,
 }) => {
   const { isAdmin, can } = useAuth();
   const canAssign = isAdmin || can('assign_service_package');
@@ -674,6 +677,39 @@ export const PackageListView: React.FC<Props> = ({
     setMissingBatchItems([]);
     return [];
   }, [assignments, records, draftRecords, currentList, paymentLists, listFilter]);
+
+  // Xuất danh sách Gói DVYC ra Excel
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportExcel = useCallback(async () => {
+    if (enrichedRecords.length === 0) return;
+    setIsExporting(true);
+    try {
+      await exportPackageListToExcel({
+        items: enrichedRecords,
+        packages,
+        paymentLists,
+        currentList,
+        listFilter,
+        dateRangeText,
+        dateFormat: currentDateFormat,
+        extraPositionCols,
+      });
+    } catch (err) {
+      console.error('Lỗi xuất Excel Gói DVYC:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [
+    enrichedRecords,
+    packages,
+    paymentLists,
+    currentList,
+    listFilter,
+    dateRangeText,
+    currentDateFormat,
+    extraPositionCols,
+  ]);
 
   // Chỉ mở modal thông báo ca thiếu dữ liệu phẫu thuật khi vừa import/paste lần đầu (không tự động bung khi mở lại danh sách đã lưu)
   const justImportedBatchIdRef = useRef<string | null>(null);
@@ -1510,6 +1546,17 @@ export const PackageListView: React.FC<Props> = ({
               <Plus className="h-3 w-3" />
             </button>
           </div>
+
+          {/* Nút Xuất Excel */}
+          <button
+            onClick={handleExportExcel}
+            disabled={isExporting || enrichedRecords.length === 0}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Xuất danh sách gói dịch vụ yêu cầu ra file Excel"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+            <span>{isExporting ? 'Đang xuất...' : 'Xuất Excel'}</span>
+          </button>
 
           {/* Config dropdown (Ẩn/hiện cột + Mật độ bảng) */}
           <div className="relative" ref={configRef}>

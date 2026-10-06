@@ -590,6 +590,11 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
         dateFormat={dateFormat}
         onDateFormatChange={onDateFormatChange}
         onListFilterChange={onPackageListFilterChange}
+        dateRangeText={
+          currentReport.dataSource === 'STORAGE' && currentReport.queryDateRangeText
+            ? currentReport.queryDateRangeText
+            : currentReport.result?.dateRangeText || currentReport.queryDateRangeText || currentReport.listDateRange || ''
+        }
       />
     );
   }
