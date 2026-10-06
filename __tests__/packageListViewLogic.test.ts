@@ -208,4 +208,92 @@ describe('PackageListView Logic & Rules', () => {
     expect(updatedItems.length).toBe(1);
     expect(updatedItems[0].patientId).toBe('BN002');
   });
+
+  it('3 Combobox Filters: filters independently and simultaneously by Gói DVYC, Đợt TT, and Ra viện', () => {
+    interface TestItem {
+      patientId: string;
+      assignment?: { packageName: string };
+      inBatch: boolean;
+      discharged: boolean;
+    }
+
+    const items: TestItem[] = [
+      { patientId: 'BN1', assignment: { packageName: 'Gói A' }, inBatch: true, discharged: true },
+      { patientId: 'BN2', assignment: { packageName: 'Gói B' }, inBatch: false, discharged: true },
+      { patientId: 'BN3', assignment: undefined, inBatch: true, discharged: false },
+      { patientId: 'BN4', assignment: undefined, inBatch: false, discharged: false },
+      { patientId: 'BN5', assignment: { packageName: 'Gói A' }, inBatch: false, discharged: false },
+    ];
+
+    const filterFn = (
+      data: TestItem[],
+      packageFilter: 'all' | 'assigned' | 'unassigned',
+      batchFilter: 'all' | 'in_batch' | 'no_batch',
+      dischargeFilter: 'all' | 'discharged' | 'not_discharged'
+    ) => {
+      return data.filter(it => {
+        if (packageFilter === 'assigned' && !it.assignment) return false;
+        if (packageFilter === 'unassigned' && it.assignment) return false;
+        if (batchFilter === 'in_batch' && !it.inBatch) return false;
+        if (batchFilter === 'no_batch' && it.inBatch) return false;
+        if (dischargeFilter === 'discharged' && !it.discharged) return false;
+        if (dischargeFilter === 'not_discharged' && it.discharged) return false;
+        return true;
+      });
+    };
+
+    // 1. Filter Gói DVYC = 'assigned'
+    expect(filterFn(items, 'assigned', 'all', 'all').map(i => i.patientId)).toEqual(['BN1', 'BN2', 'BN5']);
+
+    // 2. Filter Đợt TT = 'no_batch'
+    expect(filterFn(items, 'all', 'no_batch', 'all').map(i => i.patientId)).toEqual(['BN2', 'BN4', 'BN5']);
+
+    // 3. Filter Ra viện = 'discharged'
+    expect(filterFn(items, 'all', 'all', 'discharged').map(i => i.patientId)).toEqual(['BN1', 'BN2']);
+
+    // 4. Combined: Đã gán gói + Chưa có đợt TT + Đã ra viện (BN2)
+    const candidatesForNewBatch = filterFn(items, 'assigned', 'no_batch', 'discharged');
+    expect(candidatesForNewBatch.length).toBe(1);
+    expect(candidatesForNewBatch[0].patientId).toBe('BN2');
+  });
+
+  it('View State Persistence: saves and loads active batch, 3 combobox filters, and page', async () => {
+    const store = new Map<string, string>();
+    (globalThis as any).localStorage = {
+      getItem: (key: string) => store.get(key) || null,
+      setItem: (key: string, val: string) => store.set(key, val),
+      removeItem: (key: string) => store.delete(key),
+      clear: () => store.clear(),
+    };
+
+    const {
+      LS_PACKAGE_VIEW_STATE_KEY,
+      loadSavedViewState,
+      saveViewState,
+      DEFAULT_VIEW_STATE,
+    } = await import('../components/surgery/PackageListView');
+
+    // Clear initial state
+    localStorage.removeItem(LS_PACKAGE_VIEW_STATE_KEY);
+    expect(loadSavedViewState()).toEqual(DEFAULT_VIEW_STATE);
+
+    // Save a custom active state
+    saveViewState({
+      listFilter: 'batch-2026-07',
+      packageFilter: 'assigned',
+      batchFilter: 'in_batch',
+      dischargeFilter: 'discharged',
+      currentPage: 3,
+    });
+
+    const loaded = loadSavedViewState();
+    expect(loaded.listFilter).toBe('batch-2026-07');
+    expect(loaded.packageFilter).toBe('assigned');
+    expect(loaded.batchFilter).toBe('in_batch');
+    expect(loaded.dischargeFilter).toBe('discharged');
+    expect(loaded.currentPage).toBe(3);
+
+    localStorage.removeItem(LS_PACKAGE_VIEW_STATE_KEY);
+  });
 });
+

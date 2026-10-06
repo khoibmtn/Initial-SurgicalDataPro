@@ -92,6 +92,7 @@ export interface SurgeryTableViewRouterProps {
   onPrint?: (type: 'list' | 'payment' | 'packagePayment', orientation: 'portrait' | 'landscape') => void;
   /** Service-package payment lists; provided for the monthly report only */
   paymentLists?: PaymentListsContext;
+  onPackageListFilterChange?: (filter: string) => void;
 }
 
 export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
@@ -143,6 +144,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
   onPaymentSubTabChange,
   onPrint,
   paymentLists,
+  onPackageListFilterChange,
 }) => {
   const [internalPaymentMode, setInternalPaymentMode] = useState<'pttt' | 'package'>(() => {
     try {
@@ -581,6 +583,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
         onRowsPerPageChange={onRowsPerPageChange}
         dateFormat={dateFormat}
         onDateFormatChange={onDateFormatChange}
+        onListFilterChange={onPackageListFilterChange}
       />
     );
   }

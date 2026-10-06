@@ -1,10 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
 
-interface TabLineOption {
+export interface TabLineOption {
   value: string;
   label: string;
   icon?: React.ElementType;
-  badge?: string | number;
+  badge?: React.ReactNode;
   badgeColor?: string;
 }
 

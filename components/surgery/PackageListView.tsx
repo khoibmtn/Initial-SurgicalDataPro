@@ -94,6 +94,7 @@ interface Props {
   onRowsPerPageChange?: (rows: number) => void;
   dateFormat?: string;
   onDateFormatChange?: (fmt: string) => void;
+  onListFilterChange?: (filter: string) => void;
 }
 
 function fmt(n: number | undefined | null): string {
@@ -152,6 +153,58 @@ function saveConfig(cfg: ViewConfig) {
   } catch {}
 }
 
+export const LS_PACKAGE_VIEW_STATE_KEY = 'package_list_view_active_state';
+
+export type PackageFilter = 'all' | 'assigned' | 'unassigned';
+export type BatchFilter = 'all' | 'in_batch' | 'no_batch';
+export type DischargeFilter = 'all' | 'discharged' | 'not_discharged';
+
+export interface PackageViewState {
+  listFilter: string;
+  packageFilter: PackageFilter;
+  batchFilter: BatchFilter;
+  dischargeFilter: DischargeFilter;
+  currentPage: number;
+}
+
+export const DEFAULT_VIEW_STATE: PackageViewState = {
+  listFilter: 'all',
+  packageFilter: 'all',
+  batchFilter: 'all',
+  dischargeFilter: 'all',
+  currentPage: 1,
+};
+
+export function loadSavedViewState(): PackageViewState {
+  try {
+    const raw = localStorage.getItem(LS_PACKAGE_VIEW_STATE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      let packageFilter: PackageFilter = parsed.packageFilter || 'all';
+      let dischargeFilter: DischargeFilter = parsed.dischargeFilter || 'all';
+      if (parsed.activeFilter === 'assigned') packageFilter = 'assigned';
+      if (parsed.activeFilter === 'unassigned') packageFilter = 'unassigned';
+      if (parsed.activeFilter === 'discharged') dischargeFilter = 'discharged';
+      if (parsed.activeFilter === 'not_discharged') dischargeFilter = 'not_discharged';
+
+      return {
+        listFilter: typeof parsed.listFilter === 'string' ? parsed.listFilter : 'all',
+        packageFilter,
+        batchFilter: parsed.batchFilter || 'all',
+        dischargeFilter,
+        currentPage: typeof parsed.currentPage === 'number' && parsed.currentPage > 0 ? parsed.currentPage : 1,
+      };
+    }
+  } catch {}
+  return { ...DEFAULT_VIEW_STATE };
+}
+
+export function saveViewState(state: PackageViewState): void {
+  try {
+    localStorage.setItem(LS_PACKAGE_VIEW_STATE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
 const DENSITY_PY: Record<Density, string> = {
   compact: 'py-1',
   default: 'py-2',
@@ -199,11 +252,16 @@ export const PackageListView: React.FC<Props> = ({
   onRowsPerPageChange,
   dateFormat: propDateFormat,
   onDateFormatChange,
+  onListFilterChange,
 }) => {
+  const savedViewState = useMemo(() => loadSavedViewState(), []);
+
   // Selected batch in dropdown ('all' or specific listId)
-  const [listFilter, setListFilter] = useState<string>('all');
-  // Unified single filter for assignment and discharge status
-  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
+  const [listFilter, setListFilter] = useState<string>(() => savedViewState.listFilter);
+  // 3 independent combobox filters: Gói DVYC, Đợt thanh toán, Ra viện
+  const [packageFilter, setPackageFilter] = useState<PackageFilter>(() => savedViewState.packageFilter);
+  const [batchFilter, setBatchFilter] = useState<BatchFilter>(() => savedViewState.batchFilter);
+  const [dischargeFilter, setDischargeFilter] = useState<DischargeFilter>(() => savedViewState.dischargeFilter);
 
   // Modals for batch management
   const [showMissingModal, setShowMissingModal] = useState(false);
@@ -615,41 +673,72 @@ export const PackageListView: React.FC<Props> = ({
     }
   }, [currentList?.id, missingBatchItems]);
 
-  // Compute status counts for simplified Filter Pills
+  // Compute counts for the 3 filter comboboxes
   const stats = useMemo(() => {
     let assignedCount = 0;
     let unassignedCount = 0;
+    let inBatchCount = 0;
+    let noBatchCount = 0;
     let dischargedCount = 0;
     let notDischargedCount = 0;
 
     for (const { record: r, assignment: a } of enrichedRecords) {
       const pid = (r.patientId || '').trim();
+      const hasBatch = Boolean(currentList?.items.some(i => i.patientId.trim() === pid) || paymentLists?.membershipIndex.has(pid));
       const dc = paymentLists?.discharge[pid];
 
       if (a) assignedCount++;
       else unassignedCount++;
 
+      if (hasBatch) inBatchCount++;
+      else noBatchCount++;
+
       if (dc?.ngayRa) dischargedCount++;
       else notDischargedCount++;
     }
 
-    return { assignedCount, unassignedCount, dischargedCount, notDischargedCount };
-  }, [enrichedRecords, paymentLists]);
+    return {
+      total: enrichedRecords.length,
+      assignedCount,
+      unassignedCount,
+      inBatchCount,
+      noBatchCount,
+      dischargedCount,
+      notDischargedCount,
+    };
+  }, [enrichedRecords, currentList, paymentLists]);
 
-  // Filter + search
+  // Filter + search with 3 comboboxes
   const filtered = useMemo(() => {
     let result = enrichedRecords;
 
-    if (activeFilter === 'assigned') {
+    // 1. Gói DVYC: Tất cả / Đã gán / Chưa gán
+    if (packageFilter === 'assigned') {
       result = result.filter(r => Boolean(r.assignment));
-    } else if (activeFilter === 'unassigned') {
+    } else if (packageFilter === 'unassigned') {
       result = result.filter(r => !r.assignment);
-    } else if (activeFilter === 'discharged') {
+    }
+
+    // 2. Đợt thanh toán: Tất cả / Đã có đợt TT / Chưa có đợt TT
+    if (batchFilter === 'in_batch') {
+      result = result.filter(({ record: r }) => {
+        const pid = (r.patientId || '').trim();
+        return Boolean(currentList?.items.some(i => i.patientId.trim() === pid) || paymentLists?.membershipIndex.has(pid));
+      });
+    } else if (batchFilter === 'no_batch') {
+      result = result.filter(({ record: r }) => {
+        const pid = (r.patientId || '').trim();
+        return !currentList?.items.some(i => i.patientId.trim() === pid) && !paymentLists?.membershipIndex.has(pid);
+      });
+    }
+
+    // 3. Ra viện: Tất cả / Đã RV / Chưa có thông tin
+    if (dischargeFilter === 'discharged') {
       result = result.filter(({ record: r }) => {
         const pid = (r.patientId || '').trim();
         return Boolean(paymentLists?.discharge[pid]?.ngayRa);
       });
-    } else if (activeFilter === 'not_discharged') {
+    } else if (dischargeFilter === 'not_discharged') {
       result = result.filter(({ record: r }) => {
         const pid = (r.patientId || '').trim();
         return !paymentLists?.discharge[pid]?.ngayRa;
@@ -671,23 +760,57 @@ export const PackageListView: React.FC<Props> = ({
       });
     }
     return result;
-  }, [enrichedRecords, activeFilter, searchTerm, packages, paymentLists]);
+  }, [enrichedRecords, packageFilter, batchFilter, dischargeFilter, searchTerm, packages, paymentLists, currentList]);
 
   // Pagination state (đồng bộ giao diện & trải nghiệm với tab DS PT)
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState<number>(() => savedViewState.currentPage);
   const [localRowsPerPage, setLocalRowsPerPage] = useState(50);
   const currentRowsPerPage = rowsPerPage !== undefined ? rowsPerPage : localRowsPerPage;
 
-  // Tự động về trang 1 khi đổi từ khóa tìm kiếm, bộ lọc hoặc đổi đợt thanh toán
+  // Persist view state to localStorage whenever listFilter, packageFilter, batchFilter, dischargeFilter, or currentPage change
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, activeFilter, listFilter]);
+    saveViewState({ listFilter, packageFilter, batchFilter, dischargeFilter, currentPage });
+    onListFilterChange?.(listFilter);
+    window.dispatchEvent(new CustomEvent('package_list_filter_changed', { detail: listFilter }));
+  }, [listFilter, packageFilter, batchFilter, dischargeFilter, currentPage, onListFilterChange]);
+
+  // Tự động về trang 1 khi đổi từ khóa tìm kiếm, bộ lọc hoặc đổi đợt thanh toán (bỏ qua lần đầu mount)
+  const isInitialMountRef = useRef(true);
+  const prevFilterDepsRef = useRef({ searchTerm, packageFilter, batchFilter, dischargeFilter, listFilter });
+
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+    if (
+      prevFilterDepsRef.current.searchTerm !== searchTerm ||
+      prevFilterDepsRef.current.packageFilter !== packageFilter ||
+      prevFilterDepsRef.current.batchFilter !== batchFilter ||
+      prevFilterDepsRef.current.dischargeFilter !== dischargeFilter ||
+      prevFilterDepsRef.current.listFilter !== listFilter
+    ) {
+      prevFilterDepsRef.current = { searchTerm, packageFilter, batchFilter, dischargeFilter, listFilter };
+      setCurrentPage(1);
+    }
+  }, [searchTerm, packageFilter, batchFilter, dischargeFilter, listFilter]);
+
+  // Fallback nếu đợt thanh toán đã lưu bị xóa khỏi danh sách
+  useEffect(() => {
+    if (listFilter !== 'all' && paymentLists && paymentLists.lists.length > 0) {
+      const exists = paymentLists.lists.some(l => l.id === listFilter);
+      if (!exists) {
+        setListFilter('all');
+        setCurrentPage(1);
+      }
+    }
+  }, [listFilter, paymentLists?.lists]);
 
   const totalPages = Math.ceil(filtered.length / currentRowsPerPage) || 1;
 
   useEffect(() => {
     if (currentPage > totalPages) {
-      setCurrentPage(1);
+      setCurrentPage(Math.max(1, totalPages));
     }
   }, [currentPage, totalPages]);
 
@@ -698,6 +821,11 @@ export const PackageListView: React.FC<Props> = ({
 
   const handlePageChange = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  const handleActiveFilterChange = (nextFilter: ActiveFilter) => {
+    setActiveFilter(nextFilter);
+    setCurrentPage(1);
   };
 
   const assignedCount = stats.assignedCount;
@@ -1025,6 +1153,7 @@ export const PackageListView: React.FC<Props> = ({
                       type="button"
                       onClick={() => {
                         setListFilter('all');
+                        setCurrentPage(1);
                         setComboboxOpen(false);
                         setComboboxQuery('');
                       }}
@@ -1065,6 +1194,7 @@ export const PackageListView: React.FC<Props> = ({
                             type="button"
                             onClick={() => {
                               setListFilter(l.id);
+                              setCurrentPage(1);
                               setComboboxOpen(false);
                               setComboboxQuery('');
                             }}
@@ -1192,68 +1322,99 @@ export const PackageListView: React.FC<Props> = ({
 
       {/* ─── HÀNG 2: BỘ LỌC TINH GỌN & TÌM KIẾM & CẤU HÌNH ─── */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-2 rounded-xl border border-gray-200 shadow-2xs">
-        {/* Left: Consolidated Filter Pills */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Nhóm 1: Trạng thái gán gói dịch vụ */}
-          <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg">
-            <button
-              onClick={() => setActiveFilter('all')}
-              className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
-                activeFilter === 'all'
-                  ? 'bg-white text-gray-800 shadow-2xs'
-                  : 'text-gray-500 hover:text-gray-800'
+        {/* Left: 3 Combobox Filters (Gói DVYC, Đợt thanh toán, Ra viện) */}
+        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+          {/* Combobox 1: Gói DVYC */}
+          <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 px-2 py-1 rounded-lg shadow-2xs">
+            <span className="text-[11px] font-bold text-gray-600 flex items-center gap-1 whitespace-nowrap">
+              <Package className="h-3.5 w-3.5 text-teal-600 shrink-0" />
+              <span>Gói DVYC:</span>
+            </span>
+            <select
+              value={packageFilter}
+              onChange={e => {
+                setPackageFilter(e.target.value as any);
+                setCurrentPage(1);
+              }}
+              className={`rounded-md border px-2 py-0.5 text-xs font-semibold shadow-2xs outline-none transition-colors cursor-pointer bg-white ${
+                packageFilter !== 'all'
+                  ? 'border-teal-500 bg-teal-50 text-teal-800 font-bold ring-1 ring-teal-400'
+                  : 'border-gray-300 text-gray-700 hover:border-gray-400'
               }`}
             >
-              Tất cả ({enrichedRecords.length})
-            </button>
-            <button
-              onClick={() => setActiveFilter('assigned')}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                activeFilter === 'assigned'
-                  ? 'bg-white text-teal-700 shadow-2xs font-bold'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              Đã gán ({stats.assignedCount})
-            </button>
-            <button
-              onClick={() => setActiveFilter('unassigned')}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                activeFilter === 'unassigned'
-                  ? 'bg-white text-teal-700 shadow-2xs font-bold'
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              Chưa gán ({stats.unassignedCount})
-            </button>
+              <option value="all">Tất cả ({stats.total})</option>
+              <option value="assigned">Đã gán ({stats.assignedCount})</option>
+              <option value="unassigned">Chưa gán ({stats.unassignedCount})</option>
+            </select>
           </div>
 
-          {/* Nhóm 2: Trạng thái ra viện BHYT */}
+          {/* Combobox 2: Đợt thanh toán */}
           {paymentLists && (
-            <div className="flex items-center gap-1 bg-emerald-50/60 border border-emerald-100 p-0.5 rounded-lg">
-              <button
-                onClick={() => setActiveFilter(activeFilter === 'discharged' ? 'all' : 'discharged')}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  activeFilter === 'discharged'
-                    ? 'bg-emerald-600 text-white shadow-2xs font-bold'
-                    : 'text-emerald-700 hover:bg-emerald-100/60'
+            <div className="flex items-center gap-1.5 bg-blue-50/50 border border-blue-200/80 px-2 py-1 rounded-lg shadow-2xs">
+              <span className="text-[11px] font-bold text-blue-900 flex items-center gap-1 whitespace-nowrap">
+                <FileSpreadsheet className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                <span>Đợt thanh toán:</span>
+              </span>
+              <select
+                value={batchFilter}
+                onChange={e => {
+                  setBatchFilter(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                className={`rounded-md border px-2 py-0.5 text-xs font-semibold shadow-2xs outline-none transition-colors cursor-pointer bg-white ${
+                  batchFilter !== 'all'
+                    ? 'border-blue-500 bg-blue-50 text-blue-800 font-bold ring-1 ring-blue-400'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
                 }`}
-                title="Lọc các ca đã có ngày ra viện BHYT"
               >
-                Đã RV ({stats.dischargedCount})
-              </button>
-              <button
-                onClick={() => setActiveFilter(activeFilter === 'not_discharged' ? 'all' : 'not_discharged')}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                  activeFilter === 'not_discharged'
-                    ? 'bg-slate-700 text-white shadow-2xs font-bold'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-                title="Lọc các ca chưa có thông tin ngày ra viện (viện phí hoặc chưa xuất viện)"
-              >
-                Chưa có thông tin ra viện ({stats.notDischargedCount})
-              </button>
+                <option value="all">Tất cả ({stats.total})</option>
+                <option value="in_batch">Đã có đợt TT ({stats.inBatchCount})</option>
+                <option value="no_batch">Chưa có đợt TT ({stats.noBatchCount})</option>
+              </select>
             </div>
+          )}
+
+          {/* Combobox 3: Ra viện */}
+          {paymentLists && (
+            <div className="flex items-center gap-1.5 bg-emerald-50/50 border border-emerald-200/80 px-2 py-1 rounded-lg shadow-2xs">
+              <span className="text-[11px] font-bold text-emerald-900 flex items-center gap-1 whitespace-nowrap">
+                <Clock className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <span>Ra viện:</span>
+              </span>
+              <select
+                value={dischargeFilter}
+                onChange={e => {
+                  setDischargeFilter(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                className={`rounded-md border px-2 py-0.5 text-xs font-semibold shadow-2xs outline-none transition-colors cursor-pointer bg-white ${
+                  dischargeFilter !== 'all'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-800 font-bold ring-1 ring-emerald-400'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                <option value="all">Tất cả ({stats.total})</option>
+                <option value="discharged">Đã RV ({stats.dischargedCount})</option>
+                <option value="not_discharged">Chưa có thông tin ({stats.notDischargedCount})</option>
+              </select>
+            </div>
+          )}
+
+          {/* Reset Filters button if any filter is active */}
+          {(packageFilter !== 'all' || batchFilter !== 'all' || dischargeFilter !== 'all') && (
+            <button
+              onClick={() => {
+                setPackageFilter('all');
+                setBatchFilter('all');
+                setDischargeFilter('all');
+                setCurrentPage(1);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition-colors shrink-0 shadow-2xs"
+              title="Đặt lại tất cả 3 bộ lọc về Tất cả"
+            >
+              <X className="h-3 w-3" />
+              <span>Đặt lại lọc</span>
+            </button>
           )}
         </div>
 
@@ -1434,25 +1595,25 @@ export const PackageListView: React.FC<Props> = ({
                 <th className={`px-2 ${cellPy} text-gray-500 border-r border-gray-100 w-[85px]`}>Mã KCB</th>
               )}
               {isColVisible('patientName') && (
-                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[140px]`}>Họ tên</th>
+                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[115px]`}>Họ tên</th>
               )}
               {isColVisible('ngayBD') && (
-                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 text-center w-[125px]`}>
+                <th className={`px-1.5 ${cellPy} text-gray-700 border-r border-gray-100 text-center w-[90px]`}>
                   Ngày PT
                 </th>
               )}
               {isColVisible('tenKT') && (
-                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[160px]`}>Tên phẫu thuật</th>
+                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[220px]`}>Tên phẫu thuật</th>
               )}
               {/* Base surgery staff columns */}
               {BASE_STAFF_COLS.map(col => isColVisible(col.key) && (
-                <th key={col.key} className={`px-1.5 ${cellPy} text-gray-500 border-r border-gray-100 text-center w-[75px]`}>
+                <th key={col.key} className={`px-1.5 ${cellPy} text-gray-500 border-r border-gray-100 text-center w-[88px]`}>
                   {col.label}
                 </th>
               ))}
               {/* Dynamic extra positions from packages */}
               {extraPositionCols.map(([key, label]) => isColVisible(key) && (
-                <th key={key} className={`px-1.5 ${cellPy} text-teal-700 border-r border-gray-100 text-center w-[75px] bg-teal-50/50`}>
+                <th key={key} className={`px-1.5 ${cellPy} text-teal-700 border-r border-gray-100 text-center w-[88px] bg-teal-50/50`}>
                   {label}
                 </th>
               ))}
@@ -1543,7 +1704,7 @@ export const PackageListView: React.FC<Props> = ({
 
                   {/* Họ tên */}
                   {isColVisible('patientName') && (
-                    <td className={`px-2 ${cellPy} font-semibold text-gray-800 border-r border-gray-100 whitespace-normal break-words w-[140px]`}>
+                    <td className={`px-2 ${cellPy} font-semibold text-gray-800 border-r border-gray-100 whitespace-normal break-words w-[115px] leading-snug`}>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span>{r.patientName}</span>
                         {isMultiUnassigned && (
@@ -1565,14 +1726,28 @@ export const PackageListView: React.FC<Props> = ({
 
                   {/* Ngày PT (lấy từ Ngày bắt đầu phẫu thuật r.ngayBD) */}
                   {isColVisible('ngayBD') && (
-                    <td className={`px-2 ${cellPy} text-center font-mono text-gray-600 border-r border-gray-100 text-[0.88em] whitespace-nowrap`}>
-                      {r.ngayBD ? formatDate(r.ngayBD, currentDateFormat) : '—'}
+                    <td className={`px-1.5 ${cellPy} text-center font-mono text-gray-600 border-r border-gray-100 text-[0.84em] w-[90px]`}>
+                      {r.ngayBD ? (
+                        (() => {
+                          const formatted = formatDate(r.ngayBD, currentDateFormat);
+                          const parts = formatted.split(' ');
+                          if (parts.length === 2) {
+                            return (
+                              <div className="leading-tight">
+                                <div>{parts[0]}</div>
+                                <div className="text-[0.82em] text-gray-500">{parts[1]}</div>
+                              </div>
+                            );
+                          }
+                          return <div className="leading-tight whitespace-nowrap">{formatted}</div>;
+                        })()
+                      ) : '—'}
                     </td>
                   )}
 
                   {/* Tên phẫu thuật */}
                   {isColVisible('tenKT') && (
-                    <td className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 whitespace-normal break-words w-[160px]`}>
+                    <td className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 whitespace-normal break-words w-[220px] leading-snug`}>
                       {r.tenKT}
                     </td>
                   )}
@@ -1587,7 +1762,7 @@ export const PackageListView: React.FC<Props> = ({
                     return (
                       <td
                         key={col.key}
-                        className={`px-1.5 ${cellPy} text-center border-r border-gray-100 whitespace-normal ${
+                        className={`px-1.5 ${cellPy} text-center border-r border-gray-100 whitespace-normal w-[88px] ${
                           a && info.name ? 'bg-teal-50/20' : ''
                         }`}
                       >
@@ -1607,11 +1782,11 @@ export const PackageListView: React.FC<Props> = ({
                   {extraPositionCols.map(([key]) => {
                     if (!isColVisible(key)) return null;
                     if (!a) {
-                      return <td key={key} className={`px-1.5 ${cellPy} text-center border-r border-gray-100 bg-teal-50/10`}></td>;
+                      return <td key={key} className={`px-1.5 ${cellPy} text-center border-r border-gray-100 bg-teal-50/10 w-[88px]`}></td>;
                     }
                     const sa = a.staffAssignments.find(s => s.positionKey === key);
                     return (
-                      <td key={key} className={`px-1.5 ${cellPy} text-center border-r border-gray-100 bg-teal-50/10 whitespace-normal`}>
+                      <td key={key} className={`px-1.5 ${cellPy} text-center border-r border-gray-100 bg-teal-50/10 whitespace-normal w-[88px]`}>
                         <span className="text-teal-700 font-semibold">
                           {sa?.staffName || ''}
                         </span>
@@ -1656,7 +1831,7 @@ export const PackageListView: React.FC<Props> = ({
 
                   {/* Cột Thanh toán gói DV */}
                   {paymentLists && isColVisible('thanhToan') && (
-                    <td className={`px-2 ${cellPy} border-r border-gray-100 whitespace-normal w-[160px]`}>
+                    <td className={`px-2 ${cellPy} border-r border-gray-100 whitespace-normal w-[150px]`}>
                       {m ? (
                         <span
                           className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold border ${
@@ -1667,7 +1842,7 @@ export const PackageListView: React.FC<Props> = ({
                           title={m.status === 'locked' ? 'Đợt đã chốt thanh toán' : 'Đang nằm trong đợt nháp'}
                         >
                           {m.status === 'locked' ? <Lock className="h-3 w-3 shrink-0" /> : '📝'}
-                          <span className="truncate max-w-[130px]">{m.listName}</span>
+                          <span className="truncate max-w-[120px]">{m.listName}</span>
                         </span>
                       ) : a ? (
                         <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[11px] font-bold text-amber-700">
@@ -1893,6 +2068,7 @@ export const PackageListView: React.FC<Props> = ({
           currentListId={listFilter}
           onSelectList={id => {
             setListFilter(id);
+            setCurrentPage(1);
           }}
           reportYears={reportYears}
           userName={paymentLists.userName}
@@ -1982,6 +2158,7 @@ export const PackageListView: React.FC<Props> = ({
           onSuccess={(newId) => {
             justImportedBatchIdRef.current = newId;
             setListFilter(newId);
+            setCurrentPage(1);
           }}
         />
       )}

@@ -371,6 +371,58 @@ const InnerApp: React.FC = () => {
     };
   }, [currentType, paymentListData, currentReport.result, canManageLock, user?.displayName, user?.nickname, currentPeriodKey, currentReport.dateFrom, currentReport.dateTo]);
 
+  // Active batch filter for tab Gói DVYC (đồng bộ icon & badge khi chọn đợt thanh toán)
+  const [packageListFilter, setPackageListFilter] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem('package_list_view_active_state');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.listFilter === 'string') return parsed.listFilter;
+      }
+    } catch {}
+    return 'all';
+  });
+
+  useEffect(() => {
+    const handleFilterChanged = (e: any) => {
+      if (e.detail && typeof e.detail === 'string') {
+        setPackageListFilter(e.detail);
+      }
+    };
+    window.addEventListener('package_list_filter_changed', handleFilterChanged);
+    return () => window.removeEventListener('package_list_filter_changed', handleFilterChanged);
+  }, []);
+
+  const activePackageBatch = useMemo(() => {
+    if (!packageListFilter || packageListFilter === 'all') return undefined;
+    return paymentListData.lists.find(l => l.id === packageListFilter);
+  }, [paymentListData.lists, packageListFilter]);
+
+  const packageTabConfig = useMemo(() => {
+    if (activePackageBatch) {
+      return {
+        label: 'Gói DVYC',
+        icon: ListChecks,
+        badge: activePackageBatch.items.length,
+        badgeColor: 'bg-teal-100 text-teal-800 font-bold',
+      };
+    }
+    const totalAll = packageAssignments.length;
+    return {
+      label: 'Gói DVYC',
+      icon: Package,
+      badge: (
+        <span className="inline-flex items-center gap-1">
+          <span>{totalAll}</span>
+          <span className="inline-flex items-center px-1 py-0.2 rounded text-[8px] font-black uppercase tracking-tight bg-amber-400 text-amber-950 leading-tight">
+            NEW
+          </span>
+        </span>
+      ),
+      badgeColor: 'bg-teal-50 text-teal-700 font-bold',
+    };
+  }, [activePackageBatch, packageAssignments.length]);
+
   const canUnlockCurrentReport = useMemo(() => {
     // Chỉ áp dụng khóa sổ cho Báo cáo tháng
     if (currentType !== 'monthly') return false;
@@ -1045,7 +1097,7 @@ const InnerApp: React.FC = () => {
                           { value: 'payment', label: 'Thanh toán', icon: DollarSign, badge: currentReport.result?.paymentData?.rows?.length || 0, badgeColor: 'bg-emerald-100 text-emerald-700' },
                           { value: 'duty', label: 'Lịch trực', icon: CalendarDays, badge: currentReportDutyDateCount || 0 },
                           { value: 'overtime', label: 'Ngoài giờ', icon: Clock, badge: currentReportOvertimeCount || 0, badgeColor: currentReportOvertimeCount > 0 ? 'bg-amber-100 text-amber-800' : undefined },
-                          { value: 'packages', label: 'Gói DV', icon: Package, badge: packageAssignments.length > 0 ? `${packageAssignments.length} gán` : '0', badgeColor: packageAssignments.length > 0 ? 'bg-teal-100 text-teal-700' : undefined },
+                          { value: 'packages', label: packageTabConfig.label, icon: packageTabConfig.icon, badge: packageTabConfig.badge, badgeColor: packageTabConfig.badgeColor },
                         ]}
                       />
                     </div>
@@ -1108,6 +1160,7 @@ const InnerApp: React.FC = () => {
                           paymentSubTab={paymentSubTab}
                           onPaymentSubTabChange={handlePaymentSubTabChange}
                           onPrint={handlePrintClick}
+                          onPackageListFilterChange={setPackageListFilter}
                         />
                       )}
                     </div>
