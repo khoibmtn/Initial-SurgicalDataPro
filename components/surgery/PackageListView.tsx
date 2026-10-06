@@ -421,7 +421,7 @@ export const PackageListView: React.FC<Props> = ({
 
   const selectedLabel = useMemo(() => {
     if (listFilter === 'all' || !currentList) {
-      return 'Tất cả ca gán gói (Toàn viện)';
+      return 'Tất cả DVYC trong DS PT';
     }
     return getBatchFormattedName(currentList);
   }, [listFilter, currentList, getBatchFormattedName]);
@@ -1208,7 +1208,7 @@ export const PackageListView: React.FC<Props> = ({
                     >
                       <div className="flex items-center gap-2">
                         <FolderKanban className="h-4 w-4 text-teal-600" />
-                        <span>Tất cả ca gán gói (Toàn viện)</span>
+                        <span>Tất cả DVYC trong DS PT</span>
                       </div>
                       {listFilter === 'all' && <Check className="h-3.5 w-3.5 text-teal-600 shrink-0" />}
                     </button>
