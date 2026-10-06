@@ -326,7 +326,15 @@ export const PackageListView: React.FC<Props> = ({
     const handleStorage = (e: StorageEvent) => {
       if (e.key === LS_DRAFT_KEY) refreshDrafts();
     };
-    const handleCustom = () => refreshDrafts();
+    const handleCustom = () => {
+      refreshDrafts();
+      // Khi thêm ca nháp mới vào gói từ DS Phẫu thuật: Tự động chuyển Đợt thanh toán và các bộ lọc sang "Tất cả"
+      setListFilter('all');
+      setBatchFilter('all');
+      setPackageFilter('all');
+      setDischargeFilter('all');
+      setCurrentPage(1);
+    };
     window.addEventListener('storage', handleStorage);
     window.addEventListener('package_drafts_updated', handleCustom);
     return () => {
@@ -548,17 +556,18 @@ export const PackageListView: React.FC<Props> = ({
         }
       }
 
-      // Bản ghi nháp tạm đang gán dở trong phiên
+      // Bản ghi nháp tạm đang gán dở trong phiên (ưu tiên đưa lên đầu danh sách để quan sát ngay các ca mới thêm)
+      const draftList: EnrichedRowItem[] = [];
       for (const d of draftRecords) {
         const dDate = getRecordDateString(d).substring(0, 10);
         const dKey = buildCompositeKey(d.patientId || '', dDate, d.tenKT || '');
         if (!seenKeys.has(dKey)) {
           seenKeys.add(dKey);
-          list.push({ record: d, compositeKey: dKey, assignment: undefined });
+          draftList.push({ record: d, compositeKey: dKey, assignment: undefined });
         }
       }
 
-      return list;
+      return [...draftList, ...list];
     }
 
     // ── Trường hợp 2: Chọn một Đợt thanh toán nhất định (currentList) ──
@@ -1685,6 +1694,8 @@ export const PackageListView: React.FC<Props> = ({
                   className={`transition-colors ${
                     isMultiUnassigned
                       ? 'bg-amber-50/80 hover:bg-amber-100/80 border-l-4 border-l-amber-500'
+                      : !a
+                      ? 'bg-emerald-50/40 hover:bg-emerald-50/70 border-l-4 border-l-teal-500'
                       : a
                       ? 'bg-teal-50/20 hover:bg-teal-50/40'
                       : 'hover:bg-gray-50/50'
@@ -1707,6 +1718,14 @@ export const PackageListView: React.FC<Props> = ({
                     <td className={`px-2 ${cellPy} font-semibold text-gray-800 border-r border-gray-100 whitespace-normal break-words w-[115px] leading-snug`}>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span>{r.patientName}</span>
+                        {!a && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-100 text-teal-800 border border-teal-300"
+                            title="Ca vừa được thêm vào Gói DV, chưa gán gói"
+                          >
+                            Mới thêm
+                          </span>
+                        )}
                         {isMultiUnassigned && (
                           <span
                             className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300"
@@ -1806,7 +1825,14 @@ export const PackageListView: React.FC<Props> = ({
                           <span>{packageDisplay}</span>
                         </span>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <button
+                          onClick={() => handleAdd(r)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-300 transition-colors shadow-2xs cursor-pointer"
+                          title="Gán gói DVYC cho ca này"
+                        >
+                          <Plus className="h-3 w-3" />
+                          <span>Gán gói DV</span>
+                        </button>
                       )}
                     </td>
                   )}

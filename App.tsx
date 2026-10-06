@@ -89,6 +89,7 @@ import {
   clearPackageDrafts,
   LS_DRAFT_KEY,
 } from './types/servicePackage';
+import { LS_PACKAGE_VIEW_STATE_KEY } from './components/surgery/PackageListView';
 import { subscribeToAssignments, subscribeToServicePackages, subscribeToModuleConfig, subscribeToPositionCatalog } from './services/servicePackageService';
 import { subscribeAuditLogs, logAuditEvent } from './services/auditLogService';
 import { sendNotification } from './services/notificationService';
@@ -736,6 +737,25 @@ const InnerApp: React.FC = () => {
           map.set(getDraftKey(r), r);
         });
         localStorage.setItem(LS_DRAFT_KEY, JSON.stringify(Array.from(map.values())));
+
+        // Khi thêm ca vào Gói DV: Tự động chuyển Đợt thanh toán và các bộ lọc sang "Tất cả"
+        // để có thể quan sát ngay các ca mới thêm
+        try {
+          const raw = localStorage.getItem(LS_PACKAGE_VIEW_STATE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          const nextState = {
+            ...parsed,
+            listFilter: 'all',
+            batchFilter: 'all',
+            packageFilter: 'all',
+            dischargeFilter: 'all',
+            currentPage: 1,
+          };
+          localStorage.setItem(LS_PACKAGE_VIEW_STATE_KEY, JSON.stringify(nextState));
+        } catch {}
+
+        setPackageListFilter('all');
+        window.dispatchEvent(new CustomEvent('package_list_filter_changed', { detail: 'all' }));
         window.dispatchEvent(new Event('package_drafts_updated'));
         addToast(`Đã thêm ${selectedRecords.length} ca vào danh sách Gói DV`, 'info');
       } catch (e) {

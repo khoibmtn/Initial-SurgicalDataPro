@@ -293,6 +293,22 @@ describe('PackageListView Logic & Rules', () => {
     expect(loaded.dischargeFilter).toBe('discharged');
     expect(loaded.currentPage).toBe(3);
 
+    // Simulate auto-reset when adding new cases from DS Phẫu thuật
+    saveViewState({
+      listFilter: 'all',
+      packageFilter: 'all',
+      batchFilter: 'all',
+      dischargeFilter: 'all',
+      currentPage: 1,
+    });
+
+    const resetLoaded = loadSavedViewState();
+    expect(resetLoaded.listFilter).toBe('all');
+    expect(resetLoaded.packageFilter).toBe('all');
+    expect(resetLoaded.batchFilter).toBe('all');
+    expect(resetLoaded.dischargeFilter).toBe('all');
+    expect(resetLoaded.currentPage).toBe(1);
+
     localStorage.removeItem(LS_PACKAGE_VIEW_STATE_KEY);
   });
 });
