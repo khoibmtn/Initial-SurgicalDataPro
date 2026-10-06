@@ -55,7 +55,7 @@
       ".write": "auth != null"
     },
     "app_config": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": "auth != null"
     },
     "role_permissions": {

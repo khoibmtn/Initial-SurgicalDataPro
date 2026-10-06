@@ -14,7 +14,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useConfig, DEFAULT_DEPARTMENTS } from '../../contexts/ConfigContext';
 import { isValidPhoneNumber } from '../../types/auth';
 
 interface RegisterFormProps {
@@ -36,8 +36,12 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onBackToL
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  // Lấy danh sách khoa từ config
-  const departments = config.departments || [];
+  // Lấy danh sách khoa từ config, fallback sang departmentDetails hoặc danh mục mặc định
+  const departments = (config.departments && config.departments.length > 0)
+    ? config.departments
+    : (config.departmentDetails && Object.keys(config.departmentDetails).length > 0)
+      ? Object.keys(config.departmentDetails)
+      : DEFAULT_DEPARTMENTS;
 
   const validate = (): string | null => {
     const trimmedNickname = nickname.trim().toLowerCase();
@@ -225,9 +229,14 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onBackToL
             className="w-full pl-10 pr-4 py-2 text-sm rounded-lg border border-gray-300 focus:outline-hidden focus:ring-2 focus:ring-primary-500 bg-white appearance-none cursor-pointer"
           >
             <option value="">— Chọn khoa —</option>
-            {departments.map((dept) => (
-              <option key={dept} value={dept}>{dept}</option>
-            ))}
+            {departments.map((dept) => {
+              const fullName = config.departmentDetails?.[dept]?.fullName;
+              return (
+                <option key={dept} value={dept}>
+                  {fullName ? `${dept} — ${fullName}` : dept}
+                </option>
+              );
+            })}
             {departments.length === 0 && (
               <option value="Chưa phân khoa" disabled>Chưa có danh mục khoa</option>
             )}

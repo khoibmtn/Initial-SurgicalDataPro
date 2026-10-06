@@ -37,7 +37,7 @@ import {
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
-import { useConfig } from '../../contexts/ConfigContext';
+import { useConfig, DEFAULT_DEPARTMENTS } from '../../contexts/ConfigContext';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import type { AppUser, UserRole } from '../../types/auth';
 import { isValidPhoneNumber } from '../../types/auth';
@@ -425,7 +425,11 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
 }) => {
   const { user: currentUser, authConfig, isAdmin, isHead, isDeputyHead } = useAuth();
   const { config } = useConfig();
-  const departments = config.departments || [];
+  const departments = (config.departments && config.departments.length > 0)
+    ? config.departments
+    : (config.departmentDetails && Object.keys(config.departmentDetails).length > 0)
+      ? Object.keys(config.departmentDetails)
+      : DEFAULT_DEPARTMENTS;
   const [users, setUsers] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);

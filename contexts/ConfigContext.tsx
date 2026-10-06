@@ -204,13 +204,25 @@ export const DEFAULT_DEPARTMENT_DETAILS: Record<string, DepartmentDetail> = {
     'CĐHA': { fullName: 'Chẩn đoán hình ảnh' }
 };
 
+export const DEFAULT_DEPARTMENTS: string[] = [
+    'Ngoại TH',
+    'CTCH',
+    'Sản',
+    'GMHS',
+    'YHCT-PHCN',
+    'TMH',
+    'KSNK',
+    'Mắt',
+    'CĐHA'
+];
+
 export const DEFAULT_CONFIG: AppConfig = {
     priceConfig: DEFAULT_PRICE_CONFIG,
     timeRules: DEFAULT_TIME_RULES,
     roleOrder: DEFAULT_ROLE_ORDER,
     ignoredMachineCodes: ["K0", "K1"],
     ignoredMachineNames: [],
-    departments: [],
+    departments: DEFAULT_DEPARTMENTS,
     departmentDetails: DEFAULT_DEPARTMENT_DETAILS,
     reportRoleFilters: DEFAULT_ROLE_FILTERS,
     staffList: [],
