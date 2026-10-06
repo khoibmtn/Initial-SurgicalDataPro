@@ -398,6 +398,41 @@ export const reportService = {
     },
 
     /**
+     * Retrieve surgery records for a list of patient IDs across all reports using Collection Group Query
+     */
+    async getSurgeryRecordsByPatientIds(patientIds: string[]): Promise<PersistedSurgeryRecord[]> {
+        const cleanIds = Array.from(new Set(patientIds.map(id => (id || '').trim()).filter(Boolean)));
+        if (cleanIds.length === 0) return [];
+
+        const CHUNK_SIZE = 30; // Firestore 'in' filter limit is 30
+        const chunks: string[][] = [];
+        for (let i = 0; i < cleanIds.length; i += CHUNK_SIZE) {
+            chunks.push(cleanIds.slice(i, i + CHUNK_SIZE));
+        }
+
+        const allRecords: PersistedSurgeryRecord[] = [];
+        for (const chunk of chunks) {
+            try {
+                const q = query(
+                    collectionGroup(db, 'processed_records'),
+                    where('patientId', 'in', chunk)
+                );
+                const snapshot = await getDocs(q);
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data() as PersistedSurgeryRecord;
+                    data.id = docSnap.id;
+                    data.firestorePath = docSnap.ref.path;
+                    allRecords.push(data);
+                });
+            } catch (err) {
+                console.error('Error fetching records for patientId chunk:', chunk, err);
+            }
+        }
+
+        return deduplicateRecords(allRecords);
+    },
+
+    /**
      * Đồng bộ thông tin giá (Mã tương đương, Đơn giá, Thành tiền) từ BC tháng sang BC hàng ngày
      * Đối chiếu theo: Mã BN + Tên PTTT + Khoảng thời gian thực hiện (hoặc ngày thực hiện)
      */

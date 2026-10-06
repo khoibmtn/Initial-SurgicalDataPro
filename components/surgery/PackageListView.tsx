@@ -65,7 +65,6 @@ import { reconcileItems, canLock } from '../../services/paymentListReconcile';
 import { PaymentList } from '../../types/paymentList';
 import { PackageAssignmentModal } from './PackageAssignmentModal';
 import { PaymentListsContext, LookupRecord } from '../../hooks/usePaymentLists';
-import { PaymentListManagerModal } from './PaymentListManagerModal';
 import { PaymentListImportModal } from './PaymentListImportModal';
 
 interface Props {
@@ -90,8 +89,7 @@ function formatDischargeDate(dtStr?: string): string {
   return dtStr;
 }
 
-type FilterMode = 'all' | 'assigned' | 'unassigned';
-type QuickFilter = 'all' | 'unpaid_pkg' | 'discharged' | 'not_discharged' | 'unlocked';
+export type ActiveFilter = 'all' | 'assigned' | 'unassigned' | 'discharged' | 'not_discharged';
 type Density = 'compact' | 'default' | 'relaxed';
 
 // Base surgery staff columns
@@ -164,13 +162,12 @@ export const PackageListView: React.FC<Props> = ({
 }) => {
   // Selected batch in dropdown ('all' or specific listId)
   const [listFilter, setListFilter] = useState<string>('all');
-  // Quick 1-touch filter pills
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
-  // Sub-filter for assigned/unassigned
-  const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  // Unified single filter for assignment and discharge status
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
 
   // Modals for batch management
-  const [showListManager, setShowListManager] = useState(false);
+  const [showMissingModal, setShowMissingModal] = useState(false);
+  const [missingBatchItems, setMissingBatchItems] = useState<any[]>([]);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importTargetListId, setImportTargetListId] = useState<string | undefined>(undefined);
 
@@ -267,6 +264,14 @@ export const PackageListView: React.FC<Props> = ({
     return paymentLists.lists.find(l => l.id === listFilter);
   }, [paymentLists, listFilter]);
 
+  // Auto-fetch surgery records for all patient IDs in the selected batch
+  useEffect(() => {
+    if (currentList && currentList.items.length > 0 && paymentLists?.loadRecordsForPatients) {
+      const pids = currentList.items.map(it => (it.patientId || '').trim()).filter(Boolean);
+      paymentLists.loadRecordsForPatients(pids);
+    }
+  }, [currentList?.id, paymentLists?.loadRecordsForPatients]);
+
   // Clean up any draft records that are now assigned in Firestore
   useEffect(() => {
     if (draftRecords.length === 0 || assignments.length === 0) return;
@@ -306,8 +311,8 @@ export const PackageListView: React.FC<Props> = ({
     ...extraPositionCols.map(([k, label]) => ({ key: k, label })),
     { key: 'goiDV', label: 'Gói DV' },
     ...(paymentLists ? [
-      { key: 'raVien', label: 'Ra viện (BQ)' },
-      { key: 'thanhToan', label: 'Thanh toán gói DV' },
+      { key: 'raVien', label: 'Ngày RV' },
+      { key: 'thanhToan', label: 'Đợt thanh toán' },
     ] : []),
   ], [extraPositionCols, paymentLists]);
 
@@ -326,177 +331,199 @@ export const PackageListView: React.FC<Props> = ({
   const cellPy = DENSITY_PY[config.density] || DENSITY_PY.default;
 
   // Build combined list of rows:
-  // 1. ALL online assignments (visible on any machine)
-  // 2. Local drafts added from DS phẫu thuật (temporary until assigned)
-  // 3. If a specific batch is selected, also include any items from that batch that are not yet assigned
-  const enrichedRecords = useMemo(() => {
-    const list: { record: SurgeryRecord; compositeKey: string; assignment?: ServicePackageAssignment }[] = [];
-    const seenKeys = new Set<string>();
+  // 1. When listFilter === 'all': Only surgeries in the current report date range that have been assigned a service package (or local drafts)
+  // 2. When a specific batch is selected: All cases in the batch, matched with surgery data, multiple surgeries grouped & highlighted, missing surgeries alerted via popup
+  const enrichedRecords = useMemo<EnrichedRowItem[]>(() => {
+    // ── Trường hợp 1: Chọn Đợt thanh toán là "Tất cả" ──
+    // "nếu chọn Đợt thanh toán là tất cả => sẽ lấy toàn bộ các ca có áp gói thanh toán DV trong danh sách phẫu thuật trong khoảng thời gian lấy số liệu"
+    if (listFilter === 'all') {
+      const list: EnrichedRowItem[] = [];
+      const seenKeys = new Set<string>();
 
-    // 1. Process all online assignments
-    for (const a of assignments) {
-      seenKeys.add(a.compositeKey);
-      let rec = records.find(r => {
+      // Lấy toàn bộ các ca trong kỳ hiện tại đã được gán gói dịch vụ
+      for (const r of records) {
         const rDate = getRecordDateString(r).substring(0, 10);
-        if (rDate && buildCompositeKey(r.patientId || '', rDate, r.tenKT || '') === a.compositeKey) return true;
-        const cleanRecPid = (r.patientId || '').trim().toLowerCase();
-        const cleanAPid = (a.patientId || '').trim().toLowerCase();
-        if (cleanRecPid && cleanAPid && cleanRecPid === cleanAPid) {
-          if (normalizeForKey(r.tenKT || '') === normalizeForKey(a.tenKT || '')) {
-            return true;
-          }
-        }
-        return false;
-      });
+        const cleanPid = (r.patientId || '').trim().toLowerCase();
+        const rKey = buildCompositeKey(r.patientId || '', rDate, r.tenKT || '');
 
-      if (!rec) {
-        rec = draftRecords.find(d => {
-          const dDate = getRecordDateString(d).substring(0, 10);
-          if (dDate && buildCompositeKey(d.patientId || '', dDate, d.tenKT || '') === a.compositeKey) return true;
-          const cleanDPid = (d.patientId || '').trim().toLowerCase();
-          const cleanAPid = (a.patientId || '').trim().toLowerCase();
-          if (cleanDPid && cleanAPid && cleanDPid === cleanAPid) {
-            if (normalizeForKey(d.tenKT || '') === normalizeForKey(a.tenKT || '')) {
-              return true;
-            }
+        const a = assignments.find(assign => {
+          if (assign.compositeKey === rKey) return true;
+          const aPid = (assign.patientId || '').trim().toLowerCase();
+          if (cleanPid && aPid && cleanPid === aPid) {
+            return normalizeForKey(assign.tenKT || '') === normalizeForKey(r.tenKT || '');
           }
           return false;
         });
-      }
 
-      if (!rec) {
-        rec = {
-          id: a.id,
-          key: a.compositeKey,
-          patientId: a.patientId,
-          patientName: a.patientName,
-          tenKT: a.tenKT,
-          ngayBD: a.ngayBD,
-          ptChinh: a.staffAssignments.find(s => s.positionKey === 'ptChinh')?.staffName || '',
-          ptPhu: a.staffAssignments.find(s => s.positionKey === 'ptPhu')?.staffName || '',
-          bsGM: a.staffAssignments.find(s => s.positionKey === 'bsGM')?.staffName || '',
-          ktvGM: a.staffAssignments.find(s => s.positionKey === 'ktvGM')?.staffName || '',
-          tdc: a.staffAssignments.find(s => s.positionKey === 'tdc')?.staffName || '',
-          gv: a.staffAssignments.find(s => s.positionKey === 'gv')?.staffName || '',
-        } as SurgeryRecord;
-      }
-
-      list.push({ record: rec, compositeKey: a.compositeKey, assignment: a });
-    }
-
-    // 2. Process local draft records (only those not yet assigned)
-    for (const d of draftRecords) {
-      const dDate = getRecordDateString(d).substring(0, 10);
-      const dKey = buildCompositeKey(d.patientId || '', dDate, d.tenKT || '');
-      if (!seenKeys.has(dKey)) {
-        seenKeys.add(dKey);
-        list.push({ record: d, compositeKey: dKey, assignment: undefined });
-      }
-    }
-
-    // 3. If a specific payment batch is selected, include any items in it not yet in list
-    if (currentList) {
-      for (const item of currentList.items) {
-        const pid = item.patientId.trim();
-        const alreadyInList = list.some(entry => (entry.record.patientId || '').trim() === pid);
-        if (!alreadyInList) {
-          const foundRec = paymentLists?.records.find(rec => (rec.patientId || '').trim() === pid);
-          const rec: SurgeryRecord = foundRec
-            ? (foundRec as any)
-            : ({
-                id: `tckt-${pid}`,
-                key: `tckt-${pid}`,
-                patientId: item.patientId,
-                patientName: item.patientName,
-                tenKT: item.department ? `[${item.department}]` : 'Chờ gán phẫu thuật',
-                ngayBD: '',
-                ptChinh: '',
-                ptPhu: '',
-                bsGM: '',
-                ktvGM: '',
-                tdc: '',
-                gv: '',
-              } as SurgeryRecord);
-          list.push({ record: rec, compositeKey: `tckt-${pid}`, assignment: undefined });
+        if (a) {
+          seenKeys.add(a.compositeKey);
+          list.push({ record: r, compositeKey: a.compositeKey, assignment: a });
         }
       }
+
+      // Bản ghi nháp tạm đang gán dở trong phiên
+      for (const d of draftRecords) {
+        const dDate = getRecordDateString(d).substring(0, 10);
+        const dKey = buildCompositeKey(d.patientId || '', dDate, d.tenKT || '');
+        if (!seenKeys.has(dKey)) {
+          seenKeys.add(dKey);
+          list.push({ record: d, compositeKey: dKey, assignment: undefined });
+        }
+      }
+
+      return list;
     }
 
-    return list;
-  }, [assignments, records, draftRecords, currentList, paymentLists]);
+    // ── Trường hợp 2: Chọn một Đợt thanh toán nhất định (currentList) ──
+    // "nhưng nếu lấy theo danh sách nhất định (ví dụ như hình là thang 7) thì phải hiển thị đầy đủ các ca có trong danh sách, kể cả trường hợp ca đó không nằm trong DS phẫu thuật trong khoảng thời gian lấy số liệu"
+    // "trường hợp ngoại lệ: chỉ hiển thị trên thông báo popup: những ca sau chưa có dữ liệu trong danh sách phẫu thuật..., còn trên bảng ở ứng dụng sẽ không hiển thị những ca này."
+    // "Nếu bệnh nhân có nhiều lần mổ: lấy thông tin lần mổ nào được gán gói, nếu chưa lần nào được gán gói: liệt kê cả, xếp gần nhau và cho nền các ca đó màu vàng để user chú ý."
+    if (currentList) {
+      const list: EnrichedRowItem[] = [];
+      const missing: any[] = [];
 
-  // Compute status counts for Quick Filter pills
+      // Tập hợp tất cả các bản ghi phẫu thuật đã biết (trong kỳ báo cáo hiện tại + từ kho lưu trữ tra cứu chéo kỳ)
+      const allCandidateRecords: SurgeryRecord[] = [];
+      const seenCandidateKeys = new Set<string>();
+
+      const addCandidate = (r: any) => {
+        if (!r || !r.patientId) return;
+        const pid = (r.patientId || '').trim();
+        const rDate = (getRecordDateString(r) || r.ngayBD || '').substring(0, 10);
+        const ten = (r.tenKT || '').trim();
+        const k = `${pid}__${rDate}__${ten}`;
+        if (!seenCandidateKeys.has(k)) {
+          seenCandidateKeys.add(k);
+          allCandidateRecords.push(r as SurgeryRecord);
+        }
+      };
+
+      (records || []).forEach(addCandidate);
+      (paymentLists?.records || []).forEach(addCandidate);
+
+      const allAssignments = paymentLists?.allAssignments || assignments;
+
+      for (const item of currentList.items) {
+        const pid = (item.patientId || '').trim();
+        const cleanPid = pid.toLowerCase();
+
+        // 1. Tìm tất cả ca phẫu thuật ứng với mã BN này
+        const matchingRecords = allCandidateRecords.filter(
+          r => (r.patientId || '').trim().toLowerCase() === cleanPid
+        );
+
+        // 2. Tìm tất cả phân công gói DV ứng với mã BN này
+        const matchingAssignments = allAssignments.filter(
+          a => (a.patientId || '').trim().toLowerCase() === cleanPid
+        );
+
+        // Trường hợp ngoại lệ: Hoàn toàn không có dữ liệu ca mổ trong hệ thống
+        if (matchingRecords.length === 0 && matchingAssignments.length === 0) {
+          missing.push(item);
+          continue;
+        }
+
+        // Quy tắc: Nếu bệnh nhân có nhiều lần mổ: lấy thông tin lần mổ nào được gán gói
+        if (matchingAssignments.length > 0) {
+          for (const a of matchingAssignments) {
+            let rec = matchingRecords.find(r => {
+              const rDate = getRecordDateString(r).substring(0, 10);
+              if (rDate && buildCompositeKey(r.patientId || '', rDate, r.tenKT || '') === a.compositeKey) return true;
+              return normalizeForKey(r.tenKT || '') === normalizeForKey(a.tenKT || '');
+            });
+
+            if (!rec) {
+              rec = {
+                id: a.id,
+                key: a.compositeKey,
+                patientId: a.patientId,
+                patientName: a.patientName,
+                tenKT: a.tenKT,
+                ngayBD: a.ngayBD,
+                ptChinh: a.staffAssignments.find(s => s.positionKey === 'ptChinh')?.staffName || '',
+                ptPhu: a.staffAssignments.find(s => s.positionKey === 'ptPhu')?.staffName || '',
+                bsGM: a.staffAssignments.find(s => s.positionKey === 'bsGM')?.staffName || '',
+                ktvGM: a.staffAssignments.find(s => s.positionKey === 'ktvGM')?.staffName || '',
+                tdc: a.staffAssignments.find(s => s.positionKey === 'tdc')?.staffName || '',
+                gv: a.staffAssignments.find(s => s.positionKey === 'gv')?.staffName || '',
+              } as SurgeryRecord;
+            }
+
+            list.push({ record: rec, compositeKey: a.compositeKey, assignment: a });
+          }
+        } else {
+          // Quy tắc: nếu chưa lần nào được gán gói: liệt kê cả, xếp gần nhau và cho nền các ca đó màu vàng để user chú ý.
+          const isMulti = matchingRecords.length > 1;
+          for (const rec of matchingRecords) {
+            const rDate = getRecordDateString(rec).substring(0, 10);
+            const key = buildCompositeKey(rec.patientId || '', rDate, rec.tenKT || '');
+            list.push({
+              record: rec,
+              compositeKey: key,
+              assignment: undefined,
+              isDuplicateUnassigned: isMulti,
+            });
+          }
+        }
+      }
+
+      setMissingBatchItems(missing);
+      return list;
+    }
+
+    setMissingBatchItems([]);
+    return [];
+  }, [assignments, records, draftRecords, currentList, paymentLists, listFilter]);
+
+  // Tự động mở popup cảnh báo nếu có ca thiếu dữ liệu phẫu thuật khi chọn đợt
+  const prevListIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (currentList && currentList.id !== prevListIdRef.current) {
+      prevListIdRef.current = currentList.id;
+      if (missingBatchItems.length > 0) {
+        setShowMissingModal(true);
+      }
+    }
+  }, [currentList?.id, missingBatchItems.length]);
+
+  // Compute status counts for simplified Filter Pills
   const stats = useMemo(() => {
-    let unpaidPkgCount = 0;
+    let assignedCount = 0;
+    let unassignedCount = 0;
     let dischargedCount = 0;
     let notDischargedCount = 0;
-    let unlockedCount = 0;
 
     for (const { record: r, assignment: a } of enrichedRecords) {
       const pid = (r.patientId || '').trim();
-      const m = paymentLists?.membershipIndex.get(pid);
       const dc = paymentLists?.discharge[pid];
 
-      const isAssigned = Boolean(a);
-      const isLocked = m?.status === 'locked';
-      const isDischarged = Boolean(dc?.ngayRa);
+      if (a) assignedCount++;
+      else unassignedCount++;
 
-      if (isAssigned && !isLocked) {
-        unpaidPkgCount++;
-      }
-      if (isDischarged) {
-        dischargedCount++;
-      } else {
-        notDischargedCount++;
-      }
-      if (!isLocked) {
-        unlockedCount++;
-      }
+      if (dc?.ngayRa) dischargedCount++;
+      else notDischargedCount++;
     }
 
-    return { unpaidPkgCount, dischargedCount, notDischargedCount, unlockedCount };
+    return { assignedCount, unassignedCount, dischargedCount, notDischargedCount };
   }, [enrichedRecords, paymentLists]);
 
   // Filter + search
   const filtered = useMemo(() => {
     let result = enrichedRecords;
 
-    // Filter by batch selection dropdown
-    if (paymentLists && listFilter !== 'all') {
+    if (activeFilter === 'assigned') {
+      result = result.filter(r => Boolean(r.assignment));
+    } else if (activeFilter === 'unassigned') {
+      result = result.filter(r => !r.assignment);
+    } else if (activeFilter === 'discharged') {
       result = result.filter(({ record: r }) => {
         const pid = (r.patientId || '').trim();
-        const m = paymentLists.membershipIndex.get(pid);
-        return m?.listId === listFilter;
+        return Boolean(paymentLists?.discharge[pid]?.ngayRa);
       });
-    }
-
-    // Filter by assign mode (Đã gán / Chưa gán)
-    if (filterMode === 'assigned') result = result.filter(r => r.assignment);
-    if (filterMode === 'unassigned') result = result.filter(r => !r.assignment);
-
-    // Quick filter pills
-    if (paymentLists && quickFilter !== 'all') {
-      result = result.filter(({ record: r, assignment: a }) => {
+    } else if (activeFilter === 'not_discharged') {
+      result = result.filter(({ record: r }) => {
         const pid = (r.patientId || '').trim();
-        const m = paymentLists.membershipIndex.get(pid);
-        const dc = paymentLists.discharge[pid];
-        const isLocked = m?.status === 'locked';
-        const isDischarged = Boolean(dc?.ngayRa);
-
-        if (quickFilter === 'unpaid_pkg') {
-          // Chưa thanh toán gói DV: đã gán gói nhưng chưa chốt trong đợt nào
-          return Boolean(a) && !isLocked;
-        }
-        if (quickFilter === 'discharged') {
-          return isDischarged;
-        }
-        if (quickFilter === 'not_discharged') {
-          return !isDischarged;
-        }
-        if (quickFilter === 'unlocked') {
-          return !isLocked;
-        }
-        return true;
+        return !paymentLists?.discharge[pid]?.ngayRa;
       });
     }
 
@@ -515,10 +542,10 @@ export const PackageListView: React.FC<Props> = ({
       });
     }
     return result;
-  }, [enrichedRecords, filterMode, quickFilter, searchTerm, packages, paymentLists, listFilter]);
+  }, [enrichedRecords, activeFilter, searchTerm, packages, paymentLists]);
 
-  const assignedCount = enrichedRecords.filter(r => r.assignment).length;
-  const unassignedCount = enrichedRecords.length - assignedCount;
+  const assignedCount = stats.assignedCount;
+  const unassignedCount = stats.unassignedCount;
 
   // Open modal for new assignment
   const handleAdd = (record: SurgeryRecord) => {
@@ -621,7 +648,7 @@ export const PackageListView: React.FC<Props> = ({
     const lockable = canLock(recon);
     if (!lockable) {
       const mismatchCount = recon.filter(r => r.status === 'nameMismatch').length;
-      setLockWarningMessage(`Đợt này còn ${mismatchCount} ca lệch họ tên giữa danh sách TCKT và hệ thống chưa được xác nhận. Vui lòng mở "Bảng đối soát" để kiểm tra trước khi chốt.`);
+      setLockWarningMessage(`Đợt này còn ${mismatchCount} ca lệch họ tên giữa danh sách TCKT và hệ thống. Vui lòng kiểm tra lại trước khi chốt.`);
     } else {
       setLockWarningMessage(null);
     }
@@ -812,121 +839,85 @@ export const PackageListView: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Right: Bảng đối soát chi tiết */}
-          <button
-            onClick={() => setShowListManager(true)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-300 bg-white px-3 text-xs font-bold text-teal-800 hover:bg-teal-50 shadow-2xs transition-colors shrink-0"
-            title="Mở bảng đối soát chuyên sâu chi tiết từng ca"
-          >
-            <ListChecks className="h-3.5 w-3.5 text-teal-600" />
-            <span>Bảng đối soát chi tiết</span>
-          </button>
+          {/* Right: Thông báo ca thiếu dữ liệu PT nếu có */}
+          {currentList && missingBatchItems.length > 0 && (
+            <button
+              onClick={() => setShowMissingModal(true)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 text-xs font-bold text-amber-800 hover:bg-amber-100 shadow-2xs transition-colors shrink-0"
+              title="Xem danh sách các ca trong đợt chưa có dữ liệu phẫu thuật"
+            >
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+              <span>{missingBatchItems.length} ca chưa có dữ liệu PT</span>
+            </button>
+          )}
         </div>
       )}
 
-      {/* ─── HÀNG 2: BỘ LỌC 1-CHẠM & TÌM KIẾM & CẤU HÌNH ─── */}
+      {/* ─── HÀNG 2: BỘ LỌC TINH GỌN & TÌM KIẾM & CẤU HÌNH ─── */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-2 rounded-xl border border-gray-200 shadow-2xs">
-        {/* Left: Quick Filter Pills */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {/* Quick Filter Pills by Payment & Discharge */}
+        {/* Left: Consolidated Filter Pills */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Nhóm 1: Trạng thái gán gói dịch vụ */}
           <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg">
             <button
-              onClick={() => setQuickFilter('all')}
-              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                quickFilter === 'all'
+              onClick={() => setActiveFilter('all')}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                activeFilter === 'all'
                   ? 'bg-white text-gray-800 shadow-2xs'
                   : 'text-gray-500 hover:text-gray-800'
               }`}
             >
               Tất cả ({enrichedRecords.length})
             </button>
-
-            {paymentLists && (
-              <>
-                <button
-                  onClick={() => setQuickFilter('unpaid_pkg')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
-                    quickFilter === 'unpaid_pkg'
-                      ? 'bg-amber-500 text-white shadow-2xs'
-                      : 'text-amber-700 hover:bg-amber-50'
-                  }`}
-                  title="Các ca đã gán gói dịch vụ nhưng chưa chốt trong đợt thanh toán nào"
-                >
-                  ⚠️ Chưa thanh toán gói DV ({stats.unpaidPkgCount})
-                </button>
-
-                <button
-                  onClick={() => setQuickFilter('discharged')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
-                    quickFilter === 'discharged'
-                      ? 'bg-emerald-600 text-white shadow-2xs'
-                      : 'text-emerald-700 hover:bg-emerald-50'
-                  }`}
-                  title="Các ca đã có ngày ra viện theo dữ liệu BigQuery BHYT"
-                >
-                  ✅ Đã ra viện (BQ) ({stats.dischargedCount})
-                </button>
-
-                <button
-                  onClick={() => setQuickFilter('not_discharged')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                    quickFilter === 'not_discharged'
-                      ? 'bg-slate-700 text-white shadow-2xs'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                  title="Các ca chưa có ngày ra viện trong dữ liệu BigQuery"
-                >
-                  ⏳ Chưa ra viện (BQ) ({stats.notDischargedCount})
-                </button>
-
-                <button
-                  onClick={() => setQuickFilter('unlocked')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
-                    quickFilter === 'unlocked'
-                      ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'text-blue-700 hover:bg-blue-50'
-                  }`}
-                  title="Các ca chưa vào đợt nào hoặc đang ở đợt nháp"
-                >
-                  📝 Chưa chốt ({stats.unlockedCount})
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Sub-filter: Đã gán / Chưa gán */}
-          <div className="flex items-center gap-1 bg-gray-100 p-0.5 rounded-lg">
             <button
-              onClick={() => setFilterMode('all')}
-              className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                filterMode === 'all'
-                  ? 'bg-white text-teal-700 shadow-2xs'
-                  : 'text-gray-500 hover:text-gray-700'
+              onClick={() => setActiveFilter('assigned')}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                activeFilter === 'assigned'
+                  ? 'bg-white text-teal-700 shadow-2xs font-bold'
+                  : 'text-gray-600 hover:text-gray-800'
               }`}
             >
-              Mọi ca
+              Đã gán ({stats.assignedCount})
             </button>
             <button
-              onClick={() => setFilterMode('assigned')}
-              className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                filterMode === 'assigned'
-                  ? 'bg-white text-teal-700 shadow-2xs'
-                  : 'text-gray-500 hover:text-gray-700'
+              onClick={() => setActiveFilter('unassigned')}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                activeFilter === 'unassigned'
+                  ? 'bg-white text-teal-700 shadow-2xs font-bold'
+                  : 'text-gray-600 hover:text-gray-800'
               }`}
             >
-              Đã gán ({assignedCount})
-            </button>
-            <button
-              onClick={() => setFilterMode('unassigned')}
-              className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all ${
-                filterMode === 'unassigned'
-                  ? 'bg-white text-teal-700 shadow-2xs'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Chưa gán ({unassignedCount})
+              Chưa gán ({stats.unassignedCount})
             </button>
           </div>
+
+          {/* Nhóm 2: Trạng thái ra viện BHYT */}
+          {paymentLists && (
+            <div className="flex items-center gap-1 bg-emerald-50/60 border border-emerald-100 p-0.5 rounded-lg">
+              <button
+                onClick={() => setActiveFilter(activeFilter === 'discharged' ? 'all' : 'discharged')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  activeFilter === 'discharged'
+                    ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                    : 'text-emerald-700 hover:bg-emerald-100/60'
+                }`}
+                title="Lọc các ca đã có ngày ra viện BHYT"
+              >
+                Đã RV ({stats.dischargedCount})
+              </button>
+              <button
+                onClick={() => setActiveFilter(activeFilter === 'not_discharged' ? 'all' : 'not_discharged')}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                  activeFilter === 'not_discharged'
+                    ? 'bg-slate-700 text-white shadow-2xs font-bold'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+                title="Lọc các ca chưa có thông tin ngày ra viện"
+              >
+                Chưa RV ({stats.notDischargedCount})
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Right: Search + Font Size + Cấu hình */}
@@ -1106,14 +1097,17 @@ export const PackageListView: React.FC<Props> = ({
               )}
               {/* Dedicated BQ Discharge Column */}
               {paymentLists && isColVisible('raVien') && (
-                <th className={`px-2 ${cellPy} text-emerald-800 border-r border-gray-100 bg-emerald-50/40 text-center w-[115px]`}>
-                  Ra viện (BQ)
+                <th className={`px-2 ${cellPy} text-emerald-800 border-r border-gray-100 bg-emerald-50/40 text-center w-[125px]`}>
+                  <div className="flex flex-col items-center leading-tight">
+                    <span className="font-bold">Ngày RV</span>
+                    <span className="text-[10px] font-normal text-emerald-700">(Với BN BHYT)</span>
+                  </div>
                 </th>
               )}
               {/* Dedicated Service Package Payment Status Column */}
               {paymentLists && isColVisible('thanhToan') && (
-                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[160px]`}>
-                  Thanh toán gói DV
+                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[150px]`}>
+                  Đợt thanh toán
                 </th>
               )}
               {/* Action column */}
@@ -1132,7 +1126,7 @@ export const PackageListView: React.FC<Props> = ({
                     : 'Chưa có ca phù hợp với bộ lọc hiện tại.'}
                 </td>
               </tr>
-            ) : filtered.map(({ record: r, compositeKey, assignment: a }, idx) => {
+            ) : filtered.map(({ record: r, compositeKey, assignment: a, isDuplicateUnassigned }, idx) => {
               const matchedPkg = a
                 ? (packages.find(p => p.id && a.packageId && p.id === a.packageId) ||
                    packages.find(p => p.name && a.packageName && p.name.trim().toLowerCase() === a.packageName.trim().toLowerCase()))
@@ -1147,11 +1141,18 @@ export const PackageListView: React.FC<Props> = ({
               const inCurrentBatch = currentList?.items.some(i => i.patientId.trim() === pid);
               const m = paymentLists?.membershipIndex.get(pid);
               const dc = paymentLists?.discharge[pid];
+              const isMultiUnassigned = Boolean(isDuplicateUnassigned);
 
               return (
                 <tr
                   key={compositeKey}
-                  className={`transition-colors ${a ? 'bg-teal-50/20 hover:bg-teal-50/40' : 'hover:bg-gray-50/50'}`}
+                  className={`transition-colors ${
+                    isMultiUnassigned
+                      ? 'bg-amber-50/80 hover:bg-amber-100/80 border-l-4 border-l-amber-500'
+                      : a
+                      ? 'bg-teal-50/20 hover:bg-teal-50/40'
+                      : 'hover:bg-gray-50/50'
+                  }`}
                 >
                   {/* STT */}
                   <td className={`px-2 ${cellPy} text-center text-gray-400 border-r border-gray-100 font-mono`}>
@@ -1168,7 +1169,17 @@ export const PackageListView: React.FC<Props> = ({
                   {/* Họ tên */}
                   {isColVisible('patientName') && (
                     <td className={`px-2 ${cellPy} font-semibold text-gray-800 border-r border-gray-100 whitespace-normal break-words w-[140px]`}>
-                      {r.patientName}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{r.patientName}</span>
+                        {isMultiUnassigned && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300"
+                            title="Bệnh nhân có nhiều ca phẫu thuật trong dữ liệu chưa gán gói"
+                          >
+                            Nhiều ca mổ
+                          </span>
+                        )}
+                      </div>
                       {(r as any).department && (
                         <div className="text-[10px] text-teal-600 font-normal">
                           {((r as any).department)}
@@ -1243,29 +1254,19 @@ export const PackageListView: React.FC<Props> = ({
                     </td>
                   )}
 
-                  {/* Cột Ra viện (BQ) */}
+                  {/* Cột Ngày RV */}
                   {paymentLists && isColVisible('raVien') && (
                     <td className={`px-2 ${cellPy} border-r border-gray-100 whitespace-nowrap text-center`}>
                       {dc && dc.ngayRa ? (
-                        <div className="inline-flex flex-col items-center">
-                          <span
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-mono text-[11px] font-bold border border-emerald-200"
-                            title={`Ngày ra viện BHYT: ${formatDischargeDate(dc.ngayRa)}`}
-                          >
-                            <span>✅</span>
-                            <span>{formatDischargeDate(dc.ngayRa)}</span>
-                          </span>
-                          <span className="text-[10px] text-gray-500 font-medium">
-                            QT: T{dc.thangQt}/{dc.namQt}
-                          </span>
-                        </div>
-                      ) : (
                         <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-500 text-[11px] italic"
-                          title="Chưa có dữ liệu quyết toán ra viện trong BigQuery BHYT"
+                          className="text-xs text-gray-800 font-mono font-medium"
+                          title={`Ngày ra viện BHYT: ${formatDischargeDate(dc.ngayRa)}`}
                         >
-                          <span>⏳</span>
-                          <span>Chưa có ngày ra</span>
+                          {formatDischargeDate(dc.ngayRa)}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-gray-400 italic">
+                          (chưa có thông tin)
                         </span>
                       )}
                     </td>
@@ -1619,17 +1620,82 @@ export const PackageListView: React.FC<Props> = ({
         />
       )}
 
-      {/* Detailed Reconciliation Table Modal */}
-      {paymentLists && showListManager && (
-        <PaymentListManagerModal
-          ctx={paymentLists}
-          onClose={() => setShowListManager(false)}
-          onAssignPackage={(recs) => {
-            setModalRecords(recs);
-            setModalExistingAssignment(null);
-            setModalOpen(true);
-          }}
-        />
+      {/* Modal thông báo ca chưa có dữ liệu trong danh sách phẫu thuật */}
+      {showMissingModal && currentList && missingBatchItems.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs font-inter">
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-100 bg-amber-50/70 px-5 py-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 text-amber-700 shadow-xs">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-gray-800">
+                    Ca chưa có dữ liệu trong danh sách phẫu thuật
+                  </h2>
+                  <p className="text-[11px] text-amber-700">
+                    Đợt thanh toán: <strong>{currentList.name}</strong> ({missingBatchItems.length} ca chưa khớp)
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowMissingModal(false)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="mb-3 rounded-lg bg-amber-50/80 p-3 border border-amber-200/80 text-xs text-amber-900 leading-relaxed">
+                Những ca sau đây có trong đợt thanh toán (file TCKT) nhưng hệ thống <strong>chưa tìm thấy dữ liệu ca mổ</strong> tương ứng.
+                Các ca này <strong>không được hiển thị trên bảng phẫu thuật</strong>. Vui lòng kiểm tra lại hoặc nạp bổ sung file báo cáo phẫu thuật của khoa liên quan.
+              </div>
+              <div className="rounded-xl border border-gray-200 overflow-hidden shadow-2xs">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold">
+                    <tr>
+                      <th className="px-3 py-2 text-center w-10">#</th>
+                      <th className="px-3 py-2 w-28">Mã KCB</th>
+                      <th className="px-3 py-2">Họ và tên</th>
+                      <th className="px-3 py-2">Khoa (TCKT)</th>
+                      <th className="px-3 py-2 text-center w-28">Ngày RV</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {missingBatchItems.map((item, idx) => {
+                      const pid = (item.patientId || '').trim();
+                      const dc = paymentLists?.discharge[pid];
+                      return (
+                        <tr key={pid} className="hover:bg-amber-50/40">
+                          <td className="px-3 py-2 text-center text-gray-400 font-mono">{idx + 1}</td>
+                          <td className="px-3 py-2 font-mono font-bold text-gray-700">{item.patientId}</td>
+                          <td className="px-3 py-2 font-bold text-gray-800">{item.patientName}</td>
+                          <td className="px-3 py-2 text-gray-600">{item.department || '—'}</td>
+                          <td className="px-3 py-2 text-center text-gray-600 font-mono text-[11px]">
+                            {dc?.ngayRa ? formatDischargeDate(dc.ngayRa) : '(chưa có thông tin)'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end border-t border-gray-100 bg-gray-50/70 px-5 py-3">
+              <button
+                onClick={() => setShowMissingModal(false)}
+                className="rounded-lg bg-teal-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 transition-colors shadow-xs"
+              >
+                Đã hiểu & Đóng
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

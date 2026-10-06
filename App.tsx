@@ -362,6 +362,7 @@ const InnerApp: React.FC = () => {
       discharge: paymentListData.discharge,
       records: [...reportRecords, ...paymentListData.lookupRecords],
       ensureRecordsLoaded: paymentListData.ensureRecordsLoaded,
+      loadRecordsForPatients: paymentListData.loadRecordsForPatients,
       canManage: canManageLock,
       userName: user?.name || user?.email || 'Người dùng',
       periodKey: currentPeriodKey,

@@ -20,6 +20,7 @@ export interface PaymentListsContext {
   /** Records of the open report + cross-month lookup window, merged */
   records: LookupRecord[];
   ensureRecordsLoaded: () => Promise<void>;
+  loadRecordsForPatients: (patientIds: string[]) => Promise<LookupRecord[]>;
   canManage: boolean;
   userName: string;
   periodKey: string;
@@ -106,5 +107,35 @@ export function usePaymentLists(params: { enabled: boolean; dateFrom?: string; d
     return () => { cancelled = true; };
   }, [enabled, relevantIdsKey]);
 
-  return { lists, allAssignments, membershipIndex, discharge, lookupRecords, ensureRecordsLoaded };
+  const loadRecordsForPatients = useCallback(async (patientIds: string[]) => {
+    if (!enabled || !patientIds || patientIds.length === 0) return [];
+    const cleanIds = Array.from(new Set(patientIds.map(id => (id || '').trim()).filter(Boolean)));
+    if (cleanIds.length === 0) return [];
+
+    try {
+      const fetched = await reportService.getSurgeryRecordsByPatientIds(cleanIds);
+      if (fetched.length > 0) {
+        setLookupRecords(prev => {
+          const map = new Map<string, LookupRecord>();
+          prev.forEach(r => {
+            const k = `${(r.patientId || '').trim()}__${r.ngayBD || (r as any).start || ''}__${(r.tenKT || '').trim()}`;
+            map.set(k, r);
+          });
+          fetched.forEach(r => {
+            const k = `${(r.patientId || '').trim()}__${r.ngayBD || ''}__${(r.tenKT || '').trim()}`;
+            if (!map.has(k)) {
+              map.set(k, r);
+            }
+          });
+          return Array.from(map.values());
+        });
+      }
+      return fetched;
+    } catch (err) {
+      console.error('Error in loadRecordsForPatients:', err);
+      return [];
+    }
+  }, [enabled]);
+
+  return { lists, allAssignments, membershipIndex, discharge, lookupRecords, ensureRecordsLoaded, loadRecordsForPatients };
 }
