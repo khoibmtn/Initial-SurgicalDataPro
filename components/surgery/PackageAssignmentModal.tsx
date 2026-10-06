@@ -475,6 +475,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
           targetId: id,
           targetLabel: `Gói ${selectedPkg.name} - BN ${rec.patientName}`,
           periodKey: assignment.ngayBD ? assignment.ngayBD.slice(0, 7) : undefined,
+          department: user.department,
           description: `Gán gói dịch vụ "${selectedPkg.name}" cho bệnh nhân ${rec.patientName} (${rec.patientId || ''})`,
         }).catch((e) => console.warn('[auditLog] Failed to log package assignment:', e));
       }

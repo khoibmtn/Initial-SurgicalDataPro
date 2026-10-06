@@ -71,20 +71,24 @@ function formatRelativeTime(isoStr: string): string {
   }
 }
 
-function formatExactTime(isoStr: string): string {
+export function formatDateTimeExact(isoStr: string | number | Date): string {
   try {
     const d = new Date(isoStr);
-    return d.toLocaleDateString('vi-VN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
+    if (isNaN(d.getTime())) return String(isoStr);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    return `${day}/${month}/${year} ${hours}:${minutes}:${seconds}`;
   } catch {
-    return isoStr;
+    return String(isoStr);
   }
+}
+
+function formatExactTime(isoStr: string): string {
+  return formatDateTimeExact(isoStr);
 }
 
 function getActionMeta(action: AuditAction): {
@@ -416,9 +420,9 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
                             </span>
                           )}
 
-                          {log.department && log.department !== 'ALL' && (
+                          {(log.department || log.userDepartment) && (log.department || log.userDepartment) !== 'ALL' && (
                             <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
-                              Khoa {log.department}
+                              Khoa {(log.department || log.userDepartment)?.replace(/^khoa\s+/i, '')}
                             </span>
                           )}
                         </div>
@@ -440,7 +444,7 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
 
                       {/* Row 3: Executor Info */}
                       <div className="mt-2.5 pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500 flex-wrap gap-2">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span>Người thực hiện:</span>
                           <strong className="text-gray-800">{log.userName}</strong>
                           <span className="px-1.5 py-0.2 rounded bg-gray-100 text-gray-600 text-[10px] font-semibold uppercase">
@@ -449,6 +453,11 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
                               : log.userRole === 'head'
                               ? 'Trưởng khoa'
                               : 'Nhân viên'}
+                          </span>
+                          <span className="text-gray-300">•</span>
+                          <span className="inline-flex items-center gap-1 text-gray-600 font-medium">
+                            <Clock className="w-3 h-3 text-gray-400" />
+                            <span>{formatDateTimeExact(log.timestamp)}</span>
                           </span>
                         </div>
 

@@ -115,6 +115,20 @@ describe('Audit Log Service & Diff Calculation', () => {
         department: 'Ngoại TH',
         description: 'Cập nhật ca mổ BN Lê Thị C',
       },
+      {
+        id: '4',
+        timestamp: '2026-09-13T09:30:00.000Z',
+        userId: 'u3',
+        userName: 'ĐD. Lê Thị D',
+        userRole: 'staff',
+        userDepartment: 'Sản',
+        action: 'PACKAGE_ASSIGNMENT_EDIT',
+        targetType: 'service_package',
+        targetLabel: 'Gói đẻ',
+        periodKey: '2026-09',
+        department: 'Sản',
+        description: 'Gán gói đẻ',
+      },
     ];
 
     it('filters logs by action', () => {
@@ -123,10 +137,51 @@ describe('Audit Log Service & Diff Calculation', () => {
       expect(result[0].action).toBe('REPORT_LOCK');
     });
 
-    it('filters logs by department', () => {
-      const result = filterAuditLogs(mockLogs, { department: 'Ngoại TH' });
-      // Logs with department Ngoại TH or ALL should match
-      expect(result.length).toBe(3);
+    it('filters logs by department strictly excluding other departments', () => {
+      // Ngoại TH should get logs 1 (global lock), 2, 3 but NOT log 4 (Sản)
+      const resultNgoai = filterAuditLogs(mockLogs, { department: 'Ngoại TH' });
+      expect(resultNgoai.length).toBe(3);
+      expect(resultNgoai.map((l) => l.id)).toEqual(['1', '2', '3']);
+
+      // Should also match when user provides "Khoa Ngoại TH" with prefix
+      const resultWithPrefix = filterAuditLogs(mockLogs, { department: 'Khoa Ngoại TH' });
+      expect(resultWithPrefix.length).toBe(3);
+
+      // Filtering by "Sản" should only get log 1 (global lock) and log 4 (Sản)
+      const resultSan = filterAuditLogs(mockLogs, { department: 'Sản' });
+      expect(resultSan.length).toBe(2);
+      expect(resultSan.map((l) => l.id)).toEqual(['1', '4']);
+    });
+
+    it('matches logs where department is set in userDepartment', () => {
+      const logsWithUserDept: AuditLogEntry[] = [
+        {
+          id: 'u-1',
+          timestamp: '2026-09-13T10:00:00.000Z',
+          userId: 'u4',
+          userName: 'BS. Khoa Ngoại',
+          userRole: 'staff',
+          userDepartment: 'Ngoại TH',
+          action: 'RECORD_EDIT',
+          targetType: 'surgery_record',
+          description: 'Sửa ca mổ',
+        },
+        {
+          id: 'u-2',
+          timestamp: '2026-09-13T10:05:00.000Z',
+          userId: 'u5',
+          userName: 'BS. Khoa Sản',
+          userRole: 'staff',
+          userDepartment: 'Sản',
+          action: 'RECORD_EDIT',
+          targetType: 'surgery_record',
+          description: 'Sửa ca mổ khác',
+        },
+      ];
+
+      const result = filterAuditLogs(logsWithUserDept, { department: 'Ngoại TH' });
+      expect(result.length).toBe(1);
+      expect(result[0].id).toBe('u-1');
     });
 
     it('filters logs by searchTerm matching description or patient', () => {
@@ -143,7 +198,17 @@ describe('Audit Log Service & Diff Calculation', () => {
 
     it('returns all logs when filter is empty or set to ALL', () => {
       const result = filterAuditLogs(mockLogs, { action: 'ALL', department: 'ALL' });
-      expect(result.length).toBe(3);
+      expect(result.length).toBe(4);
+    });
+  });
+
+  describe('formatDateTimeExact', () => {
+    it('formats timestamps into strict dd/mm/yyyy hh:mm:ss structure', async () => {
+      const { formatDateTimeExact } = await import('../components/audit/AuditLogModal');
+      // Create a known date: 2026-10-06 14:05:09 local
+      const d = new Date(2026, 9, 6, 14, 5, 9); // month is 0-indexed (9 = Oct)
+      const formatted = formatDateTimeExact(d);
+      expect(formatted).toBe('06/10/2026 14:05:09');
     });
   });
 

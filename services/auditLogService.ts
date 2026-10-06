@@ -160,6 +160,41 @@ export function computeSurgeryRecordDiff(
   return diffs;
 }
 
+export function cleanDept(dept?: string): string {
+  if (!dept) return '';
+  return dept.trim().toLowerCase().replace(/^khoa\s+/i, '');
+}
+
+/**
+ * Kiểm tra xem một nhật ký có thuộc về khoa được chọn hay không
+ * Hỗ trợ so khớp: log.department, log.userDepartment, và nội dung mô tả/targetLabel
+ */
+export function matchesDepartment(log: AuditLogEntry, filterDept: string): boolean {
+  if (!filterDept || filterDept === 'ALL') return true;
+  const target = cleanDept(filterDept);
+  if (!target) return true;
+
+  const logDept = cleanDept(log.department);
+  const userDept = cleanDept(log.userDepartment);
+
+  // 1. Khớp theo khoa của đối tượng/ca mổ
+  if (logDept && logDept === target) return true;
+
+  // 2. Khớp theo khoa của người thực hiện
+  if (userDept && userDept === target) return true;
+
+  // 3. Khớp nếu mô tả hoặc nhãn đối tượng có nhắc đến khoa
+  if (log.description && cleanDept(log.description).includes(target)) return true;
+  if (log.targetLabel && cleanDept(log.targetLabel).includes(target)) return true;
+
+  // 4. Nếu là thao tác khóa/mở khóa sổ toàn viện (ALL), áp dụng cho mọi khoa
+  if ((log.action === 'REPORT_LOCK' || log.action === 'REPORT_UNLOCK') && log.department === 'ALL') {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Lọc danh sách audit log theo điều kiện
  */
@@ -175,7 +210,7 @@ export function filterAuditLogs(
 
     // 2. Lọc theo khoa (nếu có)
     if (filters.department && filters.department !== 'ALL') {
-      if (log.department && log.department !== 'ALL' && log.department !== filters.department) {
+      if (!matchesDepartment(log, filters.department)) {
         return false;
       }
     }
@@ -196,7 +231,7 @@ export function filterAuditLogs(
       const matchDesc = log.description?.toLowerCase().includes(q);
       const matchUser = log.userName?.toLowerCase().includes(q);
       const matchTarget = log.targetLabel?.toLowerCase().includes(q);
-      const matchDept = log.department?.toLowerCase().includes(q);
+      const matchDept = log.department?.toLowerCase().includes(q) || log.userDepartment?.toLowerCase().includes(q);
       if (!matchDesc && !matchUser && !matchTarget && !matchDept) {
         return false;
       }
