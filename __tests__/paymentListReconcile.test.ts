@@ -65,6 +65,36 @@ describe('membership', () => {
     expect(r[0].inDraftList).toEqual({ id: '2', name: 'L2' });
     expect(r[1].inDraftList).toBeUndefined();
   });
+
+  it('correctly isolates brand new entries from cases already in current or other lists', () => {
+    const idx = buildMembershipIndex(lists); // list 1: ['10'], list 2: ['20']
+    const entries = [
+      { patientId: '10', patientName: 'A' }, // in other list 1
+      { patientId: '20', patientName: 'B' }, // in current list 2
+      { patientId: '30', patientName: 'C' }, // brand new
+    ];
+
+    const targetListId = '2';
+    const brandNew = entries.filter(e => !idx.has(e.patientId));
+    const inCurrent = entries.filter(e => idx.get(e.patientId)?.listId === targetListId);
+    const inOther = entries.filter(e => idx.has(e.patientId) && idx.get(e.patientId)?.listId !== targetListId);
+
+    expect(brandNew.map(e => e.patientId)).toEqual(['30']);
+    expect(inCurrent.map(e => e.patientId)).toEqual(['20']);
+    expect(inOther.map(e => e.patientId)).toEqual(['10']);
+  });
+
+  it('blocks re-adding when all 30 imported cases already exist in target list', () => {
+    const existingIds = Array.from({ length: 30 }, (_, i) => `260000000${i}`);
+    const currentList = list('target-thang7', 'draft', existingIds);
+    const idx = buildMembershipIndex([currentList]);
+
+    const importedEntries = existingIds.map((id, i) => ({ patientId: id, patientName: `BN ${i}` }));
+    const brandNew = importedEntries.filter(e => !idx.has(e.patientId));
+
+    expect(brandNew.length).toBe(0);
+    // Button must be disabled because brandNew.length is 0
+  });
 });
 
 describe('normalizeName', () => {
