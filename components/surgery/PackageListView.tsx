@@ -912,9 +912,9 @@ export const PackageListView: React.FC<Props> = ({
                     ? 'bg-slate-700 text-white shadow-2xs font-bold'
                     : 'text-slate-600 hover:bg-slate-100'
                 }`}
-                title="Lọc các ca chưa có thông tin ngày ra viện"
+                title="Lọc các ca chưa có thông tin ngày ra viện (viện phí hoặc chưa xuất viện)"
               >
-                Chưa RV ({stats.notDischargedCount})
+                Chưa có thông tin ra viện ({stats.notDischargedCount})
               </button>
             </div>
           )}
