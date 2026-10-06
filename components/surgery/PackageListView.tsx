@@ -39,6 +39,7 @@ import {
   UserPlus,
   UserMinus,
   Sparkles,
+  ArrowRightLeft,
 } from 'lucide-react';
 import {
   ServicePackageAssignment,
@@ -60,6 +61,7 @@ import {
   unlockList,
   addItems,
   removeItem,
+  moveItem,
 } from '../../services/paymentListService';
 import { reconcileItems, canLock } from '../../services/paymentListReconcile';
 import { PaymentList } from '../../types/paymentList';
@@ -151,6 +153,21 @@ interface DeleteTarget {
   compositeKey: string;
 }
 
+interface MoveTarget {
+  patientId: string;
+  patientName: string;
+  fromListId?: string;
+  fromListName?: string;
+  isFromLocked?: boolean;
+}
+
+interface RemoveFromBatchTarget {
+  patientId: string;
+  patientName: string;
+  listId: string;
+  listName: string;
+}
+
 export const PackageListView: React.FC<Props> = ({
   assignments,
   packages,
@@ -184,6 +201,15 @@ export const PackageListView: React.FC<Props> = ({
   const [lockBatchTarget, setLockBatchTarget] = useState<PaymentList | null>(null);
   const [lockWarningMessage, setLockWarningMessage] = useState<string | null>(null);
   const [isLockingBatch, setIsLockingBatch] = useState(false);
+
+  // Move patient to another batch modal
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [targetListId, setTargetListId] = useState<string>('');
+  const [isMoving, setIsMoving] = useState(false);
+
+  // Remove patient from batch modal
+  const [removeFromBatchTarget, setRemoveFromBatchTarget] = useState<RemoveFromBatchTarget | null>(null);
+  const [isRemovingFromBatch, setIsRemovingFromBatch] = useState(false);
 
   // Table view config
   const [config, setConfig] = useState<ViewConfig>(loadConfig);
@@ -677,6 +703,76 @@ export const PackageListView: React.FC<Props> = ({
     }
   };
 
+  const handleOpenMoveModal = (
+    patientId: string,
+    patientName: string,
+    batch: { listId: string; listName: string; isLocked: boolean } | null
+  ) => {
+    const fromListId = batch?.listId;
+    const available = (paymentLists?.lists || []).filter(
+      l => l.status !== 'locked' && l.id !== fromListId
+    );
+    setMoveTarget({
+      patientId,
+      patientName,
+      fromListId,
+      fromListName: batch?.listName,
+      isFromLocked: batch?.isLocked,
+    });
+    setTargetListId(available[0]?.id || '');
+  };
+
+  const handleConfirmMove = async () => {
+    if (!moveTarget || !targetListId) return;
+    setIsMoving(true);
+    try {
+      if (moveTarget.fromListId) {
+        await moveItem(moveTarget.fromListId, targetListId, moveTarget.patientId);
+      } else {
+        await addItems(targetListId, [
+          { patientId: moveTarget.patientId, patientName: moveTarget.patientName, addedManually: true },
+        ]);
+      }
+      setMoveTarget(null);
+    } catch (err: any) {
+      alert(err?.message || 'Không thể chuyển đợt thanh toán.');
+    } finally {
+      setIsMoving(false);
+    }
+  };
+
+  const handleRequestRemoveFromBatch = (
+    patientId: string,
+    patientName: string,
+    listId: string,
+    listName: string,
+    isLocked: boolean
+  ) => {
+    if (isLocked) {
+      alert(`Đợt thanh toán "${listName}" đã chốt, không thể xóa ca khỏi đợt.`);
+      return;
+    }
+    setRemoveFromBatchTarget({
+      patientId,
+      patientName,
+      listId,
+      listName,
+    });
+  };
+
+  const handleConfirmRemoveFromBatch = async () => {
+    if (!removeFromBatchTarget) return;
+    setIsRemovingFromBatch(true);
+    try {
+      await removeItem(removeFromBatchTarget.listId, removeFromBatchTarget.patientId);
+      setRemoveFromBatchTarget(null);
+    } catch (err: any) {
+      alert(err?.message || 'Không thể xóa ca khỏi đợt thanh toán.');
+    } finally {
+      setIsRemovingFromBatch(false);
+    }
+  };
+
   const handleAddPatientToBatch = async (patientId: string, patientName: string) => {
     if (!currentList || currentList.status === 'locked') return;
     try {
@@ -1111,7 +1207,7 @@ export const PackageListView: React.FC<Props> = ({
                 </th>
               )}
               {/* Action column */}
-              <th className={`px-1.5 ${cellPy} w-[75px] text-center text-gray-500`}>Thao tác</th>
+              <th className={`px-1.5 ${cellPy} w-[115px] text-center text-gray-500`}>Thao tác</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -1142,6 +1238,11 @@ export const PackageListView: React.FC<Props> = ({
               const m = paymentLists?.membershipIndex.get(pid);
               const dc = paymentLists?.discharge[pid];
               const isMultiUnassigned = Boolean(isDuplicateUnassigned);
+
+              // Xác định thông tin đợt thanh toán của ca này
+              const batchInfo = currentList
+                ? { listId: currentList.id, listName: currentList.name, isLocked: currentList.status === 'locked' }
+                : (m ? { listId: m.listId, listName: m.listName, isLocked: m.status === 'locked' } : null);
 
               return (
                 <tr
@@ -1299,67 +1400,83 @@ export const PackageListView: React.FC<Props> = ({
                   )}
 
                   {/* Cột Thao tác */}
-                  <td className={`px-1.5 ${cellPy} text-center w-[75px]`}>
+                  <td className={`px-1.5 ${cellPy} text-center w-[115px]`}>
                     <div className="flex items-center justify-center gap-0.5">
-                      {/* Thao tác thêm/gỡ khỏi đợt nháp đang chọn */}
-                      {currentList && currentList.status === 'draft' && (
-                        inCurrentBatch ? (
-                          <button
-                            onClick={() => handleRemovePatientFromBatch(pid)}
-                            className="p-1 rounded text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors"
-                            title={`Gỡ khỏi đợt "${currentList.name}"`}
-                          >
-                            <UserMinus className="h-3.5 w-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleAddPatientToBatch(pid, r.patientName || '')}
-                            className="p-1 rounded text-teal-600 hover:bg-teal-50 hover:text-teal-800 transition-colors"
-                            title={`Thêm vào đợt "${currentList.name}"`}
-                          >
-                            <UserPlus className="h-3.5 w-3.5" />
-                          </button>
-                        )
+                      {/* 1. icon gán gói: Gán gói dịch vụ yêu cầu cho ca này */}
+                      {!a && (
+                        <button
+                          onClick={() => handleAdd(r)}
+                          className="p-1 rounded text-teal-600 hover:bg-teal-50 hover:text-teal-800 transition-colors"
+                          title="Gán gói dịch vụ yêu cầu cho ca này"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
                       )}
 
-                      {/* Thao tác gán / sửa / xóa gói */}
-                      {a ? (
-                        <>
-                          <button
-                            onClick={() => handleEdit(r, a)}
-                            className="p-1 rounded hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
-                            title="Sửa gói + nhân viên"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={(e) => handleRequestDeleteAssignment(e, a, r.patientName)}
-                            className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                            title="Gỡ gói"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => handleAdd(r)}
-                            className="p-1 rounded hover:bg-teal-50 text-teal-600 hover:text-teal-800 transition-colors"
-                            title="Gán gói dịch vụ cho ca này"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
-                          {compositeKey.startsWith('draft_') && (
-                            <button
-                              onClick={(e) => handleRequestRemoveDraft(e, r, compositeKey)}
-                              className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                              title="Loại bỏ ca này khỏi danh sách gói tạm"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </>
+                      {/* 2. icon edit: Chỉnh sửa thông tin gói, nhân lực */}
+                      {a && (
+                        <button
+                          onClick={() => handleEdit(r, a)}
+                          className="p-1 rounded hover:bg-blue-50 text-gray-500 hover:text-blue-600 transition-colors"
+                          title="Chỉnh sửa thông tin gói, nhân lực"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                        </button>
                       )}
+
+                      {/* 3. icon di chuyển: Chuyển ca này sang đợt thanh toán khác */}
+                      {paymentLists && (
+                        <button
+                          onClick={() => handleOpenMoveModal(pid, r.patientName || '', batchInfo)}
+                          className="p-1 rounded text-gray-500 hover:bg-sky-50 hover:text-sky-600 transition-colors"
+                          title="Chuyển ca này sang đợt thanh toán khác"
+                        >
+                          <ArrowRightLeft className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+
+                      {/* 4. icon xóa khỏi gói: Xóa ca này ra khỏi đợt thanh toán này (vẫn giữ gói yêu cầu) */}
+                      {paymentLists && batchInfo && (
+                        <button
+                          onClick={() =>
+                            handleRequestRemoveFromBatch(
+                              pid,
+                              r.patientName || '',
+                              batchInfo.listId,
+                              batchInfo.listName,
+                              batchInfo.isLocked
+                            )
+                          }
+                          className={`p-1 rounded transition-colors ${
+                            batchInfo.isLocked
+                              ? 'text-gray-300 cursor-not-allowed'
+                              : 'text-amber-600 hover:bg-amber-50 hover:text-amber-700'
+                          }`}
+                          title="Xóa ca này ra khỏi đợt thanh toán này (vẫn giữ gói yêu cầu)"
+                          disabled={batchInfo.isLocked}
+                        >
+                          <UserMinus className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+
+                      {/* 5. icon xóa gói: Hủy bỏ gói yêu cầu khỏi ca này */}
+                      {a ? (
+                        <button
+                          onClick={(e) => handleRequestDeleteAssignment(e, a, r.patientName)}
+                          className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Hủy bỏ gói yêu cầu khỏi ca này"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : compositeKey.startsWith('draft_') ? (
+                        <button
+                          onClick={(e) => handleRequestRemoveDraft(e, r, compositeKey)}
+                          className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Hủy bỏ gói yêu cầu khỏi ca này"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>
@@ -1692,6 +1809,143 @@ export const PackageListView: React.FC<Props> = ({
                 className="rounded-lg bg-teal-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 transition-colors shadow-xs"
               >
                 Đã hiểu & Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Chuyển ca sang đợt thanh toán khác */}
+      {moveTarget && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-xs font-inter"
+          onClick={() => !isMoving && setMoveTarget(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full mx-4 border border-gray-200 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+              <h4 className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                <ArrowRightLeft className="h-4 w-4 text-sky-600" />
+                <span>Chuyển đợt thanh toán</span>
+              </h4>
+              <button
+                onClick={() => setMoveTarget(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-100">
+                <div className="font-semibold text-gray-800">{moveTarget.patientName}</div>
+                <div className="text-gray-500 font-mono text-[11px]">Mã KCB: {moveTarget.patientId}</div>
+                {moveTarget.fromListName && (
+                  <div className="mt-1 text-[11px] text-gray-600">
+                    Đợt hiện tại: <span className="font-bold text-gray-700">{moveTarget.fromListName}</span>
+                  </div>
+                )}
+              </div>
+
+              {moveTarget.isFromLocked ? (
+                <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs leading-relaxed">
+                  ⚠️ Đợt thanh toán hiện tại <strong>{moveTarget.fromListName}</strong> đã được chốt. Không thể chuyển ca ra khỏi đợt đã chốt.
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">
+                    Chọn đợt thanh toán chuyển đến
+                  </label>
+                  {(paymentLists?.lists || []).filter(l => l.status !== 'locked' && l.id !== moveTarget.fromListId).length === 0 ? (
+                    <div className="p-2.5 bg-gray-50 border border-gray-200 text-gray-500 rounded-lg text-xs">
+                      Không có đợt thanh toán nào khác đang mở (chưa chốt) để chuyển ca đến. Vui lòng tạo thêm đợt mới trước.
+                    </div>
+                  ) : (
+                    <select
+                      value={targetListId}
+                      onChange={e => setTargetListId(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs outline-none focus:ring-1 focus:ring-sky-500 bg-white"
+                    >
+                      {(paymentLists?.lists || [])
+                        .filter(l => l.status !== 'locked' && l.id !== moveTarget.fromListId)
+                        .map(l => (
+                          <option key={l.id} value={l.id}>
+                            {l.name} ({l.items.length} ca)
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+              <button
+                onClick={() => setMoveTarget(null)}
+                disabled={isMoving}
+                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                {moveTarget.isFromLocked ? 'Đóng' : 'Hủy'}
+              </button>
+              {!moveTarget.isFromLocked && (paymentLists?.lists || []).filter(l => l.status !== 'locked' && l.id !== moveTarget.fromListId).length !== 0 && (
+                <button
+                  onClick={handleConfirmMove}
+                  disabled={isMoving || !targetListId}
+                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  <span>{isMoving ? 'Đang chuyển...' : 'Xác nhận chuyển'}</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Xóa ca khỏi đợt thanh toán (vẫn giữ gói yêu cầu) */}
+      {removeFromBatchTarget && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 backdrop-blur-xs font-inter"
+          onClick={() => !isRemovingFromBatch && setRemoveFromBatchTarget(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl p-5 max-w-sm w-full mx-4 border border-gray-200 space-y-4"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-50 text-amber-600 rounded-lg shrink-0 mt-0.5">
+                <UserMinus className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h4 className="text-sm font-bold text-gray-800">
+                  Xóa ca khỏi đợt thanh toán
+                </h4>
+                <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                  Bạn có chắc muốn xóa ca của bệnh nhân <strong>"{removeFromBatchTarget.patientName}"</strong> ra khỏi đợt thanh toán <strong>"{removeFromBatchTarget.listName}"</strong>?
+                </p>
+                <div className="mt-2 p-2 bg-blue-50/70 border border-blue-100 rounded text-[11px] text-blue-700">
+                  ℹ️ Gói dịch vụ yêu cầu và thông tin kíp mổ vẫn được giữ nguyên.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+              <button
+                onClick={() => setRemoveFromBatchTarget(null)}
+                disabled={isRemovingFromBatch}
+                className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleConfirmRemoveFromBatch}
+                disabled={isRemovingFromBatch}
+                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all shadow-xs flex items-center gap-1.5"
+              >
+                <UserMinus className="h-3.5 w-3.5" />
+                <span>{isRemovingFromBatch ? 'Đang xóa...' : 'Xóa khỏi đợt'}</span>
               </button>
             </div>
           </div>
