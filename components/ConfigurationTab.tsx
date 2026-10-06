@@ -114,13 +114,13 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                   { value: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
                   { value: 'dmkt', label: 'DMKT', icon: Database },
                   { value: 'staff', label: 'Hành chính', icon: Users },
-                  ...(isAdmin
+                  ...(isAdmin || can('manage_user_roles')
                     ? [{
                         value: 'users',
                         label: pendingApprovalCount > 0 ? `Tài khoản (${pendingApprovalCount})` : 'Tài khoản',
                         icon: Shield,
                       }]
-                    : (isHead || isDeputyHead)
+                    : (isHead || isDeputyHead || can('manage_staff'))
                     ? [{
                         value: 'users',
                         label: pendingApprovalCount > 0 ? `Tài khoản (${pendingApprovalCount})` : 'Tài khoản',
@@ -217,7 +217,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
             {/* Content area - only content scrolls */}
             <div className="p-4 flex-1 overflow-y-auto bg-white">
 
-                {activeSubTab === 'users' && (isAdmin || isHead || isDeputyHead) && (
+                {activeSubTab === 'users' && (isAdmin || isHead || isDeputyHead || can('manage_user_roles') || can('manage_staff')) && (
                     <div className="animate-fade-in">
                         <UserManagementPanel
                             activeSubTab={accountSubTab}
@@ -275,13 +275,13 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                 <button
                     type="button"
                     onClick={() => {
-                        if (!isAdmin) return;
+                        if (!isAdmin && !can('system_config')) return;
                         resetConfig();
                     }}
-                    disabled={!isAdmin}
-                    title={!isAdmin ? "Chỉ Quản trị viên (Admin) mới có quyền khôi phục cài đặt gốc" : "Khôi phục cấu hình về cài đặt gốc"}
+                    disabled={!isAdmin && !can('system_config')}
+                    title={(!isAdmin && !can('system_config')) ? "Chỉ Quản trị viên (Admin) hoặc người có quyền Cấu hình hệ thống mới có quyền khôi phục cài đặt gốc" : "Khôi phục cấu hình về cài đặt gốc"}
                     className={`text-sm flex items-center gap-1 font-medium transition-colors ${
-                        !isAdmin
+                        (!isAdmin && !can('system_config'))
                             ? 'text-gray-400 opacity-40 cursor-not-allowed pointer-events-none select-none no-underline'
                             : 'text-red-600 hover:text-red-700 hover:underline cursor-pointer'
                     }`}

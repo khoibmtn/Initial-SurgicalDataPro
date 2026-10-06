@@ -6,6 +6,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Users,
   Shield,
+  ShieldCheck,
   UserCheck,
   UserX,
   Clock,
@@ -140,6 +141,7 @@ const PendingApprovalSection: React.FC<PendingCardProps> = ({
   onReject,
   isAdmin,
 }) => {
+  const { can } = useAuth();
   const [selectedDepts, setSelectedDepts] = useState<Record<string, string>>({});
   const [approvingUids, setApprovingUids] = useState<Set<string>>(new Set());
   const [isBatchApproving, setIsBatchApproving] = useState(false);
@@ -254,9 +256,9 @@ const PendingApprovalSection: React.FC<PendingCardProps> = ({
                 </div>
               </div>
 
-              {/* Department selector (Admin can assign/change department before approving) & Action Buttons */}
+              {/* Department selector (Admin or authorized role can assign/change department before approving) & Action Buttons */}
               <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                {isAdmin && (
+                {(isAdmin || can('manage_user_roles') || can('manage_staff')) && (
                   <select
                     value={selectedDepts[u.uid] || u.department || ''}
                     onChange={(e) =>
@@ -427,6 +429,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   const [users, setUsers] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { can } = useAuth();
 
   const [internalSubTab, setInternalSubTab] = useState<'accounts' | 'permissions'>('accounts');
   const currentSubTab = propSubTab ?? internalSubTab;
@@ -459,7 +462,8 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     }
     setIsLoading(true);
 
-    if (isAdmin) {
+    const canManageAllUsers = isAdmin || can('manage_user_roles') || can('manage_staff');
+    if (canManageAllUsers) {
       const unsub = subscribeToAllUsers((data) => {
         setUsers(data);
         setIsLoading(false);
@@ -475,7 +479,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       setUsers([]);
       setIsLoading(false);
     }
-  }, [isAdmin, isHead, isDeputyHead, currentUser?.department]);
+  }, [isAdmin, isHead, isDeputyHead, currentUser?.department, can]);
 
   // Auto-clear action messages
   useEffect(() => {
@@ -495,8 +499,8 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     return users.filter((u) => {
       // Status filter
       if (statusFilter !== 'all' && u.status !== statusFilter) return false;
-      // Department filter (Admin only)
-      if (isAdmin && deptFilter !== 'all' && u.department !== deptFilter) return false;
+      // Department filter (Admin or users with manage permissions)
+      if ((isAdmin || can('manage_user_roles') || can('manage_staff')) && deptFilter !== 'all' && u.department !== deptFilter) return false;
       // Search term
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase().trim();
@@ -509,7 +513,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     });
   }, [users, statusFilter, deptFilter, searchTerm, isAdmin]);
 
-  if (!isAdmin && !isHead) return null;
+  if (!isAdmin && !isHead && !isDeputyHead && !can('manage_user_roles') && !can('manage_staff')) return null;
 
   const showMsg = (type: 'success' | 'error', text: string) => setActionMsg({ type, text });
 
@@ -564,17 +568,18 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     }
     const targetUser = users.find((u) => u.uid === uid);
     if (!isAdmin) {
-      if (!isHead) {
+      if (!isHead && !can('manage_user_roles')) {
         showMsg('error', 'Bạn không có quyền thay đổi vai trò người dùng!');
         return;
       }
-      // Trưởng khoa chỉ có thể phân vai trò Phó khoa hoặc Nhân viên cho người trong khoa
+      // Người được ủy quyền quản lý roles, hoặc Trưởng khoa chỉ có thể phân vai trò Phó khoa hoặc Nhân viên cho người trong khoa
       if (
-        !targetUser ||
+        !can('manage_user_roles') &&
+        (!targetUser ||
         targetUser.department !== currentUser?.department ||
         targetUser.role === 'admin' ||
         targetUser.role === 'head' ||
-        (role !== 'deputy_head' && role !== 'staff')
+        (role !== 'deputy_head' && role !== 'staff'))
       ) {
         showMsg('error', 'Trưởng khoa chỉ có thể gán vai trò Phó khoa hoặc Nhân viên trong khoa của mình!');
         return;
@@ -628,6 +633,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
     };
     const canChangeRoleInEdit =
       (isAdmin && editingUser.uid !== currentUser?.uid) ||
+      (can('manage_user_roles') && editingUser.uid !== currentUser?.uid) ||
       (isHead &&
         editingUser.uid !== currentUser?.uid &&
         editingUser.department === currentUser?.department &&
@@ -701,7 +707,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
   };
 
   // ─── If Head has NO department assigned (Task 8.4) ─────────────────────────
-  if (isHead && !isAdmin && !currentUser?.department) {
+  if (isHead && !isAdmin && !can('manage_user_roles') && !currentUser?.department) {
     return (
       <div className="p-6 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-2xl space-y-3 shadow-xs">
         <div className="flex items-center gap-2.5 text-amber-800">
@@ -765,7 +771,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
           <EditableCell
             value={u.displayName}
             onSave={(v) => handleUpdateDisplayName(u.uid, v)}
-            disabled={isCurrentUser || (!isAdmin && !isHead)}
+            disabled={isCurrentUser || (!isAdmin && !isHead && !can('manage_user_roles') && !can('manage_staff'))}
             placeholder="Tên hiển thị"
           />
         </td>
@@ -784,7 +790,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
 
         {/* Department */}
         <td className="px-3 py-2.5 text-gray-600">
-          {isAdmin ? (
+          {(isAdmin || can('manage_user_roles') || can('manage_staff')) ? (
             <EditableCell
               value={u.department}
               onSave={(v) => handleUpdateDepartment(u.uid, v)}
@@ -810,7 +816,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
             >
               {ROLE_OPTIONS.find((r) => r.value === u.role)?.label}
             </span>
-          ) : isAdmin ? (
+          ) : (isAdmin || can('manage_user_roles')) ? (
             <select
               value={u.role}
               onChange={(e) => handleRoleChange(u.uid, e.target.value as UserRole)}
@@ -914,8 +920,8 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
               </button>
             )}
 
-            {/* Xóa tài khoản vĩnh viễn (Admin only) */}
-            {!isCurrentUser && isAdmin && (
+            {/* Xóa tài khoản vĩnh viễn (Admin hoặc người có quyền disable_users / manage_user_roles) */}
+            {!isCurrentUser && (isAdmin || can('disable_users') || can('manage_user_roles')) && (
               <button
                 onClick={() => setDeleteConfirmUser(u)}
                 className="p-1.5 rounded-lg hover:bg-rose-50 text-rose-500 transition-colors cursor-pointer"
@@ -984,7 +990,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
       {currentSubTab === 'accounts' && (
         <div className="space-y-4 animate-in fade-in duration-150">
           {/* ─── Hero Header & Metric Cards (Tasks 8.1 & 8.4) ─────────────────────── */}
-          {(isHead || isDeputyHead) && !isAdmin && currentUser?.department ? (
+          {(isHead || isDeputyHead) && !isAdmin && !can('manage_user_roles') && !can('manage_staff') && currentUser?.department ? (
         <div className="bg-gradient-to-r from-blue-50/90 via-sky-50/50 to-white border border-blue-200 rounded-2xl p-4 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-blue-100">
             <div className="flex items-center gap-3">
@@ -1146,8 +1152,8 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
         </div>
       )}
 
-      {/* ─── Config Toggles (Admin Only) ─────────────────────────────────────── */}
-      {isAdmin && (
+      {/* ─── Config Toggles (Admin or system_config) ─────────────────────────────────────── */}
+      {(isAdmin || can('system_config')) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
             onClick={handleToggleApproval}
@@ -1230,8 +1236,8 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
             )}
           </div>
 
-          {/* Department filter (Admin only) */}
-          {isAdmin && (
+          {/* Department filter (Admin or users with manage permissions) */}
+          {(isAdmin || can('manage_user_roles') || can('manage_staff')) && (
             <div className="flex items-center gap-1.5 shrink-0">
               <SlidersHorizontal className="w-3.5 h-3.5 text-gray-400" />
               <select
@@ -1307,7 +1313,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
           <p>
             {searchTerm || statusFilter !== 'all' || deptFilter !== 'all'
               ? 'Không tìm thấy tài khoản nào khớp với bộ lọc.'
-              : isAdmin
+              : (isAdmin || can('manage_user_roles') || can('manage_staff'))
               ? 'Chưa có người dùng nào đăng ký.'
               : `Chưa có nhân viên nào thuộc khoa ${currentUser?.department || ''}.`}
           </p>
@@ -1435,8 +1441,9 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                 </select>
               </div>
 
-              {/* Role selection in modal: Admin can select any role; Head can select deputy_head or staff for own dept members */}
+              {/* Role selection in modal: Admin/Authorized can select any role; Head can select deputy_head or staff for own dept members */}
               {((isAdmin && editingUser.uid !== currentUser?.uid) ||
+                (can('manage_user_roles') && editingUser.uid !== currentUser?.uid) ||
                 (isHead &&
                   editingUser.uid !== currentUser?.uid &&
                   editingUser.department === currentUser?.department &&
@@ -1451,7 +1458,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
                     onChange={(e) => setEditFormData((prev) => ({ ...prev, role: e.target.value as UserRole }))}
                     className="w-full px-3 py-2 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50/50 focus:bg-white transition-all outline-none"
                   >
-                    {isAdmin
+                    {(isAdmin || can('manage_user_roles'))
                       ? ROLE_OPTIONS.map((opt) => (
                           <option key={opt.value} value={opt.value}>
                             {opt.label}
@@ -1532,6 +1539,9 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   isDeputyHead = false,
   department = '',
 }) => {
+  const { can } = useAuth();
+  const canSwitchToMatrix = isAdmin || can('manage_user_roles');
+  const [viewMode, setViewMode] = useState<'dept' | 'matrix'>(isAdmin ? 'matrix' : 'dept');
   const [headPerms, setHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.head);
   const [deputyHeadPerms, setDeputyHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.deputy_head);
   const [staffPerms, setStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
@@ -1655,180 +1665,276 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   };
 
   const categories = [...new Set(ALL_PERMISSIONS.map((p) => p.category))];
+  const myActivePermsCount = ALL_PERMISSIONS.filter((p) => can(p.key)).length;
 
-  // ─── Head / Deputy Head Mode View (Scoped to department) ───────────────────
-  if ((isHead || isDeputyHead) && !isAdmin) {
+  // View Switcher Bar (when user has authority to view system matrix)
+  const renderViewSwitcher = () => {
+    if (!canSwitchToMatrix || (!isHead && !isDeputyHead)) return null;
     return (
-      <div className="border border-blue-200 bg-white rounded-2xl overflow-hidden shadow-xs">
-        <div className="px-4 py-3 bg-gradient-to-r from-blue-50/90 to-sky-50/60 border-b border-blue-200 flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2.5">
-            <Building2 className="w-4 h-4 text-blue-700 shrink-0" />
-            <div>
-              <h4 className="text-xs font-bold text-gray-900">
-                Phân quyền Nhân viên — Khoa {department || 'Chưa gán khoa'}
-              </h4>
-              <p className="text-[10px] text-gray-500">
-                Điều chỉnh quyền nhân viên trong khoa dựa trên trần quyền do Admin quy định
-              </p>
+      <div className="flex items-center gap-1.5 p-1 bg-blue-50/70 border border-blue-200 rounded-xl w-fit mb-3">
+        <button
+          onClick={() => setViewMode('dept')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            viewMode === 'dept'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
+          }`}
+        >
+          Phân quyền Nhân viên khoa {department || 'của bạn'}
+        </button>
+        <button
+          onClick={() => setViewMode('matrix')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+            viewMode === 'matrix'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
+          }`}
+        >
+          Bảng phân quyền hệ thống toàn viện
+        </button>
+      </div>
+    );
+  };
+
+  // ─── Head / Deputy Head Scoped View (Default for non-admin) ─────────────────
+  if (viewMode === 'dept') {
+    return (
+      <div className="space-y-3">
+        {renderViewSwitcher()}
+
+        {/* ─── Hero Card: Quyền hạn hiện tại của chính tài khoản Trưởng khoa ─── */}
+        <div className="bg-gradient-to-r from-blue-50/90 via-sky-50/50 to-white border border-blue-200 rounded-2xl p-4 shadow-xs space-y-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-blue-600 text-white rounded-xl shadow-xs shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-xs font-bold text-gray-900">
+                    Quyền hạn tài khoản của bạn: {isHead ? 'Trưởng khoa' : isDeputyHead ? 'Phó khoa' : 'Quản lý'} — Khoa {department || 'GMHS'}
+                  </h4>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    {myActivePermsCount}/{ALL_PERMISSIONS.length} quyền đang hoạt động
+                  </span>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Tài khoản của bạn đang có đầy đủ các quyền quản trị theo cấu hình của Admin. Bảng bên dưới dùng để bạn <strong>phân quyền xuống cho Nhân viên y tế</strong> trong khoa {department || ''}.
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {isSaving ? (
-              <span className="text-[10px] text-blue-600 flex items-center gap-1">
-                <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
-              </span>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={handleGrantAllCeiling}
-                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-200 transition-colors cursor-pointer"
-                  title="Cấp toàn bộ quyền mà Admin đã cho phép cho nhân viên khoa"
+          {/* Badges of user's active permissions */}
+          <div className="pt-2 border-t border-blue-100 flex flex-wrap gap-1.5">
+            {ALL_PERMISSIONS.map((p) => {
+              const hasIt = can(p.key);
+              return (
+                <span
+                  key={p.key}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors ${
+                    hasIt
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'
+                  }`}
+                  title={hasIt ? `Bạn có quyền: ${p.label}` : `Chưa có quyền: ${p.label}`}
                 >
-                  <Sparkles className="w-3 h-3" />
-                  Cấp tối đa theo trần
-                </button>
-                <button
-                  onClick={handleResetToDefault}
-                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors cursor-pointer"
-                  title="Đặt lại các quyền về mặc định"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  Mặc định
-                </button>
-              </div>
-            )}
+                  {hasIt ? <CheckCircle2 className="w-3 h-3 text-emerald-600" /> : <XCircle className="w-3 h-3 text-gray-300" />}
+                  {p.label}
+                </span>
+              );
+            })}
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50/60">
-                <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[50%]">Chức năng & Quyền hạn</th>
-                <th className="text-center px-2 py-2 font-semibold w-[25%]">
-                  <div className="flex items-center justify-center gap-1">
-                    <Shield className="w-3 h-3 text-red-600" />
-                    <span className="text-gray-700">Trần quyền Admin</span>
-                  </div>
-                </th>
-                <th className="text-center px-2 py-2 font-semibold w-[25%]">
-                  <div className="flex items-center justify-center gap-1">
-                    <UserCheck className="w-3 h-3 text-emerald-600" />
-                    <span className="text-emerald-700">Áp dụng cho Khoa</span>
-                  </div>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((cat) => {
-                const categoryPerms = ALL_PERMISSIONS.filter((p) => p.category === cat);
-                const activeInCatCount = categoryPerms.filter(
-                  (p) => deptStaffPerms.includes(p.key) && staffPerms.includes(p.key)
-                ).length;
+        {/* ─── Bảng phân quyền cho Nhân viên khoa ─── */}
+        <div className="border border-blue-200 bg-white rounded-2xl overflow-hidden shadow-xs">
+          <div className="px-4 py-3 bg-gradient-to-r from-blue-50/90 to-sky-50/60 border-b border-blue-200 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <Building2 className="w-4 h-4 text-blue-700 shrink-0" />
+              <div>
+                <h4 className="text-xs font-bold text-gray-900">
+                  Phân quyền Nhân viên — Khoa {department || 'Chưa gán khoa'}
+                </h4>
+                <p className="text-[10px] text-gray-500">
+                  Bật/tắt quyền cho nhân viên trong khoa dựa trên trần quyền do Admin cho phép Nhân viên
+                </p>
+              </div>
+            </div>
 
-                return (
-                  <React.Fragment key={cat}>
-                    <tr className="bg-gray-50/80 border-y border-gray-100">
-                      <td colSpan={3} className="px-3.5 py-1.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">
-                            {cat}
-                          </span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-700">
-                            {activeInCatCount}/{categoryPerms.length} quyền hoạt động
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                    {categoryPerms.map((perm) => {
-                      const isAllowedByAdmin = staffPerms.includes(perm.key);
-                      const isDeptActive = deptStaffPerms.includes(perm.key) && isAllowedByAdmin;
+            <div className="flex items-center gap-2">
+              {isSaving ? (
+                <span className="text-[10px] text-blue-600 flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
+                </span>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleGrantAllCeiling}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-200 transition-colors cursor-pointer"
+                    title="Cấp toàn bộ quyền mà Admin đã cho phép cho nhân viên khoa"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Cấp tối đa theo trần
+                  </button>
+                  <button
+                    onClick={handleResetToDefault}
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors cursor-pointer"
+                    title="Đặt lại các quyền về mặc định"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Mặc định
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
 
-                      return (
-                        <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-                          <td className="px-3.5 py-2">
-                            <p className="font-semibold text-gray-800">{perm.label}</p>
-                            <p className="text-[10px] text-gray-400">{perm.description}</p>
-                          </td>
-                          <td className="text-center px-2 py-2">
-                            {isAllowedByAdmin ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Được phép
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-400 border border-gray-200">
-                                <XCircle className="w-3 h-3 text-gray-400" /> Chưa mở
-                              </span>
-                            )}
-                          </td>
-                          <td className="text-center px-2 py-2">
-                            {isAllowedByAdmin ? (
-                              <button
-                                onClick={() => toggleDepartmentPermission(perm.key)}
-                                className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-all cursor-pointer ${
-                                  isDeptActive
-                                    ? 'bg-emerald-100 hover:bg-emerald-200 ring-1 ring-emerald-300'
-                                    : 'bg-gray-100 hover:bg-gray-200'
-                                }`}
-                                title={
-                                  isDeptActive
-                                    ? `Thu hồi '${perm.label}' của nhân viên khoa`
-                                    : `Cấp '${perm.label}' cho nhân viên khoa`
-                                }
-                              >
-                                {isDeptActive ? (
-                                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                ) : (
-                                  <XCircle className="w-4 h-4 text-gray-300" />
-                                )}
-                              </button>
-                            ) : (
-                              <div
-                                className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-50 cursor-not-allowed"
-                                title="Không thể cấp: Vượt quá trần quyền Admin cho phép"
-                              >
-                                <XCircle className="w-4 h-4 text-gray-200" />
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50/60">
+                  <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[44%]">Chức năng & Quyền hạn</th>
+                  <th className="text-center px-2 py-2 font-semibold w-[28%]">
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="flex items-center gap-1">
+                        <Shield className="w-3.5 h-3.5 text-red-600" />
+                        <span className="text-gray-800 font-bold">Trần quyền cho Nhân viên</span>
+                      </div>
+                      <span className="text-[9px] text-gray-400 font-normal">(Admin cho phép Nhân viên)</span>
+                    </div>
+                  </th>
+                  <th className="text-center px-2 py-2 font-semibold w-[28%]">
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="flex items-center gap-1">
+                        <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-800 font-bold">Áp dụng cho Nhân viên khoa</span>
+                      </div>
+                      <span className="text-[9px] text-emerald-600/80 font-normal">Khoa {department || 'của bạn'}</span>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {categories.map((cat) => {
+                  const categoryPerms = ALL_PERMISSIONS.filter((p) => p.category === cat);
+                  const activeInCatCount = categoryPerms.filter(
+                    (p) => deptStaffPerms.includes(p.key) && staffPerms.includes(p.key)
+                  ).length;
 
-        <div className="px-3.5 py-2.5 bg-blue-50/50 border-t border-blue-200 text-[10px] text-blue-900 flex items-start gap-2">
-          <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
-          <span>
-            <strong>Nguyên tắc trần quyền (Permission Ceiling):</strong> Trưởng khoa chỉ có thể bật hoặc tắt các quyền trong phạm vi Admin đã phê duyệt cho Nhân viên. 
-            Thay đổi tự động lưu vào hệ thống và áp dụng tức thì cho toàn bộ nhân viên khoa {department || ''}.
-          </span>
+                  return (
+                    <React.Fragment key={cat}>
+                      <tr className="bg-gray-50/80 border-y border-gray-100">
+                        <td colSpan={3} className="px-3.5 py-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">
+                              {cat}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-700">
+                              {activeInCatCount}/{categoryPerms.length} quyền nhân viên hoạt động
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                      {categoryPerms.map((perm) => {
+                        const isAllowedByAdmin = staffPerms.includes(perm.key);
+                        const isDeptActive = deptStaffPerms.includes(perm.key) && isAllowedByAdmin;
+
+                        return (
+                          <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                            <td className="px-3.5 py-2">
+                              <p className="font-semibold text-gray-800">{perm.label}</p>
+                              <p className="text-[10px] text-gray-400">{perm.description}</p>
+                            </td>
+                            <td className="text-center px-2 py-2">
+                              {isAllowedByAdmin ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Được phép
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-400 border border-gray-200" title="Admin chưa mở quyền này cho Nhân viên toàn viện">
+                                  <XCircle className="w-3 h-3 text-gray-400" /> Chưa mở cho NV
+                                </span>
+                              )}
+                            </td>
+                            <td className="text-center px-2 py-2">
+                              {isAllowedByAdmin ? (
+                                <button
+                                  onClick={() => toggleDepartmentPermission(perm.key)}
+                                  className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-all cursor-pointer ${
+                                    isDeptActive
+                                      ? 'bg-emerald-100 hover:bg-emerald-200 ring-1 ring-emerald-300'
+                                      : 'bg-gray-100 hover:bg-gray-200'
+                                  }`}
+                                  title={
+                                    isDeptActive
+                                      ? `Thu hồi '${perm.label}' của nhân viên khoa`
+                                      : `Cấp '${perm.label}' cho nhân viên khoa`
+                                  }
+                                >
+                                  {isDeptActive ? (
+                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                  ) : (
+                                    <XCircle className="w-4 h-4 text-gray-300" />
+                                  )}
+                                </button>
+                              ) : (
+                                <div
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-50 cursor-not-allowed"
+                                  title="Không thể cấp: Vượt quá trần quyền Admin cho phép cho Nhân viên"
+                                >
+                                  <XCircle className="w-4 h-4 text-gray-200" />
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-3.5 py-2.5 bg-blue-50/70 border-t border-blue-200 text-[10px] text-blue-900 flex items-start gap-2">
+            <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
+            <div className="space-y-0.5">
+              <p>
+                <strong>Giải thích bảng này:</strong> Bảng trên dùng để <strong>Trưởng khoa phân quyền xuống cho Nhân viên y tế</strong> trong khoa {department || ''}.
+              </p>
+              <p className="text-blue-800/80">
+                - <strong>Cột Trần quyền cho Nhân viên:</strong> Là danh mục quyền tối đa mà Quản trị viên (Admin) cho phép Nhân viên toàn viện được làm. Những mục hiển thị "Chưa mở cho NV" nghĩa là Admin không cho phép Nhân viên thường thao tác mục này (như quản lý định mức, phân quyền...).
+                <br />
+                - <strong>Quyền của Trưởng khoa:</strong> Tài khoản Trưởng khoa của bạn <em>không bị giới hạn</em> bởi cột này và đang có đầy đủ các quyền quản trị như hiển thị ở thẻ phía trên.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  // ─── Admin Mode View (Full 3-role matrix) ──────────────────────────────────
+  // ─── Admin / Global Matrix Mode View (Full system matrix) ──────────────────
   return (
-    <div className="border border-gray-200 bg-white rounded-2xl overflow-hidden shadow-xs">
-      <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Shield className="w-4 h-4 text-primary-600" />
-          <h4 className="text-xs font-bold text-gray-800">Bảng phân quyền hệ thống</h4>
-        </div>
-        {isSaving && (
-          <span className="text-[10px] text-gray-400 flex items-center gap-1">
-            <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
-          </span>
-        )}
-      </div>
+    <div className="space-y-3">
+      {renderViewSwitcher()}
 
-      <div className="overflow-x-auto">
+      <div className="border border-gray-200 bg-white rounded-2xl overflow-hidden shadow-xs">
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-primary-600" />
+            <h4 className="text-xs font-bold text-gray-800">Bảng phân quyền hệ thống toàn viện</h4>
+          </div>
+          {isSaving && (
+            <span className="text-[10px] text-gray-400 flex items-center gap-1">
+              <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
+            </span>
+          )}
+        </div>
+
+        <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-gray-200 bg-gray-50/50">
@@ -1959,5 +2065,6 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
         </span>
       </div>
     </div>
-  );
+  </div>
+);
 };

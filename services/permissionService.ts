@@ -40,7 +40,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
     'view_statistics', 'view_cost_report',
-    'manage_staff', 'manage_admin_settings',
+    'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
     'approve_users', 'view_audit_log',
   ],
   deputy_head: [

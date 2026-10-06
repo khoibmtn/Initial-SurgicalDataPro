@@ -47,7 +47,7 @@
       ".write": "auth != null"
     },
     "department_permissions": {
-      ".read": "auth != null",
+      ".read": true,
       ".write": "auth != null"
     },
     "required_machines": {
@@ -56,6 +56,10 @@
     },
     "app_config": {
       ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "role_permissions": {
+      ".read": true,
       ".write": "auth != null"
     },
     "$other": {

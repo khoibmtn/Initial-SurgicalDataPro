@@ -33,19 +33,14 @@ service cloud.firestore {
       allow read: if true;
       // Đăng ký: tạo doc cho chính mình
       allow create: if isAuthenticated() && request.auth.uid == userId;
-      // Sửa: admin, chính mình, hoặc Lãnh đạo khoa sửa nhân viên cùng khoa (không được nâng quyền thành admin/head)
+      // Sửa: admin, chính mình, hoặc Lãnh đạo khoa (head/deputy_head)
       allow update: if isAuthenticated() && (
         request.auth.uid == userId || 
         isAdmin() || 
-        (
-          isHead() && 
-          resource.data.department == getUserData().department && 
-          resource.data.role == 'staff' && 
-          request.resource.data.role == 'staff'
-        )
+        isHead()
       );
-      // Xóa: chỉ admin
-      allow delete: if isAdmin();
+      // Xóa: admin hoặc Lãnh đạo khoa
+      allow delete: if isAdmin() || isHead();
     }
     
     // ── Dữ liệu Báo cáo & Phẫu thuật thủ thuật (Yêu cầu tài khoản đã duyệt - active) ──
@@ -97,7 +92,7 @@ service cloud.firestore {
     // Cấu hình phân hệ gói DV
     match /service_package_module_config/{docId} {
       allow read: if isActiveUser();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || isHead();
     }
 
     // Danh sách thanh toán gói dịch vụ
