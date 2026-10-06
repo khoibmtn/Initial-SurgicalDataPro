@@ -76,6 +76,7 @@ import { PackageAssignmentModal } from './PackageAssignmentModal';
 import { PaymentListsContext, LookupRecord } from '../../hooks/usePaymentLists';
 import { PaymentListImportModal } from './PaymentListImportModal';
 import { PaymentListManagementModal } from './PaymentListManagementModal';
+import { PageCombobox } from '../common/PageCombobox';
 import { formatDate } from '../../utils/dateUtils';
 import { useAuth } from '../../contexts/AuthContext';
 
