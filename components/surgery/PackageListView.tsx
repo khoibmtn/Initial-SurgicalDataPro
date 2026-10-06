@@ -42,6 +42,8 @@ import {
   ArrowRightLeft,
   ListFilter,
   Check,
+  FolderKanban,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   ServicePackageAssignment,
@@ -871,10 +873,10 @@ export const PackageListView: React.FC<Props> = ({
     <div className="space-y-2.5 font-inter">
       {/* ─── HÀNG 1: QUẢN LÝ ĐỢT THANH TOÁN (PAYMENT BATCH TOOLBAR) ─── */}
       {paymentLists && (
-        <div className="flex flex-wrap items-center justify-between gap-2 bg-gradient-to-r from-teal-50/90 via-white to-emerald-50/70 p-2.5 rounded-xl border border-teal-200/80 shadow-2xs">
-          {/* Left: Dropdown chọn đợt + Nút thao tác đợt */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 bg-white p-2.5 rounded-xl border border-slate-300 shadow-xs font-inter">
+          {/* Left: Dropdown chọn đợt + Thao tác đợt */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold text-teal-900 shrink-0">
+            <span className="text-xs font-bold text-slate-800 shrink-0">
               Đợt thanh toán:
             </span>
 
@@ -882,8 +884,24 @@ export const PackageListView: React.FC<Props> = ({
             <div className="relative" ref={comboboxRef}>
               <div
                 onClick={() => setComboboxOpen(prev => !prev)}
-                className="flex h-8 min-w-[240px] max-w-[320px] items-center justify-between gap-1.5 rounded-lg border border-teal-300 bg-white px-2.5 shadow-2xs cursor-pointer focus-within:ring-2 focus-within:ring-teal-500/20"
+                className={`flex h-8.5 w-72 sm:w-80 items-center justify-between gap-1.5 rounded-lg border bg-white px-2.5 shadow-2xs cursor-pointer transition-all ${
+                  comboboxOpen
+                    ? 'border-teal-600 ring-2 ring-teal-500/20'
+                    : 'border-slate-300 hover:border-slate-400'
+                }`}
               >
+                <div className="shrink-0 text-slate-500 flex items-center pointer-events-none">
+                  {comboboxOpen && comboboxQuery ? (
+                    <Search className="h-3.5 w-3.5 text-teal-600" />
+                  ) : listFilter === 'all' ? (
+                    <FolderKanban className="h-3.5 w-3.5 text-teal-600" />
+                  ) : currentList?.status === 'locked' ? (
+                    <Lock className="h-3.5 w-3.5 text-emerald-600" />
+                  ) : (
+                    <FileSpreadsheet className="h-3.5 w-3.5 text-slate-600" />
+                  )}
+                </div>
+
                 <input
                   type="text"
                   value={comboboxOpen ? comboboxQuery : selectedLabel}
@@ -891,14 +909,23 @@ export const PackageListView: React.FC<Props> = ({
                     setComboboxQuery(e.target.value);
                     if (!comboboxOpen) setComboboxOpen(true);
                   }}
-                  onFocus={() => {
+                  onFocus={e => {
                     setComboboxOpen(true);
-                    setComboboxQuery('');
+                    e.target.select();
                   }}
                   placeholder="Gõ tìm đợt thanh toán..."
-                  className="w-full bg-transparent text-xs font-bold text-teal-900 outline-none cursor-pointer placeholder:font-normal placeholder:text-gray-400"
+                  style={{
+                    border: 'none',
+                    outline: 'none',
+                    boxShadow: 'none',
+                    padding: 0,
+                    margin: 0,
+                    backgroundColor: 'transparent',
+                  }}
+                  className="w-full !border-0 !border-none !outline-none !ring-0 !shadow-none !bg-transparent !p-0 !m-0 text-xs font-bold text-slate-800 placeholder:font-normal placeholder:text-slate-400 cursor-text select-all"
                 />
-                <div className="flex items-center gap-1 text-teal-600 shrink-0">
+
+                <div className="flex items-center gap-1 text-slate-500 shrink-0">
                   {comboboxQuery && (
                     <button
                       type="button"
@@ -906,18 +933,19 @@ export const PackageListView: React.FC<Props> = ({
                         e.stopPropagation();
                         setComboboxQuery('');
                       }}
-                      className="p-0.5 hover:text-teal-800"
+                      className="p-0.5 text-slate-400 hover:text-slate-800 rounded transition-colors"
+                      title="Xóa tìm kiếm"
                     >
                       <X className="h-3 w-3" />
                     </button>
                   )}
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${comboboxOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`h-3.5 w-3.5 text-slate-500 transition-transform ${comboboxOpen ? 'rotate-180 text-slate-800' : ''}`} />
                 </div>
               </div>
 
               {/* Dropdown Options Menu */}
               {comboboxOpen && (
-                <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-80 overflow-y-auto rounded-xl border border-gray-200 bg-white p-1 shadow-xl animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute left-0 top-full z-50 mt-1 max-h-72 w-84 sm:w-96 overflow-y-auto rounded-xl border border-slate-300 bg-white p-1.5 shadow-xl animate-in fade-in zoom-in-95 duration-100 divide-y divide-slate-100">
                   <div className="p-1">
                     {/* Option: Tất cả */}
                     <button
@@ -927,24 +955,30 @@ export const PackageListView: React.FC<Props> = ({
                         setComboboxOpen(false);
                         setComboboxQuery('');
                       }}
-                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-left transition-colors ${
+                      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs text-left transition-colors ${
                         listFilter === 'all'
-                          ? 'bg-teal-50 font-bold text-teal-800'
-                          : 'text-gray-700 hover:bg-gray-50'
+                          ? 'bg-teal-50 font-bold text-teal-900 border border-teal-200'
+                          : 'text-slate-700 hover:bg-slate-50'
                       }`}
                     >
-                      <span>📂 Tất cả ca gán gói (Toàn viện)</span>
-                      {listFilter === 'all' && <Check className="h-3.5 w-3.5 text-teal-600" />}
+                      <div className="flex items-center gap-2">
+                        <FolderKanban className="h-4 w-4 text-teal-600" />
+                        <span>Tất cả ca gán gói (Toàn viện)</span>
+                      </div>
+                      {listFilter === 'all' && <Check className="h-3.5 w-3.5 text-teal-600 shrink-0" />}
                     </button>
+                  </div>
 
+                  <div className="p-1">
                     {/* Header section */}
-                    <div className="mt-1.5 mb-1 px-2.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                      Đợt trong năm {reportYears.join(', ')} ({candidateLists.length} đợt)
+                    <div className="mt-1 mb-1 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                      <span>Đợt trong năm {reportYears.join(', ')}</span>
+                      <span className="font-semibold text-slate-400">({candidateLists.length} đợt)</span>
                     </div>
 
                     {/* List items */}
                     {filteredComboboxLists.length === 0 ? (
-                      <div className="px-2.5 py-3 text-center text-xs text-gray-400 italic">
+                      <div className="px-2.5 py-4 text-center text-xs text-slate-400 italic">
                         Không tìm thấy đợt thanh toán phù hợp
                       </div>
                     ) : (
@@ -963,15 +997,26 @@ export const PackageListView: React.FC<Props> = ({
                             }}
                             className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs text-left transition-colors ${
                               isSelected
-                                ? 'bg-teal-50 font-bold text-teal-900'
-                                : 'text-gray-700 hover:bg-gray-50'
+                                ? 'bg-teal-50 font-bold text-teal-900 border border-teal-200'
+                                : 'text-slate-700 hover:bg-slate-50'
                             }`}
                           >
-                            <div className="flex items-center gap-1.5 truncate">
-                              <span>{l.status === 'locked' ? '🔒' : '📝'}</span>
+                            <div className="flex items-center gap-2 truncate">
+                              {l.status === 'locked' ? (
+                                <Lock className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                              ) : (
+                                <FileSpreadsheet className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                              )}
                               <span className="truncate">{formattedName}</span>
                             </div>
-                            {isSelected && <Check className="h-3.5 w-3.5 text-teal-600 shrink-0 ml-1" />}
+                            <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                              {l.status === 'locked' && (
+                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                  Đã chốt
+                                </span>
+                              )}
+                              {isSelected && <Check className="h-3.5 w-3.5 text-teal-600 shrink-0" />}
+                            </div>
                           </button>
                         );
                       })
@@ -981,22 +1026,9 @@ export const PackageListView: React.FC<Props> = ({
               )}
             </div>
 
-            {/* Nút Tạo đợt mới */}
-            <button
-              onClick={() => {
-                setImportTargetListId(undefined);
-                setImportModalOpen(true);
-              }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 px-3 text-xs font-bold text-white shadow-2xs hover:bg-teal-700 transition-colors"
-              title="Tạo đợt thanh toán mới từ danh sách TCKT"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Tạo đợt mới</span>
-            </button>
-
             {/* Thao tác theo ngữ cảnh khi chọn 1 đợt cụ thể */}
             {currentList && (
-              <div className="flex items-center gap-1.5 pl-2 border-l border-teal-200">
+              <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
                 {currentList.status === 'draft' ? (
                   <>
                     <button
@@ -1004,17 +1036,17 @@ export const PackageListView: React.FC<Props> = ({
                         setImportTargetListId(currentList.id);
                         setImportModalOpen(true);
                       }}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-700 hover:bg-teal-50 transition-colors"
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 transition-colors shadow-2xs"
                       title="Nhập thêm danh sách TCKT vào đợt nháp này"
                     >
-                      <Upload className="h-3.5 w-3.5" />
+                      <Upload className="h-3.5 w-3.5 text-slate-600" />
                       <span>Nhập thêm TCKT</span>
                     </button>
 
                     {paymentLists.canManage && (
                       <button
                         onClick={() => handleRequestLock(currentList)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white shadow-2xs hover:bg-emerald-700 transition-colors"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-3 text-xs font-bold text-white shadow-2xs transition-colors"
                         title="Chốt đợt thanh toán gói dịch vụ"
                       >
                         <Lock className="h-3.5 w-3.5" />
@@ -1024,7 +1056,7 @@ export const PackageListView: React.FC<Props> = ({
                   </>
                 ) : (
                   <>
-                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-100/80 border border-emerald-300 px-2.5 text-xs font-bold text-emerald-800">
+                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-50 border border-emerald-400 px-2.5 text-xs font-bold text-emerald-800 shadow-2xs">
                       <Lock className="h-3.5 w-3.5" />
                       <span>Đã chốt{currentList.lockedBy ? ` (${currentList.lockedBy})` : ''}</span>
                     </span>
@@ -1032,10 +1064,10 @@ export const PackageListView: React.FC<Props> = ({
                     {paymentLists.canManage && (
                       <button
                         onClick={() => handleUnlockBatch(currentList)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 transition-colors shadow-2xs"
                         title="Mở khóa đợt thanh toán để chỉnh sửa"
                       >
-                        <Unlock className="h-3.5 w-3.5" />
+                        <Unlock className="h-3.5 w-3.5 text-slate-600" />
                         <span>Mở khóa</span>
                       </button>
                     )}
@@ -1044,13 +1076,29 @@ export const PackageListView: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Nút DS đợt thanh toán (nằm sau chốt đợt) */}
+            {/* Phân cách nhẹ */}
+            <div className="h-5 w-px bg-slate-300 mx-0.5 hidden sm:block" />
+
+            {/* Nút Tạo đợt mới (đặt sau chốt đợt theo yêu cầu) */}
+            <button
+              onClick={() => {
+                setImportTargetListId(undefined);
+                setImportModalOpen(true);
+              }}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 px-3 text-xs font-bold text-white shadow-2xs transition-colors"
+              title="Tạo đợt thanh toán mới từ danh sách TCKT"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Tạo đợt mới</span>
+            </button>
+
+            {/* Nút DS đợt thanh toán */}
             <button
               onClick={() => setManageModalOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-300 bg-white px-2.5 text-xs font-semibold text-teal-800 hover:bg-teal-50 shadow-2xs transition-colors"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 shadow-2xs transition-colors"
               title="Quản lý danh sách các đợt thanh toán, đổi tên và lịch sử chỉnh sửa"
             >
-              <ListFilter className="h-3.5 w-3.5 text-teal-600" />
+              <ListFilter className="h-3.5 w-3.5 text-slate-600" />
               <span>DS đợt thanh toán</span>
             </button>
           </div>

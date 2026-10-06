@@ -364,12 +364,12 @@ const InnerApp: React.FC = () => {
       ensureRecordsLoaded: paymentListData.ensureRecordsLoaded,
       loadRecordsForPatients: paymentListData.loadRecordsForPatients,
       canManage: canManageLock,
-      userName: user?.name || user?.email || 'Người dùng',
+      userName: user?.displayName || user?.nickname || 'Người dùng',
       periodKey: currentPeriodKey,
       dateFrom: currentReport.dateFrom,
       dateTo: currentReport.dateTo,
     };
-  }, [currentType, paymentListData, currentReport.result, canManageLock, user?.name, user?.email, currentPeriodKey, currentReport.dateFrom, currentReport.dateTo]);
+  }, [currentType, paymentListData, currentReport.result, canManageLock, user?.displayName, user?.nickname, currentPeriodKey, currentReport.dateFrom, currentReport.dateTo]);
 
   const canUnlockCurrentReport = useMemo(() => {
     // Chỉ áp dụng khóa sổ cho Báo cáo tháng
