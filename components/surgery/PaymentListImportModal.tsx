@@ -26,7 +26,7 @@ interface Props {
 const STATUS_UI: Record<MatchStatus, { label: string; cls: string }> = {
   assigned: { label: 'Đã gán gói', cls: 'bg-emerald-100 text-emerald-800 border border-emerald-200' },
   pending: { label: 'Chưa gán gói', cls: 'bg-amber-100 text-amber-800 border border-amber-200' },
-  notFound: { label: 'Không có trong dữ liệu', cls: 'bg-red-100 text-red-800 border border-red-200' },
+  notFound: { label: 'Chưa có trong DS PT', cls: 'bg-red-100 text-red-800 border border-red-200' },
   nameMismatch: { label: 'Lệch họ tên', cls: 'bg-orange-100 text-orange-800 border border-orange-200' },
 };
 
@@ -267,6 +267,20 @@ export const PaymentListImportModal: React.FC<Props> = ({
                   ) : null;
                 })}
               </div>
+
+              {/* Cảnh báo ca chưa có dữ liệu trong DS PT khi import */}
+              {preview.some(p => p.status === 'notFound') && (
+                <div className="flex items-start gap-2.5 rounded-xl bg-amber-50 border border-amber-300 p-2.5 text-[11px] text-amber-900 shadow-2xs">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Lưu ý:</span> Có{' '}
+                    <span className="font-bold text-amber-950">
+                      {preview.filter(p => p.status === 'notFound').length} ca
+                    </span>{' '}
+                    chưa tìm thấy dữ liệu trong DS phẫu thuật. Hệ thống vẫn lưu vào đợt, nhưng các ca này sẽ không hiển thị trên bảng phẫu thuật cho tới khi nạp bổ sung file ca mổ tương ứng.
+                  </div>
+                </div>
+              )}
 
               {/* Department breakdown pills */}
               {deptStats.length > 0 && (

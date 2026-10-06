@@ -137,4 +137,75 @@ describe('PackageListView Logic & Rules', () => {
     expect(finalSurgeries[0].isDuplicateUnassigned).toBe(true);
     expect(finalSurgeries[1].isDuplicateUnassigned).toBe(true);
   });
+
+  it('Pagination: slices rows correctly according to currentPage and rowsPerPage, and calculates STT', () => {
+    const totalRecords = Array.from({ length: 75 }, (_, i) => ({
+      patientId: `BN${String(i + 1).padStart(3, '0')}`,
+      patientName: `Bệnh nhân ${i + 1}`,
+    }));
+
+    const rowsPerPage = 50;
+    const currentPage = 2;
+    const totalPages = Math.ceil(totalRecords.length / rowsPerPage);
+
+    expect(totalPages).toBe(2);
+
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    const paginated = totalRecords.slice(startIndex, startIndex + rowsPerPage);
+
+    expect(startIndex).toBe(50);
+    expect(paginated.length).toBe(25);
+    // STT for first item on page 2:
+    const firstItemStt = startIndex + 0 + 1;
+    expect(firstItemStt).toBe(51);
+    expect(paginated[0].patientId).toBe('BN051');
+    // STT for last item on page 2:
+    const lastItemStt = startIndex + paginated.length - 1 + 1;
+    expect(lastItemStt).toBe(75);
+    expect(paginated[24].patientId).toBe('BN075');
+  });
+
+  it('Date Formatting: formats ngayBD with all supported formats from DS Phẫu thuật', async () => {
+    const { formatDate } = await import('../utils/dateUtils');
+    const recordDate = '01/07/2026 08:30';
+
+    expect(formatDate(recordDate, 'dd/mm/yyyy')).toBe('01/07/2026');
+    expect(formatDate(recordDate, 'dd/mm/yyyy hh:mm')).toBe('01/07/2026 08:30');
+    expect(formatDate(recordDate, 'dd/mm hh:mm')).toBe('01/07 08:30');
+    expect(formatDate(recordDate, 'hh:mm')).toBe('08:30');
+  });
+
+  it('Package Cancellation: automatically removes patient from any payment lists containing them', () => {
+    const patientToDelete = 'BN001';
+    const mockPaymentLists = [
+      {
+        id: 'list-1',
+        name: 'Đợt tháng 7',
+        items: [
+          { patientId: 'BN001', patientName: 'NGUYỄN VĂN A' },
+          { patientId: 'BN002', patientName: 'TRẦN THỊ B' },
+        ],
+      },
+      {
+        id: 'list-2',
+        name: 'Đợt tháng 8',
+        items: [
+          { patientId: 'BN003', patientName: 'LÊ VĂN C' },
+        ],
+      },
+    ];
+
+    // Find lists containing patient
+    const listsWithPatient = mockPaymentLists.filter(pl =>
+      pl.items.some(i => i.patientId.trim() === patientToDelete)
+    );
+
+    expect(listsWithPatient.length).toBe(1);
+    expect(listsWithPatient[0].id).toBe('list-1');
+
+    // Simulate removeItem on the affected list
+    const updatedItems = listsWithPatient[0].items.filter(i => i.patientId.trim() !== patientToDelete);
+    expect(updatedItems.length).toBe(1);
+    expect(updatedItems[0].patientId).toBe('BN002');
+  });
 });

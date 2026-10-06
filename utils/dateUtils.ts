@@ -10,12 +10,16 @@ export const parseDateString = (val: any): Date | null => {
     'yyyy-MM-dd',
     "yyyy-MM-dd'T'HH:mm:ss.SSSX",
     "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+    "yyyy-MM-dd'T'HH:mm:ssX",
+    "yyyy-MM-dd'T'HH:mm:ss'Z'",
     "yyyy-MM-dd'T'HH:mm:ss"
   ];
   for (const f of formats) {
     const d = parse(val, f, new Date());
     if (isValid(d)) return d;
   }
+  const fallback = new Date(val);
+  if (isValid(fallback) && !isNaN(fallback.getTime())) return fallback;
   return null;
 };
 

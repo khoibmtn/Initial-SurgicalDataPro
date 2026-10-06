@@ -577,6 +577,10 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
         searchTerm={currentReport.searchTerms.packages || ''}
         onSearchChange={(val) => onSearchChange('packages', val)}
         paymentLists={paymentLists}
+        rowsPerPage={rowsPerPage}
+        onRowsPerPageChange={onRowsPerPageChange}
+        dateFormat={dateFormat}
+        onDateFormatChange={onDateFormatChange}
       />
     );
   }

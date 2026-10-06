@@ -30,6 +30,8 @@ import {
   Rows3,
   Minus,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ListChecks,
   AlertTriangle,
   Lock,
@@ -44,6 +46,7 @@ import {
   Check,
   FolderKanban,
   FileSpreadsheet,
+  Clock,
 } from 'lucide-react';
 import {
   ServicePackageAssignment,
@@ -73,6 +76,10 @@ import { PackageAssignmentModal } from './PackageAssignmentModal';
 import { PaymentListsContext, LookupRecord } from '../../hooks/usePaymentLists';
 import { PaymentListImportModal } from './PaymentListImportModal';
 import { PaymentListManagementModal } from './PaymentListManagementModal';
+import { PageCombobox } from '../common/PageCombobox';
+import { formatDate } from '../../utils/dateUtils';
+
+export const DATE_FORMATS = ['dd/mm/yyyy', 'dd/mm/yyyy hh:mm', 'dd/mm hh:mm', 'hh:mm'];
 
 interface Props {
   assignments: ServicePackageAssignment[];
@@ -83,6 +90,10 @@ interface Props {
   onSearchChange: (val: string) => void;
   /** Monthly report only: adds a payment-status column and filter */
   paymentLists?: PaymentListsContext;
+  rowsPerPage?: number;
+  onRowsPerPageChange?: (rows: number) => void;
+  dateFormat?: string;
+  onDateFormatChange?: (fmt: string) => void;
 }
 
 function fmt(n: number | undefined | null): string {
@@ -117,12 +128,14 @@ interface ViewConfig {
   hiddenCols: string[];
   density: Density;
   fontSize: number; // in px, default 12
+  dateFormat?: string;
 }
 
 const DEFAULT_CONFIG: ViewConfig = {
   hiddenCols: [],
   density: 'default',
   fontSize: 12,
+  dateFormat: 'dd/mm/yyyy hh:mm',
 };
 
 function loadConfig(): ViewConfig {
@@ -156,6 +169,7 @@ interface DeleteTarget {
   id: string;
   patientName: string;
   compositeKey: string;
+  patientId?: string;
 }
 
 interface MoveTarget {
@@ -181,6 +195,10 @@ export const PackageListView: React.FC<Props> = ({
   searchTerm,
   onSearchChange,
   paymentLists,
+  rowsPerPage,
+  onRowsPerPageChange,
+  dateFormat: propDateFormat,
+  onDateFormatChange,
 }) => {
   // Selected batch in dropdown ('all' or specific listId)
   const [listFilter, setListFilter] = useState<string>('all');
@@ -289,6 +307,15 @@ export const PackageListView: React.FC<Props> = ({
       return next;
     });
   }, []);
+
+  const currentDateFormat = propDateFormat || config.dateFormat || 'dd/mm/yyyy hh:mm';
+
+  const handleDateFormatChange = (fmt: string) => {
+    updateConfig({ dateFormat: fmt });
+    if (onDateFormatChange) {
+      onDateFormatChange(fmt);
+    }
+  };
 
   // Currently selected list object (if viewing a specific batch)
   const currentList = useMemo(() => {
@@ -407,10 +434,11 @@ export const PackageListView: React.FC<Props> = ({
   const allColumns = useMemo(() => [
     { key: 'patientId', label: 'Mã KCB' },
     { key: 'patientName', label: 'Họ tên' },
+    { key: 'ngayBD', label: 'Ngày PT' },
     { key: 'tenKT', label: 'Tên phẫu thuật' },
     ...BASE_STAFF_COLS.map(c => ({ key: c.key, label: c.label })),
     ...extraPositionCols.map(([k, label]) => ({ key: k, label })),
-    { key: 'goiDV', label: 'Gói DV' },
+    { key: 'goiDV', label: 'Gói DVYC' },
     ...(paymentLists ? [
       { key: 'raVien', label: 'Ngày RV' },
       { key: 'thanhToan', label: 'Đợt thanh toán' },
@@ -576,16 +604,16 @@ export const PackageListView: React.FC<Props> = ({
     return [];
   }, [assignments, records, draftRecords, currentList, paymentLists, listFilter]);
 
-  // Tự động mở popup cảnh báo nếu có ca thiếu dữ liệu phẫu thuật khi chọn đợt
-  const prevListIdRef = useRef<string | null>(null);
+  // Chỉ mở modal thông báo ca thiếu dữ liệu phẫu thuật khi vừa import/paste lần đầu (không tự động bung khi mở lại danh sách đã lưu)
+  const justImportedBatchIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (currentList && currentList.id !== prevListIdRef.current) {
-      prevListIdRef.current = currentList.id;
+    if (currentList && justImportedBatchIdRef.current === currentList.id) {
+      justImportedBatchIdRef.current = null;
       if (missingBatchItems.length > 0) {
         setShowMissingModal(true);
       }
     }
-  }, [currentList?.id, missingBatchItems.length]);
+  }, [currentList?.id, missingBatchItems]);
 
   // Compute status counts for simplified Filter Pills
   const stats = useMemo(() => {
@@ -638,12 +666,39 @@ export const PackageListView: React.FC<Props> = ({
           : undefined;
         const pkgShort = matched?.shortName || a?.packageShortName || '';
         const dept = (r as any).khoa || (r as any).department || '';
-        const text = `${r.patientId} ${r.patientName} ${r.tenKT} ${r.ptChinh} ${r.ptPhu} ${a?.packageName || ''} ${pkgShort} ${dept}`.toLowerCase();
+        const text = `${r.patientId} ${r.patientName} ${r.ngayBD || ''} ${r.tenKT} ${r.ptChinh} ${r.ptPhu} ${a?.packageName || ''} ${pkgShort} ${dept}`.toLowerCase();
         return terms.every(t => text.includes(t));
       });
     }
     return result;
   }, [enrichedRecords, activeFilter, searchTerm, packages, paymentLists]);
+
+  // Pagination state (đồng bộ giao diện & trải nghiệm với tab DS PT)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [localRowsPerPage, setLocalRowsPerPage] = useState(50);
+  const currentRowsPerPage = rowsPerPage !== undefined ? rowsPerPage : localRowsPerPage;
+
+  // Tự động về trang 1 khi đổi từ khóa tìm kiếm, bộ lọc hoặc đổi đợt thanh toán
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, activeFilter, listFilter]);
+
+  const totalPages = Math.ceil(filtered.length / currentRowsPerPage) || 1;
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, totalPages]);
+
+  const startIndex = (currentPage - 1) * currentRowsPerPage;
+  const paginatedRows = useMemo(() => {
+    return filtered.slice(startIndex, startIndex + currentRowsPerPage);
+  }, [filtered, startIndex, currentRowsPerPage]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
 
   const assignedCount = stats.assignedCount;
   const unassignedCount = stats.unassignedCount;
@@ -663,7 +718,7 @@ export const PackageListView: React.FC<Props> = ({
   };
 
   // Delete click opens clean React confirmation modal
-  const handleRequestDeleteAssignment = (e: React.MouseEvent, a: ServicePackageAssignment, patientName: string) => {
+  const handleRequestDeleteAssignment = (e: React.MouseEvent, a: ServicePackageAssignment, patientName: string, patientId?: string) => {
     e.stopPropagation();
     e.preventDefault();
     setDeleteTarget({
@@ -671,6 +726,7 @@ export const PackageListView: React.FC<Props> = ({
       id: a.id,
       patientName: patientName || a.patientName,
       compositeKey: a.compositeKey,
+      patientId: patientId || a.patientId,
     });
   };
 
@@ -682,6 +738,7 @@ export const PackageListView: React.FC<Props> = ({
       id: r.id || r.key || compositeKey,
       patientName: r.patientName || '',
       compositeKey,
+      patientId: r.patientId || '',
     });
   };
 
@@ -702,6 +759,21 @@ export const PackageListView: React.FC<Props> = ({
           localStorage.setItem(LS_DRAFT_KEY, JSON.stringify(nextDrafts));
         } catch {}
       }
+
+      // Nghiệp vụ: Ngoài việc hủy gán gói, bỏ luôn ca đó ra khỏi bất kỳ danh sách đợt thanh toán nào
+      const pid = (deleteTarget.patientId || '').trim();
+      if (paymentLists && pid) {
+        for (const pl of paymentLists.lists) {
+          if (pl.items.some(i => i.patientId.trim() === pid)) {
+            try {
+              await removeItem(pl.id, pid, paymentLists.userName);
+            } catch (err) {
+              console.error(`[PackageListView] Failed to remove ${pid} from list ${pl.id}:`, err);
+            }
+          }
+        }
+      }
+
       setDeleteTarget(null);
     } catch (err) {
       console.error('[PackageListView] delete error:', err);
@@ -858,6 +930,7 @@ export const PackageListView: React.FC<Props> = ({
     let count = 2; // STT + Actions
     if (isColVisible('patientId')) count++;
     if (isColVisible('patientName')) count++;
+    if (isColVisible('ngayBD')) count++;
     if (isColVisible('tenKT')) count++;
     BASE_STAFF_COLS.forEach(c => { if (isColVisible(c.key)) count++; });
     extraPositionCols.forEach(([k]) => { if (isColVisible(k)) count++; });
@@ -1231,7 +1304,7 @@ export const PackageListView: React.FC<Props> = ({
           <div className="relative" ref={configRef}>
             <button
               onClick={() => setConfigOpen(!configOpen)}
-              title="Cấu hình hiển thị và mật độ bảng"
+              title="Cấu hình hiển thị, ngày giờ và mật độ bảng"
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-all shadow-2xs ${
                 configOpen
                   ? 'bg-teal-50 border-teal-300 text-teal-700'
@@ -1239,7 +1312,7 @@ export const PackageListView: React.FC<Props> = ({
               }`}
             >
               <Settings className="h-3.5 w-3.5" />
-              <span>Cột</span>
+              <span>Cấu hình</span>
               <ChevronDown className={`h-3 w-3 text-gray-400 transition-transform ${configOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -1266,6 +1339,33 @@ export const PackageListView: React.FC<Props> = ({
                         >
                           <Icon className="h-3 w-3" />
                           <span>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Date format selector (tương tự tab DS Phẫu thuật) */}
+                <div>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                    <Clock className="h-3 w-3 text-teal-600" />
+                    <span>Định dạng ngày giờ (Ngày PT)</span>
+                  </span>
+                  <div className="grid grid-cols-2 gap-1 bg-gray-100 p-0.5 rounded-lg">
+                    {DATE_FORMATS.map(fmt => {
+                      const isActive = currentDateFormat === fmt;
+                      return (
+                        <button
+                          key={fmt}
+                          type="button"
+                          onClick={() => handleDateFormatChange(fmt)}
+                          className={`flex items-center justify-center py-1 px-1 rounded text-[11px] font-medium transition-all ${
+                            isActive
+                              ? 'bg-white text-teal-700 shadow-2xs font-semibold'
+                              : 'text-gray-500 hover:text-gray-800'
+                          }`}
+                        >
+                          <span>{fmt}</span>
                         </button>
                       );
                     })}
@@ -1321,11 +1421,12 @@ export const PackageListView: React.FC<Props> = ({
       </div>
 
       {/* ─── MAIN UNIFIED DATA TABLE ─── */}
-      <div className="overflow-x-auto border border-gray-200 rounded-xl bg-white shadow-2xs">
-        <table
-          className="w-full text-left"
-          style={{ fontSize: `${config.fontSize}px` }}
-        >
+      <div className="border border-gray-200 rounded-xl bg-white shadow-2xs overflow-hidden flex flex-col">
+        <div className="overflow-x-auto flex-1">
+          <table
+            className="w-full text-left"
+            style={{ fontSize: `${config.fontSize}px` }}
+          >
           <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10 font-semibold text-gray-600">
             <tr>
               <th className={`px-2 ${cellPy} w-8 text-center text-gray-500 border-r border-gray-100`}>#</th>
@@ -1334,6 +1435,11 @@ export const PackageListView: React.FC<Props> = ({
               )}
               {isColVisible('patientName') && (
                 <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[140px]`}>Họ tên</th>
+              )}
+              {isColVisible('ngayBD') && (
+                <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 text-center w-[125px]`}>
+                  Ngày PT
+                </th>
               )}
               {isColVisible('tenKT') && (
                 <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[160px]`}>Tên phẫu thuật</th>
@@ -1355,7 +1461,7 @@ export const PackageListView: React.FC<Props> = ({
                 <th className={`px-2.5 ${cellPy} text-teal-800 border-r border-gray-100 bg-teal-50/30 w-[150px]`}>
                   <div className="flex items-center gap-1.5">
                     <Package className="h-3.5 w-3.5 text-teal-600 shrink-0" />
-                    <span>Gói DV</span>
+                    <span>Gói DVYC</span>
                   </div>
                 </th>
               )}
@@ -1390,7 +1496,7 @@ export const PackageListView: React.FC<Props> = ({
                     : 'Chưa có ca phù hợp với bộ lọc hiện tại.'}
                 </td>
               </tr>
-            ) : filtered.map(({ record: r, compositeKey, assignment: a, isDuplicateUnassigned }, idx) => {
+            ) : paginatedRows.map(({ record: r, compositeKey, assignment: a, isDuplicateUnassigned }, idx) => {
               const matchedPkg = a
                 ? (packages.find(p => p.id && a.packageId && p.id === a.packageId) ||
                    packages.find(p => p.name && a.packageName && p.name.trim().toLowerCase() === a.packageName.trim().toLowerCase()))
@@ -1425,7 +1531,7 @@ export const PackageListView: React.FC<Props> = ({
                 >
                   {/* STT */}
                   <td className={`px-2 ${cellPy} text-center text-gray-400 border-r border-gray-100 font-mono`}>
-                    {idx + 1}
+                    {startIndex + idx + 1}
                   </td>
 
                   {/* Mã KCB */}
@@ -1454,6 +1560,13 @@ export const PackageListView: React.FC<Props> = ({
                           {((r as any).department)}
                         </div>
                       )}
+                    </td>
+                  )}
+
+                  {/* Ngày PT (lấy từ Ngày bắt đầu phẫu thuật r.ngayBD) */}
+                  {isColVisible('ngayBD') && (
+                    <td className={`px-2 ${cellPy} text-center font-mono text-gray-600 border-r border-gray-100 text-[0.88em] whitespace-nowrap`}>
+                      {r.ngayBD ? formatDate(r.ngayBD, currentDateFormat) : '—'}
                     </td>
                   )}
 
@@ -1630,7 +1743,7 @@ export const PackageListView: React.FC<Props> = ({
                       {/* 5. icon xóa gói: Hủy bỏ gói yêu cầu khỏi ca này */}
                       {a ? (
                         <button
-                          onClick={(e) => handleRequestDeleteAssignment(e, a, r.patientName)}
+                          onClick={(e) => handleRequestDeleteAssignment(e, a, r.patientName, r.patientId || a.patientId)}
                           className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                           title="Hủy bỏ gói yêu cầu khỏi ca này"
                         >
@@ -1652,12 +1765,68 @@ export const PackageListView: React.FC<Props> = ({
             })}
           </tbody>
         </table>
+        </div>
+
+        {/* Footer: Pagination (đồng bộ giao diện với tab DS PT) */}
+        {filtered.length > 0 && (
+          <div className="p-2 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-gray-50/50 rounded-b-xl text-xs">
+            <div className="flex items-center gap-2 text-gray-600">
+              <span>Hiển thị</span>
+              <select
+                value={currentRowsPerPage}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (onRowsPerPageChange) {
+                    onRowsPerPageChange(val);
+                  } else {
+                    setLocalRowsPerPage(val);
+                  }
+                  setCurrentPage(1);
+                }}
+                className="bg-white border border-gray-300 rounded-md px-3 pr-8 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[70px] relative z-20 cursor-pointer"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="hidden sm:inline-block ml-2 text-gray-400">
+                | {startIndex + 1}-{Math.min(startIndex + currentRowsPerPage, filtered.length)} / {filtered.length} ca
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 cursor-pointer transition-colors"
+                title="Trang trước"
+              >
+                <ChevronLeft className="h-3 w-3" />
+              </button>
+              <PageCombobox
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={handlePageChange}
+                size="sm"
+                placement="top"
+              />
+              <button
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="p-1 rounded border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 cursor-pointer transition-colors"
+                title="Trang tiếp"
+              >
+                <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Summary footer */}
       {assignedCount > 0 && (
         <div className="flex items-center gap-4 px-3 py-2 bg-teal-50/70 rounded-lg border border-teal-200 text-xs">
-          <span className="font-semibold text-teal-800">Tổng kết gói DV:</span>
+          <span className="font-semibold text-teal-800">Tổng kết gói DVYC:</span>
           <span className="text-teal-700 font-medium">{assignedCount} ca đã gán gói</span>
           <span className="text-teal-800 font-mono font-bold ml-auto text-sm">
             {fmt(assignments.reduce((s, a) => {
@@ -1684,11 +1853,11 @@ export const PackageListView: React.FC<Props> = ({
               </div>
               <div className="flex-1 min-w-0">
                 <h4 className="text-sm font-bold text-gray-800">
-                  {deleteTarget.type === 'assignment' ? 'Xác nhận gỡ gói dịch vụ' : 'Xóa ca khỏi danh sách gói'}
+                  {deleteTarget.type === 'assignment' ? 'Hủy gói dịch vụ yêu cầu' : 'Xóa ca khỏi danh sách gói'}
                 </h4>
                 <p className="text-xs text-gray-500 mt-1">
                   {deleteTarget.type === 'assignment'
-                    ? `Bạn có chắc muốn gỡ gói dịch vụ khỏi ca của bệnh nhân "${deleteTarget.patientName}"? Hành động này sẽ cập nhật trên dữ liệu online.`
+                    ? `Bạn có chắc muốn hủy gói dịch vụ yêu cầu khỏi ca của bệnh nhân "${deleteTarget.patientName}"? Ca này sẽ đồng thời được gỡ khỏi bất kỳ đợt thanh toán nào (nếu có).`
                     : `Bạn có chắc muốn loại bỏ ca "${deleteTarget.patientName}" khỏi danh sách tạm?`}
                 </p>
               </div>
@@ -1811,6 +1980,7 @@ export const PackageListView: React.FC<Props> = ({
             setImportTargetListId(undefined);
           }}
           onSuccess={(newId) => {
+            justImportedBatchIdRef.current = newId;
             setListFilter(newId);
           }}
         />
