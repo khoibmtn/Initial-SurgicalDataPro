@@ -5,7 +5,12 @@
  */
 import ExcelJS from 'exceljs';
 import type { SurgeryRecord } from '../types';
-import type { ServicePackageAssignment, ServicePackageDefinition } from '../types/servicePackage';
+import {
+  ServicePackageAssignment,
+  ServicePackageDefinition,
+  PositionCatalogItem,
+  getPositionShortLabel,
+} from '../types/servicePackage';
 import type { PaymentListsContext } from '../hooks/usePaymentLists';
 import type { PaymentList } from '../types/paymentList';
 import { formatDate } from '../utils/dateUtils';
@@ -33,8 +38,11 @@ export interface ServicePackageExportItem {
 }
 
 export interface ServicePackageExportOptions {
-  items: ServicePackageExportItem[];
+  items?: ServicePackageExportItem[];
+  records?: SurgeryRecord[];
+  assignments?: ServicePackageAssignment[];
   packages: ServicePackageDefinition[];
+  positionCatalog?: PositionCatalogItem[];
   paymentLists?: PaymentListsContext;
   currentList?: PaymentList;
   listFilter: string; // 'all' hoặc listId cụ thể
@@ -44,14 +52,7 @@ export interface ServicePackageExportOptions {
   filename?: string;
 }
 
-const BASE_STAFF_COLS = [
-  { key: 'ptChinh', label: 'PT Chính' },
-  { key: 'ptPhu', label: 'PT Phụ' },
-  { key: 'bsGM', label: 'BS GMHS' },
-  { key: 'ktvGM', label: 'KTV' },
-  { key: 'tdc', label: 'TDC' },
-  { key: 'gv', label: 'GV' },
-] as const;
+export const BASE_STAFF_KEYS = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'] as const;
 
 function formatDischargeDate(dtStr?: string): string {
   if (!dtStr) return '';
@@ -127,8 +128,9 @@ export function buildDataSourceSubtitle(
  */
 export async function buildPackageListWorkbook(options: ServicePackageExportOptions): Promise<ExcelJS.Workbook> {
   const {
-    items,
-    packages,
+    items = [],
+    packages = [],
+    positionCatalog,
     paymentLists,
     currentList,
     listFilter,
@@ -153,6 +155,12 @@ export async function buildPackageListWorkbook(options: ServicePackageExportOpti
     },
   });
 
+  // Tên viết tắt các vị trí trong gói theo cấu hình hoặc mặc định
+  const baseStaffCols = BASE_STAFF_KEYS.map((key) => ({
+    key,
+    label: getPositionShortLabel(key, positionCatalog, packages),
+  }));
+
   // Xây dựng danh sách cột
   const columns: { header: string; key: string; width: number; align?: 'left' | 'center' | 'right' }[] = [
     { header: 'STT', key: 'stt', width: 6, align: 'center' },
@@ -160,19 +168,19 @@ export async function buildPackageListWorkbook(options: ServicePackageExportOpti
     { header: 'Họ tên', key: 'patientName', width: 22, align: 'left' },
     { header: 'Ngày PT', key: 'ngayBD', width: 17, align: 'center' },
     { header: 'Tên phẫu thuật', key: 'tenKT', width: 34, align: 'left' },
-    ...BASE_STAFF_COLS.map((c) => ({
+    ...baseStaffCols.map((c) => ({
       header: c.label,
       key: c.key,
       width: 17,
       align: 'left' as const,
     })),
     ...extraPositionCols.map(([k, label]) => ({
-      header: label,
+      header: getPositionShortLabel(k, positionCatalog, packages) || label,
       key: k,
       width: 17,
       align: 'left' as const,
     })),
-    { header: 'Gói DVYC', key: 'goiDV', width: 20, align: 'center' },
+    { header: 'Gói DVYC', key: 'goiDV', width: 26, align: 'left' },
     { header: 'Ngày RV', key: 'raVien', width: 13, align: 'center' },
     { header: 'Đợt thanh toán', key: 'thanhToan', width: 18, align: 'center' },
   ];
@@ -227,7 +235,7 @@ export async function buildPackageListWorkbook(options: ServicePackageExportOpti
 
     // Kíp mổ cơ bản: ưu tiên tên sửa/gán gói
     const staffValues: Record<string, string> = {};
-    for (const col of BASE_STAFF_COLS) {
+    for (const col of baseStaffCols) {
       staffValues[col.key] = getAssignedOrSurgeryStaff(r, a, col.key);
     }
 
@@ -271,7 +279,7 @@ export async function buildPackageListWorkbook(options: ServicePackageExportOpti
       patientName,
       ngayBDFormatted,
       tenKT,
-      ...BASE_STAFF_COLS.map((c) => staffValues[c.key] || ''),
+      ...baseStaffCols.map((c) => staffValues[c.key] || ''),
       ...extraPositionCols.map(([k]) => staffValues[k] || ''),
       packageName,
       ngayRaStr,
@@ -279,7 +287,7 @@ export async function buildPackageListWorkbook(options: ServicePackageExportOpti
     ];
 
     const dataRow = ws.addRow(rowValues);
-    dataRow.height = 22;
+    // Để Excel tự tính chiều cao dòng theo wrapText, không đặt height cố định
 
     dataRow.eachCell((cell, colNumber) => {
       const colDef = columns[colNumber - 1];
@@ -288,7 +296,7 @@ export async function buildPackageListWorkbook(options: ServicePackageExportOpti
       cell.alignment = {
         vertical: 'middle',
         horizontal: colDef?.align || 'left',
-        wrapText: colDef?.key === 'tenKT',
+        wrapText: true,
       };
 
       // Đảm bảo Mã KCB là kiểu text để không mất số 0
@@ -298,15 +306,21 @@ export async function buildPackageListWorkbook(options: ServicePackageExportOpti
     });
   });
 
-  // Hàng Tổng kết số lượng ca
+  // Hàng Tổng kết số lượng ca (Không gộp ô, để chữ hiển thị tự nhiên đè sang ô bên cạnh)
   const summaryRow = ws.addRow([`Tổng cộng: ${items.length} ca`]);
   summaryRow.height = 24;
-  ws.mergeCells(summaryRow.number, 1, summaryRow.number, 5);
   const summaryCell = ws.getCell(summaryRow.number, 1);
   summaryCell.font = { name: FONT_TIMES, size: 11, bold: true, color: { argb: 'FF0F766E' } };
-  summaryCell.alignment = { vertical: 'middle', horizontal: 'left' };
+  summaryCell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: false };
+
+  // Viền trên & dưới cho hàng tổng kết, không có viền dọc giữa các ô để chữ tràn tự nhiên
   for (let c = 1; c <= totalCols; c++) {
-    ws.getCell(summaryRow.number, c).border = thinBorder;
+    ws.getCell(summaryRow.number, c).border = {
+      top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      left: c === 1 ? { style: 'thin', color: { argb: 'FFCBD5E1' } } : undefined,
+      right: c === totalCols ? { style: 'thin', color: { argb: 'FFCBD5E1' } } : undefined,
+    };
   }
 
   // Cân chỉnh độ rộng cột

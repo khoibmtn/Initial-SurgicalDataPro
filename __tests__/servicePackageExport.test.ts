@@ -6,11 +6,41 @@ import {
   buildPackageListWorkbook,
   ServicePackageExportItem,
 } from '../services/servicePackageExportService';
+import { getPositionShortLabel } from '../types/servicePackage';
 import type { SurgeryRecord } from '../types';
-import type { ServicePackageAssignment, ServicePackageDefinition } from '../types/servicePackage';
+import type { ServicePackageAssignment, ServicePackageDefinition, PositionCatalogItem } from '../types/servicePackage';
 import type { PaymentList } from '../types/paymentList';
 
 describe('Service Package Excel Export Service', () => {
+  describe('getPositionShortLabel (Tên viết tắt của vị trí trong gói)', () => {
+    it('should return short abbreviation for default positions instead of surgery report names', () => {
+      // Must return 'PT chính', 'PT phụ', 'BS GM', 'KTV GM', 'TDC', 'GV'
+      expect(getPositionShortLabel('ptChinh')).toBe('PT chính');
+      expect(getPositionShortLabel('ptPhu')).toBe('PT phụ');
+      expect(getPositionShortLabel('bsGM')).toBe('BS GM'); // Not 'BS GMHS'
+      expect(getPositionShortLabel('ktvGM')).toBe('KTV GM'); // Not 'KTV'
+      expect(getPositionShortLabel('tdc')).toBe('TDC');
+      expect(getPositionShortLabel('gv')).toBe('GV');
+    });
+
+    it('should prefer custom shortLabel from positionCatalog if provided', () => {
+      const customCatalog: PositionCatalogItem[] = [
+        {
+          id: 'pos-1',
+          key: 'bsGM',
+          label: 'Bác sĩ gây mê',
+          shortLabel: 'Gây Mê',
+          group: 'anesthesiologists',
+          isSurgeryParticipant: true,
+          sortOrder: 1,
+          active: true,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ];
+      expect(getPositionShortLabel('bsGM', customCatalog)).toBe('Gây Mê');
+    });
+  });
   describe('buildDataSourceSubtitle', () => {
     it('should format subtitle for "all" option using dateRangeText', () => {
       const subtitle = buildDataSourceSubtitle('all', undefined, 'Tháng 7 - 2026');
@@ -198,13 +228,19 @@ describe('Service Package Excel Export Service', () => {
       // Row 2: Nguồn dữ liệu
       expect(ws?.getCell(2, 1).value).toBe('Lấy dữ liệu từ Tháng 7 - 2026');
 
-      // Row 4: Header
+      // Row 4: Header (Tên viết tắt của vị trí trong gói: PT chính, PT phụ, BS GM, KTV GM, TDC, GV)
       expect(ws?.getCell(4, 1).value).toBe('STT');
       expect(ws?.getCell(4, 2).value).toBe('Mã KCB');
       expect(ws?.getCell(4, 3).value).toBe('Họ tên');
       expect(ws?.getCell(4, 4).value).toBe('Ngày PT');
       expect(ws?.getCell(4, 5).value).toBe('Tên phẫu thuật');
-      expect(ws?.getCell(4, 6).value).toBe('PT Chính');
+      expect(ws?.getCell(4, 6).value).toBe('PT chính');
+      expect(ws?.getCell(4, 7).value).toBe('PT phụ');
+      expect(ws?.getCell(4, 8).value).toBe('BS GM');
+      expect(ws?.getCell(4, 9).value).toBe('KTV GM');
+      expect(ws?.getCell(4, 10).value).toBe('TDC');
+      expect(ws?.getCell(4, 11).value).toBe('GV');
+      expect(ws?.getCell(4, 12).value).toBe('Gói DVYC');
 
       // Row 5: Data
       expect(ws?.getCell(5, 1).value).toBe(1);
@@ -221,6 +257,19 @@ describe('Service Package Excel Export Service', () => {
       expect(ws?.getCell(5, 13).value).toBe('20/07/2026');
       // Batch name
       expect(ws?.getCell(5, 14).value).toBe('tháng 7');
+
+      // All data cells must have wrapText: true
+      expect(ws?.getCell(5, 5).alignment?.wrapText).toBe(true);
+      expect(ws?.getCell(5, 12).alignment?.wrapText).toBe(true);
+
+      // Row 6: Summary Row (Không gộp ô, wrapText = false để chữ hiển thị tự nhiên đè sang ô bên cạnh)
+      const summaryCell = ws?.getCell(6, 1);
+      expect(summaryCell?.value).toBe('Tổng cộng: 1 ca');
+      expect(summaryCell?.alignment?.wrapText).toBe(false);
+      // Make sure row 6 is NOT merged
+      const merges = (ws?.model as any)?.merges || [];
+      const hasRow6Merge = merges.some((m: string) => m.includes('6'));
+      expect(hasRow6Merge).toBe(false);
     });
   });
 });

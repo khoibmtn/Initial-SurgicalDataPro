@@ -580,6 +580,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
       <PackageListView
         assignments={packageAssignments}
         packages={packageDefinitions}
+        positionCatalog={positionCatalog}
         records={currentReport.result.validRecords}
         staffList={config.staffList || []}
         searchTerm={currentReport.searchTerms.packages || ''}

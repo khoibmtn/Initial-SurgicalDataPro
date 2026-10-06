@@ -54,6 +54,40 @@ export const DEFAULT_POSITIONS: Omit<PositionCatalogItem, 'id' | 'createdAt' | '
   { key: 'nguoiTuVan',  label: 'Người tư vấn',                             shortLabel: 'Tư vấn',       group: 'non_surgical',       isSurgeryParticipant: false, onlyNonSurgicalStaff: true,  sortOrder: 9, active: true },
 ];
 
+/**
+ * Lấy tên viết tắt (shortLabel) của vị trí trong gói dịch vụ.
+ * Ưu tiên: Danh mục vị trí cấu hình (positionCatalog) > Vị trí trong gói (packages) > DEFAULT_POSITIONS > Tên key.
+ */
+export function getPositionShortLabel(
+  key: string,
+  positionCatalog?: PositionCatalogItem[],
+  packages?: { positions?: { positionKey: string; positionLabel?: string }[] }[]
+): string {
+  if (!key) return '';
+  const cat = positionCatalog?.find((p) => p.key === key);
+  if (cat?.shortLabel) return cat.shortLabel;
+
+  if (packages) {
+    for (const pkg of packages) {
+      const pos = pkg.positions?.find((p) => p.positionKey === key);
+      if (pos?.positionLabel) return pos.positionLabel;
+    }
+  }
+
+  const def = DEFAULT_POSITIONS.find((p) => p.key === key);
+  if (def?.shortLabel) return def.shortLabel;
+
+  switch (key) {
+    case 'ptChinh': return 'PT chính';
+    case 'ptPhu': return 'PT phụ';
+    case 'bsGM': return 'BS GM';
+    case 'ktvGM': return 'KTV GM';
+    case 'tdc': return 'TDC';
+    case 'gv': return 'GV';
+    default: return key;
+  }
+}
+
 // ─── Service Package Definition ──────────────────────────────────────────────
 
 /** Cách tính khấu trừ thêm: % trên số tiền vị trí, hoặc số tiền cố định cho mỗi vị trí */

@@ -51,6 +51,8 @@ import {
 import {
   ServicePackageAssignment,
   ServicePackageDefinition,
+  PositionCatalogItem,
+  getPositionShortLabel,
   buildCompositeKey,
   getRecordDateString,
   normalizeForKey,
@@ -86,6 +88,7 @@ export const DATE_FORMATS = ['dd/mm/yyyy', 'dd/mm/yyyy hh:mm', 'dd/mm hh:mm', 'h
 interface Props {
   assignments: ServicePackageAssignment[];
   packages: ServicePackageDefinition[];
+  positionCatalog?: PositionCatalogItem[];
   records: SurgeryRecord[];
   staffList: StaffMember[];
   searchTerm: string;
@@ -114,17 +117,8 @@ function formatDischargeDate(dtStr?: string): string {
 export type ActiveFilter = 'all' | 'assigned' | 'unassigned' | 'discharged' | 'not_discharged';
 type Density = 'compact' | 'default' | 'relaxed';
 
-// Base surgery staff columns
-const BASE_STAFF_COLS = [
-  { key: 'ptChinh', label: 'PT Chính' },
-  { key: 'ptPhu', label: 'PT Phụ' },
-  { key: 'bsGM', label: 'BS GMHS' },
-  { key: 'ktvGM', label: 'KTV' },
-  { key: 'tdc', label: 'TDC' },
-  { key: 'gv', label: 'GV' },
-] as const;
-
-const BASE_STAFF_KEYS = new Set(BASE_STAFF_COLS.map(c => c.key));
+// Base surgery staff position keys
+export const BASE_STAFF_KEYS = new Set(['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'] as const);
 
 const LS_CONFIG_KEY = 'package_list_view_config';
 
@@ -246,6 +240,7 @@ interface RemoveFromBatchTarget {
 export const PackageListView: React.FC<Props> = ({
   assignments,
   packages,
+  positionCatalog,
   records,
   staffList,
   searchTerm,
@@ -490,18 +485,29 @@ export const PackageListView: React.FC<Props> = ({
     }
   }, [assignments, draftRecords]);
 
+  // Tên viết tắt các vị trí trong gói theo cấu hình hoặc mặc định
+  const baseStaffCols = useMemo(() => [
+    { key: 'ptChinh', label: getPositionShortLabel('ptChinh', positionCatalog, packages) },
+    { key: 'ptPhu', label: getPositionShortLabel('ptPhu', positionCatalog, packages) },
+    { key: 'bsGM', label: getPositionShortLabel('bsGM', positionCatalog, packages) },
+    { key: 'ktvGM', label: getPositionShortLabel('ktvGM', positionCatalog, packages) },
+    { key: 'tdc', label: getPositionShortLabel('tdc', positionCatalog, packages) },
+    { key: 'gv', label: getPositionShortLabel('gv', positionCatalog, packages) },
+  ], [positionCatalog, packages]);
+
   // Dynamic extra position columns (not in base staff)
   const extraPositionCols = useMemo(() => {
     const map = new Map<string, string>();
     for (const a of assignments) {
       for (const sa of a.staffAssignments) {
         if (!BASE_STAFF_KEYS.has(sa.positionKey as any) && !map.has(sa.positionKey)) {
-          map.set(sa.positionKey, sa.positionLabel);
+          const label = getPositionShortLabel(sa.positionKey, positionCatalog, packages) || sa.positionLabel;
+          map.set(sa.positionKey, label);
         }
       }
     }
     return Array.from(map.entries()); // [key, label][]
-  }, [assignments]);
+  }, [assignments, positionCatalog, packages]);
 
   // Configurable columns
   const allColumns = useMemo(() => [
@@ -509,14 +515,14 @@ export const PackageListView: React.FC<Props> = ({
     { key: 'patientName', label: 'Họ tên' },
     { key: 'ngayBD', label: 'Ngày PT' },
     { key: 'tenKT', label: 'Tên phẫu thuật' },
-    ...BASE_STAFF_COLS.map(c => ({ key: c.key, label: c.label })),
+    ...baseStaffCols.map(c => ({ key: c.key, label: c.label })),
     ...extraPositionCols.map(([k, label]) => ({ key: k, label })),
     { key: 'goiDV', label: 'Gói DVYC' },
     ...(paymentLists ? [
       { key: 'raVien', label: 'Ngày RV' },
       { key: 'thanhToan', label: 'Đợt thanh toán' },
     ] : []),
-  ], [extraPositionCols, paymentLists]);
+  ], [baseStaffCols, extraPositionCols, paymentLists]);
 
   const toggleCol = (key: string) => {
     const hidden = config.hiddenCols.includes(key)
@@ -688,6 +694,7 @@ export const PackageListView: React.FC<Props> = ({
       await exportPackageListToExcel({
         items: enrichedRecords,
         packages,
+        positionCatalog,
         paymentLists,
         currentList,
         listFilter,
@@ -703,6 +710,7 @@ export const PackageListView: React.FC<Props> = ({
   }, [
     enrichedRecords,
     packages,
+    positionCatalog,
     paymentLists,
     currentList,
     listFilter,
@@ -1109,7 +1117,7 @@ export const PackageListView: React.FC<Props> = ({
     if (isColVisible('patientName')) count++;
     if (isColVisible('ngayBD')) count++;
     if (isColVisible('tenKT')) count++;
-    BASE_STAFF_COLS.forEach(c => { if (isColVisible(c.key)) count++; });
+    baseStaffCols.forEach(c => { if (isColVisible(c.key)) count++; });
     extraPositionCols.forEach(([k]) => { if (isColVisible(k)) count++; });
     if (isColVisible('goiDV')) count++;
     if (paymentLists) {
@@ -1117,7 +1125,7 @@ export const PackageListView: React.FC<Props> = ({
       if (isColVisible('thanhToan')) count++;
     }
     return count;
-  }, [config.hiddenCols, extraPositionCols, paymentLists]);
+  }, [config.hiddenCols, baseStaffCols, extraPositionCols, paymentLists]);
 
   return (
     <div className="space-y-2.5 font-inter">
@@ -1703,7 +1711,7 @@ export const PackageListView: React.FC<Props> = ({
                 <th className={`px-2 ${cellPy} text-gray-700 border-r border-gray-100 w-[220px]`}>Tên phẫu thuật</th>
               )}
               {/* Base surgery staff columns */}
-              {BASE_STAFF_COLS.map(col => isColVisible(col.key) && (
+              {baseStaffCols.map(col => isColVisible(col.key) && (
                 <th key={col.key} className={`px-1.5 ${cellPy} text-gray-500 border-r border-gray-100 text-center w-[88px]`}>
                   {col.label}
                 </th>
@@ -1860,7 +1868,7 @@ export const PackageListView: React.FC<Props> = ({
                   )}
 
                   {/* Base surgery staff + package staff overlay */}
-                  {BASE_STAFF_COLS.map(col => {
+                  {baseStaffCols.map(col => {
                     if (!isColVisible(col.key)) return null;
                     const surgeryName = (r as any)[col.key] || '';
                     const info = getStaffInfo(r, a, col.key);
