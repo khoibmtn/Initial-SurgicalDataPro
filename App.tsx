@@ -363,12 +363,6 @@ const InnerApp: React.FC = () => {
     return can('assign_service_package');
   }, [isAdmin, can]);
 
-  useEffect(() => {
-    if (!canViewServicePackage && currentReport.activeTable === 'packages') {
-      setActiveTable('list');
-    }
-  }, [canViewServicePackage, currentReport.activeTable, setActiveTable]);
-
   // Service-package payment lists: monthly report only (daily report unchanged)
   const paymentListData = usePaymentLists({
     enabled: currentType === 'monthly',
@@ -647,6 +641,12 @@ const InnerApp: React.FC = () => {
     currentRole,
     currentPeriodKey,
   });
+
+  useEffect(() => {
+    if (!canViewServicePackage && currentReport.activeTable === 'packages') {
+      setActiveTable('list');
+    }
+  }, [canViewServicePackage, currentReport.activeTable, setActiveTable]);
 
   const {
     isSaving,
