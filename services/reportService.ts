@@ -1155,13 +1155,12 @@ export const reportService = {
         monthsMap: Record<number, number[]>;
     }> {
         const ALL_12_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-        const defaultYears = [2023, 2024, 2025, 2026, 2027];
+        const defaultYears = [2023, 2024, 2025, 2026];
         const defaultMonthsMap: Record<number, number[]> = {
             2023: [5, 6, 7, 8, 9, 10, 11, 12],
             2024: ALL_12_MONTHS,
             2025: ALL_12_MONTHS,
             2026: ALL_12_MONTHS,
-            2027: ALL_12_MONTHS,
         };
 
         try {
@@ -1184,11 +1183,11 @@ export const reportService = {
             }
 
             const currentYear = new Date().getFullYear();
-            const maxYear = Math.max(currentYear, 2026);
+            const maxYear = Math.min(Math.max(currentYear, 2026), 2026);
             const yearsSet = new Set<number>(defaultYears);
             const monthsMap: Record<number, number[]> = { ...defaultMonthsMap };
 
-            for (let y = minYear; y <= maxYear + 1; y++) {
+            for (let y = minYear; y <= maxYear; y++) {
                 yearsSet.add(y);
                 if (!monthsMap[y]) {
                     monthsMap[y] = ALL_12_MONTHS;

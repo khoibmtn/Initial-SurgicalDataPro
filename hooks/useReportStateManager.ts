@@ -25,32 +25,33 @@ export function useReportStateManager({ activeTab }: UseReportStateManagerOption
   // Chế độ chọn thời gian trong Báo cáo tháng: 'month' (Tháng) hoặc 'range' (Khoảng thời gian)
   const [monthlyTimeMode, setMonthlyTimeMode] = useState<'month' | 'range'>('month');
 
-  // Tính năm và tháng mặc định: Năm hiện tại, Tháng = tháng hiện tại - 1 (nếu tháng 1 thì lùi về tháng 12 năm trước)
+  // Tính năm và tháng mặc định: Năm hiện tại (tối đa 2026), Tháng = tháng hiện tại - 1 (nếu tháng 1 thì lùi về tháng 12 năm trước)
   const [selectedMonthlyYear, setSelectedMonthlyYear] = useState<number>(() => {
     const now = new Date();
     const curMonth = now.getMonth() + 1;
-    return curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
+    const computedYear = curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
+    return Math.min(computedYear, 2026);
   });
   const [selectedMonthlyMonth, setSelectedMonthlyMonth] = useState<number>(() => {
     const curMonth = new Date().getMonth() + 1;
     return curMonth === 1 ? 12 : curMonth - 1;
   });
 
-  // Danh mục năm và tháng có dữ liệu thực tế từ Firestore
+  // Danh mục năm và tháng có dữ liệu thực tế từ Firestore (hỗ trợ đến 2026)
   const ALL_12_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-  const [availableMonthlyYears, setAvailableMonthlyYears] = useState<number[]>([2023, 2024, 2025, 2026, 2027]);
+  const [availableMonthlyYears, setAvailableMonthlyYears] = useState<number[]>([2023, 2024, 2025, 2026]);
   const [availableMonthlyMonthsMap, setAvailableMonthlyMonthsMap] = useState<Record<number, number[]>>({
     2023: [5, 6, 7, 8, 9, 10, 11, 12],
     2024: ALL_12_MONTHS,
     2025: ALL_12_MONTHS,
     2026: ALL_12_MONTHS,
-    2027: ALL_12_MONTHS,
   });
 
   const [monthlyStorageState, setMonthlyStorageState] = useState<ReportState>(() => {
     const now = new Date();
     const curMonth = now.getMonth() + 1;
-    const defYear = curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
+    const computedYear = curMonth === 1 ? now.getFullYear() - 1 : now.getFullYear();
+    const defYear = Math.min(computedYear, 2026);
     const defMonth = curMonth === 1 ? 12 : curMonth - 1;
     const mStr = String(defMonth).padStart(2, '0');
     const lastDay = new Date(defYear, defMonth, 0).getDate();
@@ -118,9 +119,8 @@ export function useReportStateManager({ activeTab }: UseReportStateManagerOption
   const handleMonthlyTimeModeChange = useCallback(
     (mode: 'month' | 'range') => {
       setMonthlyTimeMode(mode);
-      if (mode === 'month') {
-        applyMonthlyDateRange(selectedMonthlyYear, selectedMonthlyMonth);
-      }
+      // Đồng bộ ngày tháng khi chuyển đổi chế độ để tránh giữ ngày ngoài phạm vi
+      applyMonthlyDateRange(selectedMonthlyYear, selectedMonthlyMonth);
     },
     [selectedMonthlyYear, selectedMonthlyMonth, applyMonthlyDateRange]
   );
