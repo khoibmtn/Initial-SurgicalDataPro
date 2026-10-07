@@ -13,8 +13,10 @@ import {
   UserCircle,
   Clock,
   Settings,
+  KeyRound,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { ChangePasswordModal } from './ChangePasswordModal';
 
 interface UserMenuButtonProps {
   collapsed: boolean;
@@ -32,6 +34,7 @@ const ROLE_LABELS: Record<string, { label: string; color: string }> = {
 export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLoginClick, onAccountClick }) => {
   const { user, isLoading: authLoading, isAuthenticated, isPendingApproval, currentRole, logout, pendingApprovalCount } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Click outside to close
@@ -162,19 +165,35 @@ export const UserMenuButton: React.FC<UserMenuButtonProps> = ({ collapsed, onLog
               onClick={() => { setIsMenuOpen(false); onAccountClick(); }}
               className="w-full px-3 py-2 text-xs text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors cursor-pointer"
             >
-              <Settings className="w-3.5 h-3.5" />
-              Quản lý tài khoản
+              <Settings className="w-3.5 h-3.5 text-gray-500" />
+              <span>Quản lý tài khoản</span>
             </button>
           )}
+          <button
+            onClick={() => {
+              setIsMenuOpen(false);
+              setIsChangePasswordOpen(true);
+            }}
+            className="w-full px-3 py-2 text-xs text-left text-gray-700 hover:bg-gray-50 flex items-center gap-2 transition-colors cursor-pointer border-t border-gray-100"
+          >
+            <KeyRound className="w-3.5 h-3.5 text-gray-500" />
+            <span>Đổi mật khẩu</span>
+          </button>
           <button
             onClick={handleLogout}
             className="w-full px-3 py-2 text-xs text-left text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors cursor-pointer border-t border-gray-100"
           >
             <LogOut className="w-3.5 h-3.5" />
-            Đăng xuất
+            <span>Đăng xuất</span>
           </button>
         </div>
       )}
+
+      {/* Modal Đổi mật khẩu cá nhân */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
     </div>
   );
 };

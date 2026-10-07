@@ -7,6 +7,9 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
   type User as FirebaseUser,
   type Unsubscribe,
 } from 'firebase/auth';
@@ -460,6 +463,67 @@ export function subscribeToUserProfile(
     console.error('[authService] subscribeToUserProfile error:', err);
     callback(null);
   });
+}
+
+// ─── Đổi mật khẩu cá nhân ──────────────────────────────────────────────────
+
+export async function changeUserPassword(
+  oldPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      return { success: false, error: 'Bạn chưa đăng nhập hoặc phiên làm việc đã hết hạn.' };
+    }
+
+    if (!newPassword || newPassword.length < 6) {
+      return { success: false, error: 'Mật khẩu mới phải có ít nhất 6 ký tự.' };
+    }
+
+    if (oldPassword === newPassword) {
+      return { success: false, error: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.' };
+    }
+
+    // 1. Xác thực lại với mật khẩu cũ
+    try {
+      const credential = EmailAuthProvider.credential(user.email, oldPassword);
+      await reauthenticateWithCredential(user, credential);
+    } catch (authErr: any) {
+      if (authErr.code === 'auth/wrong-password' || authErr.code === 'auth/invalid-credential') {
+        return { success: false, error: 'Mật khẩu hiện tại không chính xác.' };
+      }
+      return { success: false, error: mapFirebaseError(authErr.code) };
+    }
+
+    // 2. Cập nhật mật khẩu mới
+    await updatePassword(user, newPassword);
+
+    // 3. Xóa cờ resetPasswordDefault trên Firestore nếu có
+    const userDocRef = doc(firestore, USERS_COLLECTION, user.uid);
+    await updateDoc(userDocRef, {
+      passwordResetDefault: false,
+      updatedAt: serverTimestamp(),
+    }).catch(() => {});
+
+    // 4. Ghi nhật ký kiểm toán
+    logAuditEvent({
+      userId: user.uid,
+      userName: user.displayName || user.email,
+      userRole: 'staff',
+      userDepartment: '',
+      action: 'UPDATE_PASSWORD',
+      targetType: 'user',
+      targetId: user.uid,
+      targetLabel: user.displayName || user.email || '',
+      description: 'Người dùng tự đổi mật khẩu cá nhân thành công',
+    }).catch((e) => console.warn('[auditLog] Failed to log change password:', e));
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error changing password:', err);
+    return { success: false, error: mapFirebaseError(err?.code) || err?.message || 'Lỗi khi đổi mật khẩu.' };
+  }
 }
 
 // ─── Firebase Error Mapping (tiếng Việt) ────────────────────────────────────

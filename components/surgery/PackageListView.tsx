@@ -1381,7 +1381,7 @@ export const PackageListView: React.FC<Props> = ({
                   setImportTargetListId(undefined);
                   setImportModalOpen(true);
                 }}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 px-3 text-xs font-bold text-white shadow-2xs transition-colors"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 px-3.5 text-xs font-bold text-white shadow-sm transition-colors cursor-pointer"
                 title="Tạo đợt thanh toán mới từ danh sách TCKT"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -1914,19 +1914,19 @@ export const PackageListView: React.FC<Props> = ({
                     <td className={`px-2 ${cellPy} border-r border-gray-100 bg-teal-50/10 whitespace-normal w-[150px]`}>
                       {a ? (
                         <span
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded text-[0.85em] font-semibold border border-teal-200"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-50 text-emerald-900 rounded-md text-[11px] font-bold border border-emerald-300 shadow-2xs"
                           title={a.packageName ? `${a.packageName}${packageDisplay && packageDisplay !== a.packageName ? ` (${packageDisplay})` : ''}` : ''}
                         >
-                          <Package className="h-3 w-3 shrink-0" />
+                          <Package className="h-3.5 w-3.5 shrink-0 text-emerald-700" />
                           <span>{packageDisplay}</span>
                         </span>
                       ) : (
                         <button
                           onClick={() => handleAdd(r)}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-300 transition-colors shadow-2xs cursor-pointer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
                           title="Gán gói DVYC cho ca này"
                         >
-                          <Plus className="h-3 w-3" />
+                          <Plus className="h-3.5 w-3.5" />
                           <span>Gán gói DV</span>
                         </button>
                       )}
@@ -2006,7 +2006,7 @@ export const PackageListView: React.FC<Props> = ({
                       {paymentLists && paymentLists.canManage && (
                         <button
                           onClick={() => handleOpenMoveModal(pid, r.patientName || '', batchInfo)}
-                          className="p-1 rounded text-gray-500 hover:bg-sky-50 hover:text-sky-600 transition-colors"
+                          className="p-1 rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-primary-50 hover:text-primary-700 hover:border-primary-400 transition-colors shadow-2xs cursor-pointer"
                           title="Chuyển ca này sang đợt thanh toán khác"
                         >
                           <ArrowRightLeft className="h-3.5 w-3.5" />
@@ -2441,7 +2441,7 @@ export const PackageListView: React.FC<Props> = ({
                 <button
                   onClick={handleConfirmMove}
                   disabled={isMoving || !targetListId}
-                  className="px-4 py-1.5 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all shadow-xs flex items-center gap-1.5"
+                  className="px-4 py-1.5 bg-primary-700 hover:bg-primary-800 border border-primary-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
                   <ArrowRightLeft className="h-3.5 w-3.5" />
                   <span>{isMoving ? 'Đang chuyển...' : 'Xác nhận chuyển'}</span>

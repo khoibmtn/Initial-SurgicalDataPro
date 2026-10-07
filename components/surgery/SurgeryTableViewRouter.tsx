@@ -365,7 +365,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
                   });
                   onAssignPackage(selected);
                 }}
-                className="ml-2 flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-all shadow-sm whitespace-nowrap"
+                className="ml-2 flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 rounded-lg transition-all shadow-sm whitespace-nowrap cursor-pointer"
                 title="Chuyển các ca đã chọn sang tab Gói dịch vụ"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
