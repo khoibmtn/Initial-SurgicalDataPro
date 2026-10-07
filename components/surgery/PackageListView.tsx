@@ -101,6 +101,7 @@ interface Props {
   onDateFormatChange?: (fmt: string) => void;
   onListFilterChange?: (filter: string) => void;
   dateRangeText?: string;
+  isProcessing?: boolean;
 }
 
 function fmt(n: number | undefined | null): string {
@@ -252,6 +253,7 @@ export const PackageListView: React.FC<Props> = ({
   onDateFormatChange,
   onListFilterChange,
   dateRangeText,
+  isProcessing,
 }) => {
   const { isAdmin, can } = useAuth();
   const canAssign = isAdmin || can('assign_service_package');
@@ -569,6 +571,30 @@ export const PackageListView: React.FC<Props> = ({
         }
       }
 
+      // Tối ưu hóa tải tức thì: Với bất kỳ ca nào đã có trong assignments mà chưa khớp được từ records
+      // (ví dụ: records đang nạp song song, hoặc ca mổ lệch ngày/chưa đồng bộ), ta nạp ngay từ thông tin gói đã lưu
+      // để người dùng xem được danh sách ngay tức thì, không bị trống trơn bảng!
+      for (const a of assignments) {
+        if (!seenKeys.has(a.compositeKey)) {
+          seenKeys.add(a.compositeKey);
+          const fallbackRec: SurgeryRecord = {
+            id: a.id,
+            key: a.compositeKey,
+            patientId: a.patientId,
+            patientName: a.patientName,
+            tenKT: a.tenKT,
+            ngayBD: a.ngayBD,
+            ptChinh: a.staffAssignments?.find(s => s.positionKey === 'ptChinh')?.staffName || a.ptChinh || '',
+            ptPhu: a.staffAssignments?.find(s => s.positionKey === 'ptPhu')?.staffName || a.ptPhu || '',
+            bsGM: a.staffAssignments?.find(s => s.positionKey === 'bsGM')?.staffName || a.bsGM || '',
+            ktvGM: a.staffAssignments?.find(s => s.positionKey === 'ktvGM')?.staffName || a.ktvGM || '',
+            tdc: a.staffAssignments?.find(s => s.positionKey === 'tdc')?.staffName || a.tdc || '',
+            gv: a.staffAssignments?.find(s => s.positionKey === 'gv')?.staffName || a.gv || '',
+          } as SurgeryRecord;
+          list.push({ record: fallbackRec, compositeKey: a.compositeKey, assignment: a });
+        }
+      }
+
       // Bản ghi nháp tạm đang gán dở trong phiên (ưu tiên đưa lên đầu danh sách để quan sát ngay các ca mới thêm)
       const draftList: EnrichedRowItem[] = [];
       for (const d of draftRecords) {
@@ -818,6 +844,10 @@ export const PackageListView: React.FC<Props> = ({
     }
     return result;
   }, [enrichedRecords, packageFilter, batchFilter, dischargeFilter, searchTerm, packages, paymentLists, currentList]);
+
+  const isLoadingData = Boolean(
+    (isProcessing || paymentLists?.isLoading) && filtered.length === 0
+  );
 
   // Pagination state (đồng bộ giao diện & trải nghiệm với tab DS PT)
   const [currentPage, setCurrentPage] = useState<number>(() => savedViewState.currentPage);
@@ -1751,7 +1781,64 @@ export const PackageListView: React.FC<Props> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {filtered.length === 0 ? (
+            {isLoadingData ? (
+              Array.from({ length: 5 }).map((_, sIdx) => (
+                <tr key={`skel-${sIdx}`} className="animate-pulse bg-white">
+                  <td className={`px-2 ${cellPy} text-center`}>
+                    <div className="h-3.5 bg-slate-200 rounded w-5 mx-auto"></div>
+                  </td>
+                  {isColVisible('patientId') && (
+                    <td className={`px-2 ${cellPy}`}>
+                      <div className="h-3.5 bg-slate-200 rounded w-16"></div>
+                    </td>
+                  )}
+                  {isColVisible('patientName') && (
+                    <td className={`px-2 ${cellPy}`}>
+                      <div className="h-3.5 bg-slate-200 rounded w-28 mb-1"></div>
+                      <div className="h-2.5 bg-slate-100 rounded w-16"></div>
+                    </td>
+                  )}
+                  {isColVisible('ngayBD') && (
+                    <td className={`px-2 ${cellPy} text-center`}>
+                      <div className="h-3.5 bg-slate-200 rounded w-14 mx-auto"></div>
+                    </td>
+                  )}
+                  {isColVisible('tenKT') && (
+                    <td className={`px-2 ${cellPy}`}>
+                      <div className="h-3.5 bg-slate-200 rounded w-48"></div>
+                    </td>
+                  )}
+                  {baseStaffCols.map(c => isColVisible(c.key) && (
+                    <td key={c.key} className={`px-2 ${cellPy}`}>
+                      <div className="h-3.5 bg-slate-100 rounded w-16"></div>
+                    </td>
+                  ))}
+                  {extraPositionCols.map(([k]) => isColVisible(k) && (
+                    <td key={k} className={`px-2 ${cellPy}`}>
+                      <div className="h-3.5 bg-slate-100 rounded w-16"></div>
+                    </td>
+                  ))}
+                  {isColVisible('goiDV') && (
+                    <td className={`px-2 ${cellPy} text-center`}>
+                      <div className="h-5 bg-emerald-100/70 rounded-md w-20 mx-auto"></div>
+                    </td>
+                  )}
+                  {paymentLists && isColVisible('raVien') && (
+                    <td className={`px-2 ${cellPy} text-center`}>
+                      <div className="h-3.5 bg-slate-100 rounded w-16 mx-auto"></div>
+                    </td>
+                  )}
+                  {paymentLists && isColVisible('thanhToan') && (
+                    <td className={`px-2 ${cellPy}`}>
+                      <div className="h-4 bg-blue-100/70 rounded w-20"></div>
+                    </td>
+                  )}
+                  <td className={`px-1.5 ${cellPy} text-center`}>
+                    <div className="h-4 bg-slate-200 rounded w-8 mx-auto"></div>
+                  </td>
+                </tr>
+              ))
+            ) : filtered.length === 0 ? (
               <tr>
                 <td
                   colSpan={totalVisibleCols}

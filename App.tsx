@@ -385,6 +385,7 @@ const InnerApp: React.FC = () => {
       periodKey: currentPeriodKey,
       dateFrom: currentReport.dateFrom,
       dateTo: currentReport.dateTo,
+      isLoading: paymentListData.isLoading,
     };
   }, [currentType, paymentListData, currentReport.result, canManagePackagePayment, user?.displayName, user?.nickname, currentPeriodKey, currentReport.dateFrom, currentReport.dateTo]);
 

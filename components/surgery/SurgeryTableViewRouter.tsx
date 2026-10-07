@@ -43,6 +43,7 @@ export interface SurgeryTableViewRouterProps {
     dataSource: 'EXCEL' | 'STORAGE' | null;
     queryDateRangeText?: string;
     listDateRange?: string;
+    isProcessing?: boolean;
   };
   config: SurgeryConfig;
   dateFormat: string;
@@ -533,6 +534,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
             searchTerm={packageSearch}
             viewMode={packageView}
             hiddenCols={packageHiddenCols}
+            isProcessing={currentReport.isProcessing}
           />
         )}
       </div>
@@ -542,7 +544,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
   if (currentReport.activeTable === 'duty') {
     return (
       <DutyScheduleTab
-        records={currentReport.result.validRecords}
+        records={currentReport.result?.validRecords || []}
         dutySchedules={dutySchedules}
         onUpdateDutySchedule={onUpdateDutySchedule}
         config={config}
@@ -559,7 +561,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
   if (currentReport.activeTable === 'overtime') {
     return (
       <OvertimeTab
-        records={currentReport.result.validRecords}
+        records={currentReport.result?.validRecords || []}
         dutySchedules={dutySchedules}
         config={config}
         dateFormat={dateFormat}
@@ -581,7 +583,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
         assignments={packageAssignments}
         packages={packageDefinitions}
         positionCatalog={positionCatalog}
-        records={currentReport.result.validRecords}
+        records={currentReport.result?.validRecords || []}
         staffList={config.staffList || []}
         searchTerm={currentReport.searchTerms.packages || ''}
         onSearchChange={(val) => onSearchChange('packages', val)}
@@ -596,6 +598,7 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
             ? currentReport.queryDateRangeText
             : currentReport.result?.dateRangeText || currentReport.queryDateRangeText || currentReport.listDateRange || ''
         }
+        isProcessing={currentReport.isProcessing}
       />
     );
   }

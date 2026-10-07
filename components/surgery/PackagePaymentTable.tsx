@@ -33,6 +33,7 @@ interface Props {
   searchTerm?: string;
   viewMode?: PackageViewMode;
   hiddenCols?: string[];
+  isProcessing?: boolean;
 }
 
 function formatVND(n: number): string {
@@ -49,6 +50,7 @@ export const PackagePaymentTable: React.FC<Props> = ({
   searchTerm = '',
   viewMode = 'detail',
   hiddenCols = [],
+  isProcessing = false,
 }) => {
   const isHidden = (key: string) => hiddenCols.includes(key);
   const summary = viewMode === 'summary';
@@ -98,6 +100,14 @@ export const PackagePaymentTable: React.FC<Props> = ({
   const headerRowSpan = summary ? 1 : 2;
 
   if (assignments.length === 0) {
+    if (isProcessing) {
+      return (
+        <div className="py-12 flex flex-col items-center justify-center gap-3 bg-white rounded-xl border border-gray-200 shadow-2xs">
+          <div className="h-6 w-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-xs text-gray-500 font-medium">Đang tải và đồng bộ bảng thanh toán gói dịch vụ...</span>
+        </div>
+      );
+    }
     return (
       <div className="text-center py-10 text-gray-400 text-sm italic">
         Chưa có gói dịch vụ nào được gán trong kỳ này.

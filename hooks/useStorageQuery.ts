@@ -174,6 +174,19 @@ export function useStorageQuery({
         addToast('Đang tải dữ liệu lưu trữ...', 'success');
         clearPackageDrafts();
 
+        // Kích hoạt nạp song song và bật cờ isProcessing cho tất cả các tab
+        updateReportState(
+          currentType,
+          {
+            isProcessing: true,
+            dateFrom: dateFromStr,
+            timeFrom: morningFrom,
+            dateTo: dateToStr,
+            timeTo: timeTo,
+          },
+          'storage'
+        );
+
         const isoFrom = new Date(dateFromIso).toISOString();
         const isoTo = new Date(dateToIso).toISOString();
 
@@ -185,6 +198,7 @@ export function useStorageQuery({
           updateReportState(
             currentType,
             {
+              isProcessing: false,
               result: undefined,
               stats: undefined,
               dataSource: undefined,
@@ -280,6 +294,17 @@ export function useStorageQuery({
       addToast('Đang tải dữ liệu lưu trữ...', 'success');
       clearPackageDrafts();
 
+      // Kích hoạt nạp song song và bật cờ isProcessing cho tất cả các tab
+      updateReportState(
+        currentType,
+        {
+          isProcessing: true,
+          dateFrom: effDateFrom,
+          dateTo: effDateTo,
+        },
+        'storage'
+      );
+
       const isoFrom = new Date(dateFromStr).toISOString();
       const isoTo = new Date(dateToStr).toISOString();
 
@@ -291,6 +316,7 @@ export function useStorageQuery({
         updateReportState(
           currentType,
           {
+            isProcessing: false,
             result: undefined,
             stats: undefined,
             dataSource: undefined,
@@ -453,10 +479,12 @@ export function useStorageQuery({
         }
         addToast(loadSuccessMsg, 'success');
       } else {
+        updateReportState(currentType, { isProcessing: false }, 'storage');
         addToast(res.message, 'error');
       }
     } catch (error) {
       console.error('Error getting report:', error);
+      updateReportState(currentType, { isProcessing: false }, 'storage');
       handleActionError(error, 'Có lỗi xảy ra khi lấy dữ liệu.', addToast, 'truy vấn dữ liệu lưu trữ');
     }
   }, [

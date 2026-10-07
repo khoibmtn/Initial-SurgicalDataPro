@@ -26,6 +26,7 @@ export interface PaymentListsContext {
   periodKey: string;
   dateFrom?: string;
   dateTo?: string;
+  isLoading?: boolean;
 }
 
 /** First day of the month before `dateFrom` (YYYY-MM-DD) */
@@ -45,12 +46,32 @@ export function usePaymentLists(params: { enabled: boolean; dateFrom?: string; d
   const [lists, setLists] = useState<PaymentList[]>([]);
   const [allAssignments, setAllAssignments] = useState<ServicePackageAssignment[]>([]);
   const [lookupRecords, setLookupRecords] = useState<LookupRecord[]>([]);
+  const [isListsLoading, setIsListsLoading] = useState(enabled);
+  const [isRecordsLoading, setIsRecordsLoading] = useState(false);
   const cache = useRef(new Map<string, LookupRecord[]>());
 
   useEffect(() => {
-    if (!enabled) return;
-    const unsubLists = subscribeToPaymentLists(setLists);
-    const unsubAssign = subscribeToAllAssignments(setAllAssignments);
+    if (!enabled) {
+      setIsListsLoading(false);
+      return;
+    }
+    setIsListsLoading(true);
+    let loadedLists = false;
+    let loadedAssign = false;
+    const checkDone = () => {
+      if (loadedLists && loadedAssign) setIsListsLoading(false);
+    };
+
+    const unsubLists = subscribeToPaymentLists((items) => {
+      setLists(items);
+      loadedLists = true;
+      checkDone();
+    });
+    const unsubAssign = subscribeToAllAssignments((items) => {
+      setAllAssignments(items);
+      loadedAssign = true;
+      checkDone();
+    });
     return () => {
       unsubLists();
       unsubAssign();
@@ -115,6 +136,7 @@ export function usePaymentLists(params: { enabled: boolean; dateFrom?: string; d
     if (cleanIds.length === 0) return [];
 
     try {
+      setIsRecordsLoading(true);
       const fetched = await reportService.getSurgeryRecordsByPatientIds(cleanIds);
       if (fetched.length > 0) {
         setLookupRecords(prev => {
@@ -136,8 +158,32 @@ export function usePaymentLists(params: { enabled: boolean; dateFrom?: string; d
     } catch (err) {
       console.error('Error in loadRecordsForPatients:', err);
       return [];
+    } finally {
+      setIsRecordsLoading(false);
     }
   }, [enabled]);
 
-  return { lists, allAssignments, membershipIndex, discharge, lookupRecords, ensureRecordsLoaded, loadRecordsForPatients };
+  // Eager prefetch: Khi có lists đợt thanh toán, tự động nạp trước thông tin các ca mổ của đợt thanh toán đang chọn
+  useEffect(() => {
+    if (!enabled || lists.length === 0) return;
+    try {
+      const raw = localStorage.getItem('package_list_view_state');
+      let targetListId = '';
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.listFilter === 'string' && parsed.listFilter !== 'all') {
+          targetListId = parsed.listFilter;
+        }
+      }
+      const targetList = targetListId ? lists.find(l => l.id === targetListId) : undefined;
+      if (targetList && targetList.items.length > 0) {
+        const pids = targetList.items.map(it => (it.patientId || '').trim()).filter(Boolean);
+        loadRecordsForPatients(pids);
+      }
+    } catch {}
+  }, [enabled, lists, loadRecordsForPatients]);
+
+  const isLoading = isListsLoading || isRecordsLoading;
+
+  return { lists, allAssignments, membershipIndex, discharge, lookupRecords, ensureRecordsLoaded, loadRecordsForPatients, isLoading };
 }
