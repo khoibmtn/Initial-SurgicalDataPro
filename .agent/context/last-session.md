@@ -1,146 +1,180 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 03/10/2026 23:35 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `main` (commit `bb495f3`), nhánh làm việc tạm: `temp-03-10-2026-23h25`  
+> **Thời gian cập nhật:** 07/10/2026 18:10 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-07-10-2026-18h04` (dựa trên `main` commit `6b419a9`)  
 > **Remote:** `origin/main` đã push đầy đủ lên GitHub  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
-> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build, 6.51s)`  
-> **Trạng thái Test:** `331 / 331 tests PASS` (23 test suites, 100% pass)  
+> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build, 6.87s)`  
+> **Trạng thái Test:** `418 / 418 tests PASS` (33 test suites, 100% pass)  
 
 ---
 
 ## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
 
-### 1.1. Tối Ưu Tốc Độ Tải Lịch Mổ (Stale-While-Revalidate & Prefetching)
-- **Cơ chế Cache 2 tầng**:
-  - Lưu trữ tạm thời lịch mổ của từng ngày trong bộ nhớ RAM (`memoryCache`) và `localStorage` (`schedule_cache_v1:{date}`, tối đa 21 ngày gần nhất).
-  - Khi mở tab Lịch mổ hoặc chuyển ngày, dữ liệu cache được hiển thị **tức thì (0ms)**, đồng thời Firebase RTDB listener kích hoạt ngầm để cập nhật dữ liệu mới nhất.
-  - Cạnh tiêu đề ngày có biểu tượng xoay kèm trạng thái rõ ràng: "Đang tải" (chưa có cache) hoặc "Đang đồng bộ" (đang hiển thị cache và chờ dữ liệu thời gian thực).
-- **Prefetching ngày trước & ngày sau**:
-  - Khi ngày hiện tại đã đồng bộ xong (`live`), hệ thống tự động tải trước dữ liệu của ngày hôm trước (d-1) và ngày hôm sau (d+1), giúp thao tác bấm ◀ / ▶ chuyển ngày diễn ra ngay lập tức.
-- **Trì hoãn tải danh mục giá (`surgery_name_prices`)**:
-  - Danh mục giá phẫu thuật (~2.5 MB, hơn 3.000 mục) chia sẻ chung kết nối WebSocket Firebase. Trong tab Lịch mổ, danh mục này được trì hoãn và chỉ nạp khi người dùng mở modal thêm/sửa ca mổ, loại bỏ hoàn toàn hiện tượng nghẽn đường truyền lúc mới tải lịch.
-- **Bộ nhớ đệm tuần (`WeekOverview.tsx`)**:
-  - Tổng quan tuần khởi tạo trực tiếp từ cache và memo hóa việc phát hiện xung đột, không tính toán lại dư thừa khi re-render.
+### 1.1. Tối Ưu Tốc Độ Tải Dữ Liệu Đồng Thời (Tab Gói DVYC & Thanh Toán)
+- **Vấn đề trước đây:**
+  - Khi lấy danh sách phẫu thuật (BC ngày hoặc BC tháng), tab Gói DVYC hiện badge (ví dụ: `2 NEW` hoặc `89 ca`), nhưng khi người dùng mở tab thì bảng lại trống trơn ("Chưa có ca phù hợp với bộ lọc hiện tại"), phải mất 3-10 giây sau mới hiện danh sách.
+  - Nguyên nhân: Bảng `PackageListView` chỉ lặp duyệt qua `records` (danh sách phẫu thuật đã xử lý). Trong khi danh sách phẫu thuật còn đang chạy tuần tự các tác vụ đồng bộ giá và tính toán ngoài giờ, `records` tạm thời rỗng `[]` khiến bảng bị rỗng.
+- **Giải pháp triển khai:**
+  1. **Instant Fallback Rendering (`PackageListView.tsx`):**
+     - Trong `enrichedRecords`, ngoài việc khớp qua `records`, hệ thống đồng thời đưa ngay các ca đã có trong `assignments` vào danh sách hiển thị với thông tin fallback đầy đủ (Mã KCB, Họ tên, Kỹ thuật mổ, Ngày mổ, Kíp mổ: PTV chính, PTV phụ, BS GM, KTV GM, TĐC, GV...).
+     - Khi `records` phẫu thuật nạp xong, hệ thống tự động làm giàu thêm các dữ liệu phụ trợ (khoa, thời gian mổ, cảnh báo) mà không gây giật lag hay trắng bảng.
+  2. **Tải song song (Parallel Pre-loading trong `hooks/useStorageQuery.ts`):**
+     - Ngay khi người dùng nhấn "Lấy dữ liệu" hoặc "Dữ liệu trực", hệ thống lập tức phát tín hiệu `isProcessing: true` và cập nhật khoảng ngày truy vấn.
+     - Tác vụ nạp phẫu thuật (`getReports`), nạp gói dịch vụ (`subscribeToAssignments`), nạp đợt thanh toán (`subscribeToPaymentLists`) chạy đồng thời thay vì tuần tự.
+  3. **Eager Prefetch (`hooks/usePaymentLists.ts`):**
+     - Bổ sung cờ `isLoading` (`isListsLoading` || `isRecordsLoading`).
+     - Tự động nạp trước hồ sơ bệnh nhân của đợt thanh toán đang chọn trong nền ngay khi danh mục đợt thanh toán được tải về.
+  4. **Hiển thị Skeleton Loading Animation:**
+     - Khi dữ liệu đang truy vấn ban đầu (`isProcessing` hoặc `isLoading`), bảng hiển thị 5 hàng Skeleton pulse animation mô phỏng đúng cấu trúc các cột thay vì thông báo "Chưa có ca phù hợp".
+     - Bảng `PackagePaymentTable` hiển thị spinner và thông báo trạng thái xoay tròn khi đang đồng bộ.
 
 ---
 
-### 1.2. Nhập Giờ Tự Do 24h & Khắc Phục Lỗi AM/PM (`TimeInput24`)
-- **Vấn đề trước đây**: Thẻ `<input type="time">` phụ thuộc vào locale của trình duyệt và hệ điều hành, thường hiển thị dạng 12h (AM/PM, ví dụ `01:05 PM`).
-- **Giải pháp**: Xây dựng component chuyên dụng [TimeInput24.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/common/TimeInput24.tsx):
-  - Luôn hiển thị định dạng chuẩn 24h (ví dụ `13:05`, không có AM/PM).
-  - Hỗ trợ gõ tắt linh hoạt tự động chuẩn hóa: `1305` ➔ `13:05`, `801` ➔ `08:01`, `13h` ➔ `13:00`, `8` ➔ `08:00`.
-  - Phím tắt bàn phím: Bấm phím mũi tên `↑` / `↓` để tăng/giảm từng 1 phút; giữ `Shift + ↑ / ↓` để tăng/giảm 15 phút.
-  - Tự động điều chỉnh giờ kết thúc khi đổi giờ bắt đầu nếu giờ kết thúc cũ không còn hợp lệ.
+### 1.2. Chức Năng Đổi Mật Khẩu Cá Nhân (User Change Password)
+- **Vị trí thao tác:**
+  - Nhấp vào **Avatar / Tên tài khoản** ở góc dưới cùng bên trái thanh Sidebar ➔ Chọn menu **"Đổi mật khẩu"** (biểu tượng chìa khóa 🔑).
+- **Cơ chế an toàn & xác thực:**
+  - Thành phần [ChangePasswordModal.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/auth/ChangePasswordModal.tsx) kết nối trực tiếp với [authService.ts](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/services/authService.ts#changeUserPassword).
+  - Yêu cầu xác thực lại bằng Mật khẩu hiện tại qua `reauthenticateWithCredential` của Firebase Auth.
+  - Kiểm tra mật khẩu mới: độ dài tối thiểu 6 ký tự, đối chiếu khớp mật khẩu xác nhận.
+  - Nút bật/tắt con mắt 👁️ để ẩn/hiện mật khẩu.
+  - Tự động xóa cờ mật khẩu mặc định (`passwordResetDefault: false`) trong Firestore.
+  - Ghi nhận lịch sử thao tác vào hệ thống **Nhật ký (Audit Log)** với hành động `UPDATE_PASSWORD`.
 
 ---
 
-### 1.3. Chuẩn Hóa Khung Giờ Ca Trực 24h & Loại Bỏ Ký Hiệu "+1" Trên Timeline
-- **Khung ca trực 24h**: Bắt đầu từ giờ hành chính sáng (07:30 mùa đông, 07:00 mùa hè) kéo dài đến trước giờ hành chính sáng hôm sau (07:29 hoặc 06:59).
-- **Loại bỏ ký hiệu "+1"**:
-  - Theo yêu cầu người dùng, các mốc giờ sau nửa đêm thuộc ca trực (00:00 – 07:29) được hiển thị dạng `HH:mm` thuần túy, không kèm ký hiệu `+1` ở mốc đo thời gian (ticks), trên thẻ ca mổ (timeline cards) và trong danh sách.
-  - Header tua trực hiển thị mốc kết thúc chính xác là `dutyStartHour - 1 phút` (ví dụ: `07:30 đến 07:29`).
-- **Khắc phục lỗi hàm parse thời gian (`scheduleConflictService.ts`)**:
-  - Sửa lỗi regex cũ `t.replace(/[^\d:]/g, '')` vô tình biến chuỗi `"07:30 (+1)"` thành `"07:301"` khiến giờ bị tính sai thành ~12h trưa. Sử dụng regex bóc tách nhóm `(\d{1,2})(?:\s*[:hH]\s*(\d{1,2}))?` chuẩn xác.
+### 1.3. Nâng Cao Độ Tương Phản Nút Bấm Cho Màn Hình Độ Phân Giải Thấp / Tấm Nền TN
+- **Vấn đề:** Các màn hình văn phòng/bệnh viện tấm nền TN hoặc độ tương phản thấp dễ làm lóa hoặc chìm các nút màu pastel nhạt (`bg-teal-50`, `border-teal-200`).
+- **Chuẩn hóa màu sắc độ tương phản cao:**
+  - **Nút "+ Gán gói DV":** Đổi sang nền xanh ngọc đậm đặc (`bg-emerald-700 hover:bg-emerald-800`), chữ trắng in đậm (`text-white font-bold`), viền đậm `border-emerald-800` với shadow rõ ràng.
+  - **Nút "Tạo đợt mới":** Đổi sang nền `bg-emerald-700 hover:bg-emerald-800 border-emerald-800 text-white font-bold`.
+  - **Nút "Gói DV ({count})" trên Toolbar DS Phẫu thuật:** Nền `bg-emerald-700 text-white font-bold`.
+  - **Nút "Chuyển ca / chuyển đợt" (`ArrowRightLeft`):** Đóng khung viền nổi bật (`border border-slate-300 bg-white hover:bg-primary-50 text-slate-700 hover:text-primary-700 shadow-2xs`).
+  - **Nút "Xác nhận chuyển" trong Modal chuyển đợt:** Đổi sang xanh dương đậm chuẩn như nút *Lấy dữ liệu* (`bg-primary-700 hover:bg-primary-800 border border-primary-800 text-white font-bold`).
+  - **Badge hiển thị gói DV đã gán:** Nâng độ tương phản viền và chữ (`bg-emerald-50 text-emerald-900 border border-emerald-300 font-bold`).
 
 ---
 
-### 1.4. Khắc Phục Triệt Để Lỗi Không Thêm Được Ca Mổ Mới
-- **Hiện tượng**: Bấm "Thêm ca mổ", điền thông tin và bấm "Đăng ký ca mổ" nhưng modal không phản hồi và ca mổ không được lưu.
-- **Nguyên nhân gốc rễ**:
-  - Firebase Realtime Database (RTDB) cấm hoàn toàn giá trị `undefined` trong object gửi lên.
-  - Khi người dùng để trống ô **Ghi chú**, trường `note` nhận giá trị `undefined` (`note: undefined`).
-  - Firebase SDK ném ngoại lệ client-side: `set failed: value argument contains undefined in property 'surgery_schedules.YYYY-MM-DD.<id>.note'`.
-  - Ngoại lệ bị khối `try...catch` cũ bắt mà không hiển thị thông báo lỗi lên UI, khiến nút bấm dường như bị vô hiệu hóa.
-- **Xử lý**:
-  - Viết hàm [stripUndefined](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/services/scheduleService.ts#L18-L20) trong `scheduleService.ts` tự động loại bỏ toàn bộ key `undefined` trước khi thực hiện `set` / `update`.
-  - Trong `ScheduleSurgeryModal.tsx`, chỉ truyền `note` khi có nội dung thực tế (`...(note.trim() ? { note: note.trim() } : {})`).
-  - Thêm hiển thị thông báo lỗi `saveError` (màu đỏ, trợ năng `role="alert"`) ngay cạnh nút lưu để cảnh báo ngay nếu gặp lỗi phân quyền hoặc lỗi mạng.
-  - Khi cập nhật ca mổ mà xóa trắng ghi chú, trường `note` được đặt thành `null` để Firebase RTDB xóa sạch key cũ.
-  - Đã kiểm thử trực tiếp thao tác ghi / đọc / xóa với Firebase RTDB qua script Node.js và unit test (`__tests__/verifyAddSurgery.test.ts`).
+### 1.4. Quản Lý Đợt Thanh Toán Gói Dịch Vụ & Tra Cứu Chéo Kỳ
+- **Phân hệ Đợt thanh toán (`usePaymentLists.ts`, `PackageListView.tsx`):**
+  - Hỗ trợ tạo đợt mới, khóa đợt thanh toán (ngăn chỉnh sửa khi đã chốt), di chuyển ca giữa các đợt, xóa ca khỏi đợt (vẫn giữ gói yêu cầu).
+  - Tra cứu chéo kỳ: Cho phép ca phẫu thuật ở tháng trước được nạp vào đợt thanh toán của tháng sau mà không bị mất dữ liệu.
+  - 3 bộ lọc độc lập: Lọc theo Gói DVYC (Tất cả / Đã gán / Chưa gán), Lọc theo Đợt TT (Tất cả / Đã có đợt / Chưa có đợt), Lọc theo Ra viện (Tất cả / Đã RV / Chưa có thông tin).
+- **Xuất Excel Gói DVYC chuẩn (`servicePackageExportService.ts`):**
+  - Header tiêu đề bảng tự động cập nhật theo nguồn dữ liệu: "Lấy dữ liệu từ Tháng X - YYYY" hoặc "Lấy dữ liệu từ đợt thanh toán yêu cầu ở danh sách 'tên danh sách' - năm".
+  - Tiêu đề các cột nhân lực hiển thị tên viết tắt cấu hình theo vị trí trong gói.
+  - Tự động bật Wrap text trên tất cả các cột.
+  - Dòng tổng kết cuối bảng hiển thị tự nhiên, không gộp ô.
 
 ---
 
-### 1.5. Rà Soát Kíp Mổ & Kiểm Tra Trùng Giờ Theo Định Mức Bàn Mổ
-- **Sửa lỗi kíp mổ chỉ hiện BS GMHS**:
-  - Nguyên nhân: Trước đó code lấy nhầm bộ lọc từ `reportRoleFilters` (vốn là bộ lọc nhập file báo cáo ngoài giờ với cấu hình mặc định chỉ chọn BS GMHS).
-  - Khắc phục: Phân hệ xếp lịch mổ lấy danh sách vị trí từ `STAFF_POSITIONS` kết hợp với `tableItems` ("Định mức bàn mổ") có `limit > 0`.
-  - Vị trí Giúp việc (`gv` có `limit = 0`) được ẩn theo đúng quy chế khoa phòng; các vị trí Phẫu thuật chính, Phẫu thuật phụ, Bác sĩ GMHS, Kỹ thuật viên GM, Tít dụng cụ hiển thị đầy đủ.
-- **Kiểm tra trùng giờ thông minh theo Định mức bàn mổ (`roleLimits`)**:
-  - Bác sĩ GMHS có định mức bàn mổ = 2 (có thể phụ trách tối đa 2 bàn mổ cùng lúc). Khi BS GMHS tham gia 2 ca mổ trùng giờ nhau, hệ thống **KHÔNG báo trùng**. Chỉ khi tham gia từ ca thứ 3 trở lên trong cùng khoảng thời gian mới kích hoạt cảnh báo xung đột nhân sự.
+### 1.5. Khắc Phục Lỗi Báo Cáo Tháng & Giới Hạn Năm 2026
+- **Xử lý dữ liệu năm & tháng (`hooks/useReportStateManager.ts`):**
+  - Tự động nạp danh mục năm/tháng có dữ liệu thực tế từ Firestore qua `reportService.getAvailableMonthlyYearsAndMonths()`.
+  - Giới hạn năm tối đa là 2026, loại bỏ hoàn toàn các lựa chọn năm tương lai (2027).
+  - Khi chuyển đổi giữa chế độ **"Tháng"** và chế độ **"Khoảng thời gian"**, tự động đồng bộ ngày bắt đầu/kết thúc tương ứng với tháng đang chọn.
 
 ---
 
-### 1.6. Chế Độ Màn Hình Chiếu (Projector Mode)
-- **Mục đích**: Tối ưu cho màn hình TV lớn / máy chiếu trong phòng theo dõi sắp xếp ca mổ.
-- **Giao diện [ProjectorView.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/scheduling/ProjectorView.tsx)**:
-  - Nút biểu tượng `MonitorPlay` trên thanh công cụ của desktop.
-  - Đồng hồ điện tử kích thước lớn hiển thị thời gian thực theo từng giây (`HH:mm:ss`).
-  - Thống kê trực quan: Tổng ca, Đang mổ, Sắp tới, Đã xong, Số ca xung đột.
-  - Bố cục chia 2 vùng: Bên trái là Timeline 24h tự động co giãn vừa khung hình (zoom 40/60/80); bên phải là danh sách ca mổ phân theo trạng thái.
-  - Hỗ trợ nút "Toàn màn hình" (Fullscreen API), phím `Esc` để thoát; nhấp vào bất kỳ ca mổ nào vẫn mở modal chỉnh sửa bình thường.
+### 1.6. Phân Quyền & Cải Tiến Nhật Ký Hệ Thống (Audit Log)
+- **Phân quyền Trưởng khoa & Phó khoa:**
+  - Bổ sung phân quyền chuyên biệt cho Phó khoa, chỉ cấp quyền thao tác nội bộ khoa.
+  - Ở tab "Bảng phân quyền hệ thống toàn viện", Trưởng khoa chỉ có quyền xem (chỉ Quản trị viên tối cao / Admin mới được chỉnh sửa phân quyền).
+- **Bộ lọc & Định dạng Nhật ký (`AuditLogModal.tsx`):**
+  - Bổ sung bộ lọc theo Khoa phòng và bộ lọc theo Ngày.
+  - Hiển thị thời điểm thao tác chuẩn xác theo định dạng `dd/mm/yyyy hh:mm:ss`.
 
 ---
 
-### 1.7. Tối Ưu Trải Nghiệm Trên Điện Thoại (Mobile Experience)
-- **Giao diện [MobileScheduleList.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/scheduling/MobileScheduleList.tsx)**:
-  - Tự động gom nhóm ca mổ theo 3 trạng thái: **Đang mổ**, **Sắp tới**, **Đã xong** dựa trên thời gian thực của ca trực.
-  - Ca đang mổ có thanh tiến độ (progress bar) trực quan ở chân thẻ.
-  - Thẻ ca mổ được thiết kế lại: Tên bệnh nhân luôn hiển thị trọn vẹn ở dòng trên cùng, dòng tiếp theo là thời gian và phẫu thuật viên chính, dòng dưới là tên kỹ thuật mổ.
-  - Nút bấm tròn nổi (+) (Floating Action Button) cố định ở góc dưới bên phải màn hình giúp thao tác thêm ca mổ bằng một tay thuận tiện.
-  - Hỗ trợ cử chỉ vuốt ngón tay (Swipe ◀ / ▶) để chuyển ngày mượt mà.
+## 📐 2. Cấu Trúc Dữ Liệu & Interfaces Trọng Điểm
 
----
-
-## 📐 2. Cấu Trúc Dữ Liệu & Schema Trọng Điểm
-
-### 2.1. Scheduled Surgery Schema (`types/schedule.ts`)
+### 2.1. Service Package Assignment (`types/servicePackage.ts`)
 ```typescript
-export interface ScheduledSurgery {
-  id: string;
-  date: string;             // yyyy-mm-dd
-  patientId: string;        // Mã KCB
-  patientName: string;      // Họ tên BN
-  tenKT: string;            // Tên phẫu thuật / thủ thuật
+export interface ServicePackageAssignment {
+  id?: string;
+  compositeKey: string; // patientId__YYYY-MM-DD__tenKT
+  patientId: string;
+  patientName: string;
+  ngayBD: string;
+  tenKT: string;
+  packageId: string;
+  packageName: string;
+  packageShortName?: string;
+  cost?: number;
+  staffAssignments: Array<{
+    positionKey: string;
+    positionLabel: string;
+    staffId?: string;
+    staffName: string;
+    amount?: number;
+  }>;
+  ptChinh?: string;
+  ptPhu?: string;
+  bsGM?: string;
+  ktvGM?: string;
+  tdc?: string;
+  gv?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+```
 
-  startTime: string;        // HH:mm (24h)
-  endTime: string;          // HH:mm (24h)
-
-  machineCode: string;
-  machineName: string;
-
-  staff: Record<string, string>; // { ptChinh, ptPhu, bsGM, ktvGM, tdc }
-  note?: string;
-
-  createdBy: string;        // uid
-  createdByName: string;    // display name
-  createdAt: number;        // timestamp ms
-  updatedAt: number;        // timestamp ms
+### 2.2. Payment List & Membership (`types/paymentList.ts`)
+```typescript
+export interface PaymentListItem {
+  patientId: string;
+  addedAt: number;
+  addedBy?: string;
 }
 
-export type ScheduledSurgeryInput = Omit<ScheduledSurgery, 'id' | 'createdBy' | 'createdByName' | 'createdAt' | 'updatedAt'>;
+export interface PaymentList {
+  id: string;
+  name: string;
+  periodKey?: string;
+  department?: string;
+  status: 'draft' | 'locked';
+  items: PaymentListItem[];
+  createdAt: number;
+  updatedAt: number;
+}
 ```
 
-### 2.2. Conflict Detection với Định Mức Bàn Mổ
+### 2.3. PaymentListsContext (`hooks/usePaymentLists.ts`)
 ```typescript
-export function detectConflicts(
-  entries: ScheduledSurgery[],
-  roleFilters?: RoleFilterConfig,
-  dutyStartHour: number = 7.5,
-  roleLimits?: Partial<Record<string, number>>, // { ptChinh: 1, ptPhu: 1, bsGM: 2, ktvGM: 1, tdc: 1 }
-): ScheduleConflict[];
+export interface PaymentListsContext {
+  lists: PaymentList[];
+  allAssignments: ServicePackageAssignment[];
+  membershipIndex: Map<string, MembershipEntry>;
+  discharge: DischargeMap;
+  records: LookupRecord[];
+  ensureRecordsLoaded: () => Promise<void>;
+  loadRecordsForPatients: (patientIds: string[]) => Promise<LookupRecord[]>;
+  canManage: boolean;
+  userName: string;
+  periodKey: string;
+  dateFrom?: string;
+  dateTo?: string;
+  isLoading?: boolean;
+}
 ```
 
 ---
 
-## 🚀 3. Trạng Thái Git, Build & Deploy
+## 📂 3. Danh Sách Tệp Mã Nguồn Đã Thay Đổi Gần Nhất
+1. `services/authService.ts`: Bổ sung hàm `changeUserPassword(oldPassword, newPassword)`.
+2. `components/auth/ChangePasswordModal.tsx`: Component popup đổi mật khẩu hoàn chỉnh.
+3. `components/auth/UserMenuButton.tsx`: Menu item "Đổi mật khẩu" tại avatar sidebar góc trái dưới.
+4. `components/surgery/PackageListView.tsx`: Instant fallback rendering, Skeleton loading, nâng tương phản nút thao tác.
+5. `components/surgery/PackagePaymentTable.tsx`: Hỗ trợ `isProcessing` hiển thị spinner loading khi tải.
+6. `components/surgery/SurgeryTableViewRouter.tsx`: Truyền `isProcessing` an toàn xuống các tab.
+7. `hooks/usePaymentLists.ts`: Thêm `isLoading`, tự động eager prefetch hồ sơ đợt thanh toán.
+8. `hooks/useStorageQuery.ts`: Bật `isProcessing: true` và cập nhật ngày ngay lúc bấm "Lấy dữ liệu" để chạy tải song song.
 
-- **Nhánh `main`**: Đã merge commit `bb495f3` và push lên GitHub (`origin/main`).
-- **Nhánh làm việc tạm**: `temp-03-10-2026-23h25`.
-- **Deploy Vercel Production**: Thành công 100% tại `https://initial-surgical-data-pro.vercel.app`.
-- **Bộ kiểm thử tự động**: 23 test suites, 331 tests passed.
-- **Tuân thủ quy tắc dự án**:
-  - Không vi phạm Purple Ban (không sử dụng màu tím/violet).
-  - Không phụ thuộc vào `reportRoleFilters` trong phân hệ xếp lịch.
-  - Giữ nguyên các vị trí định mức bàn mổ và quy chế trực 24h.
+---
+
+## 🚀 4. Trạng Thái Triển Khai & Kiểm Thử
+- **Git Branch:** `temp-07-10-2026-18h04` (Clean working tree, đã merge vào `main` và push lên GitHub).
+- **Vercel Production:** Đã deploy thành công lên `https://initial-surgical-data-pro.vercel.app`.
+- **Test Suite:** 418/418 tests pass trong 33 file test (`npm test`).
