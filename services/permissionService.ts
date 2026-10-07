@@ -98,7 +98,8 @@ export function resolveEffectivePermissions(
   userRole: string,
   _department: string | undefined,
   globalRolePerms: { head?: string[]; deputy_head?: string[]; staff?: string[]; guest?: string[] },
-  departmentStaffPerms?: string[] | null
+  departmentStaffPerms?: string[] | null,
+  departmentDeputyHeadPerms?: string[] | null
 ): string[] {
   if (userRole === 'admin') {
     return ALL_PERMISSIONS.map((p) => p.key);
@@ -107,7 +108,8 @@ export function resolveEffectivePermissions(
     return globalRolePerms.head || DEFAULT_ROLE_PERMISSIONS.head;
   }
   if (userRole === 'deputy_head') {
-    return globalRolePerms.deputy_head || DEFAULT_ROLE_PERMISSIONS.deputy_head;
+    const deputyCeiling = globalRolePerms.deputy_head || DEFAULT_ROLE_PERMISSIONS.deputy_head;
+    return resolveDepartmentStaffPermissions(deputyCeiling, departmentDeputyHeadPerms);
   }
   if (userRole === 'staff') {
     const staffCeiling = globalRolePerms.staff || DEFAULT_ROLE_PERMISSIONS.staff;

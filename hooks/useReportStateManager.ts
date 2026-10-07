@@ -37,12 +37,14 @@ export function useReportStateManager({ activeTab }: UseReportStateManagerOption
   });
 
   // Danh mục năm và tháng có dữ liệu thực tế từ Firestore
-  const [availableMonthlyYears, setAvailableMonthlyYears] = useState<number[]>([2023, 2024, 2025, 2026]);
+  const ALL_12_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const [availableMonthlyYears, setAvailableMonthlyYears] = useState<number[]>([2023, 2024, 2025, 2026, 2027]);
   const [availableMonthlyMonthsMap, setAvailableMonthlyMonthsMap] = useState<Record<number, number[]>>({
     2023: [5, 6, 7, 8, 9, 10, 11, 12],
-    2024: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    2025: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    2026: [1, 2, 3, 4, 5, 6, 7, 8],
+    2024: ALL_12_MONTHS,
+    2025: ALL_12_MONTHS,
+    2026: ALL_12_MONTHS,
+    2027: ALL_12_MONTHS,
   });
 
   const [monthlyStorageState, setMonthlyStorageState] = useState<ReportState>(() => {

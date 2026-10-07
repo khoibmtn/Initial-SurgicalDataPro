@@ -151,14 +151,15 @@ export function subscribeToDepartmentUsers(
   });
 }
 
-// ─── Department-specific Staff Permissions ──────────────────────────────────
-export async function saveDepartmentStaffPermissions(
+// ─── Department-specific Role Permissions (Phó khoa & Nhân viên) ────────────
+export async function saveDepartmentRolePermissions(
   department: string,
+  role: 'deputy_head' | 'staff',
   permissions: string[]
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const safeDeptKey = encodeURIComponent(department.trim()).replace(/\./g, '_');
-    const deptPermRef = ref(db, `department_permissions/${safeDeptKey}/staff`);
+    const deptPermRef = ref(db, `department_permissions/${safeDeptKey}/${role}`);
     await set(deptPermRef, permissions);
     return { success: true };
   } catch (err: any) {
@@ -166,8 +167,9 @@ export async function saveDepartmentStaffPermissions(
   }
 }
 
-export function subscribeToDepartmentPermissions(
+export function subscribeToDepartmentRolePermissions(
   department: string,
+  role: 'deputy_head' | 'staff',
   callback: (permissions: string[] | null) => void
 ): () => void {
   if (!department) {
@@ -175,14 +177,29 @@ export function subscribeToDepartmentPermissions(
     return () => {};
   }
   const safeDeptKey = encodeURIComponent(department.trim()).replace(/\./g, '_');
-  const deptPermRef = ref(db, `department_permissions/${safeDeptKey}/staff`);
+  const deptPermRef = ref(db, `department_permissions/${safeDeptKey}/${role}`);
   return onValue(deptPermRef, (snapshot) => {
     const data = snapshot.val();
     callback(Array.isArray(data) ? data : null);
   }, (err) => {
-    console.error('[userManagementService] subscribeToDepartmentPermissions error:', err);
+    console.error(`[userManagementService] subscribeToDepartmentRolePermissions (${role}) error:`, err);
     callback(null);
   });
+}
+
+// Hàm tương thích ngược cho Nhân viên
+export async function saveDepartmentStaffPermissions(
+  department: string,
+  permissions: string[]
+): Promise<{ success: boolean; error?: string }> {
+  return saveDepartmentRolePermissions(department, 'staff', permissions);
+}
+
+export function subscribeToDepartmentPermissions(
+  department: string,
+  callback: (permissions: string[] | null) => void
+): () => void {
+  return subscribeToDepartmentRolePermissions(department, 'staff', callback);
 }
 
 // ─── Update user profile fields (department, displayName, role, phone) ───────

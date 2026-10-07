@@ -51,6 +51,8 @@ import {
   updateAuthConfig,
   saveDepartmentStaffPermissions,
   subscribeToDepartmentPermissions,
+  saveDepartmentRolePermissions,
+  subscribeToDepartmentRolePermissions,
   updateUserProfile,
   deleteUser,
   resetUserPassword,
@@ -1544,12 +1546,14 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   department = '',
 }) => {
   const { can } = useAuth();
-  const canSwitchToMatrix = isAdmin || can('manage_user_roles');
+  const canSwitchToMatrix = isAdmin || can('manage_user_roles') || isHead || isDeputyHead;
   const [viewMode, setViewMode] = useState<'dept' | 'matrix'>(isAdmin ? 'matrix' : 'dept');
+  const [deptTargetRole, setDeptTargetRole] = useState<'deputy_head' | 'staff'>('deputy_head');
   const [headPerms, setHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.head);
   const [deputyHeadPerms, setDeputyHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.deputy_head);
   const [staffPerms, setStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
   const [guestPerms, setGuestPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.guest);
+  const [deptDeputyHeadPerms, setDeptDeputyHeadPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.deputy_head);
   const [deptStaffPerms, setDeptStaffPerms] = useState<string[]>(DEFAULT_ROLE_PERMISSIONS.staff);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -1568,21 +1572,35 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
     return () => unsub();
   }, []);
 
-  // Load department-specific staff permissions (for Head)
+  // Load department-specific permissions for both staff and deputy_head
   useEffect(() => {
     if (!department) return;
-    const unsub = subscribeToDepartmentPermissions(department, (customPerms) => {
+    const unsubStaff = subscribeToDepartmentRolePermissions(department, 'staff', (customPerms) => {
       if (customPerms !== null) {
         setDeptStaffPerms(resolveDepartmentStaffPermissions(staffPerms, customPerms));
       } else {
         setDeptStaffPerms([...staffPerms]);
       }
     });
-    return () => unsub();
-  }, [department, staffPerms]);
+    const unsubDeputy = subscribeToDepartmentRolePermissions(department, 'deputy_head', (customPerms) => {
+      if (customPerms !== null) {
+        setDeptDeputyHeadPerms(resolveDepartmentStaffPermissions(deputyHeadPerms, customPerms));
+      } else {
+        setDeptDeputyHeadPerms([...deputyHeadPerms]);
+      }
+    });
+    return () => {
+      unsubStaff();
+      unsubDeputy();
+    };
+  }, [department, staffPerms, deputyHeadPerms]);
 
-  // Admin toggling global role permissions
+  // Admin toggling global role permissions (Chỉ dành riêng cho Admin)
   const toggleGlobalPermission = async (role: 'head' | 'deputy_head' | 'staff' | 'guest', permKey: string) => {
+    if (!isAdmin) {
+      alert('Chỉ Quản trị viên (Admin) mới có quyền chỉnh sửa Bảng phân quyền hệ thống toàn viện.');
+      return;
+    }
     setIsSaving(true);
     let currentPerms: string[];
     if (role === 'head') currentPerms = [...headPerms];
@@ -1619,51 +1637,66 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
     setIsSaving(false);
   };
 
-  // Head toggling staff permission for own department
+  // Head toggling permission for own department (Phó khoa hoặc Nhân viên)
   const toggleDepartmentPermission = async (permKey: string) => {
-    if (!department || !staffPerms.includes(permKey)) return;
+    if (!department) return;
+    if (!isAdmin && !isHead) {
+      alert('Chỉ Trưởng khoa mới có quyền điều chỉnh phân quyền trong khoa.');
+      return;
+    }
+    const isDeputy = deptTargetRole === 'deputy_head';
+    const ceiling = isDeputy ? deputyHeadPerms : staffPerms;
+    if (!ceiling.includes(permKey)) return;
+
     setIsSaving(true);
-
-    const exists = deptStaffPerms.includes(permKey);
+    const currentList = isDeputy ? deptDeputyHeadPerms : deptStaffPerms;
+    const exists = currentList.includes(permKey);
     const nextPerms = exists
-      ? deptStaffPerms.filter((p) => p !== permKey)
-      : [...deptStaffPerms, permKey];
+      ? currentList.filter((p) => p !== permKey)
+      : [...currentList, permKey];
 
-    const safePerms = resolveDepartmentStaffPermissions(staffPerms, nextPerms);
-    setDeptStaffPerms(safePerms);
-
-    try {
-      await saveDepartmentStaffPermissions(department, safePerms);
-    } catch (err) {
-      console.error('Failed to save department permissions:', err);
+    const safePerms = resolveDepartmentStaffPermissions(ceiling, nextPerms);
+    if (isDeputy) {
+      setDeptDeputyHeadPerms(safePerms);
+      await saveDepartmentRolePermissions(department, 'deputy_head', safePerms);
+    } else {
+      setDeptStaffPerms(safePerms);
+      await saveDepartmentRolePermissions(department, 'staff', safePerms);
     }
     setIsSaving(false);
   };
 
   // Head Quick Action: Grant all ceiling permissions
   const handleGrantAllCeiling = async () => {
-    if (!department) return;
+    if (!department || (!isAdmin && !isHead)) return;
     setIsSaving(true);
-    const safePerms = resolveDepartmentStaffPermissions(staffPerms, staffPerms);
-    setDeptStaffPerms(safePerms);
-    try {
-      await saveDepartmentStaffPermissions(department, safePerms);
-    } catch (err) {
-      console.error('Failed to grant all ceiling permissions:', err);
+    const isDeputy = deptTargetRole === 'deputy_head';
+    const ceiling = isDeputy ? deputyHeadPerms : staffPerms;
+    const safePerms = resolveDepartmentStaffPermissions(ceiling, ceiling);
+    if (isDeputy) {
+      setDeptDeputyHeadPerms(safePerms);
+      await saveDepartmentRolePermissions(department, 'deputy_head', safePerms);
+    } else {
+      setDeptStaffPerms(safePerms);
+      await saveDepartmentRolePermissions(department, 'staff', safePerms);
     }
     setIsSaving(false);
   };
 
-  // Head Quick Action: Reset to default staff permissions
+  // Head Quick Action: Reset to default permissions
   const handleResetToDefault = async () => {
-    if (!department) return;
+    if (!department || (!isAdmin && !isHead)) return;
     setIsSaving(true);
-    const safePerms = resolveDepartmentStaffPermissions(staffPerms, DEFAULT_ROLE_PERMISSIONS.staff);
-    setDeptStaffPerms(safePerms);
-    try {
-      await saveDepartmentStaffPermissions(department, safePerms);
-    } catch (err) {
-      console.error('Failed to reset department permissions:', err);
+    const isDeputy = deptTargetRole === 'deputy_head';
+    const ceiling = isDeputy ? deputyHeadPerms : staffPerms;
+    const defaultList = isDeputy ? DEFAULT_ROLE_PERMISSIONS.deputy_head : DEFAULT_ROLE_PERMISSIONS.staff;
+    const safePerms = resolveDepartmentStaffPermissions(ceiling, defaultList);
+    if (isDeputy) {
+      setDeptDeputyHeadPerms(safePerms);
+      await saveDepartmentRolePermissions(department, 'deputy_head', safePerms);
+    } else {
+      setDeptStaffPerms(safePerms);
+      await saveDepartmentRolePermissions(department, 'staff', safePerms);
     }
     setIsSaving(false);
   };
@@ -1671,30 +1704,49 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
   const categories = [...new Set(ALL_PERMISSIONS.map((p) => p.category))];
   const myActivePermsCount = ALL_PERMISSIONS.filter((p) => can(p.key)).length;
 
-  // View Switcher Bar (when user has authority to view system matrix)
+  // View Switcher Bar (hỗ trợ phân quyền Phó khoa, Nhân viên khoa và xem ma trận toàn viện)
   const renderViewSwitcher = () => {
-    if (!canSwitchToMatrix || (!isHead && !isDeputyHead)) return null;
+    if (!canSwitchToMatrix && !isHead && !isDeputyHead) return null;
     return (
-      <div className="flex items-center gap-1.5 p-1 bg-blue-50/70 border border-blue-200 rounded-xl w-fit mb-3">
+      <div className="flex items-center gap-1.5 p-1 bg-blue-50/70 border border-blue-200 rounded-xl w-fit mb-3 flex-wrap">
         <button
-          onClick={() => setViewMode('dept')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-            viewMode === 'dept'
+          onClick={() => {
+            setViewMode('dept');
+            setDeptTargetRole('deputy_head');
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+            viewMode === 'dept' && deptTargetRole === 'deputy_head'
               ? 'bg-blue-600 text-white shadow-xs'
               : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
           }`}
         >
-          Phân quyền Nhân viên khoa {department || 'của bạn'}
+          <UserCheck className="w-3.5 h-3.5" />
+          Phân quyền Phó khoa {department || ''}
+        </button>
+        <button
+          onClick={() => {
+            setViewMode('dept');
+            setDeptTargetRole('staff');
+          }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+            viewMode === 'dept' && deptTargetRole === 'staff'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
+          }`}
+        >
+          <Users className="w-3.5 h-3.5" />
+          Phân quyền Nhân viên khoa {department || ''}
         </button>
         <button
           onClick={() => setViewMode('matrix')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
             viewMode === 'matrix'
               ? 'bg-blue-600 text-white shadow-xs'
               : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
           }`}
         >
-          Bảng phân quyền hệ thống toàn viện
+          <Shield className="w-3.5 h-3.5" />
+          Bảng phân quyền hệ thống toàn viện {!isAdmin ? '(Chỉ xem)' : ''}
         </button>
       </div>
     );
@@ -1702,11 +1754,17 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
 
   // ─── Head / Deputy Head Scoped View (Default for non-admin) ─────────────────
   if (viewMode === 'dept') {
+    const isDeputy = deptTargetRole === 'deputy_head';
+    const targetRoleLabel = isDeputy ? 'Phó khoa' : 'Nhân viên';
+    const targetPerms = isDeputy ? deptDeputyHeadPerms : deptStaffPerms;
+    const ceilingPerms = isDeputy ? deputyHeadPerms : staffPerms;
+    const canEditDept = isAdmin || isHead;
+
     return (
       <div className="space-y-3">
         {renderViewSwitcher()}
 
-        {/* ─── Hero Card: Quyền hạn hiện tại của chính tài khoản Trưởng khoa ─── */}
+        {/* ─── Hero Card: Quyền hạn hiện tại của chính tài khoản người dùng ─── */}
         <div className="bg-gradient-to-r from-blue-50/90 via-sky-50/50 to-white border border-blue-200 rounded-2xl p-4 shadow-xs space-y-2.5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
@@ -1724,7 +1782,9 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-gray-500 mt-0.5">
-                  Tài khoản của bạn đang có đầy đủ các quyền quản trị theo cấu hình của Admin. Bảng bên dưới dùng để bạn <strong>phân quyền xuống cho Nhân viên y tế</strong> trong khoa {department || ''}.
+                  {isDeputy
+                    ? `Bảng bên dưới dùng để Trưởng khoa phân quyền và phân công nhiệm vụ cho Phó khoa trong khoa ${department || ''}.`
+                    : `Bảng bên dưới dùng để Trưởng khoa phân quyền xuống cho Nhân viên y tế trong khoa ${department || ''}.`}
                 </p>
               </div>
             </div>
@@ -1752,17 +1812,23 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
           </div>
         </div>
 
-        {/* ─── Bảng phân quyền cho Nhân viên khoa ─── */}
+        {/* ─── Bảng phân quyền cho Phó khoa / Nhân viên khoa ─── */}
         <div className="border border-blue-200 bg-white rounded-2xl overflow-hidden shadow-xs">
           <div className="px-4 py-3 bg-gradient-to-r from-blue-50/90 to-sky-50/60 border-b border-blue-200 flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2.5">
-              <Building2 className="w-4 h-4 text-blue-700 shrink-0" />
+              {isDeputy ? (
+                <UserCheck className="w-4 h-4 text-sky-700 shrink-0" />
+              ) : (
+                <Building2 className="w-4 h-4 text-blue-700 shrink-0" />
+              )}
               <div>
                 <h4 className="text-xs font-bold text-gray-900">
-                  Phân quyền Nhân viên — Khoa {department || 'Chưa gán khoa'}
+                  Phân quyền {targetRoleLabel} — Khoa {department || 'Chưa gán khoa'}
                 </h4>
                 <p className="text-[10px] text-gray-500">
-                  Bật/tắt quyền cho nhân viên trong khoa dựa trên trần quyền do Admin cho phép Nhân viên
+                  {isDeputy
+                    ? `Bật/tắt quyền cho Phó khoa trong khoa dựa trên trần quyền do Admin cho phép Phó khoa toàn viện`
+                    : `Bật/tắt quyền cho nhân viên trong khoa dựa trên trần quyền do Admin cho phép Nhân viên toàn viện`}
                 </p>
               </div>
             </div>
@@ -1772,12 +1838,12 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                 <span className="text-[10px] text-blue-600 flex items-center gap-1">
                   <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
                 </span>
-              ) : (
+              ) : canEditDept ? (
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={handleGrantAllCeiling}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-200 transition-colors cursor-pointer"
-                    title="Cấp toàn bộ quyền mà Admin đã cho phép cho nhân viên khoa"
+                    title={`Cấp toàn bộ quyền mà Admin đã cho phép cho ${targetRoleLabel} khoa`}
                   >
                     <Sparkles className="w-3 h-3" />
                     Cấp tối đa theo trần
@@ -1785,12 +1851,14 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                   <button
                     onClick={handleResetToDefault}
                     className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors cursor-pointer"
-                    title="Đặt lại các quyền về mặc định"
+                    title={`Đặt lại quyền của ${targetRoleLabel} về mặc định`}
                   >
                     <RotateCcw className="w-3 h-3" />
                     Mặc định
                   </button>
                 </div>
+              ) : (
+                <span className="text-[10px] text-gray-400 italic">Chỉ xem (Chỉ Trưởng khoa được chỉnh sửa)</span>
               )}
             </div>
           </div>
@@ -1804,16 +1872,20 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                     <div className="flex flex-col items-center justify-center">
                       <div className="flex items-center gap-1">
                         <Shield className="w-3.5 h-3.5 text-red-600" />
-                        <span className="text-gray-800 font-bold">Trần quyền cho Nhân viên</span>
+                        <span className="text-gray-800 font-bold">Trần quyền cho {targetRoleLabel}</span>
                       </div>
-                      <span className="text-[9px] text-gray-400 font-normal">(Admin cho phép Nhân viên)</span>
+                      <span className="text-[9px] text-gray-400 font-normal">(Admin cho phép {targetRoleLabel})</span>
                     </div>
                   </th>
                   <th className="text-center px-2 py-2 font-semibold w-[28%]">
                     <div className="flex flex-col items-center justify-center">
                       <div className="flex items-center gap-1">
-                        <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="text-emerald-800 font-bold">Áp dụng cho Nhân viên khoa</span>
+                        {isDeputy ? (
+                          <UserCheck className="w-3.5 h-3.5 text-sky-600" />
+                        ) : (
+                          <Users className="w-3.5 h-3.5 text-emerald-600" />
+                        )}
+                        <span className="text-emerald-800 font-bold">Áp dụng cho {targetRoleLabel} khoa</span>
                       </div>
                       <span className="text-[9px] text-emerald-600/80 font-normal">Khoa {department || 'của bạn'}</span>
                     </div>
@@ -1824,7 +1896,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                 {categories.map((cat) => {
                   const categoryPerms = ALL_PERMISSIONS.filter((p) => p.category === cat);
                   const activeInCatCount = categoryPerms.filter(
-                    (p) => deptStaffPerms.includes(p.key) && staffPerms.includes(p.key)
+                    (p) => targetPerms.includes(p.key) && ceilingPerms.includes(p.key)
                   ).length;
 
                   return (
@@ -1836,14 +1908,14 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                               {cat}
                             </span>
                             <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-blue-100 text-blue-700">
-                              {activeInCatCount}/{categoryPerms.length} quyền nhân viên hoạt động
+                              {activeInCatCount}/{categoryPerms.length} quyền {targetRoleLabel.toLowerCase()} hoạt động
                             </span>
                           </div>
                         </td>
                       </tr>
                       {categoryPerms.map((perm) => {
-                        const isAllowedByAdmin = staffPerms.includes(perm.key);
-                        const isDeptActive = deptStaffPerms.includes(perm.key) && isAllowedByAdmin;
+                        const isAllowedByAdmin = ceilingPerms.includes(perm.key);
+                        const isDeptActive = targetPerms.includes(perm.key) && isAllowedByAdmin;
 
                         return (
                           <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
@@ -1857,36 +1929,49 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                                   <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Được phép
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-400 border border-gray-200" title="Admin chưa mở quyền này cho Nhân viên toàn viện">
-                                  <XCircle className="w-3 h-3 text-gray-400" /> Chưa mở cho NV
+                                <span
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-400 border border-gray-200"
+                                  title={`Admin chưa mở quyền này cho ${targetRoleLabel} toàn viện`}
+                                >
+                                  <XCircle className="w-3 h-3 text-gray-400" /> Chưa mở cho {targetRoleLabel}
                                 </span>
                               )}
                             </td>
                             <td className="text-center px-2 py-2">
                               {isAllowedByAdmin ? (
-                                <button
-                                  onClick={() => toggleDepartmentPermission(perm.key)}
-                                  className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-all cursor-pointer ${
-                                    isDeptActive
-                                      ? 'bg-emerald-100 hover:bg-emerald-200 ring-1 ring-emerald-300'
-                                      : 'bg-gray-100 hover:bg-gray-200'
-                                  }`}
-                                  title={
-                                    isDeptActive
-                                      ? `Thu hồi '${perm.label}' của nhân viên khoa`
-                                      : `Cấp '${perm.label}' cho nhân viên khoa`
-                                  }
-                                >
-                                  {isDeptActive ? (
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                                  ) : (
-                                    <XCircle className="w-4 h-4 text-gray-300" />
-                                  )}
-                                </button>
+                                canEditDept ? (
+                                  <button
+                                    onClick={() => toggleDepartmentPermission(perm.key)}
+                                    className={`inline-flex items-center justify-center w-7 h-7 rounded-full transition-all cursor-pointer ${
+                                      isDeptActive
+                                        ? 'bg-emerald-100 hover:bg-emerald-200 ring-1 ring-emerald-300'
+                                        : 'bg-gray-100 hover:bg-gray-200'
+                                    }`}
+                                    title={
+                                      isDeptActive
+                                        ? `Thu hồi '${perm.label}' của ${targetRoleLabel.toLowerCase()} khoa`
+                                        : `Cấp '${perm.label}' cho ${targetRoleLabel.toLowerCase()} khoa`
+                                    }
+                                  >
+                                    {isDeptActive ? (
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                    ) : (
+                                      <XCircle className="w-4 h-4 text-gray-300" />
+                                    )}
+                                  </button>
+                                ) : (
+                                  <div className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-50">
+                                    {isDeptActive ? (
+                                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                                    ) : (
+                                      <XCircle className="w-4 h-4 text-gray-300" />
+                                    )}
+                                  </div>
+                                )
                               ) : (
                                 <div
                                   className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-gray-50 cursor-not-allowed"
-                                  title="Không thể cấp: Vượt quá trần quyền Admin cho phép cho Nhân viên"
+                                  title={`Không thể cấp: Vượt quá trần quyền Admin cho phép cho ${targetRoleLabel}`}
                                 >
                                   <XCircle className="w-4 h-4 text-gray-200" />
                                 </div>
@@ -1906,10 +1991,10 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
             <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
             <div className="space-y-0.5">
               <p>
-                <strong>Giải thích bảng này:</strong> Bảng trên dùng để <strong>Trưởng khoa phân quyền xuống cho Nhân viên y tế</strong> trong khoa {department || ''}.
+                <strong>Giải thích bảng này:</strong> Bảng trên dùng để <strong>Trưởng khoa phân quyền xuống cho {targetRoleLabel}</strong> trong khoa {department || ''}.
               </p>
               <p className="text-blue-800/80">
-                - <strong>Cột Trần quyền cho Nhân viên:</strong> Là danh mục quyền tối đa mà Quản trị viên (Admin) cho phép Nhân viên toàn viện được làm. Những mục hiển thị "Chưa mở cho NV" nghĩa là Admin không cho phép Nhân viên thường thao tác mục này (như quản lý định mức, phân quyền...).
+                - <strong>Cột Trần quyền cho {targetRoleLabel}:</strong> Là danh mục quyền tối đa mà Quản trị viên (Admin) cho phép {targetRoleLabel} toàn viện được làm. Những mục hiển thị "Chưa mở..." nghĩa là Admin không cho phép vai trò này thao tác.
                 <br />
                 - <strong>Quyền của Trưởng khoa:</strong> Tài khoản Trưởng khoa của bạn <em>không bị giới hạn</em> bởi cột này và đang có đầy đủ các quyền quản trị như hiển thị ở thẻ phía trên.
               </p>
@@ -1926,149 +2011,207 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
       {renderViewSwitcher()}
 
       <div className="border border-gray-200 bg-white rounded-2xl overflow-hidden shadow-xs">
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Shield className="w-4 h-4 text-primary-600" />
             <h4 className="text-xs font-bold text-gray-800">Bảng phân quyền hệ thống toàn viện</h4>
+            {!isAdmin && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                <Lock className="w-3 h-3 text-amber-600" />
+                Chế độ chỉ xem
+              </span>
+            )}
           </div>
-          {isSaving && (
-            <span className="text-[10px] text-gray-400 flex items-center gap-1">
-              <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
+          {isAdmin ? (
+            isSaving && (
+              <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                <RefreshCw className="w-3 h-3 animate-spin" /> Đang lưu...
+              </span>
+            )
+          ) : (
+            <span className="text-[11px] text-gray-500 italic">
+              Chỉ Quản trị viên (Admin) mới có quyền chỉnh sửa bảng phân quyền toàn viện
             </span>
           )}
         </div>
 
         <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-gray-200 bg-gray-50/50">
-              <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[30%]">Quyền</th>
-              <th className="text-center px-2 py-2 font-semibold w-[14%]">
-                <div className="flex items-center justify-center gap-1">
-                  <Shield className="w-3 h-3 text-red-600" />
-                  <span className="text-red-700">Admin</span>
-                </div>
-              </th>
-              <th className="text-center px-2 py-2 font-semibold w-[14%]">
-                <div className="flex items-center justify-center gap-1">
-                  <Building2 className="w-3 h-3 text-blue-600" />
-                  <span className="text-blue-700">Trưởng khoa</span>
-                </div>
-              </th>
-              <th className="text-center px-2 py-2 font-semibold w-[14%]">
-                <div className="flex items-center justify-center gap-1">
-                  <UserCheck className="w-3 h-3 text-sky-600" />
-                  <span className="text-sky-700">Phó khoa</span>
-                </div>
-              </th>
-              <th className="text-center px-2 py-2 font-semibold w-[14%]">
-                <div className="flex items-center justify-center gap-1">
-                  <Users className="w-3 h-3 text-gray-600" />
-                  <span className="text-gray-700">Nhân viên</span>
-                </div>
-              </th>
-              <th className="text-center px-2 py-2 font-semibold w-[14%]">
-                <div className="flex items-center justify-center gap-1">
-                  <Globe className="w-3 h-3 text-slate-600" />
-                  <span className="text-slate-700">Khách</span>
-                </div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {categories.map((cat) => (
-              <React.Fragment key={cat}>
-                <tr className="bg-gray-50/80 border-y border-gray-100">
-                  <td colSpan={6} className="px-3.5 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-                    {cat}
-                  </td>
-                </tr>
-                {ALL_PERMISSIONS.filter((p) => p.category === cat).map((perm) => {
-                  const headHas = headPerms.includes(perm.key);
-                  const deputyHeadHas = deputyHeadPerms.includes(perm.key);
-                  const staffHas = staffPerms.includes(perm.key);
-                  const guestHas = guestPerms.includes(perm.key);
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50/50">
+                <th className="text-left px-3.5 py-2 font-semibold text-gray-600 w-[30%]">Quyền</th>
+                <th className="text-center px-2 py-2 font-semibold w-[14%]">
+                  <div className="flex items-center justify-center gap-1">
+                    <Shield className="w-3 h-3 text-red-600" />
+                    <span className="text-red-700">Admin</span>
+                  </div>
+                </th>
+                <th className="text-center px-2 py-2 font-semibold w-[14%]">
+                  <div className="flex items-center justify-center gap-1">
+                    <Building2 className="w-3 h-3 text-blue-600" />
+                    <span className="text-blue-700">Trưởng khoa</span>
+                  </div>
+                </th>
+                <th className="text-center px-2 py-2 font-semibold w-[14%]">
+                  <div className="flex items-center justify-center gap-1">
+                    <UserCheck className="w-3 h-3 text-sky-600" />
+                    <span className="text-sky-700">Phó khoa</span>
+                  </div>
+                </th>
+                <th className="text-center px-2 py-2 font-semibold w-[14%]">
+                  <div className="flex items-center justify-center gap-1">
+                    <Users className="w-3 h-3 text-gray-600" />
+                    <span className="text-gray-700">Nhân viên</span>
+                  </div>
+                </th>
+                <th className="text-center px-2 py-2 font-semibold w-[14%]">
+                  <div className="flex items-center justify-center gap-1">
+                    <Globe className="w-3 h-3 text-slate-600" />
+                    <span className="text-slate-700">Khách</span>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {categories.map((cat) => (
+                <React.Fragment key={cat}>
+                  <tr className="bg-gray-50/80 border-y border-gray-100">
+                    <td colSpan={6} className="px-3.5 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                      {cat}
+                    </td>
+                  </tr>
+                  {ALL_PERMISSIONS.filter((p) => p.category === cat).map((perm) => {
+                    const headHas = headPerms.includes(perm.key);
+                    const deputyHeadHas = deputyHeadPerms.includes(perm.key);
+                    const staffHas = staffPerms.includes(perm.key);
+                    const guestHas = guestPerms.includes(perm.key);
 
-                  return (
-                    <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-                      <td className="px-3.5 py-2">
-                        <p className="font-semibold text-gray-800">{perm.label}</p>
-                        <p className="text-[10px] text-gray-400">{perm.description}</p>
-                      </td>
-                      <td className="text-center px-2 py-2">
-                        <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100">
-                          <CheckCircle2 className="w-4 h-4 text-red-600" />
-                        </div>
-                      </td>
-                      <td className="text-center px-2 py-2">
-                        <button
-                          onClick={() => toggleGlobalPermission('head', perm.key)}
-                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
-                            headHas ? 'bg-blue-100 hover:bg-blue-200' : 'bg-gray-100 hover:bg-gray-200'
-                          }`}
-                          title={headHas ? `Tắt '${perm.label}' cho Trưởng khoa` : `Bật '${perm.label}' cho Trưởng khoa`}
-                        >
-                          {headHas ? <CheckCircle2 className="w-4 h-4 text-blue-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
-                        </button>
-                      </td>
-                      <td className="text-center px-2 py-2">
-                        <button
-                          onClick={() => toggleGlobalPermission('deputy_head', perm.key)}
-                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
-                            deputyHeadHas ? 'bg-sky-100 hover:bg-sky-200' : 'bg-gray-100 hover:bg-gray-200'
-                          }`}
-                          title={deputyHeadHas ? `Tắt '${perm.label}' cho Phó khoa` : `Bật '${perm.label}' cho Phó khoa`}
-                        >
-                          {deputyHeadHas ? <CheckCircle2 className="w-4 h-4 text-sky-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
-                        </button>
-                      </td>
-                      <td className="text-center px-2 py-2">
-                        {headHas ? (
-                          <button
-                            onClick={() => toggleGlobalPermission('staff', perm.key)}
-                            className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
-                              staffHas ? 'bg-emerald-100 hover:bg-emerald-200' : 'bg-gray-100 hover:bg-gray-200'
-                            }`}
-                            title={staffHas ? `Tắt '${perm.label}' cho Nhân viên` : `Bật '${perm.label}' cho Nhân viên`}
-                          >
-                            {staffHas ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
-                          </button>
-                        ) : (
-                          <div
-                            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-50"
-                            title="Trưởng khoa không có quyền này → Nhân viên cũng không"
-                          >
-                            <XCircle className="w-4 h-4 text-gray-200" />
+                    return (
+                      <tr key={perm.key} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                        <td className="px-3.5 py-2">
+                          <p className="font-semibold text-gray-800">{perm.label}</p>
+                          <p className="text-[10px] text-gray-400">{perm.description}</p>
+                        </td>
+                        <td className="text-center px-2 py-2">
+                          <div className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-100">
+                            <CheckCircle2 className="w-4 h-4 text-red-600" />
                           </div>
-                        )}
-                      </td>
-                      <td className="text-center px-2 py-2">
-                        <button
-                          onClick={() => toggleGlobalPermission('guest', perm.key)}
-                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
-                            guestHas ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-gray-100 hover:bg-gray-200'
-                          }`}
-                          title={guestHas ? `Tắt '${perm.label}' cho Khách` : `Bật '${perm.label}' cho Khách`}
-                        >
-                          {guestHas ? <CheckCircle2 className="w-4 h-4 text-slate-700" /> : <XCircle className="w-4 h-4 text-gray-300" />}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                        </td>
+                        <td className="text-center px-2 py-2">
+                          {isAdmin ? (
+                            <button
+                              onClick={() => toggleGlobalPermission('head', perm.key)}
+                              className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                                headHas ? 'bg-blue-100 hover:bg-blue-200' : 'bg-gray-100 hover:bg-gray-200'
+                              }`}
+                              title={headHas ? `Tắt '${perm.label}' cho Trưởng khoa` : `Bật '${perm.label}' cho Trưởng khoa`}
+                            >
+                              {headHas ? <CheckCircle2 className="w-4 h-4 text-blue-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                            </button>
+                          ) : (
+                            <div
+                              className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-50"
+                              title={headHas ? 'Trưởng khoa: Có quyền' : 'Trưởng khoa: Không có quyền'}
+                            >
+                              {headHas ? <CheckCircle2 className="w-4 h-4 text-blue-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                            </div>
+                          )}
+                        </td>
+                        <td className="text-center px-2 py-2">
+                          {isAdmin ? (
+                            <button
+                              onClick={() => toggleGlobalPermission('deputy_head', perm.key)}
+                              className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                                deputyHeadHas ? 'bg-sky-100 hover:bg-sky-200' : 'bg-gray-100 hover:bg-gray-200'
+                              }`}
+                              title={deputyHeadHas ? `Tắt '${perm.label}' cho Phó khoa` : `Bật '${perm.label}' cho Phó khoa`}
+                            >
+                              {deputyHeadHas ? <CheckCircle2 className="w-4 h-4 text-sky-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                            </button>
+                          ) : (
+                            <div
+                              className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-50"
+                              title={deputyHeadHas ? 'Phó khoa: Có quyền' : 'Phó khoa: Không có quyền'}
+                            >
+                              {deputyHeadHas ? <CheckCircle2 className="w-4 h-4 text-sky-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                            </div>
+                          )}
+                        </td>
+                        <td className="text-center px-2 py-2">
+                          {isAdmin ? (
+                            headHas ? (
+                              <button
+                                onClick={() => toggleGlobalPermission('staff', perm.key)}
+                                className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                                  staffHas ? 'bg-emerald-100 hover:bg-emerald-200' : 'bg-gray-100 hover:bg-gray-200'
+                                }`}
+                                title={staffHas ? `Tắt '${perm.label}' cho Nhân viên` : `Bật '${perm.label}' cho Nhân viên`}
+                              >
+                                {staffHas ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                              </button>
+                            ) : (
+                              <div
+                                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-50"
+                                title="Trưởng khoa không có quyền này → Nhân viên cũng không"
+                              >
+                                <XCircle className="w-4 h-4 text-gray-200" />
+                              </div>
+                            )
+                          ) : (
+                            <div
+                              className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-50"
+                              title={staffHas ? 'Nhân viên: Có quyền' : 'Nhân viên: Không có quyền'}
+                            >
+                              {staffHas ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                            </div>
+                          )}
+                        </td>
+                        <td className="text-center px-2 py-2">
+                          {isAdmin ? (
+                            <button
+                              onClick={() => toggleGlobalPermission('guest', perm.key)}
+                              className={`inline-flex items-center justify-center w-6 h-6 rounded-full transition-colors cursor-pointer ${
+                                guestHas ? 'bg-slate-100 hover:bg-slate-200 text-slate-700' : 'bg-gray-100 hover:bg-gray-200'
+                              }`}
+                              title={guestHas ? `Tắt '${perm.label}' cho Khách` : `Bật '${perm.label}' cho Khách`}
+                            >
+                              {guestHas ? <CheckCircle2 className="w-4 h-4 text-slate-700" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                            </button>
+                          ) : (
+                            <div
+                              className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-50"
+                              title={guestHas ? 'Khách: Có quyền' : 'Khách: Không có quyền'}
+                            >
+                              {guestHas ? <CheckCircle2 className="w-4 h-4 text-slate-700" /> : <XCircle className="w-4 h-4 text-gray-300" />}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-      <div className="px-3.5 py-2.5 bg-amber-50 border-t border-amber-200 text-[10px] text-amber-800 flex items-start gap-2">
-        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-600" />
-        <span>
-          <strong>Lưu ý quản trị:</strong> Admin luôn có toàn quyền. Trưởng khoa chỉ có thể thu hẹp (không thể mở rộng) quyền của nhân viên trong phạm vi Admin cho phép. Thay đổi tự động lưu vào Realtime Database.
-        </span>
+        <div className={`px-3.5 py-2.5 border-t text-[10px] flex items-start gap-2 ${
+          isAdmin ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-blue-50 border-blue-200 text-blue-800'
+        }`}>
+          <AlertCircle className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${isAdmin ? 'text-amber-600' : 'text-blue-600'}`} />
+          <span>
+            {isAdmin ? (
+              <>
+                <strong>Lưu ý quản trị:</strong> Admin luôn có toàn quyền. Bạn đang cấu hình ma trận quyền chuẩn cho toàn viện. Thay đổi tự động lưu vào Realtime Database.
+              </>
+            ) : (
+              <>
+                <strong>Chế độ xem ma trận toàn viện:</strong> Bảng trên là cấu hình quyền mặc định do Quản trị viên (Admin) thiết lập cho toàn viện (Chế độ chỉ xem). Để phân quyền cho Phó khoa hoặc Nhân viên trong khoa {department || 'của bạn'}, vui lòng chuyển sang tab <strong>"Phân quyền Phó khoa"</strong> hoặc <strong>"Phân quyền Nhân viên khoa"</strong> ở phía trên.
+              </>
+            )}
+          </span>
+        </div>
       </div>
     </div>
-  </div>
-);
+  );
 };

@@ -116,6 +116,21 @@ describe('RBAC Permission Ceiling & Resolution', () => {
       expect(hasPermission(perms, 'system_config')).toBe(false);
     });
 
+    it('should grant department-constrained permissions to deputy_head', () => {
+      const deputyDeptPerms = ['view_daily_report', 'lock_report'];
+      const perms = resolveEffectivePermissions(
+        'deputy_head',
+        'Ngoại Tổng Hợp',
+        globalPerms,
+        undefined,
+        deputyDeptPerms
+      );
+      expect(perms).toEqual(['view_daily_report', 'lock_report']);
+      expect(hasPermission(perms, 'view_daily_report')).toBe(true);
+      expect(hasPermission(perms, 'lock_report')).toBe(true);
+      expect(hasPermission(perms, 'approve_users')).toBe(false);
+    });
+
     it('should grant department-constrained permissions to staff', () => {
       const deptPerms = ['view_daily_report', 'view_statistics'];
       const perms = resolveEffectivePermissions('staff', 'Ngoại Tổng Hợp', globalPerms, deptPerms);

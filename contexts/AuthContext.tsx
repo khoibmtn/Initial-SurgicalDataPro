@@ -13,7 +13,11 @@ import {
   onAuthChange,
   subscribeToUserProfile,
 } from '../services/authService';
-import { subscribeToPendingUsers, subscribeToDepartmentPermissions } from '../services/userManagementService';
+import {
+  subscribeToPendingUsers,
+  subscribeToDepartmentPermissions,
+  subscribeToDepartmentRolePermissions,
+} from '../services/userManagementService';
 import { resolveEffectivePermissions, DEFAULT_ROLE_PERMISSIONS } from '../services/permissionService';
 import { sendNotification } from '../services/notificationService';
 import { ref, onValue } from 'firebase/database';
@@ -228,6 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     guest: DEFAULT_ROLE_PERMISSIONS.guest,
   });
   const [deptStaffPerms, setDeptStaffPerms] = useState<string[] | null>(null);
+  const [deptDeputyHeadPerms, setDeptDeputyHeadPerms] = useState<string[] | null>(null);
 
   // Lắng nghe trần quyền toàn hệ thống từ Realtime DB
   useEffect(() => {
@@ -246,17 +251,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, []);
 
-  // Lắng nghe quyền áp dụng riêng cho nhân viên khoa
+  // Lắng nghe quyền áp dụng riêng cho khoa (Nhân viên & Phó khoa)
   useEffect(() => {
     const dept = authState.user?.department;
     if (!dept) {
       setDeptStaffPerms(null);
+      setDeptDeputyHeadPerms(null);
       return;
     }
-    const unsub = subscribeToDepartmentPermissions(dept, (customPerms) => {
+    const unsubStaff = subscribeToDepartmentRolePermissions(dept, 'staff', (customPerms) => {
       setDeptStaffPerms(customPerms);
     });
-    return () => unsub();
+    const unsubDeputy = subscribeToDepartmentRolePermissions(dept, 'deputy_head', (customPerms) => {
+      setDeptDeputyHeadPerms(customPerms);
+    });
+    return () => {
+      unsubStaff();
+      unsubDeputy();
+    };
   }, [authState.user?.department]);
 
   // ── Derived values ──
@@ -272,9 +284,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentRole,
       authState.user?.department,
       globalRolePerms,
-      deptStaffPerms
+      deptStaffPerms,
+      deptDeputyHeadPerms
     );
-  }, [currentRole, authState.user?.department, globalRolePerms, deptStaffPerms]);
+  }, [currentRole, authState.user?.department, globalRolePerms, deptStaffPerms, deptDeputyHeadPerms]);
 
   const can = useCallback(
     (permKey: string): boolean => {

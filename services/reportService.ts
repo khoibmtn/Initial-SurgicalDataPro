@@ -1154,12 +1154,14 @@ export const reportService = {
         years: number[];
         monthsMap: Record<number, number[]>;
     }> {
-        const defaultYears = [2023, 2024, 2025, 2026];
+        const ALL_12_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        const defaultYears = [2023, 2024, 2025, 2026, 2027];
         const defaultMonthsMap: Record<number, number[]> = {
             2023: [5, 6, 7, 8, 9, 10, 11, 12],
-            2024: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-            2025: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-            2026: [1, 2, 3, 4, 5, 6, 7, 8],
+            2024: ALL_12_MONTHS,
+            2025: ALL_12_MONTHS,
+            2026: ALL_12_MONTHS,
+            2027: ALL_12_MONTHS,
         };
 
         try {
@@ -1183,53 +1185,18 @@ export const reportService = {
 
             const currentYear = new Date().getFullYear();
             const maxYear = Math.max(currentYear, 2026);
-            const yearsSet = new Set<number>();
-            const monthsMap: Record<number, number[]> = {};
+            const yearsSet = new Set<number>(defaultYears);
+            const monthsMap: Record<number, number[]> = { ...defaultMonthsMap };
 
             for (let y = minYear; y <= maxYear + 1; y++) {
-                const startYear = `${y}-01-01T00:00:00.000Z`;
-                const endYear = `${y}-12-31T23:59:59.999Z`;
-                const qYear = query(
-                    collectionGroup(db, 'processed_records'),
-                    where('type', '==', 'MONTHLY'),
-                    where('ngayBD', '>=', startYear),
-                    where('ngayBD', '<=', endYear),
-                    limit(1)
-                );
-                const snapYear = await getDocs(qYear);
-                if (!snapYear.empty) {
-                    yearsSet.add(y);
-                    const months: number[] = [];
-                    const monthChecks = Array.from({ length: 12 }, (_, i) => i + 1);
-                    await Promise.all(
-                        monthChecks.map(async (m) => {
-                            const mStr = String(m).padStart(2, '0');
-                            const lastDay = new Date(y, m, 0).getDate();
-                            const mStart = `${y}-${mStr}-01T00:00:00.000Z`;
-                            const mEnd = `${y}-${mStr}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
-                            const qMonth = query(
-                                collectionGroup(db, 'processed_records'),
-                                where('type', '==', 'MONTHLY'),
-                                where('ngayBD', '>=', mStart),
-                                where('ngayBD', '<=', mEnd),
-                                limit(1)
-                            );
-                            const snapMonth = await getDocs(qMonth);
-                            if (!snapMonth.empty) {
-                                months.push(m);
-                            }
-                        })
-                    );
-                    months.sort((a, b) => a - b);
-                    monthsMap[y] = months.length > 0 ? months : Array.from({ length: 12 }, (_, i) => i + 1);
+                yearsSet.add(y);
+                if (!monthsMap[y]) {
+                    monthsMap[y] = ALL_12_MONTHS;
                 }
             }
 
             const years = Array.from(yearsSet).sort((a, b) => a - b);
-            if (years.length > 0) {
-                return { years, monthsMap };
-            }
-            return { years: defaultYears, monthsMap: defaultMonthsMap };
+            return { years, monthsMap };
         } catch (error) {
             console.warn('Lỗi khi lấy danh mục năm/tháng từ Firestore, sử dụng danh mục mặc định:', error);
             return { years: defaultYears, monthsMap: defaultMonthsMap };
