@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Calendar,
-  BarChart3, Download, Copy, Filter, Cpu, User, X,
+  BarChart3, Download, Copy, Filter, Cpu, User, Users, X,
   List, Clock, MoveHorizontal, MoveVertical, MonitorPlay,
 } from 'lucide-react';
 import { useConfig, type RoleFilterConfig } from '../../contexts/ConfigContext';
@@ -92,6 +92,26 @@ export const SchedulingTab: React.FC = () => {
   );
   const [viewMode, setViewMode] = useState<'timeline' | 'list'>('timeline');
   const [showProjector, setShowProjector] = useState(false);
+  const [showStaff, setShowStaff] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('surgical_timeline_show_staff') === 'true';
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+
+  const handleShowStaffChange = useCallback((next: boolean) => {
+    setShowStaff(next);
+    try {
+      localStorage.setItem('surgical_timeline_show_staff', String(next));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const [timelineOrientation, setTimelineOrientation] = useState<TimelineOrientation>(() => {
     if (typeof window !== 'undefined') {
       const isSmall = window.innerWidth < 768;
@@ -493,6 +513,22 @@ export const SchedulingTab: React.FC = () => {
             </div>
           )}
 
+          {/* Toggle hiển thị kíp mổ trên card */}
+          <Tooltip content={showStaff ? 'Ẩn tên kíp mổ trên card' : 'Hiển thị tên & vị trí kíp mổ trên card'} position="bottom">
+            <button
+              type="button"
+              onClick={() => handleShowStaffChange(!showStaff)}
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg border text-[11px] sm:text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+                showStaff
+                  ? 'bg-primary-100 text-primary-700 border-primary-300 shadow-2xs'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              <Users size={14} />
+              <span className="hidden md:inline">Kíp mổ</span>
+            </button>
+          </Tooltip>
+
           {/* Projector / large screen mode */}
           {!isMobile && (
             <Tooltip content="Màn hình chiếu (theo dõi toàn màn hình)" position="bottom">
@@ -679,6 +715,7 @@ export const SchedulingTab: React.FC = () => {
             onEntryClick={handleEntryClick}
             dutyStartHour={dutyStartHour}
             selectedDate={dateStr}
+            showStaff={showStaff}
           />
         ) : (
           <DayTimelineView
@@ -694,6 +731,8 @@ export const SchedulingTab: React.FC = () => {
             onZoomChange={setZoomLevel}
             orientation={timelineOrientation}
             onOrientationChange={handleOrientationChange}
+            showStaff={showStaff}
+            onShowStaffChange={handleShowStaffChange}
             selectedDate={dateStr}
             workingHours={config.workingHours}
           />

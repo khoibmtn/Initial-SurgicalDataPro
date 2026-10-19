@@ -5,8 +5,9 @@ import {
   computeDraggedTimes,
   assignLanes,
   computeVerticalLayout,
+  estimateHorizontalCardHeight,
 } from '../components/scheduling/DayTimelineView';
-import type { ScheduledSurgery } from '../types/schedule';
+import { getOrderedStaffEntries, type ScheduledSurgery } from '../types/schedule';
 
 function makeEntry(
   id: string,
@@ -147,3 +148,47 @@ describe('assignLanes & computeVerticalLayout with movedOrder', () => {
     expect(dCol).toBe(2);
   });
 });
+
+describe('getOrderedStaffEntries & estimateHorizontalCardHeight', () => {
+  it('orders staff roles in canonical surgical team order with role labels', () => {
+    const staff = {
+      tdc: 'ĐD Hoàng Thị E',
+      bsGM: 'BS Lê Văn C',
+      ptChinh: 'BS Nguyễn Văn A',
+      ptPhu: 'BS Trần Văn B',
+      ktvGM: 'KTV Phạm Văn D',
+    };
+    expect(getOrderedStaffEntries(staff)).toEqual([
+      { roleKey: 'ptChinh', roleLabel: 'PT Chính', name: 'BS Nguyễn Văn A' },
+      { roleKey: 'ptPhu', roleLabel: 'PT Phụ', name: 'BS Trần Văn B' },
+      { roleKey: 'bsGM', roleLabel: 'BS Gây mê', name: 'BS Lê Văn C' },
+      { roleKey: 'ktvGM', roleLabel: 'KTV Gây mê', name: 'KTV Phạm Văn D' },
+      { roleKey: 'tdc', roleLabel: 'TDC', name: 'ĐD Hoàng Thị E' },
+    ]);
+  });
+
+  it('auto-adjusts card vertical height based on staff count and character wrapping width', () => {
+    const entry = {
+      ...makeEntry('S1', '10:00', '11:00'),
+      staff: {
+        ptChinh: 'BS Nguyễn Văn Hoàng Anh',
+        ptPhu: 'BS Trần Minh Tuấn, BS Lê Hoàng Nam',
+        bsGM: 'BS Phạm Thị Thu Hương',
+        ktvGM: 'KTV Đỗ Quang Huy',
+        tdc: 'ĐD Vũ Thị Ngọc Mai',
+      },
+    };
+
+    // When showStaff is false -> default 68px
+    expect(estimateHorizontalCardHeight(entry, 180, false)).toBe(68);
+
+    // When showStaff is true at wide width (240px) -> expands to fit all 5 positions
+    const wideH = estimateHorizontalCardHeight(entry, 240, true);
+    expect(wideH).toBeGreaterThan(130);
+
+    // When card is narrower (100px) -> long name strings wrap onto more lines, so height increases further
+    const narrowH = estimateHorizontalCardHeight(entry, 100, true);
+    expect(narrowH).toBeGreaterThan(wideH);
+  });
+});
+

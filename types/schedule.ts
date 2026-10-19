@@ -53,4 +53,46 @@ export const STAFF_ROLE_LABELS: Record<string, string> = {
   bsGM: 'BS Gây mê',
   ktvGM: 'KTV Gây mê',
   tdc: 'TDC',
+  gv: 'Giúp việc',
 };
+
+const STAFF_ROLE_ORDER = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'];
+
+export interface StaffDisplayItem {
+  roleKey: string;
+  roleLabel: string;
+  name: string;
+}
+
+/** Lấy danh sách kíp mổ có phân công theo đúng thứ tự vị trí chuẩn */
+export function getOrderedStaffEntries(staff?: Record<string, string>): StaffDisplayItem[] {
+  if (!staff) return [];
+  const items: StaffDisplayItem[] = [];
+  const seen = new Set<string>();
+
+  for (const key of STAFF_ROLE_ORDER) {
+    const raw = staff[key];
+    if (raw && String(raw).trim()) {
+      seen.add(key);
+      items.push({
+        roleKey: key,
+        roleLabel: STAFF_ROLE_LABELS[key] || key,
+        name: String(raw).trim(),
+      });
+    }
+  }
+
+  for (const [key, raw] of Object.entries(staff)) {
+    if (seen.has(key)) continue;
+    if (raw && String(raw).trim()) {
+      items.push({
+        roleKey: key,
+        roleLabel: STAFF_ROLE_LABELS[key] || key,
+        name: String(raw).trim(),
+      });
+    }
+  }
+
+  return items;
+}
+

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Clock, Cpu, User, ChevronRight } from 'lucide-react';
 import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
+import { getOrderedStaffEntries } from '../../types/schedule';
 import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
 
 interface MobileScheduleListProps {
@@ -11,6 +12,8 @@ interface MobileScheduleListProps {
   dutyStartHour?: number;
   /** yyyy-mm-dd của ca trực đang xem — dùng để nhóm Đang mổ / Sắp tới / Đã xong */
   selectedDate?: string;
+  /** Hiển thị đầy đủ danh sách kíp mổ (Vị trí: Họ tên) */
+  showStaff?: boolean;
 }
 
 /** Color palette mirroring DayTimelineView */
@@ -63,6 +66,7 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
   onEntryClick,
   dutyStartHour = 7.5,
   selectedDate,
+  showStaff = false,
 }) => {
   const now = useNowTick();
   const nowShift = getNowShiftHours(selectedDate, dutyStartHour, now);
@@ -124,6 +128,7 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
             const isDone = key === 'done';
             const progress = isLive && nowShift !== null ? Math.min(100, ((nowShift - start) / (end - start)) * 100) : 0;
             const surgeon = entry.staff?.ptChinh;
+            const staffItems = getOrderedStaffEntries(entry.staff);
 
             const colorClass = isConflicted
               ? 'border-l-red-500 bg-red-50/80'
@@ -149,13 +154,13 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
                   <ChevronRight size={14} className="shrink-0 text-gray-300 mt-0.5" />
                 </div>
 
-                {/* Row 2: Time + surgeon */}
+                {/* Row 2: Time + surgeon (when showStaff is false) */}
                 <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-500 tabular-nums">
                   <span className="inline-flex items-center gap-1 font-bold">
                     <Clock size={11} className="text-primary-600" />
                     {formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}
                   </span>
-                  {surgeon && (
+                  {!showStaff && surgeon && (
                     <span className="inline-flex items-center gap-1 truncate min-w-0">
                       <User size={11} className="shrink-0" /> <span className="truncate">{surgeon}</span>
                     </span>
@@ -164,6 +169,18 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
 
                 {/* Row 3: Surgery name */}
                 <p className="text-xs text-gray-600 truncate mt-1 pl-0.5">{entry.tenKT}</p>
+
+                {/* Row 4: Full Staff List when showStaff is enabled */}
+                {showStaff && staffItems.length > 0 && (
+                  <div className="mt-1.5 pt-1.5 border-t border-gray-200/70 flex flex-col gap-0.5 text-[11px]">
+                    {staffItems.map((st) => (
+                      <div key={st.roleKey} className="leading-snug whitespace-normal break-words">
+                        <span className="text-gray-500 font-semibold">{st.roleLabel}:</span>{' '}
+                        <span className="text-gray-800 font-bold">{st.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {isConflicted && (
                   <div className="mt-2 flex items-center gap-1.5 flex-wrap pt-1 border-t border-gray-100">
