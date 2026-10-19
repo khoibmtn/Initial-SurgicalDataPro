@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { X, AlertTriangle, Activity, CalendarClock, CheckCircle2, ListChecks, Maximize2 } from 'lucide-react';
 import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
-import type { WorkingHours } from '../../contexts/ConfigContext';
+import type { WorkingHours, RoleFilterConfig } from '../../contexts/ConfigContext';
 import { DayTimelineView, type ZoomLevel } from './DayTimelineView';
 import { MobileScheduleList, getNowShiftHours } from './MobileScheduleList';
 import { parseTimeToShiftHours } from '../../services/scheduleConflictService';
@@ -11,6 +11,9 @@ interface ProjectorViewProps {
   conflicts: ScheduleConflict[];
   conflictedIds: Set<string>;
   onEntryClick: (entry: ScheduledSurgery) => void;
+  onEntryTimeChange?: (entry: ScheduledSurgery, newStartTime: string, newEndTime: string) => void | Promise<void>;
+  roleFilters?: RoleFilterConfig;
+  roleLimits?: Record<string, number>;
   onClose: () => void;
   selectedDate: string;
   dateLabel: string;
@@ -47,7 +50,7 @@ function pickZoom(width: number): ZoomLevel {
  * Vẫn bấm vào ca để mở form chỉnh sửa (modal nằm trên lớp này).
  */
 export const ProjectorView: React.FC<ProjectorViewProps> = ({
-  entries, conflicts, conflictedIds, onEntryClick, onClose,
+  entries, conflicts, conflictedIds, onEntryClick, onEntryTimeChange, roleFilters, roleLimits, onClose,
   selectedDate, dateLabel, dutyStartHour, dutyStartStr, workingHours, currentUserId, isModalOpen = false,
 }) => {
   const modalOpenRef = React.useRef(isModalOpen);
@@ -173,6 +176,9 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
             conflictedIds={conflictedIds}
             conflicts={conflicts}
             onEntryClick={onEntryClick}
+            onEntryTimeChange={onEntryTimeChange}
+            roleFilters={roleFilters}
+            roleLimits={roleLimits}
             currentUserId={currentUserId}
             hourWidth={zoom}
             onZoomChange={setZoom}

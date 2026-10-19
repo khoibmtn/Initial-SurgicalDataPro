@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Clock, User, Cpu, FileText, Search, AlertTriangle, Trash2, Copy } from 'lucide-react';
 import type { ScheduledSurgery, ScheduledSurgeryInput, ScheduleConflict } from '../../types/schedule';
-import type { StaffMember, MachineEntry, SurgeryNamePrice, LaborTableItem } from '../../types';
+import type { StaffMember, MachineEntry, SurgeryNamePrice, LaborTableItem, LaborTimeItem, TimeRule } from '../../types';
+import { LOAI_PTTT_LABELS } from '../../types';
 import type { RoleFilterConfig, WorkingHours } from '../../contexts/ConfigContext';
 import { getScheduleForDate } from '../../services/overtimeCalculationService';
 import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
 import { TimeInput24 } from '../common/TimeInput24';
-import { STAFF_POSITIONS } from '../../services/laborConfigService';
+import { STAFF_POSITIONS, getTimeRuleForRecord } from '../../services/laborConfigService';
+import { resolveDefaultLoaiPTTT } from '../../services/defaultSurgeryLoaiMap';
 import { auth } from '../../lib/firebase';
 import { isAuthOrPermissionError, openAuthModal } from '../../utils/authGuidance';
 
@@ -27,6 +29,9 @@ interface ScheduleSurgeryModalProps {
   roleFilters: RoleFilterConfig;
   /** Định mức bàn mổ — danh sách các vị trí kíp mổ */
   tableItems?: LaborTableItem[];
+  /** Định mức thời gian theo loại PTTT */
+  timeItemsList?: LaborTimeItem[];
+  timeRules?: Record<string, TimeRule>;
   /** Danh sách xung đột để hiển thị cảnh báo chi tiết */
   conflicts?: ScheduleConflict[];
   /** Toàn bộ danh sách ca mổ trong ngày để tham chiếu ca trùng */
@@ -51,6 +56,8 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   surgeryNames,
   roleFilters,
   tableItems = [],
+  timeItemsList,
+  timeRules,
   conflicts = [],
   allEntries = [],
   onSelectEntry,
@@ -60,6 +67,8 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   const [patientId, setPatientId] = useState('');
   const [patientName, setPatientName] = useState('');
   const [tenKT, setTenKT] = useState('');
+  const [selectedLoaiPTTT, setSelectedLoaiPTTT] = useState('');
+  const [isEndTimeManuallyEdited, setIsEndTimeManuallyEdited] = useState(false);
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('09:00');
   const [machineCode, setMachineCode] = useState('');
@@ -124,6 +133,8 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
       setPatientId(editingEntry.patientId);
       setPatientName(editingEntry.patientName);
       setTenKT(editingEntry.tenKT);
+      setSelectedLoaiPTTT('');
+      setIsEndTimeManuallyEdited(true);
       setStartTime(editingEntry.startTime);
       setEndTime(editingEntry.endTime);
       setMachineCode(editingEntry.machineCode);
@@ -135,6 +146,8 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
       setPatientId('');
       setPatientName('');
       setTenKT('');
+      setSelectedLoaiPTTT('');
+      setIsEndTimeManuallyEdited(false);
       setStartTime(dutyStartStr);
       const nextH = Math.floor(dutyStartHour + 1);
       const nextM = Math.round(((dutyStartHour + 1) - nextH) * 60);
@@ -234,29 +247,59 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
       return true;
     });
 
-    // Deduplicate by normalized name, keeping the one with newest effectiveFrom or valid maTuongDuong
+    const sourceList = active.length > 0 ? active : surgeryNames;
+
+    // Enrich with resolved loaiPTTT and deduplicate by (normalized name + loaiPTTT)
     const map = new Map<string, SurgeryNamePrice>();
-    for (const item of active) {
-      const name = (item.tenKT || (item as any).name).trim();
-      const key = name.toLowerCase();
+    const namesWithLoai = new Set<string>();
+
+    for (const rawItem of sourceList) {
+      const name = (rawItem.tenKT || (rawItem as any).name || '').trim();
+      if (!name) continue;
+      const loaiPTTT = resolveDefaultLoaiPTTT(name, rawItem.maTuongDuong, rawItem.loaiPTTT);
+      const item: SurgeryNamePrice = loaiPTTT && rawItem.loaiPTTT !== loaiPTTT
+        ? { ...rawItem, loaiPTTT }
+        : rawItem;
+
+      const lowerName = name.toLowerCase();
+      if (loaiPTTT) namesWithLoai.add(lowerName);
+
+      const key = `${lowerName}__${loaiPTTT || ''}`;
       const existing = map.get(key);
-      if (!existing || (item.effectiveFrom && (!existing.effectiveFrom || item.effectiveFrom > existing.effectiveFrom))) {
+      if (
+        !existing ||
+        (item.effectiveFrom && (!existing.effectiveFrom || item.effectiveFrom > existing.effectiveFrom))
+      ) {
         map.set(key, item);
       }
     }
 
-    // Fallback: if no active items found for date, use all surgeryNames
-    if (map.size === 0 && surgeryNames.length > 0) {
-      for (const item of surgeryNames) {
-        const name = (item.tenKT || (item as any).name || '').trim();
-        if (!name) continue;
-        const key = name.toLowerCase();
-        if (!map.has(key)) map.set(key, item);
-      }
+    // If a surgery name has at least one entry with loaiPTTT, drop any duplicate entry without loaiPTTT
+    for (const lowerName of namesWithLoai) {
+      map.delete(`${lowerName}__`);
     }
 
     return Array.from(map.values());
   }, [surgeryNames, date, isOpen]);
+
+  // Xác định loại PTTT và thời gian định mức tối thiểu của kỹ thuật đang chọn
+  const effectiveLoaiPTTT = useMemo(() => {
+    if (selectedLoaiPTTT) return selectedLoaiPTTT;
+    const trimmed = tenKT.trim();
+    if (!trimmed) return '';
+    const lower = trimmed.toLowerCase();
+    const matched = activeSurgeryCatalog.find(
+      (s) => (s.tenKT || (s as any).name || '').trim().toLowerCase() === lower && s.loaiPTTT
+    );
+    if (matched?.loaiPTTT) return matched.loaiPTTT;
+    return resolveDefaultLoaiPTTT(trimmed);
+  }, [selectedLoaiPTTT, tenKT, activeSurgeryCatalog]);
+
+  const minDurationForLoai = useMemo(() => {
+    if (!effectiveLoaiPTTT) return 0;
+    const rule = getTimeRuleForRecord(effectiveLoaiPTTT, date, timeItemsList, timeRules);
+    return rule?.min || 0;
+  }, [effectiveLoaiPTTT, date, timeItemsList, timeRules]);
 
   // Khóa tìm kiếm không dấu tính sẵn 1 lần, không tính lại mỗi lần gõ phím
   const removeVnTones = (str: string) =>
@@ -268,7 +311,10 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
       .toLowerCase();
 
   const catalogSearchKeys = useMemo(
-    () => activeSurgeryCatalog.map((s) => removeVnTones(`${s.tenKT || (s as any).name || ''} ${s.maTuongDuong || ''}`)),
+    () =>
+      activeSurgeryCatalog.map((s) =>
+        removeVnTones(`${s.tenKT || (s as any).name || ''} ${s.maTuongDuong || ''} ${s.loaiPTTT || ''}`)
+      ),
     [activeSurgeryCatalog]
   );
 
@@ -503,9 +549,17 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
           {/* Tên kỹ thuật (autocomplete) */}
           <div className="relative">
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">
-                <FileText className="inline h-3 w-3 mr-1" />
-                Tên phẫu thuật / thủ thuật
+              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <span>
+                  <FileText className="inline h-3 w-3 mr-1" />
+                  Tên phẫu thuật / thủ thuật
+                </span>
+                {effectiveLoaiPTTT && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200 text-[10px] font-bold normal-case">
+                    {LOAI_PTTT_LABELS[effectiveLoaiPTTT] || effectiveLoaiPTTT} ({effectiveLoaiPTTT})
+                    {minDurationForLoai > 0 ? ` · Tối thiểu ${minDurationForLoai}p` : ''}
+                  </span>
+                )}
               </label>
               {activeSurgeryCatalog.length > 0 && (
                 <span className="text-[10px] text-gray-400">
@@ -519,9 +573,18 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                 type="text"
                 value={tenKT}
                 onChange={(e) => {
-                  setTenKT(e.target.value);
-                  setTenKTSearch(e.target.value);
+                  const val = e.target.value;
+                  setTenKT(val);
+                  setSelectedLoaiPTTT('');
+                  setTenKTSearch(val);
                   setShowTenKTDropdown(true);
+                  const inferredLoai = resolveDefaultLoaiPTTT(val);
+                  if (inferredLoai && !isEndTimeManuallyEdited) {
+                    const rule = getTimeRuleForRecord(inferredLoai, date, timeItemsList, timeRules);
+                    if (rule && rule.min > 0 && startTime) {
+                      setEndTime(addMinutes(startTime, rule.min));
+                    }
+                  }
                 }}
                 onFocus={() => {
                   setTenKTSearch(tenKT);
@@ -537,6 +600,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                   type="button"
                   onClick={() => {
                     setTenKT('');
+                    setSelectedLoaiPTTT('');
                     setTenKTSearch('');
                     setShowTenKTDropdown(true);
                   }}
@@ -548,26 +612,42 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
             </div>
             {showTenKTDropdown && filteredSurgeryNames.length > 0 && (
               <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-56 overflow-y-auto">
-                {filteredSurgeryNames.map((s) => {
+                {filteredSurgeryNames.map((s, idx) => {
                   const name = s.tenKT || (s as any).name;
+                  const itemLoai = s.loaiPTTT || resolveDefaultLoaiPTTT(name, s.maTuongDuong);
+                  const itemMin = itemLoai
+                    ? getTimeRuleForRecord(itemLoai, date, timeItemsList, timeRules)?.min || 0
+                    : 0;
                   return (
                     <button
-                      key={s.id || name}
+                      key={`${s.id || name}-${itemLoai || idx}`}
                       type="button"
-                      className="w-full px-3 py-2 text-left text-xs hover:bg-primary-50 transition-colors cursor-pointer flex items-center justify-between border-b border-gray-50 last:border-0"
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-primary-50 transition-colors cursor-pointer flex items-center justify-between gap-2 border-b border-gray-50 last:border-0"
                       onMouseDown={(e) => {
                         e.preventDefault();
                         setTenKT(name);
+                        setSelectedLoaiPTTT(itemLoai || '');
+                        setIsEndTimeManuallyEdited(false);
+                        if (itemMin > 0 && startTime) {
+                          setEndTime(addMinutes(startTime, itemMin));
+                        }
                         setTenKTSearch('');
                         setShowTenKTDropdown(false);
                       }}
                     >
                       <span className="font-medium text-gray-800">{name}</span>
-                      {s.maTuongDuong && (
-                        <span className="text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded text-[10px] shrink-0 font-mono ml-2 border border-primary-100">
-                          {s.maTuongDuong}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {itemLoai && (
+                          <span className="text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded text-[10px] font-bold border border-teal-200">
+                            {itemLoai}{itemMin > 0 ? ` · ≥${itemMin}p` : ''}
+                          </span>
+                        )}
+                        {s.maTuongDuong && (
+                          <span className="text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded text-[10px] font-mono border border-primary-100">
+                            {s.maTuongDuong}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   );
                 })}
@@ -593,7 +673,11 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                   disabled={readOnly}
                   onChange={(newStart) => {
                     setStartTime(newStart);
-                    const prevDuration = isTimeValid ? durationMins : 60;
+                    if (!isEndTimeManuallyEdited && minDurationForLoai > 0) {
+                      setEndTime(addMinutes(newStart, minDurationForLoai));
+                      return;
+                    }
+                    const prevDuration = isTimeValid ? durationMins : (minDurationForLoai || 60);
                     if (parseTimeToShiftHours(endTime, dutyStartHour) <= parseTimeToShiftHours(newStart, dutyStartHour)) {
                       setEndTime(addMinutes(newStart, prevDuration));
                     }
@@ -605,15 +689,33 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                 )}
               </div>
               <div>
-                <label htmlFor="schedule-end-time" className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                  <Clock className="inline h-3 w-3 mr-1" /> Giờ kết thúc
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label htmlFor="schedule-end-time" className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide">
+                    <Clock className="inline h-3 w-3 mr-1" /> Giờ kết thúc
+                  </label>
+                  {minDurationForLoai > 0 && !readOnly && durationMins !== minDurationForLoai && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEndTimeManuallyEdited(false);
+                        setEndTime(addMinutes(startTime, minDurationForLoai));
+                      }}
+                      className="text-[10px] font-semibold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-1.5 py-0.5 rounded border border-teal-200 transition-colors cursor-pointer"
+                      title={`Đặt lại theo thời gian tối thiểu của ${effectiveLoaiPTTT} (${minDurationForLoai} phút)`}
+                    >
+                      +{minDurationForLoai}p ({effectiveLoaiPTTT})
+                    </button>
+                  )}
+                </div>
                 <TimeInput24
                   id="schedule-end-time"
                   value={toInputTime(endTime)}
                   disabled={readOnly}
                   aria-invalid={!isTimeValid}
-                  onChange={setEndTime}
+                  onChange={(newEnd) => {
+                    setIsEndTimeManuallyEdited(true);
+                    setEndTime(newEnd);
+                  }}
                   className={`w-full px-3 py-2 rounded-lg border text-sm tabular-nums focus:ring-1 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50 ${
                     isTimeValid
                       ? 'border-gray-300 focus:border-primary-500 focus:ring-primary-200'
@@ -626,9 +728,20 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
               </div>
             </div>
             <p className={`mt-1.5 text-[10.5px] ${isTimeValid ? 'text-gray-500' : 'text-red-600 font-semibold'}`}>
-              {isTimeValid
-                ? <>Thời lượng: <span className="font-bold text-gray-700">{formatDuration(durationMins)}</span> · Ca trực bắt đầu {dutyStartStr}, giờ trước {dutyStartStr} tính là hôm sau</>
-                : 'Giờ kết thúc phải sau giờ bắt đầu (trong ca trực 24h)'}
+              {isTimeValid ? (
+                <>
+                  Thời lượng: <span className="font-bold text-gray-700">{formatDuration(durationMins)}</span>
+                  {effectiveLoaiPTTT && minDurationForLoai > 0 && (
+                    <span className={durationMins < minDurationForLoai ? ' text-amber-600 font-semibold' : ' text-teal-700'}>
+                      {' '}· Định mức tối thiểu {effectiveLoaiPTTT}: {minDurationForLoai} phút
+                      {durationMins < minDurationForLoai ? ' (ngắn hơn định mức)' : ''}
+                    </span>
+                  )}
+                  {' '}· Ca trực bắt đầu {dutyStartStr}, giờ trước {dutyStartStr} tính là hôm sau
+                </>
+              ) : (
+                'Giờ kết thúc phải sau giờ bắt đầu (trong ca trực 24h)'
+              )}
             </p>
           </div>
 

@@ -10,7 +10,7 @@ import {
   Loader2, FileSpreadsheet, Sparkles, RefreshCw,
   Filter, ChevronDown, MoreHorizontal, ToggleLeft, ToggleRight, Scan,
 } from 'lucide-react';
-import { SurgeryNamePrice, SurgeryCostItem, SurgeryProfile, RefillCandidateItem, MissingCatalogCandidate } from '../../types';
+import { SurgeryNamePrice, SurgeryCostItem, SurgeryProfile, RefillCandidateItem, MissingCatalogCandidate, LOAI_PTTT_ORDER } from '../../types';
 import {
   createSurgeryNamePrice,
   updateSurgeryNamePrice,
@@ -45,6 +45,7 @@ interface EditRow {
   effectiveFrom: string;
   effectiveTo: string;
   maTuongDuong: string;
+  loaiPTTT: string;
 }
 
 const EMPTY_ROW: EditRow = {
@@ -53,6 +54,7 @@ const EMPTY_ROW: EditRow = {
   effectiveFrom: '',
   effectiveTo: '',
   maTuongDuong: '',
+  loaiPTTT: '',
 };
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -191,13 +193,13 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
   // Cost item ref IDs set (for toggle & filter)
   const costRefIds = useMemo(() => getCostRefPriceIds(costItems), [costItems]);
 
-  // Auto-migrate yyyymmdd → yyyy-mm-dd (one-time per session)
+  // Auto-migrate yyyymmdd → yyyy-mm-dd & backfill loaiPTTT (one-time per session)
   useEffect(() => {
-    if (sessionStorage.getItem('namePriceDateMigrated')) return;
-    sessionStorage.setItem('namePriceDateMigrated', '1');
+    if (sessionStorage.getItem('namePriceLoaiMigrated_v1')) return;
+    sessionStorage.setItem('namePriceLoaiMigrated_v1', '1');
     migrateDateFormats().then(r => {
       if (r.fixed > 0) {
-        console.log(`[Migration] Đã chuyển ${r.fixed}/${r.total} bản ghi từ yyyymmdd → yyyy-mm-dd`);
+        console.log(`[Migration] Đã đồng bộ ${r.fixed}/${r.total} bản ghi danh mục giá & loại PTTT`);
       }
     }).catch(console.error);
   }, []);
@@ -334,6 +336,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
       effectiveFrom: p.effectiveFrom,
       effectiveTo: p.effectiveTo || '',
       maTuongDuong: p.maTuongDuong || '',
+      loaiPTTT: p.loaiPTTT || '',
     });
     setShowAddForm(false);
   };
@@ -381,6 +384,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
         effectiveFrom: editRow.effectiveFrom,
         effectiveTo: editRow.effectiveTo || null,
         maTuongDuong: editRow.maTuongDuong.trim(),
+        ...(editRow.loaiPTTT.trim() ? { loaiPTTT: editRow.loaiPTTT.trim() } : { loaiPTTT: '' }),
       };
 
       if (editingId) {
@@ -952,7 +956,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
       {showAddForm && (
         <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-3 space-y-3">
           <h4 className="text-xs font-bold text-emerald-800">➕ Thêm giá mới</h4>
-          <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-7 gap-2">
             <div>
               <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Mã tương đương</label>
               <input
@@ -970,6 +974,19 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                 className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-primary-500"
                 placeholder="VD: PT nội soi cắt túi mật"
               />
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Loại PTTT</label>
+              <select
+                value={editRow.loaiPTTT}
+                onChange={e => setEditRow(r => ({ ...r, loaiPTTT: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">-- Tự động / Trống --</option>
+                {LOAI_PTTT_ORDER.map(l => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-[10px] font-semibold text-gray-600 mb-0.5 block">Đơn giá (VNĐ)</label>
@@ -1048,6 +1065,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                   >
                     Tên DVKT phê duyệt giá <SortIcon field="tenKT" />
                   </th>
+                  <th className="px-2 py-2 text-center text-gray-500 font-semibold w-20">Loại PTTT</th>
                   <th
                     className="px-3 py-2 text-right text-gray-500 font-semibold cursor-pointer hover:text-gray-700 select-none w-32"
                     onClick={() => handleSort('price')}
@@ -1096,6 +1114,19 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                             className="w-full border border-blue-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
+                        <td className="px-2 py-1">
+                          <select
+                            disabled={isLocked}
+                            value={editRow.loaiPTTT}
+                            onChange={e => setEditRow(r => ({ ...r, loaiPTTT: e.target.value }))}
+                            className="w-full border border-blue-300 rounded px-1 py-1 text-xs bg-white focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                          >
+                            <option value="">—</option>
+                            {LOAI_PTTT_ORDER.map(l => (
+                              <option key={l} value={l}>{l}</option>
+                            ))}
+                          </select>
+                        </td>
                         <td className="px-3 py-1">
                           <input
                             type="number" min="0"
@@ -1123,6 +1154,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                             className="w-full border border-blue-300 rounded px-1 py-1 text-[11px] focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
                           />
                         </td>
+                        <td className="px-2 py-1" />
                         <td className="px-3 py-1">
                           <div className="flex items-center justify-center gap-1">
                             <button onClick={handleSave} disabled={saving || isLocked}
@@ -1154,6 +1186,15 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
                       </td>
                       <td className="px-3 py-2 text-gray-800 font-medium">
                         {p.tenKT}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {p.loaiPTTT ? (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            {p.loaiPTTT}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
                       </td>
                       <td className={`px-3 py-2 text-right font-semibold tabular-nums ${
                         isZeroPrice ? 'text-amber-600' : 'text-gray-800'

@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 import { SurgeryNamePrice, RefillCandidateItem, MissingCatalogCandidate } from '../types';
 import { reportService } from './reportService';
 import { normalizeMaTuongDuong } from './servicePriceProcessor';
+import { normalizeLoaiPTTT, resolveDefaultLoaiPTTT } from './defaultSurgeryLoaiMap';
 
 const NAME_PRICES_PATH = 'surgery_name_prices';
 
@@ -251,15 +252,42 @@ let stopTimer: ReturnType<typeof setTimeout> | null = null;
 
 function parsePrices(data: Record<string, any> | null): SurgeryNamePrice[] {
   if (!data) return [];
-  const prices: SurgeryNamePrice[] = Object.entries(data).map(([key, val]: [string, any]) => ({
-    id: key,
-    tenKT: val.tenKT || '',
-    price: val.price || 0,
-    effectiveFrom: normalizeStoredDate(val.effectiveFrom),  // yyyymmdd → yyyy-mm-dd
-    effectiveTo: val.effectiveTo ? normalizeStoredDate(val.effectiveTo) : null,  // yyyymmdd → yyyy-mm-dd
-    createdAt: val.createdAt || 0,
-    maTuongDuong: val.maTuongDuong || val.note || '',
-  }));
+  const rawEntries = Object.entries(data);
+
+  // First pass: collect explicit loaiPTTT by normalized name & maTuongDuong across RTDB entries
+  const explicitByMtd = new Map<string, string>();
+  const explicitByName = new Map<string, string>();
+  for (const [, val] of rawEntries) {
+    const loai = normalizeLoaiPTTT(val?.loaiPTTT);
+    if (!loai) continue;
+    const mtd = String(val?.maTuongDuong || val?.note || '').trim();
+    const nameKey = String(val?.tenKT || '').trim().toLowerCase();
+    if (mtd) explicitByMtd.set(mtd, loai);
+    if (nameKey && !explicitByName.has(nameKey)) explicitByName.set(nameKey, loai);
+  }
+
+  const prices: SurgeryNamePrice[] = rawEntries.map(([key, val]: [string, any]) => {
+    const tenKT = val.tenKT || '';
+    const maTuongDuong = val.maTuongDuong || val.note || '';
+    const mtdTrim = String(maTuongDuong).trim();
+    const nameKey = String(tenKT).trim().toLowerCase();
+    const inheritedLoai =
+      normalizeLoaiPTTT(val.loaiPTTT) ||
+      (mtdTrim ? explicitByMtd.get(mtdTrim) : '') ||
+      (nameKey ? explicitByName.get(nameKey) : '') ||
+      resolveDefaultLoaiPTTT(tenKT, maTuongDuong, val.loaiPTTT);
+
+    return {
+      id: key,
+      tenKT,
+      price: val.price || 0,
+      effectiveFrom: normalizeStoredDate(val.effectiveFrom),  // yyyymmdd → yyyy-mm-dd
+      effectiveTo: val.effectiveTo ? normalizeStoredDate(val.effectiveTo) : null,  // yyyymmdd → yyyy-mm-dd
+      createdAt: val.createdAt || 0,
+      maTuongDuong,
+      ...(inheritedLoai ? { loaiPTTT: inheritedLoai } : {}),
+    };
+  });
 
   // Sort by tenKT then effectiveFrom desc
   prices.sort((a, b) => {
@@ -310,13 +338,19 @@ export async function createSurgeryNamePrice(
 ): Promise<string> {
   const pricesRef = ref(db, NAME_PRICES_PATH);
   const newRef = push(pricesRef);
+  const resolvedLoai = resolveDefaultLoaiPTTT(data.tenKT, data.maTuongDuong, data.loaiPTTT);
   // Normalize dates to yyyy-mm-dd before saving
-  const normalized = {
+  const normalized: Record<string, any> = {
     ...data,
     effectiveFrom: normalizeStoredDate(data.effectiveFrom),
     effectiveTo: data.effectiveTo ? normalizeStoredDate(data.effectiveTo) : null,
     createdAt: Date.now(),
   };
+  if (resolvedLoai) {
+    normalized.loaiPTTT = resolvedLoai;
+  } else {
+    delete normalized.loaiPTTT;
+  }
   await set(newRef, normalized);
   return newRef.key!;
 }
@@ -327,7 +361,7 @@ export async function updateSurgeryNamePrice(
 ): Promise<void> {
   const versionRef = ref(db, `${NAME_PRICES_PATH}/${id}`);
   // Normalize dates to yyyy-mm-dd before saving
-  const normalized = { ...updates };
+  const normalized: Record<string, any> = { ...updates };
   if (normalized.effectiveFrom) {
     normalized.effectiveFrom = normalizeStoredDate(normalized.effectiveFrom);
   }
@@ -335,6 +369,10 @@ export async function updateSurgeryNamePrice(
     normalized.effectiveTo = normalized.effectiveTo
       ? normalizeStoredDate(normalized.effectiveTo)
       : null;
+  }
+  if (normalized.loaiPTTT !== undefined) {
+    const cleanLoai = normalizeLoaiPTTT(normalized.loaiPTTT);
+    normalized.loaiPTTT = cleanLoai || null;
   }
   await update(versionRef, normalized);
 }
@@ -357,8 +395,10 @@ export async function bulkCreateSurgeryNamePrices(
 
     for (const item of batch) {
       const newRef = push(ref(db, NAME_PRICES_PATH));
+      const resolvedLoai = resolveDefaultLoaiPTTT(item.tenKT, item.maTuongDuong, item.loaiPTTT);
       updates[`${NAME_PRICES_PATH}/${newRef.key}`] = {
         ...item,
+        ...(resolvedLoai ? { loaiPTTT: resolvedLoai } : {}),
         createdAt: Date.now(),
       };
     }
@@ -393,18 +433,23 @@ export async function bulkUpsertSurgeryNamePrices(
     for (const item of batch) {
       const key = `${normalizeForMatch(item.tenKT)}|${item.effectiveFrom}`;
       const existingId = existingMap.get(key);
+      const resolvedLoai = resolveDefaultLoaiPTTT(item.tenKT, item.maTuongDuong, item.loaiPTTT);
 
       if (existingId) {
         // Update existing record
         updates[`${NAME_PRICES_PATH}/${existingId}/price`] = item.price;
         updates[`${NAME_PRICES_PATH}/${existingId}/effectiveTo`] = item.effectiveTo ?? null;
         updates[`${NAME_PRICES_PATH}/${existingId}/maTuongDuong`] = item.maTuongDuong ?? '';
+        if (resolvedLoai) {
+          updates[`${NAME_PRICES_PATH}/${existingId}/loaiPTTT`] = resolvedLoai;
+        }
         updated++;
       } else {
         // Create new record
         const newRef = push(ref(db, NAME_PRICES_PATH));
         updates[`${NAME_PRICES_PATH}/${newRef.key}`] = {
           ...item,
+          ...(resolvedLoai ? { loaiPTTT: resolvedLoai } : {}),
           createdAt: Date.now(),
         };
         created++;
@@ -626,10 +671,11 @@ export function exportSurgeryNamePrices(prices: SurgeryNamePrice[]): void {
     toDisplayDate(p.effectiveFrom),
     toDisplayDate(p.effectiveTo || ''),
     p.maTuongDuong || '',
+    p.loaiPTTT || resolveDefaultLoaiPTTT(p.tenKT, p.maTuongDuong, p.loaiPTTT) || '',
   ]);
 
   const data = [
-    ['Tên DVKT phê duyệt giá', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Mã tương đương'],
+    ['Tên DVKT phê duyệt giá', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Mã tương đương', 'loaiPTTT'],
     ...rows,
   ];
 
@@ -640,6 +686,7 @@ export function exportSurgeryNamePrices(prices: SurgeryNamePrice[]): void {
     { wch: 22 },  // Từ
     { wch: 22 },  // Đến
     { wch: 30 },  // Mã tương đương
+    { wch: 14 },  // loaiPTTT
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Danh mục giá PT');
@@ -651,9 +698,9 @@ export function exportNamePriceTemplate(): void {
   const wb = XLSX.utils.book_new();
 
   const data = [
-    ['Tên DVKT phê duyệt giá', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Mã tương đương'],
-    ['PT nội soi cắt túi mật', 5000000, '20240101', '', ''],
-    ['Cắt Amidan', 3000000, '20240101', '', ''],
+    ['Tên DVKT phê duyệt giá', 'Đơn giá (VNĐ)', 'Hiệu lực từ (yyyymmdd)', 'Kết thúc (yyyymmdd)', 'Mã tương đương', 'loaiPTTT'],
+    ['PT nội soi cắt túi mật', 5000000, '20240101', '', '10.0621.0472', 'P1'],
+    ['Cắt Amidan', 3000000, '20240101', '', '03.1801.0890', 'P2'],
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(data);
@@ -663,6 +710,7 @@ export function exportNamePriceTemplate(): void {
     { wch: 22 },
     { wch: 22 },
     { wch: 30 },
+    { wch: 14 },
   ];
 
   XLSX.utils.book_append_sheet(wb, ws, 'Mẫu nhập giá PT');
@@ -695,6 +743,20 @@ export function parseImportedNamePriceExcel(workbook: XLSX.WorkBook): ImportedNa
     return result;
   }
 
+  // First pass on Excel rows: collect explicit loaiPTTT by maTuongDuong and tenKT
+  const excelLoaiByMtd = new Map<string, string>();
+  const excelLoaiByName = new Map<string, string>();
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i] as any[];
+    if (!r || !r[0]) continue;
+    const loai = normalizeLoaiPTTT(r[5]);
+    if (!loai) continue;
+    const mtd = String(r[4] || '').trim();
+    const nameKey = String(r[0] || '').trim().toLowerCase();
+    if (mtd) excelLoaiByMtd.set(mtd, loai);
+    if (nameKey && !excelLoaiByName.has(nameKey)) excelLoaiByName.set(nameKey, loai);
+  }
+
   // Skip header row (index 0)
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i] as any[];
@@ -705,6 +767,7 @@ export function parseImportedNamePriceExcel(workbook: XLSX.WorkBook): ImportedNa
     const fromRaw = String(row[2] || '').trim();
     const toRaw = String(row[3] || '').trim();
     const maTuongDuong = String(row[4] || '').trim();
+    const rawLoai = String(row[5] || '').trim();
 
     if (!tenKT) {
       result.warnings.push(`Dòng ${i + 1}: Bỏ qua (thiếu tên kỹ thuật)`);
@@ -736,12 +799,19 @@ export function parseImportedNamePriceExcel(workbook: XLSX.WorkBook): ImportedNa
       }
     }
 
+    const resolvedLoai =
+      normalizeLoaiPTTT(rawLoai) ||
+      (maTuongDuong ? excelLoaiByMtd.get(maTuongDuong) : '') ||
+      excelLoaiByName.get(tenKT.toLowerCase()) ||
+      resolveDefaultLoaiPTTT(tenKT, maTuongDuong, rawLoai);
+
     result.items.push({
       tenKT,
       price,
       effectiveFrom: fromDate,
       effectiveTo: toDate,
       maTuongDuong,
+      ...(resolvedLoai ? { loaiPTTT: resolvedLoai } : {}),
     });
   }
 
@@ -752,9 +822,9 @@ export function parseImportedNamePriceExcel(workbook: XLSX.WorkBook): ImportedNa
   return result;
 }
 
-// --- One-time migration: fix yyyymmdd → yyyy-mm-dd in RTDB ---
+// --- One-time migration: fix yyyymmdd → yyyy-mm-dd & backfill loaiPTTT in RTDB ---
 
-/** Scan all surgery_name_prices and fix yyyymmdd format to yyyy-mm-dd */
+/** Scan all surgery_name_prices, fix yyyymmdd format to yyyy-mm-dd, and backfill loaiPTTT */
 export async function migrateDateFormats(): Promise<{ fixed: number; total: number }> {
   const snapshot = await get(ref(db, NAME_PRICES_PATH));
   const data = snapshot.val();
@@ -784,14 +854,30 @@ export async function migrateDateFormats(): Promise<{ fixed: number; total: numb
       needsFix = true;
     }
 
+    // Backfill or normalize loaiPTTT
+    const resolvedLoai = resolveDefaultLoaiPTTT(val.tenKT, val.maTuongDuong || val.note, val.loaiPTTT);
+    if (resolvedLoai && val.loaiPTTT !== resolvedLoai) {
+      updates[`${NAME_PRICES_PATH}/${key}/loaiPTTT`] = resolvedLoai;
+      needsFix = true;
+    }
+
     if (needsFix) {
       Object.assign(batchUpdates, updates);
       fixed++;
     }
   }
 
-  if (Object.keys(batchUpdates).length > 0) {
-    await update(ref(db), batchUpdates);
+  const updateKeys = Object.keys(batchUpdates);
+  if (updateKeys.length > 0) {
+    // Write in chunks of 500 keys so large RTDB payloads never exceed limits
+    const chunkSize = 500;
+    for (let i = 0; i < updateKeys.length; i += chunkSize) {
+      const chunk: Record<string, any> = {};
+      for (const k of updateKeys.slice(i, i + chunkSize)) {
+        chunk[k] = batchUpdates[k];
+      }
+      await update(ref(db), chunk);
+    }
   }
 
   console.log(`[migrateDateFormats] Fixed ${fixed}/${entries.length} records`);

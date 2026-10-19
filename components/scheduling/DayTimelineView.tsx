@@ -1,14 +1,19 @@
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import {
   AlertTriangle, Clock, Cpu, User, ZoomIn, ZoomOut,
-  MoveHorizontal, MoveVertical,
+  MoveHorizontal, MoveVertical, GripVertical,
 } from 'lucide-react';
 import { Tooltip } from '../common/Tooltip';
 import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
 import { STAFF_ROLE_LABELS } from '../../types/schedule';
-import type { WorkingHours, SeasonSchedule } from '../../contexts/ConfigContext';
+import type { WorkingHours, SeasonSchedule, RoleFilterConfig } from '../../contexts/ConfigContext';
 import { getScheduleForDate, getSeasonForDate } from '../../services/overtimeCalculationService';
-import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
+import {
+  parseTimeToShiftHours,
+  formatDisplayTime,
+  detectConflicts,
+  getConflictedSurgeryIds,
+} from '../../services/scheduleConflictService';
 
 export type ZoomLevel = 40 | 60 | 80 | 120 | 180;
 export type TimelineOrientation = 'horizontal' | 'vertical';
@@ -18,6 +23,10 @@ interface DayTimelineViewProps {
   conflictedIds: Set<string>;
   conflicts: ScheduleConflict[];
   onEntryClick: (entry: ScheduledSurgery) => void;
+  /** Callback khi người dùng kéo thả khối ca mổ tới thời gian mới */
+  onEntryTimeChange?: (entry: ScheduledSurgery, newStartTime: string, newEndTime: string) => void | Promise<void>;
+  roleFilters?: RoleFilterConfig;
+  roleLimits?: Record<string, number>;
   currentUserId?: string;
   /** Pixels per hour for horizontal mode */
   hourWidth?: ZoomLevel;
@@ -67,39 +76,110 @@ function formatTickLabel(shiftH: number): string {
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 }
 
-/** Assign horizontal lanes (first-fit greedy based on duty shift hours) */
-function assignLanes(entries: ScheduledSurgery[], dutyStartHour: number): Map<string, number> {
-  const sorted = [...entries].sort((a, b) => {
-    const sA = parseTimeToShiftHours(a.startTime, dutyStartHour);
-    const sB = parseTimeToShiftHours(b.startTime, dutyStartHour);
-    return sA - sB;
-  });
-  const laneEnds: number[] = [];
+/**
+ * Tính giờ bắt đầu và kết thúc mới khi kéo thả theo bước nhảy 1 phút.
+ * Giữ nguyên thời lượng ca mổ và giới hạn trong khung ca trực 24h.
+ */
+export function computeDraggedTimes(
+  entry: Pick<ScheduledSurgery, 'startTime' | 'endTime'>,
+  deltaPx: number,
+  pxPerHour: number,
+  dutyStartHour: number = 7.5
+): { startTime: string; endTime: string } {
+  const origStartShift = parseTimeToShiftHours(entry.startTime, dutyStartHour);
+  let origEndShift = parseTimeToShiftHours(entry.endTime, dutyStartHour);
+  if (origEndShift <= origStartShift) origEndShift += 24;
+
+  const durationMins = Math.max(1, Math.round((origEndShift - origStartShift) * 60));
+  const origStartOffsetMins = Math.round((origStartShift - dutyStartHour) * 60);
+  const deltaMins = pxPerHour > 0 ? Math.round((deltaPx / pxPerHour) * 60) : 0;
+
+  const minOffset = Math.min(0, origStartOffsetMins);
+  const maxOffset = Math.max(1440 - durationMins, origStartOffsetMins);
+  const newStartOffsetMins = Math.max(minOffset, Math.min(maxOffset, origStartOffsetMins + deltaMins));
+  const newEndOffsetMins = newStartOffsetMins + durationMins;
+
+  const dutyStartTotalMins = Math.round(dutyStartHour * 60);
+
+  const formatOffset = (offsetMins: number, isEnd: boolean): string => {
+    const clockMins = (((dutyStartTotalMins + offsetMins) % 1440) + 1440) % 1440;
+    const hh = Math.floor(clockMins / 60).toString().padStart(2, '0');
+    const mm = (clockMins % 60).toString().padStart(2, '0');
+    if (isEnd && offsetMins >= 1440 && clockMins >= dutyStartTotalMins) {
+      return `${hh}:${mm} (+1)`;
+    }
+    return `${hh}:${mm}`;
+  };
+
+  return {
+    startTime: formatOffset(newStartOffsetMins, false),
+    endTime: formatOffset(newEndOffsetMins, true),
+  };
+}
+
+/**
+ * Assign horizontal lanes:
+ * - Các khối tĩnh được xếp trước theo giờ bắt đầu (first-fit greedy).
+ * - Các khối vừa kéo thả (`movedOrder`) được xếp sau theo quy tắc:
+ *   + Nếu đến khoảng thời gian trống (không giao thoa ca nào) -> tự xếp lên sát timeline (Lane 0).
+ *   + Nếu giao thoa với các ca đã có -> bị đẩy xuống dưới cùng (`maxOverlappingLane + 1`).
+ */
+export function assignLanes(
+  entries: ScheduledSurgery[],
+  dutyStartHour: number,
+  movedOrder: string[] = []
+): Map<string, number> {
+  const movedSet = new Set(movedOrder);
+  const staticEntries = entries
+    .filter((e) => !movedSet.has(e.id))
+    .sort((a, b) => {
+      const sA = parseTimeToShiftHours(a.startTime, dutyStartHour);
+      const sB = parseTimeToShiftHours(b.startTime, dutyStartHour);
+      return sA - sB;
+    });
+
+  const entryById = new Map(entries.map((e) => [e.id, e]));
+  const movedEntries = movedOrder
+    .map((id) => entryById.get(id))
+    .filter((e): e is ScheduledSurgery => Boolean(e));
+
+  const placed: { id: string; start: number; end: number; lane: number }[] = [];
   const laneMap = new Map<string, number>();
 
-  for (const entry of sorted) {
+  for (const entry of staticEntries) {
     const start = parseTimeToShiftHours(entry.startTime, dutyStartHour);
     let end = parseTimeToShiftHours(entry.endTime, dutyStartHour);
     if (end <= start) end += 24;
 
-    let assignedLane = -1;
-    for (let i = 0; i < laneEnds.length; i++) {
-      if (laneEnds[i] <= start) {
-        assignedLane = i;
-        break;
-      }
+    let assignedLane = 0;
+    while (
+      placed.some((p) => p.lane === assignedLane && start < p.end && p.start < end)
+    ) {
+      assignedLane++;
     }
-    if (assignedLane === -1) {
-      assignedLane = laneEnds.length;
-      laneEnds.push(0);
-    }
-    laneEnds[assignedLane] = end;
+    placed.push({ id: entry.id, start, end, lane: assignedLane });
     laneMap.set(entry.id, assignedLane);
   }
+
+  for (const entry of movedEntries) {
+    const start = parseTimeToShiftHours(entry.startTime, dutyStartHour);
+    let end = parseTimeToShiftHours(entry.endTime, dutyStartHour);
+    if (end <= start) end += 24;
+
+    const overlapping = placed.filter((p) => start < p.end && p.start < end);
+    const assignedLane =
+      overlapping.length === 0
+        ? 0
+        : Math.max(...overlapping.map((p) => p.lane)) + 1;
+
+    placed.push({ id: entry.id, start, end, lane: assignedLane });
+    laneMap.set(entry.id, assignedLane);
+  }
+
   return laneMap;
 }
 
-interface VerticalLayoutEntry {
+export interface VerticalLayoutEntry {
   entry: ScheduledSurgery;
   startHours: number;
   endHours: number;
@@ -107,8 +187,12 @@ interface VerticalLayoutEntry {
   totalCols: number;
 }
 
-/** Compute vertical columns for overlapping clusters (Google Calendar day layout) */
-function computeVerticalLayout(entries: ScheduledSurgery[], dutyStartHour: number): {
+/** Compute vertical columns for overlapping clusters (with movedOrder priority) */
+export function computeVerticalLayout(
+  entries: ScheduledSurgery[],
+  dutyStartHour: number,
+  movedOrder: string[] = []
+): {
   items: VerticalLayoutEntry[];
   maxConcurrentCols: number;
 } {
@@ -147,31 +231,45 @@ function computeVerticalLayout(entries: ScheduledSurgery[], dutyStartHour: numbe
     clusters.push(currentCluster);
   }
 
+  const movedRank = new Map(movedOrder.map((id, idx) => [id, idx]));
   const items: VerticalLayoutEntry[] = [];
   let maxConcurrentCols = 1;
 
   for (const cluster of clusters) {
-    const colEnds: number[] = [];
+    const staticItems = cluster.filter((c) => !movedRank.has(c.entry.id));
+    const movedItems = cluster
+      .filter((c) => movedRank.has(c.entry.id))
+      .sort((a, b) => (movedRank.get(a.entry.id) ?? 0) - (movedRank.get(b.entry.id) ?? 0));
+
+    const placed: { id: string; start: number; end: number; col: number }[] = [];
     const entryCols = new Map<string, number>();
 
-    for (const item of cluster) {
-      let assignedCol = -1;
-      for (let i = 0; i < colEnds.length; i++) {
-        if (colEnds[i] <= item.start) {
-          assignedCol = i;
-          break;
-        }
+    for (const item of staticItems) {
+      let assignedCol = 0;
+      while (
+        placed.some((p) => p.col === assignedCol && item.start < p.end && p.start < item.end)
+      ) {
+        assignedCol++;
       }
-      if (assignedCol === -1) {
-        assignedCol = colEnds.length;
-        colEnds.push(item.end);
-      } else {
-        colEnds[assignedCol] = item.end;
-      }
+      placed.push({ id: item.entry.id, start: item.start, end: item.end, col: assignedCol });
       entryCols.set(item.entry.id, assignedCol);
     }
 
-    const totalCols = Math.max(colEnds.length, 1);
+    for (const item of movedItems) {
+      const overlapping = placed.filter((p) => item.start < p.end && p.start < item.end);
+      const assignedCol =
+        overlapping.length === 0
+          ? 0
+          : Math.max(...overlapping.map((p) => p.col)) + 1;
+      placed.push({ id: item.entry.id, start: item.start, end: item.end, col: assignedCol });
+      entryCols.set(item.entry.id, assignedCol);
+    }
+
+    let maxColInCluster = 0;
+    entryCols.forEach((col) => {
+      if (col > maxColInCluster) maxColInCluster = col;
+    });
+    const totalCols = Math.max(maxColInCluster + 1, 1);
     if (totalCols > maxConcurrentCols) maxConcurrentCols = totalCols;
 
     for (const item of cluster) {
@@ -361,6 +459,9 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   conflictedIds,
   conflicts = [],
   onEntryClick,
+  onEntryTimeChange,
+  roleFilters,
+  roleLimits,
   currentUserId,
   hourWidth = 120,
   onZoomChange,
@@ -370,9 +471,25 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   workingHours,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const innerGridRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1000
   );
+
+  // Drag & Drop state
+  const [movedOrder, setMovedOrder] = useState<string[]>([]);
+  const [dragState, setDragState] = useState<{
+    entryId: string;
+    startTime: string;
+    endTime: string;
+  } | null>(null);
+  const suppressClickRef = useRef<boolean>(false);
+
+  // Reset moved order when date changes
+  useEffect(() => {
+    setMovedOrder([]);
+    setDragState(null);
+  }, [selectedDate]);
 
   // Vertical zoom: on mobile default to 48px (Thu nhỏ) so ~10h fit on phone; on desktop default to 68px (Chuẩn)
   const [vZoomIdx, setVZoomIdx] = useState(() =>
@@ -412,12 +529,32 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     return (isNaN(h) ? 7 : h) + (isNaN(m) ? 30 : m) / 60;
   }, [dutyStartStr]);
 
+  // Live entries during drag
+  const displayEntries = useMemo(() => {
+    if (!dragState) return entries;
+    return entries.map((e) =>
+      e.id === dragState.entryId
+        ? { ...e, startTime: dragState.startTime, endTime: dragState.endTime }
+        : e
+    );
+  }, [entries, dragState]);
+
+  const activeConflicts = useMemo(() => {
+    if (!dragState) return conflicts;
+    return detectConflicts(displayEntries, roleFilters, dutyStartHour, roleLimits);
+  }, [dragState, conflicts, displayEntries, roleFilters, dutyStartHour, roleLimits]);
+
+  const activeConflictedIds = useMemo(() => {
+    if (!dragState) return conflictedIds;
+    return getConflictedSurgeryIds(activeConflicts);
+  }, [dragState, conflictedIds, activeConflicts]);
+
   // ── Dynamic 24h timeline window with auto-resize if surgeries fall outside ──
   const { timelineStart, timelineEnd, totalTimelineHours } = useMemo(() => {
     const nominalStart = dutyStartHour;
     const nominalEnd = dutyStartHour + 24;
 
-    if (entries.length === 0) {
+    if (displayEntries.length === 0) {
       return {
         timelineStart: nominalStart,
         timelineEnd: nominalEnd,
@@ -428,7 +565,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     let minStart = nominalStart;
     let maxEnd = nominalEnd;
 
-    for (const e of entries) {
+    for (const e of displayEntries) {
       const s = parseTimeToShiftHours(e.startTime, dutyStartHour);
       let end = parseTimeToShiftHours(e.endTime, dutyStartHour);
       if (end <= s) end += 24;
@@ -445,7 +582,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       timelineEnd: actualEnd,
       totalTimelineHours: Math.max(actualEnd - actualStart, 24),
     };
-  }, [entries, dutyStartHour]);
+  }, [displayEntries, dutyStartHour]);
 
   // ── Off-hours intervals (Ngoài giờ hành chính) across timeline ──
   const offHoursIntervals = useMemo(
@@ -528,18 +665,21 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     return timelineTicks.filter((t) => t.isDutyStart || t.isDutyEnd || Math.floor(t.shiftHour) % step === 0);
   }, [timelineTicks, hourWidth]);
 
-  // Horizontal lanes
-  const laneMap = useMemo(() => assignLanes(entries, dutyStartHour), [entries, dutyStartHour]);
+  // Horizontal lanes (with movedOrder priority)
+  const laneMap = useMemo(
+    () => assignLanes(displayEntries, dutyStartHour, movedOrder),
+    [displayEntries, dutyStartHour, movedOrder]
+  );
   const maxLane = useMemo(() => {
     let max = 0;
     laneMap.forEach((lane) => { if (lane > max) max = lane; });
     return max;
   }, [laneMap]);
 
-  // Vertical layout items & max concurrent columns
+  // Vertical layout items & max concurrent columns (with movedOrder priority)
   const { items: verticalItems, maxConcurrentCols } = useMemo(
-    () => computeVerticalLayout(entries, dutyStartHour),
-    [entries, dutyStartHour]
+    () => computeVerticalLayout(displayEntries, dutyStartHour, movedOrder),
+    [displayEntries, dutyStartHour, movedOrder]
   );
 
   // Pre-calculate per-entry conflict details
@@ -552,8 +692,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       hasOverlap: boolean;
     }>();
 
-    for (const entry of entries) {
-      const entryConfs = conflicts.filter((c) => c.surgeryIds.includes(entry.id));
+    for (const entry of displayEntries) {
+      const entryConfs = activeConflicts.filter((c) => c.surgeryIds.includes(entry.id));
       const machineConfs = entryConfs.filter((c) => c.type === 'MACHINE');
       const staffConfs = entryConfs.filter((c) => c.type === 'STAFF');
 
@@ -561,7 +701,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       let endA = parseTimeToShiftHours(entry.endTime, dutyStartHour);
       if (endA <= startA) endA += 24;
 
-      const hasOverlap = entries.some((other) => {
+      const hasOverlap = displayEntries.some((other) => {
         if (other.id === entry.id) return false;
         const startB = parseTimeToShiftHours(other.startTime, dutyStartHour);
         let endB = parseTimeToShiftHours(other.endTime, dutyStartHour);
@@ -578,7 +718,182 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       });
     }
     return map;
-  }, [entries, conflicts, dutyStartHour]);
+  }, [displayEntries, activeConflicts, dutyStartHour]);
+
+  // ── Drag & Drop Handlers (Desktop Mouse & Mobile Touch-and-Hold) ──
+  const getTimelinePosPx = useCallback(
+    (clientX: number, clientY: number): number => {
+      const rect = innerGridRef.current?.getBoundingClientRect();
+      if (orientation === 'horizontal') {
+        return clientX - (rect?.left ?? 0);
+      }
+      return clientY - (rect?.top ?? 0);
+    },
+    [orientation]
+  );
+
+  const autoScrollOnDrag = useCallback(
+    (clientX: number, clientY: number) => {
+      const EDGE_PX = 48;
+      const SCROLL_STEP = 14;
+      if (orientation === 'horizontal' && containerRef.current) {
+        const cRect = containerRef.current.getBoundingClientRect();
+        if (clientX < cRect.left + H_LEFT_GUTTER + EDGE_PX) {
+          containerRef.current.scrollLeft -= SCROLL_STEP;
+        } else if (clientX > cRect.right - EDGE_PX) {
+          containerRef.current.scrollLeft += SCROLL_STEP;
+        }
+      } else if (orientation === 'vertical') {
+        if (!isMobile && containerRef.current) {
+          const cRect = containerRef.current.getBoundingClientRect();
+          if (clientY < cRect.top + EDGE_PX) {
+            containerRef.current.scrollTop -= SCROLL_STEP;
+          } else if (clientY > cRect.bottom - EDGE_PX) {
+            containerRef.current.scrollTop += SCROLL_STEP;
+          }
+        } else if (typeof window !== 'undefined') {
+          if (clientY < EDGE_PX + 56) {
+            window.scrollBy(0, -SCROLL_STEP);
+          } else if (clientY > window.innerHeight - EDGE_PX) {
+            window.scrollBy(0, SCROLL_STEP);
+          }
+        }
+      }
+    },
+    [orientation, isMobile]
+  );
+
+  const handleCardMouseDown = useCallback(
+    (e: React.MouseEvent, entry: ScheduledSurgery) => {
+      if (!onEntryTimeChange || e.button !== 0) return;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startTimelinePos = getTimelinePosPx(startX, startY);
+      const pxPerHour = orientation === 'horizontal' ? hourWidth : verticalHourHeight;
+
+      let isDragging = false;
+      let latestTimes = { startTime: entry.startTime, endTime: entry.endTime };
+
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!isDragging) {
+          if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < 4) return;
+          isDragging = true;
+          suppressClickRef.current = true;
+          setMovedOrder((prev) => [...prev.filter((id) => id !== entry.id), entry.id]);
+        }
+        ev.preventDefault();
+        autoScrollOnDrag(ev.clientX, ev.clientY);
+        const currentTimelinePos = getTimelinePosPx(ev.clientX, ev.clientY);
+        const deltaPx = currentTimelinePos - startTimelinePos;
+        latestTimes = computeDraggedTimes(entry, deltaPx, pxPerHour, dutyStartHour);
+        setDragState({
+          entryId: entry.id,
+          startTime: latestTimes.startTime,
+          endTime: latestTimes.endTime,
+        });
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        if (isDragging) {
+          if (latestTimes.startTime !== entry.startTime || latestTimes.endTime !== entry.endTime) {
+            onEntryTimeChange(entry, latestTimes.startTime, latestTimes.endTime);
+          }
+          setDragState(null);
+          setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 120);
+        }
+      };
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    },
+    [onEntryTimeChange, getTimelinePosPx, orientation, hourWidth, verticalHourHeight, autoScrollOnDrag, dutyStartHour]
+  );
+
+  const handleCardTouchStart = useCallback(
+    (e: React.TouchEvent, entry: ScheduledSurgery) => {
+      if (!onEntryTimeChange || e.touches.length !== 1) return;
+      const t0 = e.touches[0];
+      const startX = t0.clientX;
+      const startY = t0.clientY;
+      let startTimelinePos = getTimelinePosPx(startX, startY);
+      const pxPerHour = orientation === 'horizontal' ? hourWidth : verticalHourHeight;
+
+      let isDragging = false;
+      let latestTimes = { startTime: entry.startTime, endTime: entry.endTime };
+
+      const longPressTimer = window.setTimeout(() => {
+        isDragging = true;
+        suppressClickRef.current = true;
+        startTimelinePos = getTimelinePosPx(startX, startY);
+        if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+          try {
+            navigator.vibrate(25);
+          } catch {
+            // ignore
+          }
+        }
+        setMovedOrder((prev) => [...prev.filter((id) => id !== entry.id), entry.id]);
+        setDragState({
+          entryId: entry.id,
+          startTime: entry.startTime,
+          endTime: entry.endTime,
+        });
+      }, 220);
+
+      const cleanup = () => {
+        window.clearTimeout(longPressTimer);
+        window.removeEventListener('touchmove', onTouchMove);
+        window.removeEventListener('touchend', onTouchEnd);
+        window.removeEventListener('touchcancel', onTouchEnd);
+      };
+
+      const onTouchMove = (ev: TouchEvent) => {
+        if (ev.touches.length !== 1) return;
+        const t = ev.touches[0];
+        if (!isDragging) {
+          if (Math.hypot(t.clientX - startX, t.clientY - startY) > 10) {
+            cleanup();
+          }
+          return;
+        }
+        if (ev.cancelable) ev.preventDefault();
+        ev.stopPropagation();
+        autoScrollOnDrag(t.clientX, t.clientY);
+        const currentTimelinePos = getTimelinePosPx(t.clientX, t.clientY);
+        const deltaPx = currentTimelinePos - startTimelinePos;
+        latestTimes = computeDraggedTimes(entry, deltaPx, pxPerHour, dutyStartHour);
+        setDragState({
+          entryId: entry.id,
+          startTime: latestTimes.startTime,
+          endTime: latestTimes.endTime,
+        });
+      };
+
+      const onTouchEnd = (ev: TouchEvent) => {
+        cleanup();
+        if (isDragging) {
+          if (ev.cancelable) ev.preventDefault();
+          ev.stopPropagation();
+          if (latestTimes.startTime !== entry.startTime || latestTimes.endTime !== entry.endTime) {
+            onEntryTimeChange(entry, latestTimes.startTime, latestTimes.endTime);
+          }
+          setDragState(null);
+          setTimeout(() => {
+            suppressClickRef.current = false;
+          }, 200);
+        }
+      };
+
+      window.addEventListener('touchmove', onTouchMove, { passive: false });
+      window.addEventListener('touchend', onTouchEnd, { passive: false });
+      window.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    },
+    [onEntryTimeChange, getTimelinePosPx, orientation, hourWidth, verticalHourHeight, autoScrollOnDrag, dutyStartHour]
+  );
 
   const totalWidth = totalTimelineHours * hourWidth;
   const totalHeight = H_HEADER_HEIGHT + (maxLane + 1) * (H_BAR_HEIGHT + H_BAR_GAP) + 20;
@@ -829,7 +1144,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
   // Card theme helper: Machine = RED, Staff = BLUE (distinct colors, strict purple ban)
   const getCardTheme = (entry: ScheduledSurgery, idx: number) => {
-    const isConflicted = conflictedIds.has(entry.id);
+    const isConflicted = activeConflictedIds.has(entry.id);
     const confInfo = entryConflictMap.get(entry.id);
     const hasMachine = confInfo?.hasMachine;
     const hasStaff = confInfo?.hasStaff;
@@ -913,6 +1228,11 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
             <span>{isSummer ? '☀️ Mùa hè' : '❄️ Mùa đông'}</span>
             <span className="font-medium text-amber-800 text-[8.5px] hidden sm:inline">(HC: {seasonSchedule.morningFrom}–{seasonSchedule.morningTo}, {seasonSchedule.afternoonFrom}–{seasonSchedule.afternoonTo})</span>
           </span>
+          {onEntryTimeChange && (
+            <span className="hidden md:inline-flex items-center gap-0.5 text-[9px] font-semibold text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200/70">
+              <GripVertical size={9} /> Giữ & kéo ca mổ để đổi giờ
+            </span>
+          )}
           {totalTimelineHours > 24 && (
             <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1 rounded">Tự mở rộng ({totalTimelineHours}h)</span>
           )}
@@ -990,6 +1310,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
           }`}
         >
           <div
+            ref={innerGridRef}
             className="relative w-full"
             style={{
               height: totalTimelineHours * verticalHourHeight + 36,
@@ -1089,14 +1410,30 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               const isNarrow = isMobile || cardWidth < 125;
               const isSuperCompact = verticalHourHeight <= 28 || height < 28;
               const isCompact = verticalHourHeight <= 38 || height < 46;
+              const isBeingDragged = dragState?.entryId === entry.id;
 
               return (
-                <Tooltip key={entry.id} content={tooltipContent(entry)} position="right" maxWidth={320} disabled={isMobile}>
+                <Tooltip key={entry.id} content={tooltipContent(entry)} position="right" maxWidth={320} disabled={isMobile || Boolean(dragState)}>
                   <div
-                    onClick={() => onEntryClick(entry)}
-                    className={`absolute z-10 ${zoomConfig.radiusClass} ${isNarrow ? 'p-1 px-1.5' : zoomConfig.paddingClass}
+                    data-testid={`timeline-card-${entry.id}`}
+                    onMouseDown={(e) => handleCardMouseDown(e, entry)}
+                    onTouchStart={(e) => handleCardTouchStart(e, entry)}
+                    onClick={(e) => {
+                      if (suppressClickRef.current) {
+                        e.stopPropagation();
+                        return;
+                      }
+                      onEntryClick(entry);
+                    }}
+                    className={`absolute ${zoomConfig.radiusClass} ${isNarrow ? 'p-1 px-1.5' : zoomConfig.paddingClass}
                       ${color.bg} ${color.border} ${color.text}
-                      cursor-pointer hover:shadow-sm active:scale-[0.99] transition-all duration-150
+                      ${
+                        isBeingDragged
+                          ? 'z-40 shadow-xl ring-2 ring-primary-500 scale-[1.01] cursor-grabbing'
+                          : `z-10 hover:shadow-sm active:scale-[0.99] transition-all duration-150 ${
+                              onEntryTimeChange ? 'cursor-grab' : 'cursor-pointer'
+                            }`
+                      }
                       overflow-hidden select-none flex flex-col justify-between shadow-2xs
                     `}
                     style={{
@@ -1117,7 +1454,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                             {entry.patientName}
                           </span>
                         </div>
-                        {isConflicted ? (
+                        {isConflicted && !isBeingDragged ? (
                           <div className="flex items-center gap-0.5 text-[7px] font-bold truncate max-w-[70px]">
                             {confInfo?.machineConflicts[0]?.resource ? (
                               <span className="flex items-center gap-0.5 truncate text-red-600"><Cpu size={6} /> {confInfo.machineConflicts[0].resource}</span>
@@ -1129,7 +1466,9 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                           </div>
                         ) : (
                           <span className="text-[7px] font-bold text-gray-500 tabular-nums shrink-0">
-                            {formatDisplayTime(entry.startTime)}
+                            {isBeingDragged
+                              ? `${formatDisplayTime(entry.startTime)}–${formatDisplayTime(entry.endTime)}`
+                              : formatDisplayTime(entry.startTime)}
                           </span>
                         )}
                       </div>
@@ -1247,7 +1586,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
             })}
 
             {/* Empty state */}
-            {entries.length === 0 && (
+            {displayEntries.length === 0 && (
               <div
                 className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm"
                 style={{ left: effectiveGutter }}
@@ -1268,7 +1607,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       {/* ═════════════════════════════════════════════════════════════════════ */}
       {orientation === 'horizontal' && (
         <div ref={containerRef} onScroll={handleHorizontalScroll} className="overflow-x-auto overflow-y-hidden touch-pan-x overscroll-x-contain">
-          <div style={{ width: totalWidth + H_LEFT_GUTTER + 24, minHeight: Math.max(totalHeight, 220) }} className="relative">
+          <div ref={innerGridRef} style={{ width: totalWidth + H_LEFT_GUTTER + 24, minHeight: Math.max(totalHeight, 220) }} className="relative">
             {/* Time axis header */}
             <div className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200" style={{ height: H_HEADER_HEIGHT }}>
               {visibleTicksH.map((tick) => (
@@ -1335,7 +1674,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
             )}
 
             {/* Surgery bars */}
-            {entries.map((entry, idx) => {
+            {displayEntries.map((entry, idx) => {
               const lane = laneMap.get(entry.id) ?? 0;
               const startH = parseTimeToShiftHours(entry.startTime, dutyStartHour);
               let endH = parseTimeToShiftHours(entry.endTime, dutyStartHour);
@@ -1350,16 +1689,32 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               const hasBothMachineAndStaff = (confInfo?.machineConflicts.length || 0) > 0 && (confInfo?.staffConflicts.length || 0) > 0;
               // If card is narrow or has both machine and staff conflicts, stack staff badge below machine badge
               const shouldStackBadges = width < 230 || hasBothMachineAndStaff;
+              const isBeingDragged = dragState?.entryId === entry.id;
 
               return (
-                <Tooltip key={entry.id} content={tooltipContent(entry)} position="bottom" maxWidth={320} disabled={isMobile}>
+                <Tooltip key={entry.id} content={tooltipContent(entry)} position="bottom" maxWidth={320} disabled={isMobile || Boolean(dragState)}>
                   <div
-                    className={`absolute z-10 rounded-xl ${color.bg} ${color.border} ${color.text}
-                      cursor-pointer hover:shadow-sm transition-all duration-150
+                    data-testid={`timeline-card-${entry.id}`}
+                    className={`absolute rounded-xl ${color.bg} ${color.border} ${color.text}
+                      ${
+                        isBeingDragged
+                          ? 'z-40 shadow-xl ring-2 ring-primary-500 scale-[1.01] cursor-grabbing'
+                          : `z-10 hover:shadow-sm transition-all duration-150 ${
+                              onEntryTimeChange ? 'cursor-grab' : 'cursor-pointer'
+                            }`
+                      }
                       flex flex-col justify-between py-1 px-2 overflow-hidden select-none shadow-2xs
                     `}
                     style={{ left, top, width, height: H_BAR_HEIGHT }}
-                    onClick={() => onEntryClick(entry)}
+                    onMouseDown={(e) => handleCardMouseDown(e, entry)}
+                    onTouchStart={(e) => handleCardTouchStart(e, entry)}
+                    onClick={(e) => {
+                      if (suppressClickRef.current) {
+                        e.stopPropagation();
+                        return;
+                      }
+                      onEntryClick(entry);
+                    }}
                   >
                     {/* Row 1: Full Patient Name (Takes 100% width, never truncated by time) */}
                     <div className="flex items-center gap-1 w-full min-w-0">
@@ -1374,7 +1729,9 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                     {/* Row 2: Surgery Time Range (Below patient name) */}
                     <div className="flex items-center gap-1 text-[8.5px] text-gray-500 font-semibold tabular-nums leading-none">
                       <Clock size={8} className="shrink-0 text-primary-600" />
-                      <span>{formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}</span>
+                      <span className={isBeingDragged ? 'text-primary-700 font-extrabold' : ''}>
+                        {formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}
+                      </span>
                     </div>
 
                     {/* Bottom Area: Badges arranged below patient name OR procedure info */}
@@ -1432,7 +1789,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
             })}
 
             {/* Empty state */}
-            {entries.length === 0 && (
+            {displayEntries.length === 0 && (
               <div className="absolute inset-0 flex items-center justify-center text-gray-400 text-sm" style={{ top: H_HEADER_HEIGHT }}>
                 <div className="text-center">
                   <Clock className="h-8 w-8 mx-auto mb-2 opacity-30" />

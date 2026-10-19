@@ -270,6 +270,35 @@ export const SchedulingTab: React.FC = () => {
     }
   }, [user, editingEntry]);
 
+  // Drag & Drop time update — cập nhật tức thì trên UI rồi lưu lên Firebase
+  const handleEntryTimeChange = useCallback(
+    async (entry: ScheduledSurgery, newStartTime: string, newEndTime: string) => {
+      if (newStartTime === entry.startTime && newEndTime === entry.endTime) return;
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === entry.id ? { ...e, startTime: newStartTime, endTime: newEndTime } : e
+        )
+      );
+      try {
+        await updateScheduledSurgery(entry.date, entry.id, {
+          date: entry.date,
+          patientId: entry.patientId,
+          patientName: entry.patientName,
+          tenKT: entry.tenKT,
+          startTime: newStartTime,
+          endTime: newEndTime,
+          machineCode: entry.machineCode,
+          machineName: entry.machineName,
+          staff: entry.staff || {},
+          ...(entry.note ? { note: entry.note } : {}),
+        });
+      } catch (err) {
+        console.error('Error updating dragged surgery time:', err);
+      }
+    },
+    []
+  );
+
   // Click entry — always open for view/edit
   const handleEntryClick = useCallback((entry: ScheduledSurgery) => {
     setEditingEntry(entry);
@@ -657,6 +686,9 @@ export const SchedulingTab: React.FC = () => {
             conflictedIds={conflictedIds}
             conflicts={conflicts}
             onEntryClick={handleEntryClick}
+            onEntryTimeChange={handleEntryTimeChange}
+            roleFilters={roleFilters}
+            roleLimits={roleLimits}
             currentUserId={user?.uid}
             hourWidth={zoomLevel}
             onZoomChange={setZoomLevel}
@@ -687,6 +719,9 @@ export const SchedulingTab: React.FC = () => {
           conflicts={allConflicts}
           conflictedIds={conflictedIds}
           onEntryClick={handleEntryClick}
+          onEntryTimeChange={handleEntryTimeChange}
+          roleFilters={roleFilters}
+          roleLimits={roleLimits}
           onClose={() => setShowProjector(false)}
           selectedDate={dateStr}
           dateLabel={formatDisplayDate(currentDate)}
@@ -716,6 +751,8 @@ export const SchedulingTab: React.FC = () => {
         surgeryNames={surgeryNames}
         roleFilters={roleFilters}
         tableItems={config.tableItems || []}
+        timeItemsList={config.timeItemsList}
+        timeRules={config.timeRules}
         readOnly={false}
         conflicts={allConflicts}
         allEntries={entries}

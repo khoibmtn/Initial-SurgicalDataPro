@@ -336,6 +336,7 @@ export interface SurgeryNamePrice {
   effectiveTo: string | null;    // ISO date | null — null = đang hiệu lực
   createdAt: number;             // timestamp
   maTuongDuong?: string;         // Mã tương đương (MA_TUONG_DUONG)
+  loaiPTTT?: string;             // Phân loại PTTT: PĐB, P1, P2, P3, TĐB, T1, T2, T3, TKPL
 }
 
 /** Ứng viên kỹ thuật thiếu trong danh mục giá do quét CSDL phát hiện */
