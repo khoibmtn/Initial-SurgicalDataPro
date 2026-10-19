@@ -116,6 +116,26 @@ export const SchedulingTab: React.FC = () => {
     }
   }, []);
 
+  const [shortStaffName, setShortStaffName] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('surgical_timeline_short_staff') === 'true';
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+
+  const handleShortStaffNameChange = useCallback((next: boolean) => {
+    setShortStaffName(next);
+    try {
+      localStorage.setItem('surgical_timeline_short_staff', String(next));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const [timelineOrientation, setTimelineOrientation] = useState<TimelineOrientation>(() => {
     if (typeof window !== 'undefined') {
       const isSmall = window.innerWidth < 768;
@@ -566,6 +586,35 @@ export const SchedulingTab: React.FC = () => {
             </button>
           </Tooltip>
 
+          {/* Toggle hiển thị tên nhân viên & vị trí dạng vắn tắt (chỉ hiện khi bật Kíp mổ) */}
+          {showStaff && (
+            <Tooltip
+              content={
+                shortStaffName
+                  ? 'Đang hiện tên tắt (VD: PTC: NTT Hương) — nhấn để hiện tên đầy đủ'
+                  : 'Rút gọn tên vị trí & nhân viên (VD: PTC: NTT Hương)'
+              }
+              position="bottom"
+            >
+              <button
+                type="button"
+                data-testid="header-toggle-short-staff"
+                aria-pressed={shortStaffName}
+                onClick={() => handleShortStaffNameChange(!shortStaffName)}
+                className={`flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg border text-[11px] sm:text-xs font-semibold transition-all cursor-pointer shrink-0 ${
+                  shortStaffName
+                    ? 'bg-teal-100 text-teal-800 border-teal-300 shadow-2xs'
+                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                <span className="text-[10px] font-extrabold px-1 py-0.2 rounded bg-black/5 leading-none">
+                  {shortStaffName ? 'Tắt' : 'Đủ'}
+                </span>
+                <span className="hidden md:inline">Tên tắt</span>
+              </button>
+            </Tooltip>
+          )}
+
           {/* Projector / large screen mode */}
           {!isMobile && (
             <Tooltip content="Màn hình chiếu (theo dõi toàn màn hình)" position="bottom">
@@ -755,6 +804,7 @@ export const SchedulingTab: React.FC = () => {
             dutyStartHour={dutyStartHour}
             selectedDate={dateStr}
             showStaff={showStaff}
+            shortStaffName={shortStaffName}
           />
         ) : (
           <DayTimelineView
@@ -772,6 +822,8 @@ export const SchedulingTab: React.FC = () => {
             onOrientationChange={handleOrientationChange}
             showStaff={showStaff}
             onShowStaffChange={handleShowStaffChange}
+            shortStaffName={shortStaffName}
+            onShortStaffNameChange={handleShortStaffNameChange}
             selectedDate={dateStr}
             workingHours={config.workingHours}
           />

@@ -37,6 +37,9 @@ interface DayTimelineViewProps {
   /** Bật/tắt hiển thị danh sách kíp mổ (Vị trí: Họ tên) trong card */
   showStaff?: boolean;
   onShowStaffChange?: (show: boolean) => void;
+  /** Bật/tắt chế độ rút gọn vị trí & họ tên kíp mổ (VD: PTC: NTT Hương) */
+  shortStaffName?: boolean;
+  onShortStaffNameChange?: (short: boolean) => void;
   selectedDate?: string;
   workingHours?: WorkingHours;
 }
@@ -55,7 +58,8 @@ export function estimateHorizontalCardHeight(
   entry: Pick<ScheduledSurgery, 'staff' | 'patientName' | 'tenKT'>,
   cardWidth: number,
   showStaff: boolean,
-  conflictBadgeCount: number = 0
+  conflictBadgeCount: number = 0,
+  shortStaffName: boolean = false
 ): number {
   if (!showStaff) return H_BAR_HEIGHT;
   const staffItems = getOrderedStaffEntries(entry.staff);
@@ -69,7 +73,9 @@ export function estimateHorizontalCardHeight(
 
   let staffLinesHeight = 0;
   for (const item of staffItems) {
-    const fullText = `${item.roleLabel}: ${item.name}`;
+    const label = shortStaffName ? item.roleShortLabel : item.roleLabel;
+    const name = shortStaffName ? item.shortName : item.name;
+    const fullText = `${label}: ${name}`;
     const wrappedLines = Math.max(1, Math.ceil(fullText.length / charsPerLine));
     staffLinesHeight += wrappedLines * 14 + 2;
   }
@@ -503,6 +509,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   onOrientationChange,
   showStaff,
   onShowStaffChange,
+  shortStaffName,
+  onShortStaffNameChange,
   selectedDate,
   workingHours,
 }) => {
@@ -524,9 +532,26 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     return false;
   });
   const effectiveShowStaff = showStaff !== undefined ? showStaff : internalShowStaff;
+
+  // Toggle hiển thị tên nhân viên & vị trí dạng vắn tắt (VD: PTC: NTT Hương)
+  const [internalShortStaff, setInternalShortStaff] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return localStorage.getItem('surgical_timeline_short_staff') === 'true';
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  });
+  const effectiveShortStaff = shortStaffName !== undefined ? shortStaffName : internalShortStaff;
+
+  const [measuredCardHeights, setMeasuredCardHeights] = useState<Record<string, number>>({});
+
   const handleToggleShowStaff = useCallback(
     (next: boolean) => {
       setInternalShowStaff(next);
+      setMeasuredCardHeights({});
       try {
         localStorage.setItem('surgical_timeline_show_staff', String(next));
       } catch {
@@ -536,7 +561,20 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     },
     [onShowStaffChange]
   );
-  const [measuredCardHeights, setMeasuredCardHeights] = useState<Record<string, number>>({});
+
+  const handleToggleShortStaff = useCallback(
+    (next: boolean) => {
+      setInternalShortStaff(next);
+      setMeasuredCardHeights({});
+      try {
+        localStorage.setItem('surgical_timeline_short_staff', String(next));
+      } catch {
+        // ignore
+      }
+      onShortStaffNameChange?.(next);
+    },
+    [onShortStaffNameChange]
+  );
 
   // Drag & Drop state
   const [movedOrder, setMovedOrder] = useState<string[]>([]);
@@ -959,10 +997,14 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
   const totalWidth = totalTimelineHours * hourWidth;
 
+  // Reset chiều cao đo được khi đổi chế độ hiển thị kíp mổ hoặc tên tắt để card co lại ngay lập tức
+  useEffect(() => {
+    setMeasuredCardHeights((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+  }, [effectiveShowStaff, effectiveShortStaff]);
+
   // Đo chiều cao DOM thực tế của các card khi bật hiển thị kíp mổ để tránh đè khối
   useEffect(() => {
     if (!effectiveShowStaff) {
-      setMeasuredCardHeights((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
     const gridEl = innerGridRef.current;
@@ -994,7 +1036,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       nodes.forEach((node) => ro.observe(node));
       return () => ro.disconnect();
     }
-  }, [effectiveShowStaff, displayEntries, hourWidth, verticalHourHeight, orientation]);
+  }, [effectiveShowStaff, effectiveShortStaff, displayEntries, hourWidth, verticalHourHeight, orientation]);
 
   // Tính toán vị trí (left, top, width, height) động cho từng card ở chế độ Ngang
   const { horizontalCardLayout, totalHeight } = useMemo(() => {
@@ -1021,7 +1063,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
           entry,
           width,
           effectiveShowStaff,
-          conflictBadgeCount
+          conflictBadgeCount,
+          effectiveShortStaff
         );
         const height = effectiveShowStaff
           ? Math.max(estimatedH, measuredCardHeights[entry.id] || 0)
@@ -1090,6 +1133,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     hourWidth,
     entryConflictMap,
     effectiveShowStaff,
+    effectiveShortStaff,
     measuredCardHeights,
   ]);
 
@@ -1441,6 +1485,30 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
             <Users size={13} />
             <span>Kíp mổ</span>
           </button>
+
+          {effectiveShowStaff && (
+            <button
+              type="button"
+              data-testid="timeline-toggle-short-staff"
+              aria-pressed={effectiveShortStaff}
+              onClick={() => handleToggleShortStaff(!effectiveShortStaff)}
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
+                effectiveShortStaff
+                  ? 'bg-teal-700 text-white border-teal-700'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100 hover:text-gray-800'
+              }`}
+              title={
+                effectiveShortStaff
+                  ? 'Đang hiển thị tên & vị trí rút gọn (VD: PTC: NTT Hương) — nhấn để hiện đầy đủ'
+                  : 'Bật hiển thị tên & vị trí vắn tắt (VD: PTC: NTT Hương)'
+              }
+            >
+              <span className="text-[10px] font-extrabold px-1 py-0.2 rounded bg-black/10 leading-none">
+                {effectiveShortStaff ? 'Tắt' : 'Đủ'}
+              </span>
+              <span>Tên tắt</span>
+            </button>
+          )}
         </div>
 
         {/* Duty shift window badge & Season indicator */}
@@ -1634,7 +1702,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               const conflictBadgeCount =
                 (confInfo?.machineConflicts.length || 0) + (confInfo?.staffConflicts.length || 0);
               const staffEstimatedH = hasVisibleStaff
-                ? estimateHorizontalCardHeight(entry, cardWidth, true, conflictBadgeCount)
+                ? estimateHorizontalCardHeight(entry, cardWidth, true, conflictBadgeCount, effectiveShortStaff)
                 : 0;
               const height = Math.max(
                 durationHours * verticalHourHeight - 2,
@@ -1860,6 +1928,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                               const isRoleConflicted = confInfo?.staffConflicts.some(
                                 (c) => c.resource.trim().toLowerCase() === st.name.toLowerCase()
                               );
+                              const displayRole = effectiveShortStaff ? st.roleShortLabel : st.roleLabel;
+                              const displayName = effectiveShortStaff ? st.shortName : st.name;
                               return (
                                 <div
                                   key={st.roleKey}
@@ -1870,10 +1940,10 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                                   }`}
                                 >
                                   <span className={isRoleConflicted ? 'text-blue-800 font-semibold' : 'text-gray-500 font-semibold'}>
-                                    {st.roleLabel}:
+                                    {displayRole}:
                                   </span>{' '}
                                   <span className={isRoleConflicted ? 'text-blue-950 font-bold' : 'text-gray-900 font-bold'}>
-                                    {st.name}
+                                    {displayName}
                                   </span>
                                 </div>
                               );
@@ -2118,6 +2188,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                           const isRoleConflicted = confInfo?.staffConflicts.some(
                             (c) => c.resource.trim().toLowerCase() === st.name.toLowerCase()
                           );
+                          const displayRole = effectiveShortStaff ? st.roleShortLabel : st.roleLabel;
+                          const displayName = effectiveShortStaff ? st.shortName : st.name;
                           return (
                             <div
                               key={st.roleKey}
@@ -2128,10 +2200,10 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                               }`}
                             >
                               <span className={isRoleConflicted ? 'text-blue-800 font-semibold' : 'text-gray-500 font-semibold'}>
-                                {st.roleLabel}:
+                                {displayRole}:
                               </span>{' '}
                               <span className={isRoleConflicted ? 'text-blue-950 font-bold' : 'text-gray-900 font-bold'}>
-                                {st.name}
+                                {displayName}
                               </span>
                             </div>
                           );

@@ -62,12 +62,53 @@ export const STAFF_ROLE_LABELS: Record<string, string> = {
   gv: 'Giúp việc',
 };
 
+/** Nhãn viết tắt cho từng vị trí kíp mổ */
+export const STAFF_ROLE_SHORT_LABELS: Record<string, string> = {
+  ptChinh: 'PTC',
+  ptPhu: 'PTP',
+  bsGM: 'BSGM',
+  ktvGM: 'KTVGM',
+  tdc: 'TDC',
+  gv: 'GV',
+};
+
+/**
+ * Rút gọn họ tên nhân viên theo quy tắc:
+ * Giữ các chữ cái đầu của Họ và Tên đệm (viết hoa liền nhau), giữ nguyên Tên chính.
+ * Ví dụ: "Nguyễn Thị Thu Hương" -> "NTT Hương", "Đào Văn Điệp" -> "ĐV Điệp".
+ */
+export function abbreviateStaffName(fullName?: string): string {
+  if (!fullName) return '';
+  const trimmed = String(fullName).trim();
+  if (!trimmed) return '';
+
+  // Hỗ trợ trường hợp chuỗi có nhiều tên cách nhau bởi dấu phẩy hoặc chấm phẩy
+  return trimmed
+    .split(/([,;]+)/)
+    .map((segment) => {
+      if (/^[,;]+$/.test(segment)) return segment + ' ';
+      const words = segment.trim().split(/\s+/).filter(Boolean);
+      if (words.length <= 1) return words[0] || '';
+      const givenName = words[words.length - 1];
+      const initials = words
+        .slice(0, -1)
+        .map((w) => w.charAt(0).toUpperCase())
+        .join('');
+      return `${initials} ${givenName}`;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 const STAFF_ROLE_ORDER = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'];
 
 export interface StaffDisplayItem {
   roleKey: string;
   roleLabel: string;
+  roleShortLabel: string;
   name: string;
+  shortName: string;
 }
 
 /** Lấy danh sách kíp mổ có phân công theo đúng thứ tự vị trí chuẩn */
@@ -79,11 +120,14 @@ export function getOrderedStaffEntries(staff?: Record<string, string>): StaffDis
   for (const key of STAFF_ROLE_ORDER) {
     const raw = staff[key];
     if (raw && String(raw).trim()) {
+      const cleanName = String(raw).trim();
       seen.add(key);
       items.push({
         roleKey: key,
         roleLabel: STAFF_ROLE_LABELS[key] || key,
-        name: String(raw).trim(),
+        roleShortLabel: STAFF_ROLE_SHORT_LABELS[key] || STAFF_ROLE_LABELS[key] || key,
+        name: cleanName,
+        shortName: abbreviateStaffName(cleanName),
       });
     }
   }
@@ -91,10 +135,13 @@ export function getOrderedStaffEntries(staff?: Record<string, string>): StaffDis
   for (const [key, raw] of Object.entries(staff)) {
     if (seen.has(key)) continue;
     if (raw && String(raw).trim()) {
+      const cleanName = String(raw).trim();
       items.push({
         roleKey: key,
         roleLabel: STAFF_ROLE_LABELS[key] || key,
-        name: String(raw).trim(),
+        roleShortLabel: STAFF_ROLE_SHORT_LABELS[key] || STAFF_ROLE_LABELS[key] || key,
+        name: cleanName,
+        shortName: abbreviateStaffName(cleanName),
       });
     }
   }

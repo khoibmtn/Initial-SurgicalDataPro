@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Clock, Cpu, User, ChevronRight, Lock } from 'lucide-react';
 import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
-import { getOrderedStaffEntries } from '../../types/schedule';
+import { getOrderedStaffEntries, abbreviateStaffName } from '../../types/schedule';
 import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
 
 interface MobileScheduleListProps {
@@ -14,6 +14,8 @@ interface MobileScheduleListProps {
   selectedDate?: string;
   /** Hiển thị đầy đủ danh sách kíp mổ (Vị trí: Họ tên) */
   showStaff?: boolean;
+  /** Bật/tắt chế độ rút gọn vị trí & họ tên kíp mổ (VD: PTC: NTT Hương) */
+  shortStaffName?: boolean;
 }
 
 /** Color palette mirroring DayTimelineView */
@@ -67,6 +69,7 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
   dutyStartHour = 7.5,
   selectedDate,
   showStaff = false,
+  shortStaffName = false,
 }) => {
   const now = useNowTick();
   const nowShift = getNowShiftHours(selectedDate, dutyStartHour, now);
@@ -173,7 +176,10 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
                   </span>
                   {!showStaff && surgeon && (
                     <span className="inline-flex items-center gap-1 truncate min-w-0">
-                      <User size={11} className="shrink-0" /> <span className="truncate">{surgeon}</span>
+                      <User size={11} className="shrink-0" />{' '}
+                      <span className="truncate">
+                        {shortStaffName ? abbreviateStaffName(surgeon) : surgeon}
+                      </span>
                     </span>
                   )}
                 </div>
@@ -186,8 +192,12 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
                   <div className="mt-1.5 pt-1.5 border-t border-gray-200/70 flex flex-col gap-0.5 text-[11px]">
                     {staffItems.map((st) => (
                       <div key={st.roleKey} className="leading-snug whitespace-normal break-words">
-                        <span className="text-gray-500 font-semibold">{st.roleLabel}:</span>{' '}
-                        <span className="text-gray-800 font-bold">{st.name}</span>
+                        <span className="text-gray-500 font-semibold">
+                          {shortStaffName ? st.roleShortLabel : st.roleLabel}:
+                        </span>{' '}
+                        <span className="text-gray-800 font-bold">
+                          {shortStaffName ? st.shortName : st.name}
+                        </span>
                       </div>
                     ))}
                   </div>

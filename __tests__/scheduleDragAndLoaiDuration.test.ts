@@ -7,7 +7,12 @@ import {
   computeVerticalLayout,
   estimateHorizontalCardHeight,
 } from '../components/scheduling/DayTimelineView';
-import { getOrderedStaffEntries, type ScheduledSurgery } from '../types/schedule';
+import {
+  getOrderedStaffEntries,
+  abbreviateStaffName,
+  STAFF_ROLE_SHORT_LABELS,
+  type ScheduledSurgery,
+} from '../types/schedule';
 
 function makeEntry(
   id: string,
@@ -149,33 +154,72 @@ describe('assignLanes & computeVerticalLayout with movedOrder', () => {
   });
 });
 
-describe('getOrderedStaffEntries & estimateHorizontalCardHeight', () => {
-  it('orders staff roles in canonical surgical team order with role labels', () => {
+describe('getOrderedStaffEntries, abbreviateStaffName & estimateHorizontalCardHeight', () => {
+  it('abbreviates Vietnamese staff names into uppercase family/middle initials + given name', () => {
+    expect(abbreviateStaffName('Nguyễn Thị Thu Hương')).toBe('NTT Hương');
+    expect(abbreviateStaffName('Đào Văn Điệp')).toBe('ĐV Điệp');
+    expect(abbreviateStaffName('Lê Linh')).toBe('L Linh');
+    expect(abbreviateStaffName('Hương')).toBe('Hương');
+    // Multiple staff separated by comma
+    expect(abbreviateStaffName('Nguyễn Thị Thu Hương, Đào Văn Điệp')).toBe('NTT Hương, ĐV Điệp');
+  });
+
+  it('orders staff roles in canonical surgical team order with full and short role labels/names', () => {
     const staff = {
-      tdc: 'ĐD Hoàng Thị E',
-      bsGM: 'BS Lê Văn C',
-      ptChinh: 'BS Nguyễn Văn A',
-      ptPhu: 'BS Trần Văn B',
-      ktvGM: 'KTV Phạm Văn D',
+      tdc: 'Hoàng Thị Mai',
+      bsGM: 'Đào Văn Điệp',
+      ptChinh: 'Nguyễn Thị Thu Hương',
+      ptPhu: 'Trần Văn Bình',
+      ktvGM: 'Phạm Quang Hưng',
     };
     expect(getOrderedStaffEntries(staff)).toEqual([
-      { roleKey: 'ptChinh', roleLabel: 'PT Chính', name: 'BS Nguyễn Văn A' },
-      { roleKey: 'ptPhu', roleLabel: 'PT Phụ', name: 'BS Trần Văn B' },
-      { roleKey: 'bsGM', roleLabel: 'BS Gây mê', name: 'BS Lê Văn C' },
-      { roleKey: 'ktvGM', roleLabel: 'KTV Gây mê', name: 'KTV Phạm Văn D' },
-      { roleKey: 'tdc', roleLabel: 'TDC', name: 'ĐD Hoàng Thị E' },
+      {
+        roleKey: 'ptChinh',
+        roleLabel: 'PT Chính',
+        roleShortLabel: STAFF_ROLE_SHORT_LABELS.ptChinh,
+        name: 'Nguyễn Thị Thu Hương',
+        shortName: 'NTT Hương',
+      },
+      {
+        roleKey: 'ptPhu',
+        roleLabel: 'PT Phụ',
+        roleShortLabel: STAFF_ROLE_SHORT_LABELS.ptPhu,
+        name: 'Trần Văn Bình',
+        shortName: 'TV Bình',
+      },
+      {
+        roleKey: 'bsGM',
+        roleLabel: 'BS Gây mê',
+        roleShortLabel: STAFF_ROLE_SHORT_LABELS.bsGM,
+        name: 'Đào Văn Điệp',
+        shortName: 'ĐV Điệp',
+      },
+      {
+        roleKey: 'ktvGM',
+        roleLabel: 'KTV Gây mê',
+        roleShortLabel: STAFF_ROLE_SHORT_LABELS.ktvGM,
+        name: 'Phạm Quang Hưng',
+        shortName: 'PQ Hưng',
+      },
+      {
+        roleKey: 'tdc',
+        roleLabel: 'TDC',
+        roleShortLabel: STAFF_ROLE_SHORT_LABELS.tdc,
+        name: 'Hoàng Thị Mai',
+        shortName: 'HT Mai',
+      },
     ]);
   });
 
-  it('auto-adjusts card vertical height based on staff count and character wrapping width', () => {
+  it('auto-adjusts card vertical height based on staff count, character wrapping width, and shortStaffName mode', () => {
     const entry = {
       ...makeEntry('S1', '10:00', '11:00'),
       staff: {
-        ptChinh: 'BS Nguyễn Văn Hoàng Anh',
-        ptPhu: 'BS Trần Minh Tuấn, BS Lê Hoàng Nam',
-        bsGM: 'BS Phạm Thị Thu Hương',
-        ktvGM: 'KTV Đỗ Quang Huy',
-        tdc: 'ĐD Vũ Thị Ngọc Mai',
+        ptChinh: 'Nguyễn Thị Thu Hương',
+        ptPhu: 'Trần Minh Tuấn, Lê Hoàng Nam',
+        bsGM: 'Đào Văn Điệp',
+        ktvGM: 'Đỗ Quang Huy',
+        tdc: 'Vũ Thị Ngọc Mai',
       },
     };
 
@@ -187,8 +231,13 @@ describe('getOrderedStaffEntries & estimateHorizontalCardHeight', () => {
     expect(wideH).toBeGreaterThan(130);
 
     // When card is narrower (100px) -> long name strings wrap onto more lines, so height increases further
-    const narrowH = estimateHorizontalCardHeight(entry, 100, true);
-    expect(narrowH).toBeGreaterThan(wideH);
+    const narrowFullH = estimateHorizontalCardHeight(entry, 100, true, 0, false);
+    expect(narrowFullH).toBeGreaterThan(wideH);
+
+    // In shortStaffName mode on narrow card (100px) -> shorter strings ("PTC: NTT Hương") wrap less, reducing height
+    const narrowShortH = estimateHorizontalCardHeight(entry, 100, true, 0, true);
+    expect(narrowShortH).toBeLessThan(narrowFullH);
   });
 });
+
 
