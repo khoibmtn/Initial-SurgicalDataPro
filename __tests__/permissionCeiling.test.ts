@@ -4,15 +4,40 @@ import {
   DEFAULT_ROLE_PERMISSIONS,
   resolveDepartmentStaffPermissions,
   resolveEffectivePermissions,
+  normalizeStoredRolePermissions,
   hasPermission,
 } from '../services/permissionService';
 
 describe('RBAC Permission Ceiling & Resolution', () => {
-  it('should have 21 total defined system permissions including lock_report, view_audit_log, manage_admin_settings, and Gói DVKT permissions', () => {
-    expect(ALL_PERMISSIONS.length).toBe(21);
+  it('should have 24 total defined system permissions including Lịch mổ, lock_report, view_audit_log, manage_admin_settings, and Gói DVKT permissions', () => {
+    expect(ALL_PERMISSIONS.length).toBe(24);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'lock_report')).toBe(true);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'view_audit_log')).toBe(true);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'manage_admin_settings')).toBe(true);
+
+    // Lịch mổ permissions
+    const schedulePermKeys = ['manage_schedule', 'lock_schedule', 'unlock_schedule'];
+    for (const key of schedulePermKeys) {
+      const perm = ALL_PERMISSIONS.find((p) => p.key === key);
+      expect(perm).toBeDefined();
+      expect(perm?.category).toBe('Lịch mổ');
+    }
+
+    // manage_schedule: bật mặc định cho tất cả mọi người (trừ khách)
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('manage_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).toContain('manage_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.staff).toContain('manage_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain('manage_schedule');
+
+    // lock_schedule & unlock_schedule: bật mặc định cho Trưởng khoa & Phó khoa
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('lock_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.head).toContain('unlock_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).toContain('lock_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).toContain('unlock_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.staff).not.toContain('lock_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.staff).not.toContain('unlock_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain('lock_schedule');
+    expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain('unlock_schedule');
 
     // Gói DVKT permissions
     const packagePermKeys = ['view_service_package', 'assign_service_package', 'manage_package_payment', 'config_service_package'];
@@ -43,6 +68,30 @@ describe('RBAC Permission Ceiling & Resolution', () => {
     expect(DEFAULT_ROLE_PERMISSIONS.guest).toContain('view_daily_report');
     expect(DEFAULT_ROLE_PERMISSIONS.guest).toContain('view_service_package');
     expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain('approve_users');
+  });
+
+  it('should auto-backfill Lịch mổ permissions on legacy RTDB role_permissions and respect explicit toggles when initialized', () => {
+    const legacyRtdb = {
+      head: ['view_daily_report'],
+      deputy_head: ['view_daily_report'],
+      staff: ['view_daily_report'],
+      guest: ['view_daily_report'],
+    };
+    const normalized = normalizeStoredRolePermissions(legacyRtdb);
+    expect(normalized.head).toEqual(['view_daily_report', 'manage_schedule', 'lock_schedule', 'unlock_schedule']);
+    expect(normalized.deputy_head).toEqual(['view_daily_report', 'manage_schedule', 'lock_schedule', 'unlock_schedule']);
+    expect(normalized.staff).toEqual(['view_daily_report', 'manage_schedule']);
+    expect(normalized.guest).toEqual(['view_daily_report']);
+
+    const initializedRtdb = {
+      head: ['view_daily_report'],
+      deputy_head: ['view_daily_report'],
+      staff: ['view_daily_report'],
+      guest: ['view_daily_report'],
+      _schedulePermsInitialized: true,
+    };
+    const respected = normalizeStoredRolePermissions(initializedRtdb);
+    expect(respected.staff).toEqual(['view_daily_report']);
   });
 
   describe('resolveDepartmentStaffPermissions (Ceiling Enforcement)', () => {

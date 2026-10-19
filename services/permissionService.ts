@@ -6,10 +6,10 @@ export interface PermissionDefinition {
   key: string;
   label: string;
   description: string;
-  category: 'Dữ liệu' | 'Thống kê' | 'Gói DVKT' | 'Cấu hình' | 'Quản trị';
+  category: 'Dữ liệu' | 'Lịch mổ' | 'Thống kê' | 'Gói DVKT' | 'Cấu hình' | 'Quản trị';
 }
 
-/** Danh sách 21 quyền trong hệ thống */
+/** Danh sách 24 quyền trong hệ thống */
 export const ALL_PERMISSIONS: PermissionDefinition[] = [
   // ── Dữ liệu & Báo cáo ──
   { key: 'view_daily_report', label: 'Xem BC hàng ngày', description: 'Xem báo cáo phẫu thuật hàng ngày', category: 'Dữ liệu' },
@@ -18,6 +18,10 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: 'import_excel', label: 'Nhập Excel', description: 'Import dữ liệu từ file Excel', category: 'Dữ liệu' },
   { key: 'export_excel', label: 'Xuất Excel', description: 'Export dữ liệu ra file Excel', category: 'Dữ liệu' },
   { key: 'lock_report', label: 'Khóa sổ báo cáo', description: 'Khóa hoặc mở khóa chốt số liệu báo cáo tháng', category: 'Dữ liệu' },
+  // ── Lịch mổ ──
+  { key: 'manage_schedule', label: 'Tạo & sắp xếp lịch mổ', description: 'Tạo mới, chỉnh sửa, kéo thả và xóa ca mổ trên lịch mổ (khi chưa khóa)', category: 'Lịch mổ' },
+  { key: 'lock_schedule', label: 'Khóa lịch mổ', description: 'Khóa ca mổ trên lịch để ngăn chỉnh sửa thông tin, thời gian và kíp mổ', category: 'Lịch mổ' },
+  { key: 'unlock_schedule', label: 'Mở khóa lịch mổ', description: 'Mở khóa ca mổ đã bị khóa trên lịch để cho phép chỉnh sửa lại', category: 'Lịch mổ' },
   // ── Thống kê ──
   { key: 'view_statistics', label: 'Xem thống kê', description: 'Xem trang thống kê tổng hợp', category: 'Thống kê' },
   { key: 'view_cost_report', label: 'Xem chi phí', description: 'Xem báo cáo chi phí phẫu thuật', category: 'Thống kê' },
@@ -44,6 +48,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
   head: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
+    'manage_schedule', 'lock_schedule', 'unlock_schedule',
     'view_statistics', 'view_cost_report',
     'view_service_package', 'assign_service_package', 'manage_package_payment', 'config_service_package',
     'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
@@ -52,6 +57,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
   deputy_head: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel', 'lock_report',
+    'manage_schedule', 'lock_schedule', 'unlock_schedule',
     'view_statistics', 'view_cost_report',
     'view_service_package', 'assign_service_package', 'manage_package_payment', 'config_service_package',
     'manage_staff', 'manage_admin_settings',
@@ -60,6 +66,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
   staff: [
     'view_daily_report', 'view_monthly_report', 'edit_report',
     'import_excel', 'export_excel',
+    'manage_schedule',
     'view_statistics',
     'view_service_package', 'assign_service_package',
   ],
@@ -71,6 +78,44 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
   ],
 };
+
+/**
+ * Chuẩn hóa dữ liệu role_permissions đọc từ Firebase RTDB:
+ * Nếu bản ghi RTDB cũ chưa từng khởi tạo nhóm quyền 'Lịch mổ' (_schedulePermsInitialized !== true),
+ * tự động gộp các quyền mặc định của nhóm 'Lịch mổ' cho từng vai trò (trừ khách).
+ */
+export function normalizeStoredRolePermissions(data: Record<string, any> | null | undefined): {
+  head: string[];
+  deputy_head: string[];
+  staff: string[];
+  guest: string[];
+} {
+  if (!data) {
+    return {
+      head: [...DEFAULT_ROLE_PERMISSIONS.head],
+      deputy_head: [...DEFAULT_ROLE_PERMISSIONS.deputy_head],
+      staff: [...DEFAULT_ROLE_PERMISSIONS.staff],
+      guest: [...DEFAULT_ROLE_PERMISSIONS.guest],
+    };
+  }
+
+  const mergeMissing = (existing: string[] | undefined, defaults: string[], keysToEnsure: string[]) => {
+    const base = Array.isArray(existing) ? [...existing] : [...defaults];
+    if (!data._schedulePermsInitialized) {
+      for (const k of keysToEnsure) {
+        if (!base.includes(k)) base.push(k);
+      }
+    }
+    return base;
+  };
+
+  return {
+    head: mergeMissing(data.head, DEFAULT_ROLE_PERMISSIONS.head, ['manage_schedule', 'lock_schedule', 'unlock_schedule']),
+    deputy_head: mergeMissing(data.deputy_head, DEFAULT_ROLE_PERMISSIONS.deputy_head, ['manage_schedule', 'lock_schedule', 'unlock_schedule']),
+    staff: mergeMissing(data.staff, DEFAULT_ROLE_PERMISSIONS.staff, ['manage_schedule']),
+    guest: Array.isArray(data.guest) ? [...data.guest] : [...DEFAULT_ROLE_PERMISSIONS.guest],
+  };
+}
 
 /**
  * Tính toán danh sách quyền thực tế của nhân viên một khoa,

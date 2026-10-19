@@ -63,6 +63,7 @@ import {
   ALL_PERMISSIONS,
   DEFAULT_ROLE_PERMISSIONS,
   resolveDepartmentStaffPermissions,
+  normalizeStoredRolePermissions,
 } from '../../services/permissionService';
 
 const ROLE_OPTIONS: { value: UserRole; label: string; color: string }[] = [
@@ -1563,10 +1564,11 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
     const unsub = onValue(permRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        if (data.head) setHeadPerms(data.head);
-        if (data.deputy_head) setDeputyHeadPerms(data.deputy_head);
-        if (data.staff) setStaffPerms(data.staff);
-        if (data.guest) setGuestPerms(data.guest);
+        const normalized = normalizeStoredRolePermissions(data);
+        setHeadPerms(normalized.head);
+        setDeputyHeadPerms(normalized.deputy_head);
+        setStaffPerms(normalized.staff);
+        setGuestPerms(normalized.guest);
       }
     });
     return () => unsub();
@@ -1630,6 +1632,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
         deputy_head: nextDeputyHead,
         staff: nextStaff,
         guest: nextGuest,
+        _schedulePermsInitialized: true,
       });
     } catch (err) {
       console.error('Failed to save permissions:', err);

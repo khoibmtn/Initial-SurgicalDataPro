@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import {
   AlertTriangle, Clock, Cpu, User, Users, ZoomIn, ZoomOut,
-  MoveHorizontal, MoveVertical, GripVertical,
+  MoveHorizontal, MoveVertical, GripVertical, Lock,
 } from 'lucide-react';
 import { Tooltip } from '../common/Tooltip';
 import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
@@ -827,7 +827,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
   const handleCardMouseDown = useCallback(
     (e: React.MouseEvent, entry: ScheduledSurgery) => {
-      if (!onEntryTimeChange || e.button !== 0) return;
+      if (!onEntryTimeChange || entry.locked || e.button !== 0) return;
       const startX = e.clientX;
       const startY = e.clientY;
       const startTimelinePos = getTimelinePosPx(startX, startY);
@@ -877,7 +877,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
   const handleCardTouchStart = useCallback(
     (e: React.TouchEvent, entry: ScheduledSurgery) => {
-      if (!onEntryTimeChange || e.touches.length !== 1) return;
+      if (!onEntryTimeChange || entry.locked || e.touches.length !== 1) return;
       const t0 = e.touches[0];
       const startX = t0.clientX;
       const startY = t0.clientY;
@@ -1283,6 +1283,12 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     const confInfo = entryConflictMap.get(entry.id);
     return (
       <div className="space-y-1.5 text-[11px] min-w-[220px]">
+        {entry.locked && (
+          <div className="bg-amber-500/20 border border-amber-400/50 rounded p-1.5 text-[10px] text-amber-200 font-bold flex items-center gap-1">
+            <Lock size={11} className="shrink-0 text-amber-300" />
+            <span>Đã khóa chỉnh sửa{entry.lockedByName ? ` (${entry.lockedByName})` : ''}</span>
+          </div>
+        )}
         {confInfo && (confInfo.hasMachine || confInfo.hasStaff) && (
           <div className="bg-red-500/20 border border-red-400/40 rounded p-1.5 text-[10px] space-y-1">
             <div className="font-bold text-red-300 flex items-center gap-1">
@@ -1662,7 +1668,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                         isBeingDragged
                           ? 'z-40 shadow-xl ring-2 ring-primary-500 scale-[1.01] cursor-grabbing'
                           : `z-10 hover:shadow-sm active:scale-[0.99] transition-all duration-150 ${
-                              onEntryTimeChange ? 'cursor-grab' : 'cursor-pointer'
+                              onEntryTimeChange && !entry.locked ? 'cursor-grab' : 'cursor-pointer'
                             }`
                       }
                       overflow-hidden select-none flex flex-col ${hasVisibleStaff ? 'justify-start gap-0.5' : 'justify-between'} shadow-2xs
@@ -1686,23 +1692,34 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                             {entry.patientName}
                           </span>
                         </div>
-                        {isConflicted && !isBeingDragged ? (
-                          <div className="flex items-center gap-0.5 text-[7px] font-bold truncate max-w-[70px]">
-                            {confInfo?.machineConflicts[0]?.resource ? (
-                              <span className="flex items-center gap-0.5 truncate text-red-600"><Cpu size={6} /> {confInfo.machineConflicts[0].resource}</span>
-                            ) : confInfo?.staffConflicts[0]?.resource ? (
-                              <span className="flex items-center gap-0.5 truncate text-blue-600"><User size={6} /> {confInfo.staffConflicts[0].resource}</span>
-                            ) : (
-                              <span className="text-red-600">!</span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[7px] font-bold text-gray-500 tabular-nums shrink-0">
-                            {isBeingDragged
-                              ? `${formatDisplayTime(entry.startTime)}–${formatDisplayTime(entry.endTime)}`
-                              : formatDisplayTime(entry.startTime)}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isConflicted && !isBeingDragged ? (
+                            <div className="flex items-center gap-0.5 text-[7px] font-bold truncate max-w-[70px]">
+                              {confInfo?.machineConflicts[0]?.resource ? (
+                                <span className="flex items-center gap-0.5 truncate text-red-600"><Cpu size={6} /> {confInfo.machineConflicts[0].resource}</span>
+                              ) : confInfo?.staffConflicts[0]?.resource ? (
+                                <span className="flex items-center gap-0.5 truncate text-blue-600"><User size={6} /> {confInfo.staffConflicts[0].resource}</span>
+                              ) : (
+                                <span className="text-red-600">!</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[7px] font-bold text-gray-500 tabular-nums shrink-0">
+                              {isBeingDragged
+                                ? `${formatDisplayTime(entry.startTime)}–${formatDisplayTime(entry.endTime)}`
+                                : formatDisplayTime(entry.startTime)}
+                            </span>
+                          )}
+                          {entry.locked && (
+                            <span
+                              data-testid={`timeline-card-lock-${entry.id}`}
+                              title="Ca mổ đã khóa chỉnh sửa"
+                              className="inline-flex items-center justify-center p-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0"
+                            >
+                              <Lock size={7} />
+                            </span>
+                          )}
+                        </div>
                       </div>
                     ) : isCompact ? (
                       /* COMPACT MODE (Zoom 34px - 48px) */
@@ -1712,9 +1729,20 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                             <Clock size={isNarrow ? 8 : zoomConfig.iconSize} className="shrink-0 text-primary-600" />
                             <span>{formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}</span>
                           </div>
-                          {isConflicted && (
-                            <AlertTriangle size={isNarrow ? 9 : 10} className="text-red-500 shrink-0" />
-                          )}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {isConflicted && (
+                              <AlertTriangle size={isNarrow ? 9 : 10} className="text-red-500 shrink-0" />
+                            )}
+                            {entry.locked && (
+                              <span
+                                data-testid={`timeline-card-lock-${entry.id}`}
+                                title="Ca mổ đã khóa chỉnh sửa"
+                                className="inline-flex items-center justify-center p-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0"
+                              >
+                                <Lock size={isNarrow ? 8 : 9} />
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className={isNarrow ? 'text-[9.5px] font-bold truncate leading-tight' : zoomConfig.nameTextClass}>
@@ -1750,18 +1778,29 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                       /* STANDARD & DETAILED MODE (Zoom 68px - 124px, or when showStaff is enabled) */
                       <>
                         <div>
-                          {/* Top Row: Time Range + Conflict Icon */}
+                          {/* Top Row: Time Range + Conflict/Lock Icons */}
                           <div className="flex items-center justify-between gap-1 mb-0.5">
                             <div className={`flex items-center gap-1 ${isNarrow ? 'text-[8.5px]' : zoomConfig.timeTextClass} text-gray-700 tabular-nums`}>
                               <Clock size={isNarrow ? 9 : zoomConfig.iconSize} className="shrink-0 text-primary-600" />
                               <span>{formatDisplayTime(entry.startTime)}–{formatDisplayTime(entry.endTime)}</span>
                             </div>
 
-                            {isConflicted && (
-                              <div className="flex items-center gap-0.5 text-red-600 shrink-0" title="Phát hiện trùng">
-                                <AlertTriangle size={isNarrow ? 9 : 11} className="text-red-500 animate-pulse" />
-                              </div>
-                            )}
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isConflicted && (
+                                <div className="flex items-center gap-0.5 text-red-600 shrink-0" title="Phát hiện trùng">
+                                  <AlertTriangle size={isNarrow ? 9 : 11} className="text-red-500 animate-pulse" />
+                                </div>
+                              )}
+                              {entry.locked && (
+                                <span
+                                  data-testid={`timeline-card-lock-${entry.id}`}
+                                  title={entry.lockedByName ? `Đã khóa chỉnh sửa (${entry.lockedByName})` : 'Đã khóa chỉnh sửa'}
+                                  className="inline-flex items-center justify-center p-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0 shadow-2xs"
+                                >
+                                  <Lock size={isNarrow ? 8.5 : 10} />
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           {/* Patient Name */}
@@ -1968,7 +2007,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                         isBeingDragged
                           ? 'z-40 shadow-xl ring-2 ring-primary-500 scale-[1.01] cursor-grabbing'
                           : `z-10 hover:shadow-sm transition-all duration-150 ${
-                              onEntryTimeChange ? 'cursor-grab' : 'cursor-pointer'
+                              onEntryTimeChange && !entry.locked ? 'cursor-grab' : 'cursor-pointer'
                             }`
                       }
                       flex flex-col ${hasVisibleStaff ? 'justify-start gap-0.5 py-1.5' : 'justify-between py-1'} px-2 overflow-hidden select-none shadow-2xs
@@ -1990,14 +2029,25 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                       onEntryClick(entry);
                     }}
                   >
-                    {/* Row 1: Full Patient Name (Takes 100% width, never truncated by time) */}
-                    <div className="flex items-center gap-1 w-full min-w-0">
-                      {isConflicted && (
-                        <AlertTriangle size={11} className="shrink-0 text-red-600 animate-pulse" />
+                    {/* Row 1: Full Patient Name + Lock Icon at top-right */}
+                    <div className="flex items-center justify-between gap-1 w-full min-w-0">
+                      <div className="flex items-center gap-1 min-w-0 flex-1">
+                        {isConflicted && (
+                          <AlertTriangle size={11} className="shrink-0 text-red-600 animate-pulse" />
+                        )}
+                        <span className="text-[10.5px] sm:text-[11px] font-bold text-gray-900 truncate leading-tight">
+                          {entry.patientName}
+                        </span>
+                      </div>
+                      {entry.locked && (
+                        <span
+                          data-testid={`timeline-card-lock-${entry.id}`}
+                          title={entry.lockedByName ? `Đã khóa chỉnh sửa (${entry.lockedByName})` : 'Đã khóa chỉnh sửa'}
+                          className="inline-flex items-center justify-center p-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 shrink-0 shadow-2xs"
+                        >
+                          <Lock size={9.5} />
+                        </span>
                       )}
-                      <span className="text-[10.5px] sm:text-[11px] font-bold text-gray-900 truncate leading-tight">
-                        {entry.patientName}
-                      </span>
                     </div>
 
                     {/* Row 2: Surgery Time Range (Below patient name) */}

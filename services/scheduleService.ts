@@ -115,6 +115,51 @@ export async function deleteScheduledSurgery(
   }
 }
 
+/** Khóa hoặc mở khóa chỉnh sửa một ca mổ trên lịch */
+export async function setScheduledSurgeryLock(
+  date: string,
+  id: string,
+  locked: boolean,
+  actorInfo?: { userId?: string; userName?: string; userRole?: any; department?: string; patientName?: string },
+): Promise<void> {
+  const entryRef = ref(db, `${datePath(date)}/${id}`);
+  const now = Date.now();
+  await update(
+    entryRef,
+    locked
+      ? {
+          locked: true,
+          lockedBy: actorInfo?.userId || 'unknown',
+          lockedByName: actorInfo?.userName || 'Người dùng',
+          lockedAt: now,
+          updatedAt: now,
+        }
+      : {
+          locked: false,
+          lockedBy: null,
+          lockedByName: null,
+          lockedAt: null,
+          updatedAt: now,
+        }
+  );
+
+  if (actorInfo) {
+    logAuditEvent({
+      userId: actorInfo.userId || 'unknown',
+      userName: actorInfo.userName || 'Người dùng',
+      userRole: actorInfo.userRole || 'staff',
+      userDepartment: actorInfo.department,
+      action: locked ? 'SCHEDULE_LOCK' : 'SCHEDULE_UNLOCK',
+      targetType: 'schedule',
+      targetId: id,
+      targetLabel: actorInfo.patientName ? `BN ${actorInfo.patientName}` : id,
+      periodKey: date,
+      department: actorInfo.department,
+      description: `${locked ? 'Khóa' : 'Mở khóa'} chỉnh sửa ca mổ trong lịch ngày ${date}${actorInfo.patientName ? ` (BN ${actorInfo.patientName})` : ''}`,
+    }).catch((e) => console.warn('[auditLog] Failed to log schedule lock:', e));
+  }
+}
+
 /** Lấy toàn bộ ca mổ của 1 ngày (1 lần) */
 export async function getScheduleForDate(date: string): Promise<ScheduledSurgery[]> {
   const dateRef = ref(db, datePath(date));

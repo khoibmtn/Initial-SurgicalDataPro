@@ -18,7 +18,7 @@ import {
   subscribeToDepartmentPermissions,
   subscribeToDepartmentRolePermissions,
 } from '../services/userManagementService';
-import { resolveEffectivePermissions, DEFAULT_ROLE_PERMISSIONS } from '../services/permissionService';
+import { resolveEffectivePermissions, DEFAULT_ROLE_PERMISSIONS, normalizeStoredRolePermissions } from '../services/permissionService';
 import { sendNotification } from '../services/notificationService';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../lib/firebase';
@@ -240,12 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsub = onValue(permRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setGlobalRolePerms({
-          head: data.head || DEFAULT_ROLE_PERMISSIONS.head,
-          deputy_head: data.deputy_head || DEFAULT_ROLE_PERMISSIONS.deputy_head,
-          staff: data.staff || DEFAULT_ROLE_PERMISSIONS.staff,
-          guest: data.guest || DEFAULT_ROLE_PERMISSIONS.guest,
-        });
+        setGlobalRolePerms(normalizeStoredRolePermissions(data));
       }
     });
     return () => unsub();

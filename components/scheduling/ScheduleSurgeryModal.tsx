@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, Clock, User, Cpu, FileText, Search, AlertTriangle, Trash2, Copy } from 'lucide-react';
+import { X, Clock, User, Cpu, FileText, Search, AlertTriangle, Trash2, Copy, Lock, Unlock } from 'lucide-react';
 import type { ScheduledSurgery, ScheduledSurgeryInput, ScheduleConflict } from '../../types/schedule';
 import type { StaffMember, MachineEntry, SurgeryNamePrice, LaborTableItem, LaborTimeItem, TimeRule } from '../../types';
 import { LOAI_PTTT_LABELS } from '../../types';
@@ -20,6 +20,12 @@ interface ScheduleSurgeryModalProps {
   onDelete?: (entry: ScheduledSurgery) => void;
   /** Sao chép ca mổ sang ngày khác */
   onDuplicate?: (entry: ScheduledSurgery) => void;
+  /** Khóa hoặc mở khóa chỉnh sửa ca mổ */
+  onToggleLock?: (entry: ScheduledSurgery, nextLocked: boolean) => Promise<void> | void;
+  /** Quyền khóa lịch mổ */
+  canLock?: boolean;
+  /** Quyền mở khóa lịch mổ */
+  canUnlock?: boolean;
   /** Nếu có = chế độ sửa, không có = chế độ thêm mới */
   editingEntry?: ScheduledSurgery;
   date: string;
@@ -49,6 +55,9 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   onSave,
   onDelete,
   onDuplicate,
+  onToggleLock,
+  canLock = false,
+  canUnlock = false,
   editingEntry,
   date,
   staffList,
@@ -61,9 +70,13 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
   conflicts = [],
   allEntries = [],
   onSelectEntry,
-  readOnly = false,
+  readOnly: propReadOnly = false,
   workingHours,
 }) => {
+  const isEntryLocked = Boolean(editingEntry?.locked);
+  const readOnly = propReadOnly || isEntryLocked;
+  const [isTogglingLock, setIsTogglingLock] = useState(false);
+
   const [patientId, setPatientId] = useState('');
   const [patientName, setPatientName] = useState('');
   const [tenKT, setTenKT] = useState('');
@@ -408,6 +421,23 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     }
   };
 
+  const handleToggleLock = async () => {
+    if (!editingEntry || !onToggleLock) return;
+    const nextLocked = !isEntryLocked;
+    if (nextLocked && !canLock) return;
+    if (!nextLocked && !canUnlock) return;
+    setIsTogglingLock(true);
+    setSaveError('');
+    try {
+      await onToggleLock(editingEntry, nextLocked);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSaveError(`Không thể ${nextLocked ? 'khóa' : 'mở khóa'} ca mổ: ${msg}`);
+    } finally {
+      setIsTogglingLock(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -417,24 +447,93 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 border-b border-gray-200 bg-primary-50/50">
-          <div>
-            <h2 className="text-sm font-bold text-primary-950">
-              {readOnly ? 'Chi tiết ca mổ' : editingEntry ? 'Chỉnh sửa ca mổ' : 'Đăng ký ca mổ mới'}
-            </h2>
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 sm:py-3.5 border-b border-gray-200 bg-primary-50/50">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-bold text-primary-950">
+                {readOnly ? 'Chi tiết ca mổ' : editingEntry ? 'Chỉnh sửa ca mổ' : 'Đăng ký ca mổ mới'}
+              </h2>
+              {isEntryLocked && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                  <Lock size={11} className="text-amber-700" />
+                  Đã khóa lịch mổ
+                </span>
+              )}
+            </div>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              {editingEntry
+              {isEntryLocked
+                ? 'Ca mổ đang khóa chỉnh sửa. Mở khóa nếu cần thay đổi thời gian, hành chính hoặc kíp mổ.'
+                : editingEntry
                 ? 'Điều chỉnh giờ mổ, máy hoặc nhân sự để sắp xếp lại ca mổ và khắc phục trùng lịch'
                 : `Thêm ca phẫu thuật / thủ thuật vào lịch ngày ${date}`}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors cursor-pointer">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {editingEntry && onToggleLock && ((isEntryLocked && canUnlock) || (!isEntryLocked && canLock)) && (
+              <button
+                type="button"
+                data-testid="modal-toggle-lock-btn"
+                disabled={isTogglingLock}
+                onClick={handleToggleLock}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
+                  isEntryLocked
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700'
+                    : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border-amber-300'
+                }`}
+                title={
+                  isEntryLocked
+                    ? 'Mở khóa để mọi người có thể chỉnh sửa lại ca mổ này'
+                    : 'Khóa ca mổ này để ngăn chỉnh sửa thời gian, hành chính và kíp mổ'
+                }
+              >
+                {isEntryLocked ? <Unlock size={13} /> : <Lock size={13} />}
+                <span>
+                  {isTogglingLock
+                    ? 'Đang xử lý...'
+                    : isEntryLocked
+                    ? 'Mở khóa lịch mổ'
+                    : 'Khóa lịch mổ'}
+                </span>
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors cursor-pointer">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
+          {/* 🔒 Thông báo ca mổ đang bị khóa chỉnh sửa */}
+          {isEntryLocked && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-3 flex items-start justify-between gap-2.5 shadow-2xs animate-fade-in">
+              <div className="flex items-start gap-2 min-w-0">
+                <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-200 shrink-0 mt-0.5">
+                  <Lock size={14} />
+                </span>
+                <div className="text-xs text-amber-950">
+                  <p className="font-bold">
+                    Ca mổ đã bị khóa chỉnh sửa{editingEntry?.lockedByName ? ` bởi ${editingEntry.lockedByName}` : ''}
+                  </p>
+                  <p className="text-[11px] text-amber-800/90 mt-0.5 leading-snug">
+                    Không thể thay đổi thời gian bắt đầu/kết thúc, thông tin hành chính, máy móc hay người tham gia khi đang khóa.
+                  </p>
+                </div>
+              </div>
+              {onToggleLock && canUnlock && (
+                <button
+                  type="button"
+                  disabled={isTogglingLock}
+                  onClick={handleToggleLock}
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <Unlock size={12} />
+                  <span>Mở khóa</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* ⚠️ Xung đột phát hiện trên ca này */}
           {entryConflicts.length > 0 && (
             <div className="rounded-xl border border-red-200 bg-red-50/90 p-3 sm:p-3.5 space-y-2.5 animate-fade-in shadow-xs">

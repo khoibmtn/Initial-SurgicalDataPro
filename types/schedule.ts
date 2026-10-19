@@ -25,6 +25,12 @@ export interface ScheduledSurgery {
   // Ghi chú
   note?: string;
 
+  // Trạng thái khóa ca mổ (ngăn chỉnh sửa thông tin, thời gian, kíp mổ)
+  locked?: boolean;
+  lockedBy?: string;        // uid người khóa
+  lockedByName?: string;    // tên hiển thị người khóa
+  lockedAt?: number;        // timestamp ms
+
   // Meta
   createdBy: string;        // uid
   createdByName: string;    // display name

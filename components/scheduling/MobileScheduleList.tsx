@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Clock, Cpu, User, ChevronRight } from 'lucide-react';
+import { AlertTriangle, Clock, Cpu, User, ChevronRight, Lock } from 'lucide-react';
 import type { ScheduledSurgery, ScheduleConflict } from '../../types/schedule';
 import { getOrderedStaffEntries } from '../../types/schedule';
 import { parseTimeToShiftHours, formatDisplayTime } from '../../services/scheduleConflictService';
@@ -145,13 +145,24 @@ export const MobileScheduleList: React.FC<MobileScheduleListProps> = ({
                   ${isDone ? 'opacity-60' : ''}
                 `}
               >
-                {/* Row 1: Patient (full width) */}
+                {/* Row 1: Patient (full width) + Lock Icon at top-right */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     {isConflicted && <AlertTriangle size={14} className="shrink-0 text-red-500" />}
                     <span className="text-sm font-bold text-gray-800 truncate">{entry.patientName}</span>
                   </div>
-                  <ChevronRight size={14} className="shrink-0 text-gray-300 mt-0.5" />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {entry.locked && (
+                      <span
+                        data-testid={`mobile-card-lock-${entry.id}`}
+                        title={entry.lockedByName ? `Đã khóa chỉnh sửa (${entry.lockedByName})` : 'Đã khóa chỉnh sửa'}
+                        className="inline-flex items-center justify-center p-1 rounded-md bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs"
+                      >
+                        <Lock size={12} />
+                      </span>
+                    )}
+                    <ChevronRight size={14} className="shrink-0 text-gray-300 mt-0.5" />
+                  </div>
                 </div>
 
                 {/* Row 2: Time + surgeon (when showStaff is false) */}

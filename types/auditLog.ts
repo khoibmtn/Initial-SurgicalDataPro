@@ -22,7 +22,9 @@ export type AuditAction =
   | 'PACKAGE_ASSIGNMENT_EDIT'
   | 'SCHEDULE_CREATE'
   | 'SCHEDULE_EDIT'
-  | 'SCHEDULE_DELETE';
+  | 'SCHEDULE_DELETE'
+  | 'SCHEDULE_LOCK'
+  | 'SCHEDULE_UNLOCK';
 
 export interface FieldDiff {
   fieldKey: string;

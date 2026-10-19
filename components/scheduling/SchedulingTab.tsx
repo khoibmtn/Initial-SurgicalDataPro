@@ -19,6 +19,7 @@ import {
   addScheduledSurgery,
   updateScheduledSurgery,
   deleteScheduledSurgery,
+  setScheduledSurgeryLock,
 } from '../../services/scheduleService';
 import { detectConflicts, getConflictedSurgeryIds } from '../../services/scheduleConflictService';
 import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceService';
@@ -76,8 +77,11 @@ function useIsMobile(breakpoint = 768) {
 
 export const SchedulingTab: React.FC = () => {
   const { config } = useConfig();
-  const { user, isAdmin, isHead, isAuthenticated } = useAuth();
+  const { user, isAdmin, isHead, isAuthenticated, can } = useAuth();
   const canManageAll = isAdmin || isHead;
+  const canManageSchedule = isAdmin || can('manage_schedule');
+  const canLockSchedule = isAdmin || can('lock_schedule');
+  const canUnlockSchedule = isAdmin || can('unlock_schedule');
   const isMobile = useIsMobile();
 
   // Navigation
@@ -279,20 +283,52 @@ export const SchedulingTab: React.FC = () => {
   const goToNextDay = () => setCurrentDate((d) => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; });
   const goToToday = () => setCurrentDate(new Date());
 
-  // Save — cho phép người dùng chỉnh sửa ca mổ để sắp xếp lại và xóa trùng lịch
+  // Save — cho phép người dùng chỉnh sửa ca mổ khi có quyền manage_schedule và ca mổ chưa khóa
   const handleSave = useCallback(async (data: ScheduledSurgeryInput) => {
+    if (!canManageSchedule) return;
     const creatorId = user?.uid || 'guest';
     const creatorName = user?.displayName || (user ? 'Unknown' : 'Người dùng');
     if (editingEntry) {
+      if (editingEntry.locked) return;
       await updateScheduledSurgery(editingEntry.date, editingEntry.id, data);
     } else {
       await addScheduledSurgery(data, creatorId, creatorName);
     }
-  }, [user, editingEntry]);
+  }, [user, editingEntry, canManageSchedule]);
 
-  // Drag & Drop time update — cập nhật tức thì trên UI rồi lưu lên Firebase
+  // Khóa / Mở khóa ca mổ trên lịch
+  const handleToggleLock = useCallback(
+    async (entry: ScheduledSurgery, nextLocked: boolean) => {
+      if (nextLocked && !canLockSchedule) return;
+      if (!nextLocked && !canUnlockSchedule) return;
+      const actorName = user?.displayName || user?.nickname || 'Người dùng';
+      const now = Date.now();
+      const updatedEntry: ScheduledSurgery = {
+        ...entry,
+        locked: nextLocked,
+        lockedBy: nextLocked ? user?.uid : undefined,
+        lockedByName: nextLocked ? actorName : undefined,
+        lockedAt: nextLocked ? now : undefined,
+        updatedAt: now,
+      };
+      setEntries((prev) => prev.map((e) => (e.id === entry.id ? updatedEntry : e)));
+      setEditingEntry((prev) => (prev && prev.id === entry.id ? updatedEntry : prev));
+
+      await setScheduledSurgeryLock(entry.date, entry.id, nextLocked, {
+        userId: user?.uid,
+        userName: actorName,
+        userRole: user?.role,
+        department: user?.department,
+        patientName: entry.patientName,
+      });
+    },
+    [canLockSchedule, canUnlockSchedule, user]
+  );
+
+  // Drag & Drop time update — cập nhật tức thì trên UI rồi lưu lên Firebase (chặn nếu ca đã khóa hoặc không có quyền)
   const handleEntryTimeChange = useCallback(
     async (entry: ScheduledSurgery, newStartTime: string, newEndTime: string) => {
+      if (!canManageSchedule || entry.locked) return;
       if (newStartTime === entry.startTime && newEndTime === entry.endTime) return;
       setEntries((prev) =>
         prev.map((e) =>
@@ -316,7 +352,7 @@ export const SchedulingTab: React.FC = () => {
         console.error('Error updating dragged surgery time:', err);
       }
     },
-    []
+    [canManageSchedule]
   );
 
   // Click entry — always open for view/edit
@@ -332,17 +368,18 @@ export const SchedulingTab: React.FC = () => {
 
   // Delete directly from modal or FAB
   const handleDeleteDirect = useCallback(async (entry: ScheduledSurgery) => {
+    if (!canManageSchedule || entry.locked) return;
     await deleteScheduledSurgery(entry.date, entry.id);
     closeModal();
-  }, [closeModal]);
+  }, [closeModal, canManageSchedule]);
 
   // Delete from confirm dialog
   const handleDelete = useCallback(async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || !canManageSchedule || deleteTarget.locked) return;
     await deleteScheduledSurgery(deleteTarget.date, deleteTarget.id);
     setDeleteTarget(null);
     closeModal();
-  }, [deleteTarget, closeModal]);
+  }, [deleteTarget, closeModal, canManageSchedule]);
 
   // Duplicate — copy surgery to another date
   const handleDuplicateConfirm = useCallback(async () => {
@@ -568,17 +605,19 @@ export const SchedulingTab: React.FC = () => {
           </Tooltip>
 
           {/* Add */}
-          <Tooltip content="Đăng ký ca mổ mới" position="bottom">
-            <button
-              onClick={handleAddNew}
-              className="flex items-center gap-1 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-700 text-white font-bold
-                         text-[11px] sm:text-xs rounded-xl hover:bg-primary-800 active:scale-95 transition-all
-                         shadow-sm cursor-pointer"
-            >
-              <Plus size={14} />
-              <span className="hidden sm:inline">Thêm ca mổ</span>
-            </button>
-          </Tooltip>
+          {canManageSchedule && (
+            <Tooltip content="Đăng ký ca mổ mới" position="bottom">
+              <button
+                onClick={handleAddNew}
+                className="flex items-center gap-1 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-700 text-white font-bold
+                           text-[11px] sm:text-xs rounded-xl hover:bg-primary-800 active:scale-95 transition-all
+                           shadow-sm cursor-pointer"
+              >
+                <Plus size={14} />
+                <span className="hidden sm:inline">Thêm ca mổ</span>
+              </button>
+            </Tooltip>
+          )}
         </div>
       </div>
 
@@ -723,7 +762,7 @@ export const SchedulingTab: React.FC = () => {
             conflictedIds={conflictedIds}
             conflicts={conflicts}
             onEntryClick={handleEntryClick}
-            onEntryTimeChange={handleEntryTimeChange}
+            onEntryTimeChange={canManageSchedule ? handleEntryTimeChange : undefined}
             roleFilters={roleFilters}
             roleLimits={roleLimits}
             currentUserId={user?.uid}
@@ -740,7 +779,7 @@ export const SchedulingTab: React.FC = () => {
       </div>
 
       {/* ── Mobile FAB: thêm ca mổ ── */}
-      {isMobile && !showModal && (
+      {isMobile && !showModal && canManageSchedule && (
         <button
           id="schedule-add-fab"
           onClick={handleAddNew}
@@ -758,7 +797,7 @@ export const SchedulingTab: React.FC = () => {
           conflicts={allConflicts}
           conflictedIds={conflictedIds}
           onEntryClick={handleEntryClick}
-          onEntryTimeChange={handleEntryTimeChange}
+          onEntryTimeChange={canManageSchedule ? handleEntryTimeChange : undefined}
           roleFilters={roleFilters}
           roleLimits={roleLimits}
           onClose={() => setShowProjector(false)}
@@ -778,11 +817,18 @@ export const SchedulingTab: React.FC = () => {
         onClose={closeModal}
         onSave={handleSave}
         onDelete={handleDeleteDirect}
-        onDuplicate={(entry) => {
-          setDuplicateTarget(entry);
-          setDuplicateDate('');
-          closeModal();
-        }}
+        onDuplicate={
+          canManageSchedule
+            ? (entry) => {
+                setDuplicateTarget(entry);
+                setDuplicateDate('');
+                closeModal();
+              }
+            : undefined
+        }
+        onToggleLock={handleToggleLock}
+        canLock={canLockSchedule}
+        canUnlock={canUnlockSchedule}
         editingEntry={editingEntry}
         date={dateStr}
         staffList={config.staffList || []}
@@ -792,7 +838,7 @@ export const SchedulingTab: React.FC = () => {
         tableItems={config.tableItems || []}
         timeItemsList={config.timeItemsList}
         timeRules={config.timeRules}
-        readOnly={false}
+        readOnly={!canManageSchedule}
         conflicts={allConflicts}
         allEntries={entries}
         onSelectEntry={(entry) => setEditingEntry(entry)}
