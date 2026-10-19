@@ -1,180 +1,141 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 07/10/2026 18:10 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `temp-07-10-2026-18h04` (dựa trên `main` commit `6b419a9`)  
+> **Thời gian cập nhật:** 19/10/2026 15:58 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `temp-19-10-2026-14h20` (đồng bộ với `main`, commit tính năng `7a5a3a8`)  
 > **Remote:** `origin/main` đã push đầy đủ lên GitHub  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
 > **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
-> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build, 6.87s)`  
-> **Trạng thái Test:** `418 / 418 tests PASS` (33 test suites, 100% pass)  
+> **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build)`  
+> **Trạng thái Test:** `428 / 428 tests PASS` (34 test suites, 100% pass)  
 
 ---
 
 ## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
 
-### 1.1. Tối Ưu Tốc Độ Tải Dữ Liệu Đồng Thời (Tab Gói DVYC & Thanh Toán)
-- **Vấn đề trước đây:**
-  - Khi lấy danh sách phẫu thuật (BC ngày hoặc BC tháng), tab Gói DVYC hiện badge (ví dụ: `2 NEW` hoặc `89 ca`), nhưng khi người dùng mở tab thì bảng lại trống trơn ("Chưa có ca phù hợp với bộ lọc hiện tại"), phải mất 3-10 giây sau mới hiện danh sách.
-  - Nguyên nhân: Bảng `PackageListView` chỉ lặp duyệt qua `records` (danh sách phẫu thuật đã xử lý). Trong khi danh sách phẫu thuật còn đang chạy tuần tự các tác vụ đồng bộ giá và tính toán ngoài giờ, `records` tạm thời rỗng `[]` khiến bảng bị rỗng.
+### 1.1. Toggle Hiển Thị Kíp Mổ & Tự Động Co Giãn Chiều Cao Card Trên Lịch Mổ (19/10/2026)
+- **Yêu cầu:**
+  - Bổ sung nút bật/tắt (toggle) hiển thị tên kíp mổ kèm vị trí ngay trong card của mỗi cuộc mổ trên lịch mổ.
+  - Giữ nguyên chiều ngang (`width`) của card theo đúng độ dài khung giờ mổ trên trục timeline, nhưng tự động co giãn chiều cao dọc của card phù hợp với các chuỗi ký tự tên bên trong và tự động đẩy các card ở làn dưới (`lane > 0`) xuống để không bao giờ đè lên nhau.
 - **Giải pháp triển khai:**
-  1. **Instant Fallback Rendering (`PackageListView.tsx`):**
-     - Trong `enrichedRecords`, ngoài việc khớp qua `records`, hệ thống đồng thời đưa ngay các ca đã có trong `assignments` vào danh sách hiển thị với thông tin fallback đầy đủ (Mã KCB, Họ tên, Kỹ thuật mổ, Ngày mổ, Kíp mổ: PTV chính, PTV phụ, BS GM, KTV GM, TĐC, GV...).
-     - Khi `records` phẫu thuật nạp xong, hệ thống tự động làm giàu thêm các dữ liệu phụ trợ (khoa, thời gian mổ, cảnh báo) mà không gây giật lag hay trắng bảng.
-  2. **Tải song song (Parallel Pre-loading trong `hooks/useStorageQuery.ts`):**
-     - Ngay khi người dùng nhấn "Lấy dữ liệu" hoặc "Dữ liệu trực", hệ thống lập tức phát tín hiệu `isProcessing: true` và cập nhật khoảng ngày truy vấn.
-     - Tác vụ nạp phẫu thuật (`getReports`), nạp gói dịch vụ (`subscribeToAssignments`), nạp đợt thanh toán (`subscribeToPaymentLists`) chạy đồng thời thay vì tuần tự.
-  3. **Eager Prefetch (`hooks/usePaymentLists.ts`):**
-     - Bổ sung cờ `isLoading` (`isListsLoading` || `isRecordsLoading`).
-     - Tự động nạp trước hồ sơ bệnh nhân của đợt thanh toán đang chọn trong nền ngay khi danh mục đợt thanh toán được tải về.
-  4. **Hiển thị Skeleton Loading Animation:**
-     - Khi dữ liệu đang truy vấn ban đầu (`isProcessing` hoặc `isLoading`), bảng hiển thị 5 hàng Skeleton pulse animation mô phỏng đúng cấu trúc các cột thay vì thông báo "Chưa có ca phù hợp".
-     - Bảng `PackagePaymentTable` hiển thị spinner và thông báo trạng thái xoay tròn khi đang đồng bộ.
+  1. **Chuẩn hóa danh sách vị trí & nhân sự (`types/schedule.ts`):**
+     - Bổ sung `gv: 'Giúp việc'` vào `STAFF_ROLE_LABELS`.
+     - Thêm hàm `getOrderedStaffEntries(staff)` trả về mảng `StaffDisplayItem[]` (`roleKey`, `roleLabel`, `name`) theo thứ tự chuẩn: `PT Chính` → `PT Phụ` → `BS Gây mê` → `KTV Gây mê` → `TDC` → `Giúp việc`.
+  2. **Nút Toggle `Kíp mổ` & Lưu trạng thái (`SchedulingTab.tsx`, `DayTimelineView.tsx`):**
+     - Thêm nút toggle `Kíp mổ` (icon `Users`) trên thanh công cụ Timeline và Header, lưu trạng thái vào `localStorage` (`surgical_timeline_show_staff`).
+     - Hỗ trợ đồng bộ trên cả 3 chế độ xem: **Timeline Ngang (`horizontal`)**, **Timeline Dọc (`vertical`)**, và **Danh sách (`MobileScheduleList.tsx`)**.
+  3. **Co giãn chiều cao dọc thông minh & Chống đè khối (`DayTimelineView.tsx`):**
+     - Hiển thị từng vị trí trên 1 dòng riêng (`Vị trí: Họ tên`) bên dưới tên kỹ thuật mổ, cho phép tự xuống dòng (`whitespace-normal break-words`) và tô nổi bật màu cảnh báo nếu nhân sự đó đang bị trùng lịch.
+     - Kết hợp hàm ước lượng `estimateHorizontalCardHeight(entry, cardWidth, showStaff, conflictBadgeCount)` và `ResizeObserver` (`measuredCardHeights`) đo chiều cao thực tế của DOM để tính toán `horizontalCardLayout`: các card ở `lane > 0` có giao thoa thời gian tự động dịch xuống dưới card đã giãn cao ở làn trên.
 
 ---
 
-### 1.2. Chức Năng Đổi Mật Khẩu Cá Nhân (User Change Password)
-- **Vị trí thao tác:**
-  - Nhấp vào **Avatar / Tên tài khoản** ở góc dưới cùng bên trái thanh Sidebar ➔ Chọn menu **"Đổi mật khẩu"** (biểu tượng chìa khóa 🔑).
-- **Cơ chế an toàn & xác thực:**
-  - Thành phần [ChangePasswordModal.tsx](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/components/auth/ChangePasswordModal.tsx) kết nối trực tiếp với [authService.ts](file:///Users/buiminhkhoi/Documents/Initial-SurgicalDataPro/services/authService.ts#changeUserPassword).
-  - Yêu cầu xác thực lại bằng Mật khẩu hiện tại qua `reauthenticateWithCredential` của Firebase Auth.
-  - Kiểm tra mật khẩu mới: độ dài tối thiểu 6 ký tự, đối chiếu khớp mật khẩu xác nhận.
-  - Nút bật/tắt con mắt 👁️ để ẩn/hiện mật khẩu.
-  - Tự động xóa cờ mật khẩu mặc định (`passwordResetDefault: false`) trong Firestore.
-  - Ghi nhận lịch sử thao tác vào hệ thống **Nhật ký (Audit Log)** với hành động `UPDATE_PASSWORD`.
+### 1.2. Kéo Thả (Drag-and-Drop) Ca Mổ Trên Timeline & Tự Động Tính Giờ Kết Thúc Theo Loại PTTT (19/10/2026)
+- **Kéo thả trực tiếp trên Timeline (`DayTimelineView.tsx`):**
+  - Hỗ trợ **Chuột (Desktop)**: Nhấn giữ chuột (`mousedown`) khoảng `150ms` hoặc di chuyển `> 5px` trên khối ca mổ và kéo dọc theo trục thời gian (cả chế độ **Ngang** và **Dọc**).
+  - Hỗ trợ **Cảm ứng (Mobile/Tablet)**: Chạm và giữ (`touchstart` long-press `250ms`) để kích hoạt chế độ kéo mà không xung đột với thao tác cuộn trang bình thường.
+  - **Tự động xếp làn thông minh (Real-time Lane Re-stacking)**: Trong lúc kéo, giờ bắt đầu và kết thúc dịch chuyển theo bước nhảy 1 phút (giữ nguyên thời lượng ca mổ), đồng thời thuật toán `assignLanes` tính toán lại tức thời — nếu kéo đến vùng trống khối tự nhảy lên sát trục timeline (`lane 0`), nếu kéo đến vùng đã có ca khác thì tự động xếp xuống làn dưới cùng.
+- **Tự động điền giờ kết thúc theo Loại PTTT (`ScheduleSurgeryModal.tsx`, `surgeryNamePriceService.ts`):**
+  - Định mức thời gian tối thiểu theo Loại PTTT (`LOAI_PTTT_MIN_DURATION_MINUTES`):
+    - **Loại Đặc biệt (`ĐB`):** `120 phút`
+    - **Loại 1 (`1`, `I`):** `60 phút`
+    - **Loại 2 (`2`, `II`):** `45 phút`
+    - **Loại 3 (`3`, `III`):** `30 phút`
+  - Khi người dùng chọn kỹ thuật mổ từ danh mục hoặc nhập giờ bắt đầu (`startTime`), hệ thống tự động tra cứu `loaiPTTT` và cộng số phút tối thiểu để điền `endTime` (kèm badge thông báo `Loại X · tối thiểu Y phút`). Người dùng vẫn có thể sửa tay giờ kết thúc bất kỳ lúc nào (`endTimeManuallyEdited`).
+- **Đồng bộ Danh mục Kỹ thuật (DMKT) kèm Loại PTTT lên Firestore:**
+  - Cập nhật giao diện import Excel trong `SurgeryNamePriceConfig.tsx`, hàm `importSurgeryNamePricesFromExcel` trong `surgeryNamePriceService.ts`, và bảng tra cứu mặc định `defaultSurgeryLoaiMap.ts` (373 kỹ thuật từ file DMKT chuẩn).
+  - Đã upload toàn bộ **373 kỹ thuật kèm Loại PTTT** lên Firestore production qua `scripts/uploadSurgeryNamePrices.ts`.
 
 ---
 
-### 1.3. Nâng Cao Độ Tương Phản Nút Bấm Cho Màn Hình Độ Phân Giải Thấp / Tấm Nền TN
-- **Vấn đề:** Các màn hình văn phòng/bệnh viện tấm nền TN hoặc độ tương phản thấp dễ làm lóa hoặc chìm các nút màu pastel nhạt (`bg-teal-50`, `border-teal-200`).
-- **Chuẩn hóa màu sắc độ tương phản cao:**
-  - **Nút "+ Gán gói DV":** Đổi sang nền xanh ngọc đậm đặc (`bg-emerald-700 hover:bg-emerald-800`), chữ trắng in đậm (`text-white font-bold`), viền đậm `border-emerald-800` với shadow rõ ràng.
-  - **Nút "Tạo đợt mới":** Đổi sang nền `bg-emerald-700 hover:bg-emerald-800 border-emerald-800 text-white font-bold`.
-  - **Nút "Gói DV ({count})" trên Toolbar DS Phẫu thuật:** Nền `bg-emerald-700 text-white font-bold`.
-  - **Nút "Chuyển ca / chuyển đợt" (`ArrowRightLeft`):** Đóng khung viền nổi bật (`border border-slate-300 bg-white hover:bg-primary-50 text-slate-700 hover:text-primary-700 shadow-2xs`).
-  - **Nút "Xác nhận chuyển" trong Modal chuyển đợt:** Đổi sang xanh dương đậm chuẩn như nút *Lấy dữ liệu* (`bg-primary-700 hover:bg-primary-800 border border-primary-800 text-white font-bold`).
-  - **Badge hiển thị gói DV đã gán:** Nâng độ tương phản viền và chữ (`bg-emerald-50 text-emerald-900 border border-emerald-300 font-bold`).
+### 1.3. Tối Ưu Tốc Độ Tải Dữ Liệu Đồng Thời (Tab Gói DVYC & Thanh Toán)
+- **Instant Fallback Rendering (`PackageListView.tsx`):** Hiển thị tức thời các ca từ `assignments` trong khi chờ `records` phẫu thuật tải xong.
+- **Parallel Pre-loading (`hooks/useStorageQuery.ts`, `hooks/usePaymentLists.ts`):** Chạy song song các tác vụ truy vấn báo cáo phẫu thuật, gói dịch vụ và đợt thanh toán; hiển thị Skeleton loading mượt mà.
 
 ---
 
-### 1.4. Quản Lý Đợt Thanh Toán Gói Dịch Vụ & Tra Cứu Chéo Kỳ
-- **Phân hệ Đợt thanh toán (`usePaymentLists.ts`, `PackageListView.tsx`):**
-  - Hỗ trợ tạo đợt mới, khóa đợt thanh toán (ngăn chỉnh sửa khi đã chốt), di chuyển ca giữa các đợt, xóa ca khỏi đợt (vẫn giữ gói yêu cầu).
-  - Tra cứu chéo kỳ: Cho phép ca phẫu thuật ở tháng trước được nạp vào đợt thanh toán của tháng sau mà không bị mất dữ liệu.
-  - 3 bộ lọc độc lập: Lọc theo Gói DVYC (Tất cả / Đã gán / Chưa gán), Lọc theo Đợt TT (Tất cả / Đã có đợt / Chưa có đợt), Lọc theo Ra viện (Tất cả / Đã RV / Chưa có thông tin).
-- **Xuất Excel Gói DVYC chuẩn (`servicePackageExportService.ts`):**
-  - Header tiêu đề bảng tự động cập nhật theo nguồn dữ liệu: "Lấy dữ liệu từ Tháng X - YYYY" hoặc "Lấy dữ liệu từ đợt thanh toán yêu cầu ở danh sách 'tên danh sách' - năm".
-  - Tiêu đề các cột nhân lực hiển thị tên viết tắt cấu hình theo vị trí trong gói.
-  - Tự động bật Wrap text trên tất cả các cột.
-  - Dòng tổng kết cuối bảng hiển thị tự nhiên, không gộp ô.
+### 1.4. Chức Năng Đổi Mật Khẩu Cá Nhân & Nâng Cao Độ Tương Phản UI
+- **Đổi mật khẩu (`ChangePasswordModal.tsx`, `authService.ts`):** Xác thực lại qua `reauthenticateWithCredential`, xóa cờ `passwordResetDefault`, ghi Audit Log `UPDATE_PASSWORD`.
+- **Độ tương phản cao cho màn hình tấm nền TN:** Chuẩn hóa màu nút bấm (`bg-emerald-700`, `bg-primary-700`, chữ trắng in đậm) trên các thanh công cụ và bảng Gói DVYC.
 
 ---
 
-### 1.5. Khắc Phục Lỗi Báo Cáo Tháng & Giới Hạn Năm 2026
-- **Xử lý dữ liệu năm & tháng (`hooks/useReportStateManager.ts`):**
-  - Tự động nạp danh mục năm/tháng có dữ liệu thực tế từ Firestore qua `reportService.getAvailableMonthlyYearsAndMonths()`.
-  - Giới hạn năm tối đa là 2026, loại bỏ hoàn toàn các lựa chọn năm tương lai (2027).
-  - Khi chuyển đổi giữa chế độ **"Tháng"** và chế độ **"Khoảng thời gian"**, tự động đồng bộ ngày bắt đầu/kết thúc tương ứng với tháng đang chọn.
+## 📐 2. Cấu Trúc Dữ Liệu & Hàm Xử Lý Trọng Điểm
 
----
-
-### 1.6. Phân Quyền & Cải Tiến Nhật Ký Hệ Thống (Audit Log)
-- **Phân quyền Trưởng khoa & Phó khoa:**
-  - Bổ sung phân quyền chuyên biệt cho Phó khoa, chỉ cấp quyền thao tác nội bộ khoa.
-  - Ở tab "Bảng phân quyền hệ thống toàn viện", Trưởng khoa chỉ có quyền xem (chỉ Quản trị viên tối cao / Admin mới được chỉnh sửa phân quyền).
-- **Bộ lọc & Định dạng Nhật ký (`AuditLogModal.tsx`):**
-  - Bổ sung bộ lọc theo Khoa phòng và bộ lọc theo Ngày.
-  - Hiển thị thời điểm thao tác chuẩn xác theo định dạng `dd/mm/yyyy hh:mm:ss`.
-
----
-
-## 📐 2. Cấu Trúc Dữ Liệu & Interfaces Trọng Điểm
-
-### 2.1. Service Package Assignment (`types/servicePackage.ts`)
+### 2.1. ScheduledSurgery & Kíp Mổ (`types/schedule.ts`)
 ```typescript
-export interface ServicePackageAssignment {
-  id?: string;
-  compositeKey: string; // patientId__YYYY-MM-DD__tenKT
-  patientId: string;
-  patientName: string;
-  ngayBD: string;
-  tenKT: string;
-  packageId: string;
-  packageName: string;
-  packageShortName?: string;
-  cost?: number;
-  staffAssignments: Array<{
-    positionKey: string;
-    positionLabel: string;
-    staffId?: string;
-    staffName: string;
-    amount?: number;
-  }>;
-  ptChinh?: string;
-  ptPhu?: string;
-  bsGM?: string;
-  ktvGM?: string;
-  tdc?: string;
-  gv?: string;
-  createdAt?: number;
-  updatedAt?: number;
-}
-```
-
-### 2.2. Payment List & Membership (`types/paymentList.ts`)
-```typescript
-export interface PaymentListItem {
-  patientId: string;
-  addedAt: number;
-  addedBy?: string;
-}
-
-export interface PaymentList {
-  id: string;
+export interface StaffDisplayItem {
+  roleKey: string;
+  roleLabel: string;
   name: string;
-  periodKey?: string;
-  department?: string;
-  status: 'draft' | 'locked';
-  items: PaymentListItem[];
-  createdAt: number;
-  updatedAt: number;
 }
+
+export const STAFF_ROLE_LABELS: Record<string, string> = {
+  ptChinh: 'PT Chính',
+  ptPhu: 'PT Phụ',
+  bsGM: 'BS Gây mê',
+  ktvGM: 'KTV Gây mê',
+  tdc: 'TDC',
+  gv: 'Giúp việc',
+};
+
+export function getOrderedStaffEntries(
+  staff?: ScheduledSurgery['staff'] | Record<string, string | undefined>
+): StaffDisplayItem[];
 ```
 
-### 2.3. PaymentListsContext (`hooks/usePaymentLists.ts`)
+### 2.2. SurgeryNamePrice & Thời Lượng Tối Thiểu Theo Loại PTTT (`types.ts`, `services/surgeryNamePriceService.ts`)
 ```typescript
-export interface PaymentListsContext {
-  lists: PaymentList[];
-  allAssignments: ServicePackageAssignment[];
-  membershipIndex: Map<string, MembershipEntry>;
-  discharge: DischargeMap;
-  records: LookupRecord[];
-  ensureRecordsLoaded: () => Promise<void>;
-  loadRecordsForPatients: (patientIds: string[]) => Promise<LookupRecord[]>;
-  canManage: boolean;
-  userName: string;
-  periodKey: string;
-  dateFrom?: string;
-  dateTo?: string;
-  isLoading?: boolean;
+export interface SurgeryNamePrice {
+  id: string;
+  tenKT: string;
+  giaDVYC: number;
+  loaiPTTT?: string; // 'ĐB' | '1' | '2' | '3'
+  createdAt: string;
+  updatedAt: string;
 }
+
+export const LOAI_PTTT_MIN_DURATION_MINUTES: Record<string, number> = {
+  'ĐB': 120,
+  '1': 60,
+  '2': 45,
+  '3': 30,
+};
+
+export function getMinDurationMinutesByLoai(loaiPTTT?: string | null): number | null;
+export function calculateEndTimeFromStartAndDuration(startTime: string, durationMinutes: number): string | null;
+```
+
+### 2.3. Kéo Thả & Co Giãn Chiều Cao Card Timeline (`components/scheduling/DayTimelineView.tsx`)
+```typescript
+export function estimateHorizontalCardHeight(
+  entry: Pick<ScheduledSurgery, 'staff' | 'patientName' | 'tenKT'>,
+  cardWidth: number,
+  showStaff: boolean,
+  conflictBadgeCount?: number
+): number;
+
+export function computeDraggedTimes(
+  entry: Pick<ScheduledSurgery, 'startTime' | 'endTime'>,
+  deltaPx: number,
+  pxPerHour: number,
+  shiftStartHour: number
+): { startTime: string; endTime: string } | null;
 ```
 
 ---
 
 ## 📂 3. Danh Sách Tệp Mã Nguồn Đã Thay Đổi Gần Nhất
-1. `services/authService.ts`: Bổ sung hàm `changeUserPassword(oldPassword, newPassword)`.
-2. `components/auth/ChangePasswordModal.tsx`: Component popup đổi mật khẩu hoàn chỉnh.
-3. `components/auth/UserMenuButton.tsx`: Menu item "Đổi mật khẩu" tại avatar sidebar góc trái dưới.
-4. `components/surgery/PackageListView.tsx`: Instant fallback rendering, Skeleton loading, nâng tương phản nút thao tác.
-5. `components/surgery/PackagePaymentTable.tsx`: Hỗ trợ `isProcessing` hiển thị spinner loading khi tải.
-6. `components/surgery/SurgeryTableViewRouter.tsx`: Truyền `isProcessing` an toàn xuống các tab.
-7. `hooks/usePaymentLists.ts`: Thêm `isLoading`, tự động eager prefetch hồ sơ đợt thanh toán.
-8. `hooks/useStorageQuery.ts`: Bật `isProcessing: true` và cập nhật ngày ngay lúc bấm "Lấy dữ liệu" để chạy tải song song.
+1. `types/schedule.ts`: Bổ sung `gv: 'Giúp việc'` và hàm `getOrderedStaffEntries`.
+2. `components/scheduling/DayTimelineView.tsx`: Kéo thả khối ca mổ (chuột & cảm ứng), nút toggle `Kíp mổ`, hiển thị `Vị trí: Họ tên` từng dòng, tự động co giãn chiều cao dọc (`estimateHorizontalCardHeight` + `ResizeObserver`) và xếp chồng làn chống đè khối (`horizontalCardLayout`).
+3. `components/scheduling/MobileScheduleList.tsx`: Hỗ trợ hiển thị danh sách `Vị trí: Họ tên` khi bật toggle `Kíp mổ`.
+4. `components/scheduling/SchedulingTab.tsx`: Đồng bộ state `showStaff`, xử lý callback kéo thả `handleEntryTimeChange`, truyền danh mục giá & loại PTTT xuống modal.
+5. `components/scheduling/ScheduleSurgeryModal.tsx`: Tự động tính giờ kết thúc theo `loaiPTTT` khi chọn kỹ thuật hoặc nhập giờ bắt đầu.
+6. `services/surgeryNamePriceService.ts` & `services/defaultSurgeryLoaiMap.ts`: Chuẩn hóa `loaiPTTT`, tính thời gian tối thiểu theo loại PTTT, hỗ trợ import/export Excel có cột Loại PTTT.
+7. `__tests__/scheduleDragAndLoaiDuration.test.ts`: Bộ 10 unit tests kiểm thử toàn diện logic thời lượng PTTT, kéo thả timeline, thứ tự kíp mổ và tính chiều cao card co giãn.
 
 ---
 
 ## 🚀 4. Trạng Thái Triển Khai & Kiểm Thử
-- **Git Branch:** `temp-07-10-2026-18h04` (Clean working tree, đã merge vào `main` và push lên GitHub).
-- **Vercel Production:** Đã deploy thành công lên `https://initial-surgical-data-pro.vercel.app`.
-- **Test Suite:** 418/418 tests pass trong 33 file test (`npm test`).
+- **Git Branch:** `temp-19-10-2026-14h20` (đã merge vào `main` và push lên `origin/main`).
+- **Vercel Production:** Đã deploy lên `https://initial-surgical-data-pro.vercel.app`.
+- **Test Suite:** `428 / 428 tests PASS` trong 34 file test (`npm test`).
