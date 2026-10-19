@@ -6,6 +6,7 @@ import {
   assignLanes,
   computeVerticalLayout,
   estimateHorizontalCardHeight,
+  estimateHorizontalCardWidth,
 } from '../components/scheduling/DayTimelineView';
 import {
   getOrderedStaffEntries,
@@ -238,6 +239,26 @@ describe('getOrderedStaffEntries, abbreviateStaffName & estimateHorizontalCardHe
     const narrowShortH = estimateHorizontalCardHeight(entry, 100, true, 0, true);
     expect(narrowShortH).toBeLessThan(narrowFullH);
   });
+
+  it('auto-adjusts card horizontal width to respect duration while guaranteeing readable width for staff names', () => {
+    const entry = {
+      ...makeEntry('S2', '10:00', '10:30', 'QUÀNG VĂN QUÊ'),
+      staff: {
+        ptChinh: 'Nguyễn Thị Thu Hương',
+        bsGM: 'Đào Văn Điệp',
+      },
+    };
+
+    // Short 30-min surgery at 80px/h -> durationWidth = 40px, widens to readable width
+    const wShortStaff = estimateHorizontalCardWidth(entry, 40, 80, true, true);
+    const wFullStaff = estimateHorizontalCardWidth(entry, 40, 80, true, false);
+    expect(wShortStaff).toBeGreaterThanOrEqual(96);
+    expect(wFullStaff).toBeGreaterThan(wShortStaff);
+
+    // Long 2-hour surgery at 120px/h -> durationWidth = 240px is preserved
+    expect(estimateHorizontalCardWidth(entry, 240, 120, true, true)).toBe(240);
+  });
 });
+
 
 

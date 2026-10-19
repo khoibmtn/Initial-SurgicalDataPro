@@ -460,7 +460,7 @@ export const SchedulingTab: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col gap-2 sm:gap-3 p-3 sm:p-4 animate-fade-in max-w-[1800px] mx-auto w-full">
+    <div className="flex flex-col gap-2 sm:gap-3 p-2.5 sm:p-4 pb-20 sm:pb-4 animate-fade-in max-w-[1800px] mx-auto w-full">
       {/* ── Header ── */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1">
@@ -792,8 +792,8 @@ export const SchedulingTab: React.FC = () => {
 
       {/* ── Main Content ── */}
       <div
-        onTouchStart={isMobile && (viewMode === 'list' || timelineOrientation === 'vertical') ? handleTouchStart : undefined}
-        onTouchEnd={isMobile && (viewMode === 'list' || timelineOrientation === 'vertical') ? handleTouchEnd : undefined}
+        onTouchStart={isMobile && viewMode === 'list' ? handleTouchStart : undefined}
+        onTouchEnd={isMobile && viewMode === 'list' ? handleTouchEnd : undefined}
       >
         {viewMode === 'list' ? (
           <MobileScheduleList

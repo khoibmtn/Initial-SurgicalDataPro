@@ -51,7 +51,47 @@ const H_HEADER_HEIGHT = 34;
 const H_LEFT_GUTTER = 56;
 
 /**
- * Tính toán chiều cao card tự động co giãn theo số dòng vị trí kíp mổ và độ dài chuỗi ký tự
+ * Tính toán chiều rộng hợp lý cho từng card trên Timeline Ngang:
+ * - Bám theo thời lượng ca mổ (durationWidth = (endH - startH) * hourWidth)
+ * - Tự động nới rộng tối thiểu theo độ dài dòng tên/kíp mổ để không bị quá hẹp gây xuống dòng tràn đáy
+ */
+export function estimateHorizontalCardWidth(
+  entry: Pick<ScheduledSurgery, 'staff' | 'patientName' | 'tenKT'>,
+  durationWidth: number,
+  hourWidth: number,
+  showStaff: boolean,
+  shortStaffName: boolean = false
+): number {
+  const baseMinW = hourWidth <= 40 ? 52 : hourWidth <= 60 ? 64 : 76;
+  if (!showStaff) {
+    return Math.max(Math.round(durationWidth), baseMinW);
+  }
+
+  const staffItems = getOrderedStaffEntries(entry.staff);
+  const nameLen = (entry.patientName || '').trim().length;
+  let maxLineChars = Math.min(nameLen + 2, 22);
+
+  for (const item of staffItems) {
+    const label = shortStaffName ? item.roleShortLabel : item.roleLabel;
+    const name = shortStaffName ? item.shortName : item.name;
+    const lineLen = `${label}: ${name}`.length;
+    if (lineLen > maxLineChars) {
+      maxLineChars = lineLen;
+    }
+  }
+
+  const charPx = shortStaffName ? 5.4 : 5.2;
+  const contentFitW = Math.ceil(maxLineChars * charPx + 20);
+
+  const minReadableW = shortStaffName
+    ? Math.min(Math.max(contentFitW, 96), hourWidth <= 60 ? 112 : 132)
+    : Math.min(Math.max(contentFitW, 112), hourWidth <= 60 ? 136 : 168);
+
+  return Math.max(Math.round(durationWidth), minReadableW);
+}
+
+/**
+ * Tính toán chiều cao card tự động co giãn sát khít theo số dòng vị trí kíp mổ và độ dài chuỗi ký tự
  * ứng với chiều ngang hiện tại của card trên timeline.
  */
 export function estimateHorizontalCardHeight(
@@ -65,11 +105,11 @@ export function estimateHorizontalCardHeight(
   const staffItems = getOrderedStaffEntries(entry.staff);
   if (staffItems.length === 0) return H_BAR_HEIGHT;
 
-  const innerWidth = Math.max(cardWidth - 20, 28);
-  const charsPerLine = Math.max(5, Math.floor((innerWidth * 0.86) / 5.4));
+  const innerWidth = Math.max(cardWidth - 18, 28);
+  const charsPerLine = Math.max(6, Math.floor(innerWidth / 5.0));
 
   // Chiều cao phần đầu card (Họ tên BN + Giờ mổ + Tên kỹ thuật / Badge xung đột)
-  const baseHeight = 56 + (conflictBadgeCount > 1 ? (conflictBadgeCount - 1) * 16 : 0);
+  const baseHeight = 48 + (conflictBadgeCount > 1 ? (conflictBadgeCount - 1) * 14 : 0);
 
   let staffLinesHeight = 0;
   for (const item of staffItems) {
@@ -77,11 +117,11 @@ export function estimateHorizontalCardHeight(
     const name = shortStaffName ? item.shortName : item.name;
     const fullText = `${label}: ${name}`;
     const wrappedLines = Math.max(1, Math.ceil(fullText.length / charsPerLine));
-    staffLinesHeight += wrappedLines * 14 + 2;
+    staffLinesHeight += wrappedLines * 13 + 2;
   }
 
-  // +10px cho đường kẻ phân cách (border-t + padding)
-  return Math.max(H_BAR_HEIGHT, Math.ceil(baseHeight + 10 + staffLinesHeight));
+  // +8px cho đường kẻ phân cách (mt-1 pt-1 border-t)
+  return Math.max(H_BAR_HEIGHT, Math.ceil(baseHeight + 8 + staffLinesHeight));
 }
 
 // Vertical zoom levels
@@ -942,7 +982,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
           startTime: entry.startTime,
           endTime: entry.endTime,
         });
-      }, 220);
+      }, 380);
 
       const cleanup = () => {
         window.clearTimeout(longPressTimer);
@@ -955,7 +995,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
         if (ev.touches.length !== 1) return;
         const t = ev.touches[0];
         if (!isDragging) {
-          if (Math.hypot(t.clientX - startX, t.clientY - startY) > 10) {
+          // Nếu người dùng vuốt nhẹ (> 6px) trước 380ms thì ưu tiên cuộn khung mượt mà trên điện thoại
+          if (Math.hypot(t.clientX - startX, t.clientY - startY) > 6) {
             cleanup();
           }
           return;
@@ -997,14 +1038,10 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
   const totalWidth = totalTimelineHours * hourWidth;
 
-  // Reset chiều cao đo được khi đổi chế độ hiển thị kíp mổ hoặc tên tắt để card co lại ngay lập tức
-  useEffect(() => {
-    setMeasuredCardHeights((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-  }, [effectiveShowStaff, effectiveShortStaff]);
-
-  // Đo chiều cao DOM thực tế của các card khi bật hiển thị kíp mổ để tránh đè khối
+  // Đo chiều cao DOM thực tế của các card để tự co/giãn sát khít nội dung khi zoom, thêm ca mổ hoặc đổi chế độ hiển thị
   useEffect(() => {
     if (!effectiveShowStaff) {
+      setMeasuredCardHeights((prev) => (Object.keys(prev).length === 0 ? prev : {}));
       return;
     }
     const gridEl = innerGridRef.current;
@@ -1015,28 +1052,48 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       if (nodes.length === 0) return;
       setMeasuredCardHeights((prev) => {
         let changed = false;
-        const next = { ...prev };
+        const next: Record<string, number> = {};
         nodes.forEach((node) => {
           const id = node.getAttribute('data-card-entry-id');
           if (!id) return;
           const h = Math.ceil(node.offsetHeight || node.scrollHeight || 0);
-          if (h > 0 && Math.abs((prev[id] || 0) - h) > 1) {
+          if (h > 0) {
             next[id] = h;
-            changed = true;
+            if (Math.abs((prev[id] || 0) - h) > 1) {
+              changed = true;
+            }
           }
         });
+        if (Object.keys(prev).length !== Object.keys(next).length) {
+          changed = true;
+        }
         return changed ? next : prev;
       });
     };
 
     measureAll();
+    const rafId = typeof window !== 'undefined' ? window.requestAnimationFrame(measureAll) : null;
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => measureAll());
       const nodes = gridEl.querySelectorAll<HTMLElement>('[data-card-entry-id]');
       nodes.forEach((node) => ro.observe(node));
-      return () => ro.disconnect();
+      return () => {
+        if (rafId !== null && typeof window !== 'undefined') window.cancelAnimationFrame(rafId);
+        ro.disconnect();
+      };
     }
-  }, [effectiveShowStaff, effectiveShortStaff, displayEntries, hourWidth, verticalHourHeight, orientation]);
+    return () => {
+      if (rafId !== null && typeof window !== 'undefined') window.cancelAnimationFrame(rafId);
+    };
+  }, [
+    effectiveShowStaff,
+    effectiveShortStaff,
+    displayEntries,
+    hourWidth,
+    verticalHourHeight,
+    orientation,
+    containerWidth,
+  ]);
 
   // Tính toán vị trí (left, top, width, height) động cho từng card ở chế độ Ngang
   const { horizontalCardLayout, totalHeight } = useMemo(() => {
@@ -1055,7 +1112,14 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
         if (endH <= startH) endH += 24;
 
         const left = H_LEFT_GUTTER + (startH - timelineStart) * hourWidth;
-        const width = Math.max((endH - startH) * hourWidth, 36);
+        const durationWidth = (endH - startH) * hourWidth;
+        const width = estimateHorizontalCardWidth(
+          entry,
+          durationWidth,
+          hourWidth,
+          effectiveShowStaff,
+          effectiveShortStaff
+        );
         const confInfo = entryConflictMap.get(entry.id);
         const conflictBadgeCount =
           (confInfo?.machineConflicts.length || 0) + (confInfo?.staffConflicts.length || 0);
@@ -1067,7 +1131,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
           effectiveShortStaff
         );
         const height = effectiveShowStaff
-          ? Math.max(estimatedH, measuredCardHeights[entry.id] || 0)
+          ? measuredCardHeights[entry.id] || estimatedH
           : H_BAR_HEIGHT;
 
         return { entry, lane, left, right: left + width, width, height };
@@ -1085,19 +1149,16 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     let maxBottom = 0;
 
     for (const item of prepared) {
-      let top: number;
-      if (!effectiveShowStaff) {
-        top = H_HEADER_HEIGHT + item.lane * (H_BAR_HEIGHT + H_BAR_GAP) + 6;
-      } else if (item.lane === 0) {
-        top = H_HEADER_HEIGHT + 6;
-      } else {
-        const overlappingAbove = placed.filter(
-          (p) => p.lane < item.lane && item.left < p.right && p.left < item.right
-        );
-        top =
-          overlappingAbove.length > 0
-            ? Math.max(...overlappingAbove.map((p) => p.bottom)) + H_BAR_GAP
-            : H_HEADER_HEIGHT + item.lane * (H_BAR_HEIGHT + H_BAR_GAP) + 6;
+      const horizOverlapping = placed
+        .filter((p) => item.left + 2 < p.right && p.left + 2 < item.right)
+        .sort((a, b) => a.top - b.top);
+
+      let top = H_HEADER_HEIGHT + 6;
+      for (const occ of horizOverlapping) {
+        if (top + item.height + H_BAR_GAP <= occ.top) {
+          break;
+        }
+        top = Math.max(top, occ.bottom + H_BAR_GAP);
       }
 
       const bottom = top + item.height;
@@ -1122,7 +1183,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
 
     return {
       horizontalCardLayout: layoutMap,
-      totalHeight: Math.max(baseTotalHeight, maxBottom + 20),
+      totalHeight: Math.max(baseTotalHeight, maxBottom + 24),
     };
   }, [
     displayEntries,
@@ -1414,10 +1475,14 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
   const effectiveGutter = isMobile ? 40 : zoomConfig.gutterWidth;
   const availableGridWidth = Math.max(containerWidth - effectiveGutter - (isMobile ? 6 : 18), 180);
   const totalColsNeeded = Math.max(maxConcurrentCols, 1);
-  const laneGap = isMobile ? 2.5 : zoomConfig.laneGap;
+  const laneGap = isMobile ? 3 : zoomConfig.laneGap;
 
+  const minMobileColWidth = effectiveShowStaff ? (effectiveShortStaff ? 112 : 136) : 92;
   const calculatedColWidth = isMobile
-    ? Math.floor((availableGridWidth - (totalColsNeeded - 1) * laneGap) / totalColsNeeded)
+    ? Math.max(
+        Math.floor((availableGridWidth - (totalColsNeeded - 1) * laneGap) / totalColsNeeded),
+        minMobileColWidth
+      )
     : Math.min(
         Math.max(
           Math.floor((availableGridWidth - (totalColsNeeded - 1) * laneGap) / totalColsNeeded),
@@ -1426,9 +1491,46 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
         zoomConfig.baseCardWidth
       );
 
-  const totalGridWidth = isMobile
-    ? '100%'
-    : Math.max(effectiveGutter + totalColsNeeded * (calculatedColWidth + laneGap) + 24, containerWidth);
+  const totalGridWidth = Math.max(
+    effectiveGutter + totalColsNeeded * (calculatedColWidth + laneGap) + (isMobile ? 12 : 24),
+    containerWidth
+  );
+
+  const verticalGridHeight = useMemo(() => {
+    const baseH = totalTimelineHours * verticalHourHeight + 40;
+    if (!effectiveShowStaff || verticalItems.length === 0) return baseH;
+    let maxBottom = baseH;
+    for (const { entry, startHours, endHours } of verticalItems) {
+      const top = (startHours - timelineStart) * verticalHourHeight;
+      const durationHours = endHours - startHours;
+      const timeH = Math.max(durationHours * verticalHourHeight - 2, 24);
+      const confInfo = entryConflictMap.get(entry.id);
+      const conflictBadgeCount =
+        (confInfo?.machineConflicts.length || 0) + (confInfo?.staffConflicts.length || 0);
+      const estH = estimateHorizontalCardHeight(
+        entry,
+        calculatedColWidth,
+        true,
+        conflictBadgeCount,
+        effectiveShortStaff
+      );
+      const cardH = Math.max(timeH, measuredCardHeights[entry.id] || estH);
+      if (top + cardH + 28 > maxBottom) {
+        maxBottom = top + cardH + 28;
+      }
+    }
+    return maxBottom;
+  }, [
+    totalTimelineHours,
+    verticalHourHeight,
+    effectiveShowStaff,
+    effectiveShortStaff,
+    verticalItems,
+    timelineStart,
+    entryConflictMap,
+    calculatedColWidth,
+    measuredCardHeights,
+  ]);
 
   return (
     <div className="relative border border-gray-200 rounded-2xl bg-white overflow-hidden shadow-2xs">
@@ -1594,24 +1696,21 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
         <div
           ref={containerRef}
           onScroll={handleVerticalScroll}
-          className={`relative touch-pan-y ${
-            isMobile
-              ? 'overflow-x-hidden w-full'
-              : 'overflow-y-auto overflow-x-auto max-h-[76vh] min-h-[440px]'
-          }`}
+          className="relative overflow-y-auto overflow-x-auto max-h-[70vh] sm:max-h-[76vh] min-h-[420px] touch-auto overscroll-contain pb-6"
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
           <div
             ref={innerGridRef}
             className="relative w-full"
             style={{
-              height: totalTimelineHours * verticalHourHeight + 36,
+              height: verticalGridHeight,
               minWidth: totalGridWidth,
             }}
           >
             {/* Left Time Axis Gutter */}
             <div
-              className="absolute left-0 top-0 bottom-0 z-20 bg-white/95 border-r border-gray-200 select-none"
-              style={{ width: effectiveGutter }}
+              className="sticky left-0 top-0 bottom-0 z-20 bg-white/95 border-r border-gray-200 select-none pointer-events-none"
+              style={{ width: effectiveGutter, height: verticalGridHeight }}
             >
               {visibleTicksV.map((tick) => (
                 <div
@@ -1704,12 +1803,10 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               const staffEstimatedH = hasVisibleStaff
                 ? estimateHorizontalCardHeight(entry, cardWidth, true, conflictBadgeCount, effectiveShortStaff)
                 : 0;
-              const height = Math.max(
-                durationHours * verticalHourHeight - 2,
-                minCardH,
-                staffEstimatedH,
-                hasVisibleStaff ? measuredCardHeights[entry.id] || 0 : 0
-              );
+              const timeBoxHeight = Math.max(durationHours * verticalHourHeight - 2, minCardH);
+              const height = hasVisibleStaff
+                ? Math.max(timeBoxHeight, measuredCardHeights[entry.id] || staffEstimatedH)
+                : timeBoxHeight;
 
               const isNarrow = isMobile || cardWidth < 125;
               const isSuperCompact = !hasVisibleStaff && (verticalHourHeight <= 28 || height < 28);
@@ -1743,8 +1840,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                     `}
                     style={{
                       top,
-                      minHeight: height,
-                      height: hasVisibleStaff ? 'auto' : height,
+                      minHeight: timeBoxHeight,
+                      height: hasVisibleStaff ? 'auto' : timeBoxHeight,
                       left: cardLeft,
                       width: cardWidth,
                     }}
@@ -1978,10 +2075,19 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
       {/* ── MODE 2: HORIZONTAL TIMELINE (NGANG ↔) ── */}
       {/* ═════════════════════════════════════════════════════════════════════ */}
       {orientation === 'horizontal' && (
-        <div ref={containerRef} onScroll={handleHorizontalScroll} className="overflow-x-auto overflow-y-hidden touch-pan-x overscroll-x-contain">
-          <div ref={innerGridRef} style={{ width: totalWidth + H_LEFT_GUTTER + 24, minHeight: Math.max(totalHeight, 220) }} className="relative">
+        <div
+          ref={containerRef}
+          onScroll={handleHorizontalScroll}
+          className="overflow-x-auto overflow-y-auto max-h-[70vh] sm:max-h-[76vh] touch-auto overscroll-contain pb-6"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          <div
+            ref={innerGridRef}
+            style={{ width: totalWidth + H_LEFT_GUTTER + 32, minHeight: Math.max(totalHeight, 220) }}
+            className="relative"
+          >
             {/* Time axis header */}
-            <div className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200" style={{ height: H_HEADER_HEIGHT }}>
+            <div className="sticky top-0 z-20 bg-gray-50/95 backdrop-blur-xs border-b border-gray-200" style={{ height: H_HEADER_HEIGHT }}>
               {visibleTicksH.map((tick) => (
                 <div
                   key={`ht-${tick.shiftHour}`}
@@ -2056,7 +2162,6 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               const left = layout?.left ?? H_LEFT_GUTTER + (startH - timelineStart) * hourWidth;
               const width = layout?.width ?? Math.max((endH - startH) * hourWidth, 36);
               const top = layout?.top ?? H_HEADER_HEIGHT + lane * (H_BAR_HEIGHT + H_BAR_GAP) + 6;
-              const cardHeight = layout?.height ?? H_BAR_HEIGHT;
 
               const { color, isConflicted, confInfo, hasMachine, hasStaff } = getCardTheme(entry, idx);
               const hasOverlap = confInfo?.hasOverlap;
@@ -2086,8 +2191,8 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
                       left,
                       top,
                       width,
-                      minHeight: cardHeight,
-                      height: hasVisibleStaff ? 'auto' : cardHeight,
+                      minHeight: H_BAR_HEIGHT,
+                      height: hasVisibleStaff ? 'auto' : H_BAR_HEIGHT,
                     }}
                     onMouseDown={(e) => handleCardMouseDown(e, entry)}
                     onTouchStart={(e) => handleCardTouchStart(e, entry)}
