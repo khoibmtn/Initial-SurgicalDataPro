@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, RefreshCw, ClipboardList, Database, Users, Shield, Building2, BookOpen, DollarSign, Cpu, Activity, Layers, Receipt, Package } from 'lucide-react';
+import { Save, RefreshCw, ClipboardList, Database, Users, Shield, Building2, BookOpen, DollarSign, Cpu, Activity, Layers, Receipt, Package, Bot } from 'lucide-react';
 import { useConfig } from '../contexts/ConfigContext';
 import { LaborConfigVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile, SurgeryCostItem } from '../types';
 import { LaborConfigManager } from './config/LaborConfigManager';
@@ -24,11 +24,12 @@ import { AuthGuardView } from './auth/AuthGuardView';
 import { PositionCatalogConfig } from './config/PositionCatalogConfig';
 import { ServicePackageConfig } from './config/ServicePackageConfig';
 import { ServicePackageSettingsConfig } from './config/ServicePackageSettingsConfig';
+import { AIConfigPanel } from './config/AIConfigPanel';
 import type { AppUser } from '../types/auth';
 
 interface ConfigurationTabProps {
     onConfigUpdate?: () => void;
-    initialSubTab?: 'norms' | 'dmkt' | 'staff' | 'users' | 'packages';
+    initialSubTab?: 'norms' | 'dmkt' | 'staff' | 'users' | 'packages' | 'ai';
     onOpenAuditLogWithUser?: (user: AppUser) => void;
 }
 
@@ -39,7 +40,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
 }) => {
     const { config, updateConfig, resetConfig, isLoaded } = useConfig();
     const { isAdmin, isHead, isDeputyHead, pendingApprovalCount, can, isAuthenticated } = useAuth();
-    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages'>(
+    const [activeSubTab, setActiveSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages' | 'ai'>(
         initialSubTab || ((isHead || isDeputyHead) && !isAdmin ? 'users' : 'norms')
     );
 
@@ -137,6 +138,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                   ...(canConfigServicePackage
                     ? [{ value: 'packages', label: 'Gói dịch vụ', icon: Package }]
                     : []),
+                  { value: 'ai', label: 'Cấu hình AI', icon: Bot },
                 ]}
               />
             </ContextToolbar>
@@ -275,6 +277,12 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                         {pkgSubTab === 'positions' && <PositionCatalogConfig />}
                         {pkgSubTab === 'packages' && <ServicePackageConfig />}
                         {pkgSubTab === 'settings' && <ServicePackageSettingsConfig />}
+                    </div>
+                )}
+
+                {activeSubTab === 'ai' && (
+                    <div className="animate-fade-in">
+                        <AIConfigPanel />
                     </div>
                 )}
 

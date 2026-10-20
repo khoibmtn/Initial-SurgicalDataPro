@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Zap } from 'lucide-react';
+import { Download, Zap, Bot } from 'lucide-react';
 
 export interface StorageQueryBarProps {
   currentType: 'daily' | 'monthly';
@@ -22,6 +22,7 @@ export interface StorageQueryBarProps {
   onGetReport: () => void;
   onAutoFill24hShift: () => void;
   handleTimeChange: (val: string, setter: (v: string) => void) => void;
+  onOpenAIAssistant?: () => void;
 }
 
 export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
@@ -45,6 +46,7 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
   onGetReport,
   onAutoFill24hShift,
   handleTimeChange,
+  onOpenAIAssistant,
 }) => {
   return (
     <div className="px-4 pt-2 pb-1">
@@ -102,6 +104,17 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
                 <Download className="h-3.5 w-3.5" />
                 Lấy dữ liệu
               </button>
+              {onOpenAIAssistant && (
+                <button
+                  type="button"
+                  onClick={onOpenAIAssistant}
+                  className="px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-colors shadow-sm cursor-pointer"
+                  title="Mở Trợ lý AI tra cứu & phân tích số liệu BC Tháng (Lưu trữ)"
+                >
+                  <Bot className="h-4 w-4 text-sky-400" />
+                  <span>Trợ lý AI</span>
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -154,6 +167,17 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
                 <Zap className="h-3.5 w-3.5" />
                 Dữ liệu trực
               </button>
+              {onOpenAIAssistant && (
+                <button
+                  type="button"
+                  onClick={onOpenAIAssistant}
+                  className="px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-colors shadow-sm cursor-pointer"
+                  title="Mở Trợ lý AI tra cứu & phân tích số liệu BC Tháng (Lưu trữ)"
+                >
+                  <Bot className="h-4 w-4 text-sky-400" />
+                  <span>Trợ lý AI</span>
+                </button>
+              )}
             </>
           )}
         </div>
@@ -208,6 +232,17 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
             <Zap className="h-3.5 w-3.5" />
             Dữ liệu trực
           </button>
+          {onOpenAIAssistant && (
+            <button
+              type="button"
+              onClick={onOpenAIAssistant}
+              className="px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-colors shadow-sm cursor-pointer"
+              title="Mở Trợ lý AI tra cứu & phân tích số liệu BC Hàng ngày (Lưu trữ)"
+            >
+              <Bot className="h-4 w-4 text-sky-400" />
+              <span>Trợ lý AI</span>
+            </button>
+          )}
         </div>
       )}
     </div>

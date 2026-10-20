@@ -3,7 +3,7 @@
  * Manages sub-tabs (Thống kê / Cấu hình), data loading, year selection
  */
 import React, { useState, useEffect, useMemo, useCallback, useRef, useTransition, useDeferredValue } from 'react';
-import { Settings2, Table2, Loader2, AlertTriangle, Info, BarChart3, Download, RefreshCw, Gauge } from 'lucide-react';
+import { Settings2, Table2, Loader2, AlertTriangle, Info, BarChart3, Download, RefreshCw, Gauge, Bot } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useConfig } from '../../contexts/ConfigContext';
 import { fetchAndAggregateYearly, computeDailyForMonth, clearRawYearCache, type YearlyCacheData } from '../../services/statisticsService';
@@ -12,18 +12,25 @@ import { subscribeToSurgeryNamePrices } from '../../services/surgeryNamePriceSer
 import { subscribeToChapterCatalog } from '../../services/chapterCatalogService';
 import { subscribeToProfiles } from '../../services/profileService';
 import { subscribeToCostItems } from '../../services/surgeryCostService';
+import { subscribeToAssignments, subscribeToServicePackages } from '../../services/servicePackageService';
 import { StatisticsData, SurgeryPriceVersion, SurgeryNamePrice, ChapterCatalog, SurgeryProfile, PersistedSurgeryRecord, SurgeryCostItem } from '../../types';
+import { ServicePackageAssignment, ServicePackageDefinition } from '../../types/servicePackage';
 import { StatsSummary } from './StatsSummary';
 import { StatsConfig } from './StatsConfig';
 import { SpecialtyComparisonTab } from './SpecialtyComparisonTab';
 import { ORAnalyticsDashboard } from './ORAnalyticsDashboard';
+import { AIChatWorkspace } from '../ai/AIChatWorkspace';
 import { ContextToolbar, TabLine } from '../ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { AuthGuardView } from '../auth/AuthGuardView';
 
-type SubTab = 'summary' | 'comparison' | 'kpi' | 'config';
+type SubTab = 'summary' | 'comparison' | 'kpi' | 'ai_studio' | 'config';
 
-export const StatisticsTab: React.FC = () => {
+interface StatisticsTabProps {
+  onNavigateToAIConfig?: () => void;
+}
+
+export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConfig }) => {
   const { config } = useConfig();
   const { isAuthenticated } = useAuth();
   const now = new Date();
@@ -116,6 +123,35 @@ export const StatisticsTab: React.FC = () => {
     });
     return unsub;
   }, [isAuthenticated]);
+
+  // Subscribe to service packages & assignments for AI Studio relational analysis
+  const [packageDefinitions, setPackageDefinitions] = useState<ServicePackageDefinition[]>([]);
+  const [packageAssignments, setPackageAssignments] = useState<ServicePackageAssignment[]>([]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const unsub = subscribeToServicePackages(setPackageDefinitions);
+    return () => unsub();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const minYear = Math.min(primaryYear, compareYear);
+    const maxYear = Math.max(primaryYear, compareYear);
+    const unsub = subscribeToAssignments(`${minYear}-01-01`, `${maxYear}-12-31`, setPackageAssignments);
+    return () => unsub();
+  }, [isAuthenticated, primaryYear, compareYear]);
+
+  const aiStudioRecords = useMemo(() => {
+    const cache = yearlyCacheData || yearCacheRef.current?.data;
+    if (!cache) return [];
+    const combined: PersistedSurgeryRecord[] = [];
+    cache.primaryIndexed?.byMonth.forEach((m) => combined.push(...m.records));
+    if (cache.compareYear !== cache.primaryYear) {
+      cache.compareIndexed?.byMonth.forEach((m) => combined.push(...m.records));
+    }
+    return combined;
+  }, [yearlyCacheData]);
 
   // --- Full yearly fetch (Firestore queries + 24× aggregation) ---
   const loadYearlyData = useCallback(async (
@@ -465,6 +501,7 @@ export const StatisticsTab: React.FC = () => {
     { value: 'summary' as const, label: 'Thống kê', icon: Table2 },
     { value: 'comparison' as const, label: 'Phân tích so sánh', icon: BarChart3 },
     { value: 'kpi' as const, label: 'Quản trị phòng mổ', icon: Gauge },
+    { value: 'ai_studio' as const, label: 'AI Phân tích & Hỏi đáp', icon: Bot },
     { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
 
@@ -531,6 +568,15 @@ export const StatisticsTab: React.FC = () => {
               ) : (
                 <><Download className="h-3.5 w-3.5" /> Tải dữ liệu</>
               )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubTab('ai_studio')}
+              className="px-3 py-1.5 bg-gradient-to-r from-sky-600 to-teal-600 text-white rounded-lg text-xs font-bold hover:from-sky-700 hover:to-teal-700 transition-all flex items-center gap-1.5 shadow-sm"
+              title="Mở Không gian Phân tích & Hỏi đáp dữ liệu bằng AI"
+            >
+              <Bot className="h-3.5 w-3.5" />
+              Hỏi đáp & Phân tích AI
             </button>
           </div>
         </div>
@@ -782,6 +828,30 @@ export const StatisticsTab: React.FC = () => {
             costItems={costItems}
             loading={loading}
             onLoadData={() => handleLoadData(false)}
+          />
+        </div>
+      </div>
+
+      {/* AI ANALYTICS STUDIO tab body */}
+      <div style={{ display: subTab === 'ai_studio' ? 'block' : 'none' }}>
+        <div className="px-4 pt-3 pb-8">
+          <AIChatWorkspace
+            slotId="statistics_studio"
+            defaultExpanded={true}
+            onOpenAIConfigTab={onNavigateToAIConfig}
+            dataContext={{
+              contextPage: 'statistics_studio',
+              periodLabel: `Năm ${primaryYear} & ${compareYear}`,
+              currentRecords: aiStudioRecords,
+              yearlyCacheData: yearlyCacheData || yearCacheRef.current?.data || null,
+              dutySchedules: {},
+              packageAssignments,
+              packageDefinitions,
+              chapters,
+              surgeryNamePrices,
+              config,
+              allowRemoteFirestoreFetch: true,
+            }}
           />
         </div>
       </div>

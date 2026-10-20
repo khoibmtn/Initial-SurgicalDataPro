@@ -93,6 +93,7 @@ import { LS_PACKAGE_VIEW_STATE_KEY } from './components/surgery/PackageListView'
 import { subscribeToAssignments, subscribeToServicePackages, subscribeToModuleConfig, subscribeToPositionCatalog } from './services/servicePackageService';
 import { subscribeAuditLogs, logAuditEvent } from './services/auditLogService';
 import { sendNotification } from './services/notificationService';
+import { AIStorageDrawer } from './components/ai/AIStorageDrawer';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
@@ -116,7 +117,8 @@ const InnerApp: React.FC = () => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginModalView, setLoginModalView] = useState<'login' | 'register'>('login');
   const [showAccountPanel, setShowAccountPanel] = useState(false);
-  const [configInitialSubTab, setConfigInitialSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | undefined>(undefined);
+  const [configInitialSubTab, setConfigInitialSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages' | 'ai' | undefined>(undefined);
+  const [isAIStorageDrawerOpen, setIsAIStorageDrawerOpen] = useState(false);
 
   // Lắng nghe sự kiện yêu cầu mở modal đăng nhập / tạo tài khoản từ các toast hoặc bảo vệ tính năng
   useEffect(() => {
@@ -991,6 +993,7 @@ const InnerApp: React.FC = () => {
                   onGetReport={handleGetReport}
                   onAutoFill24hShift={handleAutoFill24hShift}
                   handleTimeChange={handleTimeChange}
+                  onOpenAIAssistant={() => setIsAIStorageDrawerOpen(true)}
                 />
               )}
             </div>
@@ -1239,7 +1242,12 @@ const InnerApp: React.FC = () => {
         {hasVisitedStats && (
           <div style={{ display: activeTab === 'statistics' ? 'block' : 'none' }} className="w-full h-full flex-1">
             <ErrorBoundary fallbackTitle="Không thể tải tab Thống kê">
-              <StatisticsTab />
+              <StatisticsTab
+                onNavigateToAIConfig={() => {
+                  setConfigInitialSubTab('ai');
+                  setActiveTab('config');
+                }}
+              />
             </ErrorBoundary>
           </div>
         )}
@@ -1269,6 +1277,29 @@ const InnerApp: React.FC = () => {
           </ErrorBoundary>
         )}
 
+
+        <AIStorageDrawer
+          isOpen={isAIStorageDrawerOpen}
+          onClose={() => setIsAIStorageDrawerOpen(false)}
+          slotId={currentType === 'monthly' ? 'monthly_storage' : 'daily_storage'}
+          onOpenAIConfigTab={() => {
+            setIsAIStorageDrawerOpen(false);
+            setConfigInitialSubTab('ai');
+            setActiveTab('config');
+          }}
+          dataContext={{
+            contextPage: currentType === 'monthly' ? 'monthly_storage' : 'daily_storage',
+            periodLabel: currentPeriodLabel,
+            currentRecords: currentReport.result?.validRecords || [],
+            dutySchedules,
+            packageAssignments,
+            packageDefinitions,
+            chapters: [],
+            surgeryNamePrices: namePrices,
+            config,
+            allowRemoteFirestoreFetch: true,
+          }}
+        />
 
         {editingRecord && (
           <SurgeryEditModal

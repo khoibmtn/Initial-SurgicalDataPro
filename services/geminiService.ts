@@ -1,15 +1,15 @@
-import { GoogleGenAI } from "@google/genai";
 import { ProcessedStats, Conflict } from '../types';
+import { getEffectiveSlotConfig, getEffectiveProviderConfig } from './ai/aiConfigService';
+import { generateAICompletion } from './ai/aiProviderClient';
 
 export const analyzeReport = async (stats: ProcessedStats, conflicts: Conflict[]): Promise<string> => {
-  if (!process.env.API_KEY) {
-    return "API Key is missing. Unable to generate AI insights.";
+  const slotConfig = getEffectiveSlotConfig('conflict_insight');
+  const providerConfig = getEffectiveProviderConfig(slotConfig.provider);
+
+  if (!providerConfig.apiKey) {
+    return "Chưa cấu hình API Key cho mô hình AI. Vui lòng vào mục Cấu hình → Cấu hình AI để thiết lập.";
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const model = "gemini-2.5-flash";
-
-  // Summarize conflicts for the prompt to save tokens/complexity
   const conflictSummary = conflicts.slice(0, 20).map(c => 
     `${c.type} Conflict: ${c.resourceName} overlaps ${c.durationOverlap} mins between ${c.surgeryA} and ${c.surgeryB}`
   ).join('\n');
@@ -38,7 +38,6 @@ export const analyzeReport = async (stats: ProcessedStats, conflicts: Conflict[]
 
     YÊU CẦU PHÂN TÍCH:
     Hãy viết báo cáo bằng TIẾNG VIỆT, tuân thủ các quy tắc nghiệp vụ trên, gồm:
-
     1. Nhận định tổng quan về hoạt động PTTT.
     2. Đánh giá riêng:
       - Tình trạng trùng giờ nhân viên (có xét ngoại lệ bác sĩ gây mê).
@@ -49,19 +48,23 @@ export const analyzeReport = async (stats: ProcessedStats, conflicts: Conflict[]
     Yêu cầu trình bày:
     - Văn phong hành chính y khoa.
     - Gạch đầu dòng rõ ràng.
-    - Độ dài tối đa 200 từ.
-    `;
-
-
+    - Độ dài tối đa 250 từ.
+  `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: prompt,
+    const response = await generateAICompletion({
+      providerConfig,
+      modelId: slotConfig.modelId,
+      temperature: slotConfig.temperature,
+      reasoningEffort: slotConfig.reasoningEffort,
+      maxTokens: slotConfig.maxTokens,
+      messages: [
+        { role: 'user', content: prompt }
+      ],
     });
-    return response.text || "No analysis generated.";
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    return "Failed to generate AI analysis. Please check your API configuration.";
+    return response.text || "Không tạo được nội dung phân tích.";
+  } catch (error: any) {
+    console.error("AI Analysis Error:", error);
+    return `Không thể tạo phân tích AI: ${error?.message || 'Vui lòng kiểm tra cấu hình API.'}`;
   }
 };
