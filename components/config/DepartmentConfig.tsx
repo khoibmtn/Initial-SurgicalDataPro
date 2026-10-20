@@ -138,7 +138,7 @@ export const DepartmentConfig: React.FC = () => {
                     onClick={handleAddDept}
                     disabled={!newDeptShortName.trim() || isLocked}
                     title={isLocked ? "Cấu hình đang bị khóa" : "Thêm khoa phòng"}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition-all flex items-center justify-center gap-1 shadow-xs whitespace-nowrap cursor-pointer shrink-0"
+                    className="px-4 py-1.5 bg-primary-700 hover:bg-primary-800 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed text-white font-semibold rounded-lg text-xs transition-all flex items-center justify-center gap-1 shadow-xs whitespace-nowrap cursor-pointer shrink-0"
                 >
                     <Plus className="h-3.5 w-3.5" /> Thêm
                 </button>
@@ -206,7 +206,7 @@ export const DepartmentConfig: React.FC = () => {
                                             <td className="px-3 py-2 text-center text-gray-300">—</td>
                                             <td className="px-3 py-2 text-center">
                                                 <div className="flex items-center justify-center gap-1">
-                                                    <button type="button" onClick={handleSaveEdit} title="Lưu (Enter)" className="p-1 rounded bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 transition-colors cursor-pointer">
+                                                    <button type="button" onClick={handleSaveEdit} title="Lưu (Enter)" className="p-1 rounded bg-primary-700 text-white hover:bg-primary-800 transition-colors cursor-pointer">
                                                         <Check className="h-3.5 w-3.5 stroke-[2.5]" />
                                                     </button>
                                                     <button type="button" onClick={() => setEditingDeptIndex(null)} title="Hủy (Esc)" className="p-1 rounded bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors cursor-pointer">

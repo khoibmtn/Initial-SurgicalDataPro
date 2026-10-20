@@ -1023,7 +1023,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 type="button"
                 onClick={() => setOpenDownloadMenu(!openDownloadMenu)}
                 disabled={loading || exporting || exportingCsv}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-primary-700 hover:bg-primary-800 text-white text-xs font-bold transition-all shadow-2xs active:scale-95 disabled:opacity-50 cursor-pointer"
                 title="Tải xuống báo cáo phân tích so sánh"
               >
                 <Download className="h-3.5 w-3.5 shrink-0" />
@@ -1511,7 +1511,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     onClick={() => setFinancialCategory('revenue')}
                     className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
                       financialCategory === 'revenue'
-                        ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700/30'
+                        ? 'bg-primary-700 text-white shadow-sm ring-1 ring-primary-800/30'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
                     }`}
                   >
@@ -1533,7 +1533,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     onClick={() => setFinancialCategory('profit')}
                     className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
                       financialCategory === 'profit'
-                        ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/30'
+                        ? 'bg-primary-700 text-white shadow-sm ring-1 ring-primary-800/30'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
                     }`}
                   >
@@ -1600,12 +1600,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   onClick={() => setFilterCostStatus(prev => prev === 'WITH_COST' ? 'all' : 'WITH_COST')}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all cursor-pointer shadow-2xs ${
                     filterCostStatus === 'WITH_COST'
-                      ? 'bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-300 font-bold'
-                      : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300'
+                      ? 'bg-primary-700 text-white border-primary-800 ring-2 ring-primary-300 font-bold'
+                      : 'bg-primary-700 text-white border-primary-800 hover:bg-primary-800'
                   }`}
                   title={filterCostStatus === 'WITH_COST' ? 'Đang lọc DV có định mức CP. Bấm để hiển thị tất cả.' : 'Bấm để lọc chỉ hiển thị các DV có định mức CP.'}
                 >
-                  <CheckCircle2 className={`h-3 w-3 ${filterCostStatus === 'WITH_COST' ? 'text-white' : 'text-emerald-600'}`} />
+                  <CheckCircle2 className="h-3 w-3 text-white" />
                   <span><strong>{costCoverageStats.withCost}</strong> có định mức CP</span>
                   {filterCostStatus === 'WITH_COST' && (
                     <span className="ml-0.5 text-[10px] bg-white/20 px-1 rounded">✕</span>
@@ -2253,7 +2253,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       onClick={() => setFinancialCategory('revenue')}
                       className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
                         financialCategory === 'revenue'
-                          ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-700/30'
+                          ? 'bg-primary-700 text-white shadow-sm ring-1 ring-primary-800/30'
                           : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
                       }`}
                     >
@@ -2275,7 +2275,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       onClick={() => setFinancialCategory('profit')}
                       className={`px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
                         financialCategory === 'profit'
-                          ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700/30'
+                          ? 'bg-primary-700 text-white shadow-sm ring-1 ring-primary-800/30'
                           : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200/60'
                       }`}
                     >
@@ -2342,12 +2342,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     onClick={() => setFilterCostStatus(prev => prev === 'WITH_COST' ? 'all' : 'WITH_COST')}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-semibold transition-all cursor-pointer shadow-2xs ${
                       filterCostStatus === 'WITH_COST'
-                        ? 'bg-emerald-600 text-white border-emerald-700 ring-2 ring-emerald-300 font-bold'
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300'
+                        ? 'bg-primary-700 text-white border-primary-800 ring-2 ring-primary-300 font-bold'
+                        : 'bg-primary-700 text-white border-primary-800 hover:bg-primary-800'
                     }`}
                     title={filterCostStatus === 'WITH_COST' ? 'Đang lọc DV có định mức CP. Bấm để hiển thị tất cả.' : 'Bấm để lọc chỉ hiển thị các DV có định mức CP.'}
                   >
-                    <CheckCircle2 className={`h-3 w-3 ${filterCostStatus === 'WITH_COST' ? 'text-white' : 'text-emerald-600'}`} />
+                    <CheckCircle2 className="h-3 w-3 text-white" />
                     <span><strong>{costCoverageStats.withCost}</strong> có định mức CP</span>
                     {filterCostStatus === 'WITH_COST' && (
                       <span className="ml-0.5 text-[10px] bg-white/20 px-1 rounded">✕</span>

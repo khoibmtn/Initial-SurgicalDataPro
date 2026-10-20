@@ -2404,7 +2404,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                       onClick={() => setMetricMode('count')}
                       className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
                         metricMode === 'count'
-                          ? 'bg-primary-600 text-white shadow-xs'
+                          ? 'bg-primary-700 text-white shadow-xs'
                           : (modalTheme === 'dark' ? 'text-gray-400 hover:text-gray-200' : 'text-gray-600 hover:text-gray-900')
                       }`}
                     >
@@ -2415,7 +2415,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                       onClick={() => setMetricMode('revenue')}
                       className={`px-2.5 py-1 rounded-md font-bold transition-all cursor-pointer ${
                         metricMode === 'revenue'
-                          ? 'bg-emerald-600 text-white shadow-xs'
+                          ? 'bg-primary-700 text-white shadow-xs'
                           : (modalTheme === 'dark' ? 'text-gray-400 hover:text-gray-200' : 'text-gray-600 hover:text-gray-900')
                       }`}
                     >
@@ -2620,7 +2620,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                           onClick={() => setLoaiViewMode('count')}
                           className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                             loaiViewMode === 'count'
-                              ? (modalTheme === 'dark' ? 'bg-cyan-800 text-cyan-100' : 'bg-cyan-100 text-cyan-800 shadow-2xs')
+                              ? 'bg-primary-700 text-white shadow-2xs'
                               : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
                           }`}
                         >
@@ -2631,7 +2631,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                           onClick={() => setLoaiViewMode('revenue')}
                           className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                             loaiViewMode === 'revenue'
-                              ? (modalTheme === 'dark' ? 'bg-cyan-800 text-cyan-100' : 'bg-cyan-100 text-cyan-800 shadow-2xs')
+                              ? 'bg-primary-700 text-white shadow-2xs'
                               : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
                           }`}
                         >
@@ -2691,7 +2691,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                             onClick={() => setDivergingMetric('percent')}
                             className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                               divergingMetric === 'percent'
-                                ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                                ? 'bg-primary-700 text-white shadow-2xs'
                                 : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
                             }`}
                           >
@@ -2702,7 +2702,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                             onClick={() => setDivergingMetric('diff')}
                             className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
                               divergingMetric === 'diff'
-                                ? (modalTheme === 'dark' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-100 text-emerald-800 shadow-2xs')
+                                ? 'bg-primary-700 text-white shadow-2xs'
                                 : (modalTheme === 'dark' ? 'text-gray-400' : 'text-gray-600')
                             }`}
                           >

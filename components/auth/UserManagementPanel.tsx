@@ -205,7 +205,7 @@ const PendingApprovalSection: React.FC<PendingCardProps> = ({
           <button
             onClick={handleBatch}
             disabled={isBatchApproving}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-xs cursor-pointer disabled:opacity-60"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-700 hover:bg-primary-800 text-white text-xs font-bold rounded-lg transition-all shadow-xs cursor-pointer disabled:opacity-60"
             title="Duyệt tất cả các tài khoản đang chờ"
           >
             {isBatchApproving ? (
@@ -303,7 +303,7 @@ const PendingApprovalSection: React.FC<PendingCardProps> = ({
                     <button
                       onClick={() => handleSingleApprove(u)}
                       disabled={isApproving || isBatchApproving}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg transition-all shadow-xs cursor-pointer disabled:opacity-50"
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-700 hover:bg-primary-800 text-white text-xs font-semibold rounded-lg transition-all shadow-xs cursor-pointer disabled:opacity-50"
                       title="Duyệt tài khoản"
                     >
                       {isApproving ? (
@@ -953,7 +953,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
             onClick={() => setSubTab('accounts')}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               currentSubTab === 'accounts'
-                ? 'bg-blue-600 text-white shadow-2xs'
+                ? 'bg-primary-700 text-white shadow-2xs'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200/80'
             }`}
           >
@@ -965,7 +965,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
             onClick={() => setSubTab('permissions')}
             className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
               currentSubTab === 'permissions'
-                ? 'bg-blue-600 text-white shadow-2xs'
+                ? 'bg-primary-700 text-white shadow-2xs'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200/80'
             }`}
           >
@@ -1495,7 +1495,7 @@ export const UserManagementPanel: React.FC<UserManagementPanelProps> = ({
               <button
                 type="button"
                 onClick={handleSaveEditUser}
-                className="px-4 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs hover:shadow-sm transition-all cursor-pointer"
+                className="px-4 py-1.5 text-xs font-semibold text-white bg-primary-700 hover:bg-primary-800 rounded-lg shadow-xs hover:shadow-sm transition-all cursor-pointer"
               >
                 Lưu thay đổi
               </button>
@@ -1719,8 +1719,8 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
           }}
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
             viewMode === 'dept' && deptTargetRole === 'deputy_head'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
+              ? 'bg-primary-700 text-white shadow-xs'
+              : 'text-gray-600 hover:text-primary-700 hover:bg-white/60'
           }`}
         >
           <UserCheck className="w-3.5 h-3.5" />
@@ -1733,8 +1733,8 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
           }}
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
             viewMode === 'dept' && deptTargetRole === 'staff'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
+              ? 'bg-primary-700 text-white shadow-xs'
+              : 'text-gray-600 hover:text-primary-700 hover:bg-white/60'
           }`}
         >
           <Users className="w-3.5 h-3.5" />
@@ -1744,8 +1744,8 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
           onClick={() => setViewMode('matrix')}
           className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
             viewMode === 'matrix'
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'text-gray-600 hover:text-blue-700 hover:bg-white/60'
+              ? 'bg-primary-700 text-white shadow-xs'
+              : 'text-gray-600 hover:text-primary-700 hover:bg-white/60'
           }`}
         >
           <Shield className="w-3.5 h-3.5" />
@@ -1845,7 +1845,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={handleGrantAllCeiling}
-                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-200 transition-colors cursor-pointer"
+                    className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-md border border-primary-800 transition-colors cursor-pointer"
                     title={`Cấp toàn bộ quyền mà Admin đã cho phép cho ${targetRoleLabel} khoa`}
                   >
                     <Sparkles className="w-3 h-3" />

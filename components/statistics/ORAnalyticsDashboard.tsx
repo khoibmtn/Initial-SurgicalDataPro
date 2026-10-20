@@ -157,7 +157,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
             type="button"
             onClick={onLoadData}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-600/20 transition-all transform active:scale-95 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary-700 hover:bg-primary-800 text-white text-xs font-bold shadow-md shadow-primary-700/20 transition-all transform active:scale-95 disabled:opacity-50"
           >
             {loading ? <Activity className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             {loading ? 'Đang tải dữ liệu...' : `Tải dữ liệu năm ${primaryYear}`}
@@ -459,7 +459,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
           onClick={() => setActiveView('rooms')}
           className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeView === 'rooms'
-              ? 'bg-blue-600 text-white shadow-xs'
+              ? 'bg-primary-700 text-white shadow-xs'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
           }`}
         >
@@ -472,7 +472,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
           onClick={() => setActiveView('surgeons')}
           className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeView === 'surgeons'
-              ? 'bg-blue-600 text-white shadow-xs'
+              ? 'bg-primary-700 text-white shadow-xs'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
           }`}
         >
@@ -485,7 +485,7 @@ export const ORAnalyticsDashboard: React.FC<Props> = ({
           onClick={() => setActiveView('alerts')}
           className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
             activeView === 'alerts'
-              ? 'bg-blue-600 text-white shadow-xs'
+              ? 'bg-primary-700 text-white shadow-xs'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
           }`}
         >

@@ -530,7 +530,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                                   type="button"
                                   onClick={saveInlineEdit}
                                   disabled={saving}
-                                  className="p-1 rounded text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-xs"
+                                  className="p-1 rounded text-white bg-primary-700 hover:bg-primary-800 transition-colors shadow-xs"
                                   title="Lưu"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -600,7 +600,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                           type="button"
                           onClick={() => { if (isLocked) return; openAddAllowance(loai); }}
                           disabled={isLocked}
-                          className={`px-2 py-0.5 text-xs rounded transition-colors ${isLocked ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                          className={`px-2 py-0.5 text-xs rounded transition-colors ${isLocked ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-primary-700 text-white hover:bg-primary-800'}`}
                         >
                           Thêm
                         </button>
@@ -671,7 +671,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                                 type="button"
                                 onClick={saveInlineEdit}
                                 disabled={saving}
-                                className="p-1 rounded text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-xs"
+                                className="p-1 rounded text-white bg-primary-700 hover:bg-primary-800 transition-colors shadow-xs"
                               >
                                 <Check className="w-3 h-3" />
                               </button>
@@ -856,7 +856,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                                   type="button"
                                   onClick={saveInlineEdit}
                                   disabled={saving}
-                                  className="p-1 rounded text-white bg-cyan-600 hover:bg-cyan-700 transition-colors shadow-xs"
+                                  className="p-1 rounded text-white bg-primary-700 hover:bg-primary-800 transition-colors shadow-xs"
                                 >
                                   <Check className="w-3.5 h-3.5" />
                                 </button>
@@ -970,7 +970,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                                 type="button"
                                 onClick={saveInlineEdit}
                                 disabled={saving}
-                                className="p-1 rounded text-white bg-cyan-600 hover:bg-cyan-700 transition-colors shadow-xs"
+                                className="p-1 rounded text-white bg-primary-700 hover:bg-primary-800 transition-colors shadow-xs"
                               >
                                 <Check className="w-3 h-3" />
                               </button>
@@ -1145,7 +1145,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                                   type="button"
                                   onClick={saveInlineEdit}
                                   disabled={saving}
-                                  className="p-1 rounded text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-xs"
+                                  className="p-1 rounded text-white bg-primary-700 hover:bg-primary-800 transition-colors shadow-xs"
                                   title="Lưu"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -1215,7 +1215,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                           type="button"
                           onClick={() => { if (isLocked) return; openAddTable(pos.key, pos.label); }}
                           disabled={isLocked}
-                          className={`px-2 py-0.5 text-xs rounded transition-colors ${isLocked ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                          className={`px-2 py-0.5 text-xs rounded transition-colors ${isLocked ? 'bg-gray-200 text-gray-400 cursor-not-allowed pointer-events-none' : 'bg-primary-700 text-white hover:bg-primary-800'}`}
                         >
                           Thêm
                         </button>
@@ -1282,7 +1282,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                                 type="button"
                                 onClick={saveInlineEdit}
                                 disabled={saving}
-                                className="p-1 rounded text-white bg-indigo-600 hover:bg-indigo-700 transition-colors shadow-xs"
+                                className="p-1 rounded text-white bg-primary-700 hover:bg-primary-800 transition-colors shadow-xs"
                               >
                                 <Check className="w-3 h-3" />
                               </button>
@@ -1552,7 +1552,7 @@ export const LaborConfigManager: React.FC<Props> = () => {
                 type="button"
                 onClick={saveAddMilestone}
                 disabled={saving}
-                className="px-4 py-2 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors shadow-xs"
+                className="px-4 py-2 text-xs font-semibold text-white bg-primary-700 hover:bg-primary-800 rounded-lg transition-colors shadow-xs"
               >
                 {saving ? 'Đang lưu...' : 'Lưu mốc mới'}
               </button>

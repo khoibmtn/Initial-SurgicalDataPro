@@ -349,7 +349,7 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
                     disabled={!selectedFile}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-sm ${
                       selectedFile
-                        ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95'
+                        ? 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95'
                         : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                     }`}
                   >
@@ -398,9 +398,9 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
               <Tooltip content="Tự động bổ sung / cập nhật Mã tương đương và Đơn giá từ file DVKT vào Danh mục giá PTTT (tạo mới hoặc cập nhật bản ghi hiện có)" position="bottom">
                 <button
                   onClick={handleOpenRefillModal}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 transition-all shadow-sm"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-primary-700 text-white hover:bg-primary-800 active:scale-95 transition-all shadow-sm"
                 >
-                  <Sparkles className="h-4 w-4 text-emerald-200" />
+                  <Sparkles className="h-4 w-4 text-primary-200" />
                   Refill vào Danh mục giá
                 </button>
               </Tooltip>
@@ -501,7 +501,7 @@ export const ServicePriceTab: React.FC<ServicePriceTabProps> = ({
                 onClick={() => { setActiveFilter('matched'); setCurrentPage(1); }}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg transition-all ${
                   activeFilter === 'matched'
-                    ? 'bg-emerald-600 text-white shadow-sm font-bold'
+                    ? 'bg-primary-700 text-white shadow-sm font-bold'
                     : 'text-emerald-700 hover:bg-emerald-50'
                 }`}
               >

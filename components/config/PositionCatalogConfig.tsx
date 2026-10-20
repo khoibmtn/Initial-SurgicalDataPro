@@ -259,7 +259,7 @@ export const PositionCatalogConfig: React.FC = () => {
             <button
               onClick={handleSave}
               disabled={!form.label.trim() || !form.shortLabel.trim()}
-              className="flex-1 px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center justify-center gap-1 shadow-sm h-[35px]"
+              className="flex-1 px-2.5 py-1.5 bg-primary-700 hover:bg-primary-800 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center justify-center gap-1 shadow-sm h-[35px]"
               title={editingId ? 'Lưu cập nhật' : 'Thêm vị trí mới'}
             >
               {editingId ? <Save className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}

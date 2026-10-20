@@ -235,7 +235,7 @@ export const MachineRegistryConfig: React.FC<MachineRegistryConfigProps> = ({ on
                         </div>
                         <div className="px-6 py-4 bg-gray-50 border-t flex items-center justify-end gap-3">
                             <button onClick={() => handleConfirmImport('cancel')} className="px-5 py-2 text-sm font-bold text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 transition-all">Hủy</button>
-                            <button onClick={() => handleConfirmImport('overwrite_clean')} className="px-5 py-2 text-sm font-bold text-white bg-teal-600 border border-teal-700 rounded-lg hover:bg-teal-700 transition-all shadow-sm">Import {importDialog.cleanEntries.length} mã máy (ghi đè)</button>
+                            <button onClick={() => handleConfirmImport('overwrite_clean')} className="px-5 py-2 text-sm font-bold text-white bg-primary-700 border border-primary-800 rounded-lg hover:bg-primary-800 transition-all shadow-sm">Import {importDialog.cleanEntries.length} mã máy (ghi đè)</button>
                         </div>
                     </div>
                 </div>
@@ -248,7 +248,7 @@ export const MachineRegistryConfig: React.FC<MachineRegistryConfigProps> = ({ on
                     <button onClick={handleExportRegistry} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
                         <Download className="h-3.5 w-3.5" /> Xuất Excel
                     </button>
-                    <button onClick={handleBackfill} disabled={backfillRunning || registry.length === 0 || isLocked} title="Backfill: Bổ sung mã máy & ID máy cho các bản ghi cũ dựa vào tên máy đã nhập trong dữ liệu phẫu thuật" className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${backfillRunning || registry.length === 0 || isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}>
+                    <button onClick={handleBackfill} disabled={backfillRunning || registry.length === 0 || isLocked} title="Backfill: Bổ sung mã máy & ID máy cho các bản ghi cũ dựa vào tên máy đã nhập trong dữ liệu phẫu thuật" className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${backfillRunning || registry.length === 0 || isLocked ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200' : 'bg-primary-700 text-white hover:bg-primary-800'}`}>
                         <RefreshCw className={`h-3.5 w-3.5 ${backfillRunning ? 'animate-spin' : ''}`} />
                         {backfillRunning ? 'Đang backfill...' : 'Backfill'}
                     </button>
@@ -257,7 +257,7 @@ export const MachineRegistryConfig: React.FC<MachineRegistryConfigProps> = ({ on
                             <Upload className="h-3.5 w-3.5 text-gray-400" /> Import Excel
                         </button>
                     ) : (
-                        <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 cursor-pointer transition-all shadow-sm">
+                        <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-primary-700 rounded-lg hover:bg-primary-800 cursor-pointer transition-all shadow-sm">
                             <Upload className="h-3.5 w-3.5" /> Import Excel
                             <input type="file" accept=".xlsx, .xls" className="hidden" onChange={handleImportRegistry} />
                         </label>
@@ -315,7 +315,7 @@ export const MachineRegistryConfig: React.FC<MachineRegistryConfigProps> = ({ on
                         <button onClick={() => { if (isLocked) return; setEditingRegId(null); setRegForm({ machineId: "", machineCode: "", machineName: "", active: true }); }} disabled={isLocked} className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed rounded transition-colors" title="Hủy"><XCircle className="h-4 w-4" /></button>
                     </>
                 ) : (
-                    <button onClick={handleAddRegistry} disabled={!regForm.machineCode.trim() || isLocked} className="px-3 py-1 bg-blue-600 text-white font-semibold rounded text-xs hover:bg-blue-700 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed transition-all flex items-center gap-1 whitespace-nowrap"><Plus className="h-3.5 w-3.5" /> Thêm</button>
+                    <button onClick={handleAddRegistry} disabled={!regForm.machineCode.trim() || isLocked} className="px-3 py-1 bg-primary-700 text-white font-semibold rounded text-xs hover:bg-primary-800 disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed transition-all flex items-center gap-1 whitespace-nowrap"><Plus className="h-3.5 w-3.5" /> Thêm</button>
                 )}
             </div>
 

@@ -582,7 +582,7 @@ export const StatsConfig: React.FC<Props> = ({ priceVersions, surgeryNamePrices,
 
               <button
                 type="submit"
-                className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                className="w-full sm:w-auto px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white font-bold text-xs rounded-lg transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
               >
                 <PlusCircle className="h-3.5 w-3.5" />
                 <span>Tạo nhóm</span>

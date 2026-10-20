@@ -268,7 +268,7 @@ export const KpiSettingsConfig: React.FC<Props> = ({ isLocked = false }) => {
           <button
             type="submit"
             disabled={isLocked || saving}
-            className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+            className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-xl transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             <Save className="h-4 w-4" />
             {saving ? 'Đang lưu...' : 'Lưu cấu hình KPI'}

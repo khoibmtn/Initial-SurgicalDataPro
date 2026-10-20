@@ -735,7 +735,7 @@ export const SchedulingTab: React.FC = () => {
                   onClick={() => { setConflictFilter('STAFF'); setFilterMachine(''); }}
                   className={`flex items-center gap-0.5 px-2 py-0.5 text-[10px] font-bold rounded-full transition-all cursor-pointer ${
                     conflictFilter === 'STAFF' && !filterStaff
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-primary-700 text-white'
                       : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
                   }`}
                 >
@@ -777,7 +777,7 @@ export const SchedulingTab: React.FC = () => {
                     <button key={s}
                       onClick={() => { setFilterStaff(filterStaff === s ? '' : s); setConflictFilter(filterStaff === s ? 'ALL' : 'STAFF'); setFilterMachine(''); }}
                       className={`px-2 py-0.5 text-[10px] font-bold rounded-full transition-all cursor-pointer ${
-                        filterStaff === s ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                        filterStaff === s ? 'bg-primary-700 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
                       }`}
                     >
                       {s}
@@ -945,7 +945,7 @@ export const SchedulingTab: React.FC = () => {
                 className={`px-5 py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
                   !duplicateDate || isDuplicating
                     ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                    : 'bg-sky-600 text-white hover:bg-sky-700 active:scale-95 cursor-pointer'
+                    : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
                 }`}
               >
                 {isDuplicating ? 'Đang sao chép...' : 'Sao chép'}

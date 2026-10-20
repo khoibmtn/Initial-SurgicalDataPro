@@ -430,7 +430,7 @@ export const PaymentListImportModal: React.FC<Props> = ({
           <button
             disabled={busy || !parsed || categorizedEntries.brandNew.length === 0}
             onClick={handleExecute}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-5 py-2 font-bold text-white shadow-xs hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-primary-700 px-5 py-2 font-bold text-white shadow-xs hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             <CheckCircle2 className="h-4 w-4" />
             <span>

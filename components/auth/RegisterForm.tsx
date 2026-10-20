@@ -248,7 +248,7 @@ export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onBackToL
       <button
         onClick={handleSubmit}
         disabled={isLoading}
-        className="w-full py-2.5 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-400 text-white text-sm font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2 cursor-pointer"
+        className="w-full py-2.5 bg-primary-700 hover:bg-primary-800 disabled:bg-primary-400 text-white text-sm font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-2 cursor-pointer"
       >
         {isLoading ? (
           <Loader2 className="w-4 h-4 animate-spin" />

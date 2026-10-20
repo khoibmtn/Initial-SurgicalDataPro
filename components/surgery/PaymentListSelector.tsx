@@ -34,7 +34,7 @@ export const PaymentListSelector: React.FC<Props> = ({
     {onManage && (
       <button
         onClick={onManage}
-        className="flex h-8 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+        className="flex h-8 items-center gap-1 rounded-lg border border-primary-800 bg-primary-700 px-2 text-xs font-semibold text-white hover:bg-primary-800 transition-colors"
       >
         <ListChecks className="h-3.5 w-3.5" /> Quản lý DS
       </button>

@@ -238,8 +238,8 @@ export const PageCombobox: React.FC<PageComboboxProps> = ({
                   onClick={() => handleSelectPage(p)}
                   className={`w-full px-3 py-1.5 text-left flex items-center justify-between transition-colors cursor-pointer ${
                     isSelected
-                      ? 'bg-blue-600 text-white font-bold shadow-2xs'
-                      : 'text-gray-700 hover:bg-blue-50 hover:text-blue-700'
+                      ? 'bg-primary-700 text-white font-bold shadow-2xs'
+                      : 'text-gray-700 hover:bg-primary-50 hover:text-primary-700'
                   }`}
                 >
                   <span className="font-medium">Trang {p}</span>

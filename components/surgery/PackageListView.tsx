@@ -1371,7 +1371,7 @@ export const PackageListView: React.FC<Props> = ({
                     {paymentLists.canManage && (
                       <button
                         onClick={() => handleRequestLock(currentList)}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-3 text-xs font-bold text-white shadow-2xs transition-colors"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary-700 hover:bg-primary-800 px-3 text-xs font-bold text-white shadow-2xs transition-colors"
                         title="Chốt đợt thanh toán gói dịch vụ"
                       >
                         <Lock className="h-3.5 w-3.5" />
@@ -1411,7 +1411,7 @@ export const PackageListView: React.FC<Props> = ({
                   setImportTargetListId(undefined);
                   setImportModalOpen(true);
                 }}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 px-3.5 text-xs font-bold text-white shadow-sm transition-colors cursor-pointer"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary-700 hover:bg-primary-800 border border-primary-800 px-3.5 text-xs font-bold text-white shadow-sm transition-colors cursor-pointer"
                 title="Tạo đợt thanh toán mới từ danh sách TCKT"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -1589,10 +1589,10 @@ export const PackageListView: React.FC<Props> = ({
           <button
             onClick={handleExportExcel}
             disabled={isExporting || enrichedRecords.length === 0}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary-800 bg-primary-700 text-white hover:bg-primary-800 text-xs font-semibold transition-all shadow-2xs cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Xuất danh sách gói dịch vụ yêu cầu ra file Excel"
           >
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+            <FileSpreadsheet className="h-3.5 w-3.5 text-white" />
             <span>{isExporting ? 'Đang xuất...' : 'Xuất Excel'}</span>
           </button>
 
@@ -1603,8 +1603,8 @@ export const PackageListView: React.FC<Props> = ({
               title="Cấu hình hiển thị, ngày giờ và mật độ bảng"
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-all shadow-2xs ${
                 configOpen
-                  ? 'bg-teal-50 border-teal-300 text-teal-700'
-                  : 'bg-white border-gray-200 text-gray-700 hover:border-teal-300 hover:text-teal-700'
+                  ? 'bg-primary-700 border-primary-800 text-white'
+                  : 'bg-white border-gray-200 text-gray-700 hover:border-primary-300 hover:text-primary-700'
               }`}
             >
               <Settings className="h-3.5 w-3.5" />
@@ -2010,7 +2010,7 @@ export const PackageListView: React.FC<Props> = ({
                       ) : (
                         <button
                           onClick={() => handleAdd(r)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold text-white bg-emerald-700 hover:bg-emerald-800 border border-emerald-800 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold text-white bg-primary-700 hover:bg-primary-800 border border-primary-800 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
                           title="Gán gói DVYC cho ca này"
                         >
                           <Plus className="h-3.5 w-3.5" />
@@ -2329,7 +2329,7 @@ export const PackageListView: React.FC<Props> = ({
               <button
                 onClick={handleConfirmLock}
                 disabled={isLockingBatch || Boolean(lockWarningMessage)}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all shadow-sm flex items-center gap-1.5"
+                className="px-4 py-1.5 bg-primary-700 hover:bg-primary-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all shadow-sm flex items-center gap-1.5"
               >
                 <Lock className="h-3.5 w-3.5" />
                 <span>{isLockingBatch ? 'Đang chốt...' : 'Xác nhận chốt'}</span>
@@ -2441,7 +2441,7 @@ export const PackageListView: React.FC<Props> = ({
             <div className="flex items-center justify-end border-t border-gray-100 bg-gray-50/70 px-5 py-3">
               <button
                 onClick={() => setShowMissingModal(false)}
-                className="rounded-lg bg-teal-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 transition-colors shadow-xs"
+                className="rounded-lg bg-primary-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary-800 transition-colors shadow-xs"
               >
                 Đã hiểu & Đóng
               </button>

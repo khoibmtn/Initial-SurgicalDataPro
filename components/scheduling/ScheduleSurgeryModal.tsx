@@ -477,7 +477,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                 onClick={handleToggleLock}
                 className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
                   isEntryLocked
-                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700'
+                    ? 'bg-primary-700 hover:bg-primary-800 text-white border-primary-800'
                     : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border-amber-300'
                 }`}
                 title={
@@ -525,7 +525,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                   type="button"
                   disabled={isTogglingLock}
                   onClick={handleToggleLock}
-                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs transition-all cursor-pointer whitespace-nowrap"
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-primary-700 hover:bg-primary-800 text-white shadow-2xs transition-all cursor-pointer whitespace-nowrap"
                 >
                   <Unlock size={12} />
                   <span>Mở khóa</span>

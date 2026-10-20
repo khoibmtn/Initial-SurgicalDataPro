@@ -166,7 +166,7 @@ export const LaborPriceConfig: React.FC<Props> = ({ priceVersions }) => {
           <button onClick={exportPriceTemplate} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors">
             <Download className="h-3.5 w-3.5" /> Excel mẫu
           </button>
-          <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors">
+          <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary-700 hover:bg-primary-800 text-white rounded-lg cursor-pointer transition-colors">
             <Upload className="h-3.5 w-3.5" /> Import Excel
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFileUpload} />
           </label>

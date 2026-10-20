@@ -443,7 +443,7 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
             <button
               onClick={handleOpenAdd}
               disabled={isLocked}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-sky-600 hover:bg-sky-700 text-white rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-primary-700 hover:bg-primary-800 text-white rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               title={isLocked ? "Cấu hình đang bị khóa" : "Thêm DVKT mới"}
             >
               <Plus className="h-4 w-4" />
@@ -848,7 +848,7 @@ export const RequiredMachineCatalogConfig: React.FC<Props> = ({ initialItems }) 
                 <button
                   type="submit"
                   disabled={submitting || isLocked}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-medium rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-primary-700 hover:bg-primary-800 text-white font-medium rounded-md shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   {editingItem ? 'Lưu thay đổi' : 'Thêm mới'}

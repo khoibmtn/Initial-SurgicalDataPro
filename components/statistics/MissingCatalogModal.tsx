@@ -316,7 +316,7 @@ export const MissingCatalogModal: React.FC<MissingCatalogModalProps> = ({
             <button
               onClick={handleConfirm}
               disabled={isConfirming || stats.selectedCount === 0}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-primary-700 hover:bg-primary-800 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               {isConfirming ? (
                 <>

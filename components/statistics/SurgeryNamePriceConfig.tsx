@@ -663,7 +663,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
             <button
               onClick={handleScanMissing}
               disabled={seeding || isLocked}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary-700 hover:bg-primary-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
             >
               {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Scan className="h-3.5 w-3.5" />}
               {seeding ? seedProgress || 'Đang quét...' : 'Quét DM thiếu'}
@@ -708,9 +708,9 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
             <button
               onClick={handleStartExcelRefill}
               disabled={isRefilling || isLocked}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-emerald-400 bg-emerald-50 text-emerald-800 rounded-lg hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold border border-primary-800 bg-primary-700 text-white rounded-lg hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors shadow-sm"
             >
-              {isRefilling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-emerald-600" />}
+              {isRefilling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-white" />}
               {isRefilling ? refillProgress || 'Đang quét...' : 'Refill từ Excel'}
             </button>
           </InstantTooltip>
@@ -1020,7 +1020,7 @@ export const SurgeryNamePriceConfig: React.FC<Props> = ({ surgeryNamePrices, cos
           </div>
           <div className="flex items-center gap-2">
             <button onClick={handleSave} disabled={saving || isLocked}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 text-white rounded-lg text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               <Save className="h-3.5 w-3.5" />
               {saving ? 'Đang lưu...' : 'Thêm'}
             </button>

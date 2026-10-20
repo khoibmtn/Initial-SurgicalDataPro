@@ -641,7 +641,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
           <button
             onClick={handleSave}
             disabled={!selectedPkgId || saving}
-            className="px-5 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
+            className="px-5 py-2 bg-primary-700 hover:bg-primary-800 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm shrink-0 cursor-pointer"
           >
             <Save className="h-3.5 w-3.5" />
             {saving ? 'Đang lưu...' : existingAssignment ? 'Cập nhật' : 'Gán gói'}

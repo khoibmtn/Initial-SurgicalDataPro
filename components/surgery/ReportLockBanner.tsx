@@ -74,10 +74,10 @@ export const ReportLockBanner: React.FC<ReportLockBannerProps> = ({
         {canUnlock ? (
           <button
             onClick={onUnlockClick}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-emerald-50 text-emerald-700 text-xs font-bold rounded-lg border border-emerald-300 hover:border-emerald-400 transition-colors shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-700 hover:bg-primary-800 text-white text-xs font-bold rounded-lg border border-primary-800 transition-colors shadow-xs cursor-pointer"
             title="Mở khóa để cho phép chỉnh sửa số liệu"
           >
-            <Unlock className="w-3.5 h-3.5 text-emerald-600" />
+            <Unlock className="w-3.5 h-3.5 text-white" />
             <span>Mở khóa báo cáo</span>
           </button>
         ) : (

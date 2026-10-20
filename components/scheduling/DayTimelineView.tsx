@@ -1596,7 +1596,7 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
               onClick={() => handleToggleShortStaff(!effectiveShortStaff)}
               className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
                 effectiveShortStaff
-                  ? 'bg-teal-700 text-white border-teal-700'
+                  ? 'bg-primary-700 text-white border-primary-700'
                   : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100 hover:text-gray-800'
               }`}
               title={

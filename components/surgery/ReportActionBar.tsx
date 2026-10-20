@@ -217,7 +217,7 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
           <Tooltip content="Tải xuống file Excel (có thể chọn định dạng hoặc không định dạng)" position="bottom">
             <button
               onClick={() => setIsExcelDropdownOpen(!isExcelDropdownOpen)}
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-accent-600 text-white font-semibold rounded-lg text-[11px] hover:bg-accent-700 transition-colors shadow-sm cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-primary-700 text-white font-semibold rounded-lg text-[11px] hover:bg-primary-800 transition-colors shadow-sm cursor-pointer"
             >
               <Download className="h-3.5 w-3.5" /> Excel
               <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -304,7 +304,7 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
                 <button
                   type="button"
                   onClick={onUnlockClick}
-                  className="flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
+                  className="flex items-center gap-1 px-2 py-1 bg-primary-700 hover:bg-primary-800 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-xs cursor-pointer"
                 >
                   <Unlock className="h-3 w-3" />
                   <span>Mở khóa</span>

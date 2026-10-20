@@ -709,7 +709,7 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
               title={viewMode === 'compact' ? 'Chuyển sang chế độ xem chuẩn (70px/cột)' : 'Chuyển sang chế độ xem siêu gọn (38px/cột)'}
               className={`flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
                 viewMode === 'compact'
-                  ? 'bg-blue-600 text-white border-blue-700 shadow-xs'
+                  ? 'bg-primary-700 text-white border-primary-800 shadow-xs'
                   : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
               }`}
             >
@@ -827,8 +827,8 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   }}
                   className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
                     isYearOpen
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-800 hover:bg-white hover:text-blue-700'
+                      ? 'bg-primary-700 text-white shadow-xs'
+                      : 'text-slate-800 hover:bg-white hover:text-primary-700'
                   }`}
                   title="Chọn Năm để điều hướng"
                 >
@@ -886,8 +886,8 @@ export const DutyScheduleTab: React.FC<DutyScheduleTabProps> = ({
                   }}
                   className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
                     isMonthOpen
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-800 hover:bg-white hover:text-blue-700'
+                      ? 'bg-primary-700 text-white shadow-xs'
+                      : 'text-slate-800 hover:bg-white hover:text-primary-700'
                   }`}
                   title="Chọn Tháng để điều hướng"
                 >

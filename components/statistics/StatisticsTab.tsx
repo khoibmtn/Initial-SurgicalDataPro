@@ -663,7 +663,7 @@ export const StatisticsTab: React.FC = () => {
                       e.stopPropagation();
                       handleExportDuplicates();
                     }}
-                    className="shrink-0 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
+                    className="shrink-0 px-3 py-1.5 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95"
                     title="Tải file Excel danh sách toàn bộ các ca mổ trùng key để đối chiếu"
                   >
                     <Download className="h-3.5 w-3.5" />
@@ -682,7 +682,7 @@ export const StatisticsTab: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleExportDuplicates}
-                      className="px-3.5 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
+                      className="px-3.5 py-2 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0"
                     >
                       <Download className="h-4 w-4" />
                       Tải Excel danh sách đầy đủ ({statsData.validation.duplicateRecords.length} bản ghi)

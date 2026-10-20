@@ -279,7 +279,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
             onClick={handleSeed}
             disabled={seeding || isLocked}
             title={isLocked ? "Cấu hình đang khóa (Chỉ xem)" : undefined}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-indigo-300 rounded-lg text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary-700 hover:bg-primary-800 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none transition-colors"
           >
             {seeding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
             {seeding ? 'Đang nạp...' : 'Nạp mặc định'}
@@ -309,7 +309,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
               Import Excel
             </button>
           ) : (
-            <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors">
+            <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary-700 hover:bg-primary-800 text-white rounded-lg cursor-pointer transition-colors">
               <Upload className="h-3.5 w-3.5" />
               Import Excel
               <input
@@ -381,7 +381,7 @@ export const ChapterCatalogConfig: React.FC<Props> = ({ chapters }) => {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={handleSave} disabled={saving}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-700 text-white rounded-lg text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 transition-colors">
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary-700 text-white rounded-lg text-xs font-bold hover:bg-primary-800 disabled:opacity-50 transition-colors">
               <Save className="h-3.5 w-3.5" />
               {saving ? 'Đang lưu...' : 'Thêm'}
             </button>

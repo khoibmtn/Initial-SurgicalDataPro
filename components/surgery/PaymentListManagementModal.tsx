@@ -470,7 +470,7 @@ export const PaymentListManagementModal: React.FC<Props> = ({
                               <button
                                 onClick={() => handleSaveEdit(l.id)}
                                 disabled={isSavingEdit || !editingName.trim()}
-                                className="rounded bg-teal-600 p-1 text-white hover:bg-teal-700 disabled:opacity-50"
+                                className="rounded bg-primary-700 p-1 text-white hover:bg-primary-800 disabled:opacity-50"
                                 title="Lưu tên mới (Enter)"
                               >
                                 <Check className="h-3.5 w-3.5" />
@@ -588,7 +588,7 @@ export const PaymentListManagementModal: React.FC<Props> = ({
           </span>
           <button
             onClick={onClose}
-            className="rounded-lg bg-teal-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 transition-colors shadow-2xs"
+            className="rounded-lg bg-primary-700 px-4 py-1.5 text-xs font-semibold text-white hover:bg-primary-800 transition-colors shadow-2xs"
           >
             Đóng
           </button>

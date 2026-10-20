@@ -198,7 +198,7 @@ export const ServicePackageConfig: React.FC = () => {
           </div>
         </div>
         {!showForm && (
-          <button onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm()); }} className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm">
+          <button onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm()); }} className="px-3.5 py-1.5 bg-primary-700 hover:bg-primary-800 text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm">
             <Plus className="h-3.5 w-3.5" /> Thêm gói mới
           </button>
         )}
@@ -259,7 +259,7 @@ export const ServicePackageConfig: React.FC = () => {
                       key={t}
                       type="button"
                       onClick={() => setForm({ ...form, deductionType: t })}
-                      className={`px-2.5 text-xs font-semibold transition-colors ${form.deductionType === t ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                      className={`px-2.5 text-xs font-semibold transition-colors ${form.deductionType === t ? 'bg-primary-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                     >
                       {t === 'amount' ? 'đ' : '%'}
                     </button>
@@ -408,7 +408,7 @@ export const ServicePackageConfig: React.FC = () => {
 
           {/* Actions */}
           <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-            <button onClick={handleSave} disabled={!form.name.trim()} className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm">
+            <button onClick={handleSave} disabled={!form.name.trim()} className="px-4 py-1.5 bg-primary-700 hover:bg-primary-800 disabled:opacity-50 disabled:pointer-events-none text-white font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow-sm">
               <Save className="h-3.5 w-3.5" /> {editingId ? 'Cập nhật' : 'Tạo gói'}
             </button>
             <button onClick={handleCancel} className="px-3 py-1.5 text-gray-600 hover:bg-gray-100 font-medium rounded-lg text-xs transition-colors">

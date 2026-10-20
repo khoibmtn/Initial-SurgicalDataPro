@@ -59,7 +59,7 @@ export const UploadFileBar: React.FC<UploadFileBarProps> = ({
                 disabled={!listFile}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs transition-colors cursor-pointer ${
                   listFile
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    ? 'bg-primary-700 text-white hover:bg-primary-800'
                     : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                 }`}
               >

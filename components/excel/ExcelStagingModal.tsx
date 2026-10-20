@@ -320,7 +320,7 @@ export const ExcelStagingModal: React.FC<ExcelStagingModalProps> = ({
               onClick={() => setActiveFilter('valid')}
               className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
                 activeFilter === 'valid'
-                  ? 'bg-emerald-600 text-white shadow-xs'
+                  ? 'bg-primary-700 text-white shadow-xs'
                   : 'text-emerald-800 hover:bg-emerald-100'
               }`}
             >
@@ -639,7 +639,7 @@ export const ExcelStagingModal: React.FC<ExcelStagingModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => saveInlineEdit(record._stagingId)}
-                                className="p-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors cursor-pointer"
+                                className="p-1 rounded-md bg-primary-700 text-white hover:bg-primary-800 transition-colors cursor-pointer"
                                 title="Lưu thay đổi"
                               >
                                 <Check className="w-3.5 h-3.5" />
@@ -722,7 +722,7 @@ export const ExcelStagingModal: React.FC<ExcelStagingModalProps> = ({
               type="button"
               onClick={handleConfirm}
               disabled={summary.errorCount > 0 || summary.validCount + summary.warningCount === 0}
-              className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+              className="px-5 py-2 rounded-xl text-xs font-bold bg-primary-700 text-white hover:bg-primary-800 shadow-md transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
             >
               Xác nhận Nhập Dữ Liệu ({summary.validCount + summary.warningCount} ca)
             </button>

@@ -191,7 +191,7 @@ export const ReportLockModal: React.FC<ReportLockModalProps> = ({
               className={`flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white rounded-lg transition-colors shadow-xs cursor-pointer disabled:opacity-60 ${
                 mode === 'lock'
                   ? 'bg-amber-600 hover:bg-amber-700'
-                  : 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-primary-700 hover:bg-primary-800'
               }`}
             >
               {isSubmitting ? (

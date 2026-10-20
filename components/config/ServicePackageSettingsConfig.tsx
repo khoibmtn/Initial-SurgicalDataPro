@@ -66,11 +66,7 @@ export const ServicePackageSettingsConfig: React.FC = () => {
             />
             <button
               onClick={handleSavePrintTitle}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm ${
-                isSaved
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-teal-600 hover:bg-teal-700 text-white'
-              }`}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm bg-primary-700 hover:bg-primary-800 text-white"
             >
               {isSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
               <span>{isSaved ? 'Đã lưu' : 'Lưu tiêu đề'}</span>

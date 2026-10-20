@@ -133,7 +133,7 @@ export const PaymentListManagerModal: React.FC<Props> = ({ ctx, onClose, onAssig
             {ctx.canManage && (
               <button
                 onClick={() => setActiveId('new')}
-                className={`flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${activeId === 'new' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+                className={`flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeId === 'new' ? 'bg-primary-800 text-white' : 'bg-primary-700 text-white hover:bg-primary-800'}`}
               >
                 <Plus className="h-3.5 w-3.5" /> Nhập danh sách mới
               </button>
@@ -201,7 +201,7 @@ export const PaymentListManagerModal: React.FC<Props> = ({ ctx, onClose, onAssig
                     )}
                     <button
                       disabled={busy || !parsed.entries.length} onClick={handleCreate}
-                      className="rounded-md bg-emerald-600 px-4 py-1.5 font-semibold text-white disabled:opacity-50"
+                      className="rounded-md bg-primary-700 hover:bg-primary-800 px-4 py-1.5 font-semibold text-white disabled:opacity-50"
                     >
                       Tạo danh sách
                     </button>
@@ -222,7 +222,7 @@ export const PaymentListManagerModal: React.FC<Props> = ({ ctx, onClose, onAssig
                         disabled={busy || !canLock(recon)}
                         title={canLock(recon) ? '' : 'Còn ca lệch họ tên chưa làm rõ'}
                         onClick={() => run(() => lockList(list.id, ctx.userName, canLock(recon)))}
-                        className="flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                        className="flex items-center gap-1 rounded-md bg-primary-700 hover:bg-primary-800 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                       >
                         <Lock className="h-3.5 w-3.5" /> Chốt
                       </button>

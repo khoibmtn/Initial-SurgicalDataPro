@@ -206,7 +206,7 @@ export const RefillModal: React.FC<RefillModalProps> = ({
               onClick={() => setFilterMode('diff')}
               className={`px-3 py-1 rounded-lg font-semibold transition-colors ${
                 filterMode === 'diff'
-                  ? 'bg-emerald-600 text-white shadow-sm'
+                  ? 'bg-primary-700 text-white shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -216,7 +216,7 @@ export const RefillModal: React.FC<RefillModalProps> = ({
               onClick={() => setFilterMode('update')}
               className={`px-3 py-1 rounded-lg font-semibold transition-colors ${
                 filterMode === 'update'
-                  ? 'bg-blue-600 text-white shadow-sm'
+                  ? 'bg-primary-700 text-white shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
@@ -392,7 +392,7 @@ export const RefillModal: React.FC<RefillModalProps> = ({
               disabled={stats.selectedCount === 0 || isConfirming}
               className={`flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
                 stats.selectedCount > 0 && !isConfirming
-                  ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:scale-95 shadow-emerald-200'
+                  ? 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 shadow-primary-700/20'
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }`}
             >

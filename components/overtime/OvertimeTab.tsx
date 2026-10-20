@@ -716,7 +716,7 @@ export const OvertimeTab: React.FC<OvertimeTabProps> = ({
               type="button"
               onClick={() => setIsExportDropdownOpen(!isExportDropdownOpen)}
               disabled={isExporting || filteredRows.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-primary-700 rounded-lg hover:bg-primary-800 active:bg-primary-900 disabled:opacity-50 transition-colors shadow-xs cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isExporting ? 'Đang xuất...' : 'Xuất ngoài giờ'}</span>
