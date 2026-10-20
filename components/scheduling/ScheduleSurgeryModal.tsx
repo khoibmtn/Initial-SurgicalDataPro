@@ -12,6 +12,31 @@ import { resolveDefaultLoaiPTTT } from '../../services/defaultSurgeryLoaiMap';
 import { auth } from '../../lib/firebase';
 import { isAuthOrPermissionError, openAuthModal } from '../../utils/authGuidance';
 
+const SHORT_LOAI_PTTT_LABELS: Record<string, string> = {
+  'PĐB': 'PT ĐB',
+  'P1': 'PT loại 1',
+  'P2': 'PT loại 2',
+  'P3': 'PT loại 3',
+  'TĐB': 'TT ĐB',
+  'T1': 'TT loại 1',
+  'T2': 'TT loại 2',
+  'T3': 'TT loại 3',
+  'TKPL': 'TT KPL',
+  'ĐB': 'Loại ĐB',
+  '1': 'Loại 1',
+  '2': 'Loại 2',
+  '3': 'Loại 3',
+};
+
+const SHORT_STAFF_ROLE_LABELS: Record<string, string> = {
+  ptChinh: 'BS PT chính',
+  ptPhu: 'BS PT phụ',
+  bsGM: 'BS GMHS',
+  ktvGM: 'KTV gây mê',
+  tdc: 'Tít DC',
+  gv: 'Giúp việc',
+};
+
 interface ScheduleSurgeryModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -195,7 +220,8 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
 
       const activeItem = candidates[0];
       const limit = activeItem ? Number(activeItem.limit) : pos.defaultLimit;
-      const label = activeItem?.label || pos.label;
+      const rawLabel = activeItem?.label || pos.label;
+      const label = SHORT_STAFF_ROLE_LABELS[pos.key] || rawLabel;
 
       return {
         id: activeItem?.id || pos.key,
@@ -438,65 +464,72 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
     }
   };
 
+  const validationTooltip = useMemo(() => {
+    const missing: string[] = [];
+    if (!patientId.trim()) missing.push('Mã KCB');
+    if (!patientName.trim()) missing.push('Họ tên BN');
+    if (!tenKT.trim()) missing.push('Tên PT/TT');
+    if (!startTime) missing.push('Giờ BĐ');
+    if (!endTime) missing.push('Giờ KT');
+
+    const parts: string[] = [];
+    if (missing.length > 0) {
+      parts.push(`Chưa nhập: ${missing.join(', ')}`);
+    }
+    if (startTime && endTime && !isTimeValid) {
+      parts.push('Giờ KT phải sau giờ BĐ');
+    }
+    return parts.join(' · ');
+  }, [patientId, patientName, tenKT, startTime, endTime, isTimeValid]);
+
+  const isSubmitDisabled = isSaving || Boolean(validationTooltip);
+  const canToggleThisLock = Boolean(
+    editingEntry && onToggleLock && ((isEntryLocked && canUnlock) || (!isEntryLocked && canLock))
+  );
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+    <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
       <div
         className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-slide-in"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 sm:py-3.5 border-b border-gray-200 bg-primary-50/50">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-sm font-bold text-primary-950">
-                {readOnly ? 'Chi tiết ca mổ' : editingEntry ? 'Chỉnh sửa ca mổ' : 'Đăng ký ca mổ mới'}
-              </h2>
-              {isEntryLocked && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                  <Lock size={11} className="text-amber-700" />
-                  Đã khóa lịch mổ
-                </span>
-              )}
-            </div>
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              {isEntryLocked
-                ? 'Ca mổ đang khóa chỉnh sửa. Mở khóa nếu cần thay đổi thời gian, hành chính hoặc kíp mổ.'
-                : editingEntry
-                ? 'Điều chỉnh giờ mổ, máy hoặc nhân sự để sắp xếp lại ca mổ và khắc phục trùng lịch'
-                : `Thêm ca phẫu thuật / thủ thuật vào lịch ngày ${date}`}
-            </p>
-          </div>
+        <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-3 border-b border-gray-200 bg-primary-50/50">
+          <h2 className="text-sm font-bold text-primary-950 truncate">
+            {readOnly ? 'Chi tiết ca mổ' : editingEntry ? 'Chỉnh sửa ca mổ' : 'Đăng ký ca mổ mới'}
+          </h2>
           <div className="flex items-center gap-1.5 shrink-0">
-            {editingEntry && onToggleLock && ((isEntryLocked && canUnlock) || (!isEntryLocked && canLock)) && (
+            {editingEntry && (canToggleThisLock || isEntryLocked) && (
               <button
                 type="button"
                 data-testid="modal-toggle-lock-btn"
-                disabled={isTogglingLock}
-                onClick={handleToggleLock}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
+                disabled={isTogglingLock || !canToggleThisLock}
+                onClick={canToggleThisLock ? handleToggleLock : undefined}
+                aria-label={isEntryLocked ? 'Đang khóa lịch mổ' : 'Đang mở khóa lịch mổ'}
+                className={`p-1.5 rounded-lg border transition-all shadow-2xs ${
                   isEntryLocked
-                    ? 'bg-primary-700 hover:bg-primary-800 text-white border-primary-800'
-                    : 'bg-amber-100 hover:bg-amber-200 text-amber-900 border-amber-300'
-                }`}
+                    ? 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200'
+                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                } ${!canToggleThisLock || isTogglingLock ? 'opacity-70 cursor-not-allowed' : 'cursor-pointer'}`}
                 title={
                   isEntryLocked
-                    ? 'Mở khóa để mọi người có thể chỉnh sửa lại ca mổ này'
-                    : 'Khóa ca mổ này để ngăn chỉnh sửa thời gian, hành chính và kíp mổ'
+                    ? `Đang khóa${editingEntry?.lockedByName ? ` (${editingEntry.lockedByName})` : ''}${
+                        canUnlock ? ' — Nhấn để mở khóa' : ''
+                      }`
+                    : `Đang mở khóa${canLock ? ' — Nhấn để khóa' : ''}`
                 }
               >
-                {isEntryLocked ? <Unlock size={13} /> : <Lock size={13} />}
-                <span>
-                  {isTogglingLock
-                    ? 'Đang xử lý...'
-                    : isEntryLocked
-                    ? 'Mở khóa lịch mổ'
-                    : 'Khóa lịch mổ'}
-                </span>
+                {isEntryLocked ? <Lock size={15} /> : <Unlock size={15} />}
               </button>
             )}
-            <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors cursor-pointer">
+            <button
+              type="button"
+              onClick={onClose}
+              title="Đóng"
+              className="p-1.5 rounded-lg hover:bg-gray-200 text-gray-500 transition-colors cursor-pointer"
+            >
               <X size={18} />
             </button>
           </div>
@@ -504,36 +537,6 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4">
-          {/* 🔒 Thông báo ca mổ đang bị khóa chỉnh sửa */}
-          {isEntryLocked && (
-            <div className="rounded-xl border border-amber-300 bg-amber-50/90 p-3 flex items-start justify-between gap-2.5 shadow-2xs animate-fade-in">
-              <div className="flex items-start gap-2 min-w-0">
-                <span className="p-1.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-200 shrink-0 mt-0.5">
-                  <Lock size={14} />
-                </span>
-                <div className="text-xs text-amber-950">
-                  <p className="font-bold">
-                    Ca mổ đã bị khóa chỉnh sửa{editingEntry?.lockedByName ? ` bởi ${editingEntry.lockedByName}` : ''}
-                  </p>
-                  <p className="text-[11px] text-amber-800/90 mt-0.5 leading-snug">
-                    Không thể thay đổi thời gian bắt đầu/kết thúc, thông tin hành chính, máy móc hay người tham gia khi đang khóa.
-                  </p>
-                </div>
-              </div>
-              {onToggleLock && canUnlock && (
-                <button
-                  type="button"
-                  disabled={isTogglingLock}
-                  onClick={handleToggleLock}
-                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-primary-700 hover:bg-primary-800 text-white shadow-2xs transition-all cursor-pointer whitespace-nowrap"
-                >
-                  <Unlock size={12} />
-                  <span>Mở khóa</span>
-                </button>
-              )}
-            </div>
-          )}
-
           {/* ⚠️ Xung đột phát hiện trên ca này */}
           {entryConflicts.length > 0 && (
             <div className="rounded-xl border border-red-200 bg-red-50/90 p-3 sm:p-3.5 space-y-2.5 animate-fade-in shadow-xs">
@@ -632,13 +635,17 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
           {/* Bệnh nhân */}
           <div className="grid grid-cols-5 gap-3">
             <div className="col-span-2">
-              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">Mã KCB</label>
+              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
+                Mã KCB <span className="text-red-500" title="Trường bắt buộc">*</span>
+              </label>
               <input type="text" value={patientId} onChange={(e) => setPatientId(e.target.value)} disabled={readOnly}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
                 placeholder="VD: 2600125423" />
             </div>
             <div className="col-span-3">
-              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">Họ tên BN</label>
+              <label className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
+                Họ tên BN <span className="text-red-500" title="Trường bắt buộc">*</span>
+              </label>
               <input type="text" value={patientName} onChange={(e) => setPatientName(e.target.value)} disabled={readOnly}
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
                 placeholder="Nguyễn Văn A" />
@@ -647,22 +654,16 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
 
           {/* Tên kỹ thuật (autocomplete) */}
           <div className="relative">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-                <span>
-                  <FileText className="inline h-3 w-3 mr-1" />
-                  Tên phẫu thuật / thủ thuật
-                </span>
-                {effectiveLoaiPTTT && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200 text-[10px] font-bold normal-case">
-                    {LOAI_PTTT_LABELS[effectiveLoaiPTTT] || effectiveLoaiPTTT} ({effectiveLoaiPTTT})
-                    {minDurationForLoai > 0 ? ` · Tối thiểu ${minDurationForLoai}p` : ''}
-                  </span>
-                )}
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                <FileText className="inline h-3 w-3 mr-0.5" />
+                <span>Tên PT/TT</span>
+                <span className="text-red-500" title="Trường bắt buộc">*</span>
               </label>
-              {activeSurgeryCatalog.length > 0 && (
-                <span className="text-[10px] text-gray-400">
-                  {activeSurgeryCatalog.length.toLocaleString('vi-VN')} PTTT hiệu lực
+              {effectiveLoaiPTTT && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200 text-[10px] font-bold normal-case shrink-0">
+                  {SHORT_LOAI_PTTT_LABELS[effectiveLoaiPTTT] || LOAI_PTTT_LABELS[effectiveLoaiPTTT] || effectiveLoaiPTTT}
+                  {minDurationForLoai > 0 ? ` · ≥${minDurationForLoai}p` : ''}
                 </span>
               )}
             </div>
@@ -738,7 +739,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                       <div className="flex items-center gap-1.5 shrink-0">
                         {itemLoai && (
                           <span className="text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded text-[10px] font-bold border border-teal-200">
-                            {itemLoai}{itemMin > 0 ? ` · ≥${itemMin}p` : ''}
+                            {SHORT_LOAI_PTTT_LABELS[itemLoai] || itemLoai}{itemMin > 0 ? ` · ≥${itemMin}p` : ''}
                           </span>
                         )}
                         {s.maTuongDuong && (
@@ -754,7 +755,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
             )}
             {showTenKTDropdown && filteredSurgeryNames.length === 0 && tenKTSearch.trim() && (
               <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl p-3 text-center text-xs text-gray-400">
-                Không tìm thấy phẫu thuật phù hợp trong danh mục hiệu lực
+                Không tìm thấy PTTT phù hợp
               </div>
             )}
           </div>
@@ -764,7 +765,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label htmlFor="schedule-start-time" className="block text-[11px] font-bold text-gray-500 mb-1 uppercase tracking-wide">
-                  <Clock className="inline h-3 w-3 mr-1" /> Giờ bắt đầu
+                  <Clock className="inline h-3 w-3 mr-1" /> Giờ BĐ <span className="text-red-500" title="Trường bắt buộc">*</span>
                 </label>
                 <TimeInput24
                   id="schedule-start-time"
@@ -784,13 +785,13 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                   className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm tabular-nums focus:border-primary-500 focus:ring-1 focus:ring-primary-200 outline-none transition-all disabled:opacity-50 disabled:bg-gray-50"
                 />
                 {startShift >= 24 && (
-                  <span className="inline-block mt-1 text-[10px] font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">Hôm sau (+1)</span>
+                  <span className="inline-block mt-1 text-[10px] font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">+1</span>
                 )}
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label htmlFor="schedule-end-time" className="block text-[11px] font-bold text-gray-500 uppercase tracking-wide">
-                    <Clock className="inline h-3 w-3 mr-1" /> Giờ kết thúc
+                    <Clock className="inline h-3 w-3 mr-1" /> Giờ KT <span className="text-red-500" title="Trường bắt buộc">*</span>
                   </label>
                   {minDurationForLoai > 0 && !readOnly && durationMins !== minDurationForLoai && (
                     <button
@@ -800,9 +801,9 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                         setEndTime(addMinutes(startTime, minDurationForLoai));
                       }}
                       className="text-[10px] font-semibold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100 px-1.5 py-0.5 rounded border border-teal-200 transition-colors cursor-pointer"
-                      title={`Đặt lại theo thời gian tối thiểu của ${effectiveLoaiPTTT} (${minDurationForLoai} phút)`}
+                      title={`Đặt lại theo ĐM ${SHORT_LOAI_PTTT_LABELS[effectiveLoaiPTTT] || effectiveLoaiPTTT} (${minDurationForLoai}p)`}
                     >
-                      +{minDurationForLoai}p ({effectiveLoaiPTTT})
+                      +{minDurationForLoai}p
                     </button>
                   )}
                 </div>
@@ -822,7 +823,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                   }`}
                 />
                 {endShift >= 24 && isTimeValid && (
-                  <span className="inline-block mt-1 text-[10px] font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">Hôm sau (+1)</span>
+                  <span className="inline-block mt-1 text-[10px] font-semibold text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded">+1</span>
                 )}
               </div>
             </div>
@@ -832,14 +833,13 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                   Thời lượng: <span className="font-bold text-gray-700">{formatDuration(durationMins)}</span>
                   {effectiveLoaiPTTT && minDurationForLoai > 0 && (
                     <span className={durationMins < minDurationForLoai ? ' text-amber-600 font-semibold' : ' text-teal-700'}>
-                      {' '}· Định mức tối thiểu {effectiveLoaiPTTT}: {minDurationForLoai} phút
-                      {durationMins < minDurationForLoai ? ' (ngắn hơn định mức)' : ''}
+                      {' '}· ĐM {SHORT_LOAI_PTTT_LABELS[effectiveLoaiPTTT] || effectiveLoaiPTTT}: ≥{minDurationForLoai}p
+                      {durationMins < minDurationForLoai ? ' (ngắn hơn ĐM)' : ''}
                     </span>
                   )}
-                  {' '}· Ca trực bắt đầu {dutyStartStr}, giờ trước {dutyStartStr} tính là hôm sau
                 </>
               ) : (
-                'Giờ kết thúc phải sau giờ bắt đầu (trong ca trực 24h)'
+                'Giờ KT phải sau giờ BĐ'
               )}
             </p>
           </div>
@@ -975,7 +975,7 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
                   title="Xóa ca mổ khỏi lịch"
                 >
                   <Trash2 size={13} />
-                  <span>Xóa ca mổ</span>
+                  <span>Xóa</span>
                 </button>
               )}
               {onDuplicate && (
@@ -1010,31 +1010,68 @@ export const ScheduleSurgeryModal: React.FC<ScheduleSurgeryModalProps> = ({
               </div>
             )}
             {readOnly ? (
-              <button onClick={onClose} className="px-5 py-2 text-xs font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors cursor-pointer">
-                Đóng
-              </button>
+              <div className="relative group">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  title={validationTooltip || 'Đóng cửa sổ'}
+                  className="px-5 py-2 text-xs font-bold text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors cursor-pointer"
+                >
+                  Đóng
+                </button>
+                {validationTooltip && (
+                  <div
+                    role="tooltip"
+                    className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block z-50 w-max max-w-[260px] rounded-lg bg-gray-900 px-2.5 py-1.5 text-[11px] font-medium text-white shadow-lg"
+                  >
+                    {validationTooltip}
+                  </div>
+                )}
+              </div>
             ) : (
               <>
-                <button onClick={onClose} className="px-3.5 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer">Hủy</button>
-                <button onClick={handleSubmit}
-                  disabled={
-                    isSaving ||
-                    !patientId.trim() ||
-                    !patientName.trim() ||
-                    !tenKT.trim() ||
-                    !isTimeValid
-                  }
-                  className={`px-4 sm:px-5 py-1.5 sm:py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
-                    isSaving ||
-                    !patientId.trim() ||
-                    !patientName.trim() ||
-                    !tenKT.trim() ||
-                    !isTimeValid
-                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                      : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
-                  }`}>
-                  {isSaving ? 'Đang lưu...' : editingEntry ? 'Lưu thay đổi' : 'Đăng ký ca mổ'}
-                </button>
+                <div className="relative group">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    title={validationTooltip ? `${validationTooltip} (Nhấn để đóng không lưu)` : 'Đóng không lưu'}
+                    className="px-3.5 sm:px-4 py-1.5 sm:py-2 text-xs font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Đóng
+                  </button>
+                  {validationTooltip && (
+                    <div
+                      role="tooltip"
+                      className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block z-50 w-max max-w-[260px] rounded-lg bg-gray-900 px-2.5 py-1.5 text-[11px] font-medium text-white shadow-lg"
+                    >
+                      {validationTooltip}
+                    </div>
+                  )}
+                </div>
+                <div className="relative group" title={validationTooltip || undefined}>
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={isSubmitDisabled}
+                    title={validationTooltip || (editingEntry ? 'Lưu thay đổi' : 'Thêm ca mổ')}
+                    className={`px-4 sm:px-5 py-1.5 sm:py-2 text-xs font-bold rounded-lg transition-all shadow-sm ${
+                      isSubmitDisabled
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-primary-700 text-white hover:bg-primary-800 active:scale-95 cursor-pointer'
+                    }`}
+                  >
+                    {isSaving ? 'Đang lưu...' : editingEntry ? 'Lưu thay đổi' : 'Thêm ca mổ'}
+                  </button>
+                  {validationTooltip && (
+                    <div
+                      role="tooltip"
+                      data-testid="submit-validation-tooltip"
+                      className="pointer-events-none absolute bottom-full right-0 mb-2 hidden group-hover:block z-50 w-max max-w-[260px] rounded-lg bg-gray-900 px-2.5 py-1.5 text-[11px] font-medium text-white shadow-lg"
+                    >
+                      {validationTooltip}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>

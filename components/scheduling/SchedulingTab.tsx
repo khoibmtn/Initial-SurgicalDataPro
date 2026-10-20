@@ -75,6 +75,48 @@ function useIsMobile(breakpoint = 768) {
   return isMobile;
 }
 
+const VALID_ZOOM_LEVELS: ZoomLevel[] = [40, 60, 80, 120, 180];
+
+interface SavedScheduleUIState {
+  dateStr?: string;
+  viewMode?: 'timeline' | 'list';
+  orientation?: TimelineOrientation;
+  zoomLevel?: ZoomLevel;
+  showStaff?: boolean;
+  shortStaffName?: boolean;
+  showWeek?: boolean;
+}
+
+const memoryScheduleUIState: SavedScheduleUIState = {};
+
+function readStorageItem(key: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStorageItem(key: string, value: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+function getWeekdayShort(d: Date): string {
+  const names = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+  return names[d.getDay()];
+}
+
 export const SchedulingTab: React.FC = () => {
   const { config } = useConfig();
   const { user, isAdmin, isHead, isAuthenticated, can } = useAuth();
@@ -84,90 +126,119 @@ export const SchedulingTab: React.FC = () => {
   const canUnlockSchedule = isAdmin || can('unlock_schedule');
   const isMobile = useIsMobile();
 
-  // Navigation
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  // Navigation — giữ nguyên ngày đang chọn khi chuyển tab hoặc tải lại
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    const saved = memoryScheduleUIState.dateStr || readStorageItem('surgical_schedule_selected_date');
+    if (saved && /^\d{4}-\d{2}-\d{2}$/.test(saved)) {
+      const parsed = new Date(saved + 'T00:00:00');
+      if (!isNaN(parsed.getTime())) return parsed;
+    }
+    return new Date();
+  });
   const dateStr = useMemo(() => toDateString(currentDate), [currentDate]);
   const weekStart = useMemo(() => getWeekStart(currentDate), [currentDate]);
 
-  // View
-  const [showWeek, setShowWeek] = useState(false);
-  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(() =>
-    typeof window !== 'undefined' && window.innerWidth < 768 ? 80 : 120
-  );
-  const [viewMode, setViewMode] = useState<'timeline' | 'list'>('timeline');
+  useEffect(() => {
+    memoryScheduleUIState.dateStr = dateStr;
+    writeStorageItem('surgical_schedule_selected_date', dateStr);
+  }, [dateStr]);
+
+  // View — lưu trữ đầy đủ trạng thái hiển thị
+  const [showWeek, setShowWeek] = useState<boolean>(() => {
+    if (memoryScheduleUIState.showWeek !== undefined) return memoryScheduleUIState.showWeek;
+    return readStorageItem('surgical_schedule_show_week') === 'true';
+  });
+
+  const handleShowWeekChange = useCallback((updater: boolean | ((prev: boolean) => boolean)) => {
+    setShowWeek((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      memoryScheduleUIState.showWeek = next;
+      writeStorageItem('surgical_schedule_show_week', String(next));
+      return next;
+    });
+  }, []);
+
+  const [zoomLevel, setZoomLevel] = useState<ZoomLevel>(() => {
+    if (memoryScheduleUIState.zoomLevel) return memoryScheduleUIState.zoomLevel;
+    const saved = Number(readStorageItem('surgical_timeline_zoom_h'));
+    if (VALID_ZOOM_LEVELS.includes(saved as ZoomLevel)) return saved as ZoomLevel;
+    return typeof window !== 'undefined' && window.innerWidth < 768 ? 80 : 120;
+  });
+
+  const handleZoomLevelChange = useCallback((next: ZoomLevel) => {
+    setZoomLevel(next);
+    memoryScheduleUIState.zoomLevel = next;
+    writeStorageItem('surgical_timeline_zoom_h', String(next));
+  }, []);
+
+  const [viewMode, setViewMode] = useState<'timeline' | 'list'>(() => {
+    if (memoryScheduleUIState.viewMode) return memoryScheduleUIState.viewMode;
+    const saved = readStorageItem('surgical_schedule_view_mode');
+    if (saved === 'timeline' || saved === 'list') return saved;
+    return 'timeline';
+  });
+
+  const handleViewModeChange = useCallback((next: 'timeline' | 'list') => {
+    setViewMode(next);
+    memoryScheduleUIState.viewMode = next;
+    writeStorageItem('surgical_schedule_view_mode', next);
+  }, []);
+
   const [showProjector, setShowProjector] = useState(false);
   const [showStaff, setShowStaff] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('surgical_timeline_show_staff') === 'true';
-      } catch {
-        return false;
-      }
-    }
-    return false;
+    if (memoryScheduleUIState.showStaff !== undefined) return memoryScheduleUIState.showStaff;
+    return readStorageItem('surgical_timeline_show_staff') === 'true';
   });
 
   const handleShowStaffChange = useCallback((next: boolean) => {
     setShowStaff(next);
-    try {
-      localStorage.setItem('surgical_timeline_show_staff', String(next));
-    } catch {
-      // ignore
-    }
+    memoryScheduleUIState.showStaff = next;
+    writeStorageItem('surgical_timeline_show_staff', String(next));
   }, []);
 
   const [shortStaffName, setShortStaffName] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return localStorage.getItem('surgical_timeline_short_staff') === 'true';
-      } catch {
-        return false;
-      }
-    }
-    return false;
+    if (memoryScheduleUIState.shortStaffName !== undefined) return memoryScheduleUIState.shortStaffName;
+    return readStorageItem('surgical_timeline_short_staff') === 'true';
   });
 
   const handleShortStaffNameChange = useCallback((next: boolean) => {
     setShortStaffName(next);
-    try {
-      localStorage.setItem('surgical_timeline_short_staff', String(next));
-    } catch {
-      // ignore
-    }
+    memoryScheduleUIState.shortStaffName = next;
+    writeStorageItem('surgical_timeline_short_staff', String(next));
   }, []);
 
   const [timelineOrientation, setTimelineOrientation] = useState<TimelineOrientation>(() => {
-    if (typeof window !== 'undefined') {
-      const isSmall = window.innerWidth < 768;
-      const key = isSmall ? 'surgical_timeline_orientation_mobile' : 'surgical_timeline_orientation_desktop';
-      const saved = localStorage.getItem(key) || localStorage.getItem('surgical_timeline_orientation');
-      if (saved === 'horizontal' || saved === 'vertical') return saved;
-      return isSmall ? 'vertical' : 'horizontal';
-    }
-    return 'horizontal';
+    if (memoryScheduleUIState.orientation) return memoryScheduleUIState.orientation;
+    const isSmall = typeof window !== 'undefined' && window.innerWidth < 768;
+    const key = isSmall ? 'surgical_timeline_orientation_mobile' : 'surgical_timeline_orientation_desktop';
+    const saved = readStorageItem('surgical_timeline_orientation') || readStorageItem(key);
+    if (saved === 'horizontal' || saved === 'vertical') return saved;
+    return isSmall ? 'vertical' : 'horizontal';
   });
 
-  const handleOrientationChange = (o: TimelineOrientation) => {
+  const handleOrientationChange = useCallback((o: TimelineOrientation) => {
     setTimelineOrientation(o);
-    try {
-      const isSmall = window.innerWidth < 768;
-      const key = isSmall ? 'surgical_timeline_orientation_mobile' : 'surgical_timeline_orientation_desktop';
-      localStorage.setItem(key, o);
-      localStorage.setItem('surgical_timeline_orientation', o);
-    } catch {
-      // ignore
-    }
-  };
+    memoryScheduleUIState.orientation = o;
+    const isSmall = typeof window !== 'undefined' && window.innerWidth < 768;
+    const key = isSmall ? 'surgical_timeline_orientation_mobile' : 'surgical_timeline_orientation_desktop';
+    writeStorageItem(key, o);
+    writeStorageItem('surgical_timeline_orientation', o);
+  }, []);
 
-  // Auto-adapt when screen resizes across mobile/desktop breakpoint if user hasn't explicitly set for that mode
+  // Chỉ tự điều chỉnh hướng khi vượt qua ranh giới breakpoint mobile/desktop VÀ người dùng chưa từng lưu cài đặt
   useEffect(() => {
+    let prevIsSmall = typeof window !== 'undefined' ? window.innerWidth < 768 : false;
     const handleResize = () => {
       const isSmall = window.innerWidth < 768;
+      if (isSmall === prevIsSmall) return;
+      prevIsSmall = isSmall;
+      const savedGlobal = readStorageItem('surgical_timeline_orientation');
       const key = isSmall ? 'surgical_timeline_orientation_mobile' : 'surgical_timeline_orientation_desktop';
-      const saved = localStorage.getItem(key);
+      const savedKey = readStorageItem(key);
+      const saved = savedKey || savedGlobal;
       if (saved === 'horizontal' || saved === 'vertical') {
         setTimelineOrientation(saved);
-      } else {
+      } else if (!memoryScheduleUIState.orientation) {
         setTimelineOrientation(isSmall ? 'vertical' : 'horizontal');
       }
     };
@@ -462,20 +533,39 @@ export const SchedulingTab: React.FC = () => {
   return (
     <div className="flex flex-col gap-2 sm:gap-3 p-2.5 sm:p-4 pb-20 sm:pb-4 animate-fade-in max-w-[1800px] mx-auto w-full">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 sm:gap-2 min-w-0 flex-1">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        {/* Date Navigation & Picker — luôn hiển thị đầy đủ trên cả điện thoại và máy tính */}
+        <div className="flex items-center justify-between sm:justify-start gap-1 sm:gap-2 min-w-0 w-full sm:w-auto bg-white sm:bg-transparent px-2 py-1.5 sm:p-0 rounded-xl border border-gray-200 sm:border-0 shadow-2xs sm:shadow-none">
           <button
+            type="button"
+            data-testid="schedule-prev-day"
             onClick={goToPrevDay}
-            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors cursor-pointer shrink-0"
+            title="Ngày trước"
+            className="p-1.5 sm:p-2 rounded-lg border border-gray-200 sm:border-0 bg-gray-50 sm:bg-transparent hover:bg-gray-100 text-gray-700 transition-colors cursor-pointer shrink-0"
           >
             <ChevronLeft size={isMobile ? 16 : 18} />
           </button>
 
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center justify-center gap-1.5 min-w-0 flex-1 sm:flex-initial">
             <Calendar size={14} className="text-primary-600 shrink-0 hidden sm:block" />
-            <h2 className="text-xs sm:text-sm font-bold text-gray-800 truncate">
-              {isMobile ? formatShortDate(currentDate) : formatDisplayDate(currentDate)}
+            <span className="inline-flex sm:hidden items-center px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 border border-primary-200 text-[11px] font-bold shrink-0">
+              {getWeekdayShort(currentDate)}
+            </span>
+            <h2 className="hidden md:block text-xs sm:text-sm font-bold text-gray-800 truncate">
+              {formatDisplayDate(currentDate)}
             </h2>
+            <input
+              type="date"
+              data-testid="schedule-date-picker"
+              aria-label="Chọn ngày hiển thị lịch mổ"
+              value={dateStr}
+              onChange={(e) => {
+                if (e.target.value) {
+                  setCurrentDate(new Date(e.target.value + 'T00:00:00'));
+                }
+              }}
+              className="block text-xs font-bold sm:font-medium text-gray-800 border border-gray-300 rounded-lg px-2 py-1 sm:py-1.5 bg-white cursor-pointer focus:border-primary-500 outline-none shrink-0"
+            />
             {scheduleStatus !== 'live' && (
               <span
                 className="flex items-center gap-1 text-[10px] font-medium text-gray-400 shrink-0"
@@ -487,35 +577,35 @@ export const SchedulingTab: React.FC = () => {
             )}
             {!isToday && (
               <button
+                type="button"
+                data-testid="schedule-today-btn"
                 onClick={goToToday}
-                className="text-[10px] font-semibold text-primary-600 hover:text-primary-800 underline cursor-pointer shrink-0"
+                className="px-2 py-1 rounded-md bg-primary-50 hover:bg-primary-100 text-[10px] sm:text-[11px] font-bold text-primary-700 border border-primary-200 cursor-pointer shrink-0 transition-colors"
+                title="Quay về ngày hôm nay"
               >
-                Nay
+                Hôm nay
               </button>
             )}
           </div>
 
           <button
+            type="button"
+            data-testid="schedule-next-day"
             onClick={goToNextDay}
-            className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors cursor-pointer shrink-0"
+            title="Ngày tiếp theo"
+            className="p-1.5 sm:p-2 rounded-lg border border-gray-200 sm:border-0 bg-gray-50 sm:bg-transparent hover:bg-gray-100 text-gray-700 transition-colors cursor-pointer shrink-0"
           >
             <ChevronRight size={isMobile ? 16 : 18} />
           </button>
-
-          <input
-            type="date"
-            value={dateStr}
-            onChange={(e) => setCurrentDate(new Date(e.target.value + 'T00:00:00'))}
-            className="hidden sm:block text-xs border border-gray-300 rounded-lg px-2 py-1.5 cursor-pointer focus:border-primary-400 outline-none"
-          />
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-1 sm:gap-1.5">
+        <div className="flex items-center justify-between sm:justify-end gap-1 sm:gap-1.5 w-full sm:w-auto flex-wrap">
           {/* View Mode Toggle: Timeline vs List */}
           <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200 shrink-0">
             <button
-              onClick={() => setViewMode('timeline')}
+              type="button"
+              onClick={() => handleViewModeChange('timeline')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                 viewMode === 'timeline'
                   ? 'bg-white text-primary-700 shadow-xs'
@@ -527,7 +617,8 @@ export const SchedulingTab: React.FC = () => {
               <span className="hidden xs:inline">Timeline</span>
             </button>
             <button
-              onClick={() => setViewMode('list')}
+              type="button"
+              onClick={() => handleViewModeChange('list')}
               className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                 viewMode === 'list'
                   ? 'bg-white text-primary-700 shadow-xs'
@@ -544,6 +635,7 @@ export const SchedulingTab: React.FC = () => {
           {viewMode === 'timeline' && (
             <div className="flex items-center bg-gray-100 p-0.5 rounded-lg border border-gray-200 shrink-0 animate-fade-in">
               <button
+                type="button"
                 onClick={() => handleOrientationChange('horizontal')}
                 className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                   timelineOrientation === 'horizontal'
@@ -556,6 +648,7 @@ export const SchedulingTab: React.FC = () => {
                 <span className="hidden sm:inline">Ngang</span>
               </button>
               <button
+                type="button"
                 onClick={() => handleOrientationChange('vertical')}
                 className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] sm:text-xs font-semibold transition-all cursor-pointer ${
                   timelineOrientation === 'vertical'
@@ -619,6 +712,7 @@ export const SchedulingTab: React.FC = () => {
           {!isMobile && (
             <Tooltip content="Màn hình chiếu (theo dõi toàn màn hình)" position="bottom">
               <button
+                type="button"
                 id="schedule-projector-btn"
                 onClick={() => setShowProjector(true)}
                 className="p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer shrink-0 hover:bg-gray-100 text-gray-500"
@@ -631,6 +725,7 @@ export const SchedulingTab: React.FC = () => {
           {/* Export */}
           <Tooltip content="Xuất lịch mổ ra Excel" position="bottom">
             <button
+              type="button"
               onClick={handleExport}
               disabled={entries.length === 0}
               className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer shrink-0 ${
@@ -644,7 +739,8 @@ export const SchedulingTab: React.FC = () => {
           {/* Week toggle */}
           <Tooltip content={showWeek ? 'Ẩn tuần' : 'Xem tổng quan tuần'} position="bottom">
             <button
-              onClick={() => setShowWeek((v) => !v)}
+              type="button"
+              onClick={() => handleShowWeekChange((v) => !v)}
               className={`p-1.5 sm:p-2 rounded-lg transition-colors cursor-pointer shrink-0 ${
                 showWeek ? 'bg-primary-100 text-primary-700' : 'hover:bg-gray-100 text-gray-500'
               }`}
@@ -657,6 +753,7 @@ export const SchedulingTab: React.FC = () => {
           {canManageSchedule && (
             <Tooltip content="Đăng ký ca mổ mới" position="bottom">
               <button
+                type="button"
                 onClick={handleAddNew}
                 className="flex items-center gap-1 px-3 sm:px-4 py-1.5 sm:py-2 bg-primary-700 text-white font-bold
                            text-[11px] sm:text-xs rounded-xl hover:bg-primary-800 active:scale-95 transition-all
@@ -817,7 +914,7 @@ export const SchedulingTab: React.FC = () => {
             roleLimits={roleLimits}
             currentUserId={user?.uid}
             hourWidth={zoomLevel}
-            onZoomChange={setZoomLevel}
+            onZoomChange={handleZoomLevelChange}
             orientation={timelineOrientation}
             onOrientationChange={handleOrientationChange}
             showStaff={showStaff}
@@ -860,6 +957,10 @@ export const SchedulingTab: React.FC = () => {
           workingHours={config.workingHours}
           currentUserId={user?.uid}
           isModalOpen={showModal || !!deleteTarget || !!duplicateTarget}
+          showStaff={showStaff}
+          onShowStaffChange={handleShowStaffChange}
+          shortStaffName={shortStaffName}
+          onShortStaffNameChange={handleShortStaffNameChange}
         />
       )}
 

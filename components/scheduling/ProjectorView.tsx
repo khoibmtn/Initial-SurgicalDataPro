@@ -23,6 +23,10 @@ interface ProjectorViewProps {
   currentUserId?: string;
   /** Đang mở modal/dialog → Esc không thoát chế độ chiếu */
   isModalOpen?: boolean;
+  showStaff?: boolean;
+  onShowStaffChange?: (show: boolean) => void;
+  shortStaffName?: boolean;
+  onShortStaffNameChange?: (short: boolean) => void;
 }
 
 const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: number; tone: string }> = ({ icon, label, value, tone }) => (
@@ -52,6 +56,7 @@ function pickZoom(width: number): ZoomLevel {
 export const ProjectorView: React.FC<ProjectorViewProps> = ({
   entries, conflicts, conflictedIds, onEntryClick, onEntryTimeChange, roleFilters, roleLimits, onClose,
   selectedDate, dateLabel, dutyStartHour, dutyStartStr, workingHours, currentUserId, isModalOpen = false,
+  showStaff, onShowStaffChange, shortStaffName, onShortStaffNameChange,
 }) => {
   const modalOpenRef = React.useRef(isModalOpen);
   modalOpenRef.current = isModalOpen;
@@ -183,6 +188,10 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
             hourWidth={zoom}
             onZoomChange={setZoom}
             orientation="horizontal"
+            showStaff={showStaff}
+            onShowStaffChange={onShowStaffChange}
+            shortStaffName={shortStaffName}
+            onShortStaffNameChange={onShortStaffNameChange}
             selectedDate={selectedDate}
             workingHours={workingHours}
           />
@@ -195,6 +204,8 @@ export const ProjectorView: React.FC<ProjectorViewProps> = ({
             onEntryClick={onEntryClick}
             dutyStartHour={dutyStartHour}
             selectedDate={selectedDate}
+            showStaff={showStaff}
+            shortStaffName={shortStaffName}
           />
         </aside>
       </div>

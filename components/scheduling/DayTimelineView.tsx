@@ -631,25 +631,53 @@ export const DayTimelineView: React.FC<DayTimelineViewProps> = ({
     setDragState(null);
   }, [selectedDate]);
 
-  // Vertical zoom: on mobile default to 48px (Thu nhỏ) so ~10h fit on phone; on desktop default to 68px (Chuẩn)
-  const [vZoomIdx, setVZoomIdx] = useState(() =>
-    typeof window !== 'undefined' && window.innerWidth < 640 ? 2 : 3
-  );
+  // Vertical zoom: lưu lại cài đặt thu phóng dọc trong localStorage
+  const [vZoomIdx, setVZoomIdx] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = Number(localStorage.getItem('surgical_timeline_zoom_v'));
+        if (!isNaN(saved) && saved >= 0 && saved < V_ZOOM_LEVELS.length && localStorage.getItem('surgical_timeline_zoom_v') !== null) {
+          return saved;
+        }
+      } catch {
+        // ignore
+      }
+      return window.innerWidth < 640 ? 2 : 3;
+    }
+    return 3;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('surgical_timeline_zoom_v', String(vZoomIdx));
+    } catch {
+      // ignore
+    }
+  }, [vZoomIdx]);
+
   const verticalHourHeight = V_ZOOM_LEVELS[vZoomIdx];
   const zoomConfig = useMemo(() => getVerticalZoomConfig(verticalHourHeight), [verticalHourHeight]);
 
-  // Track container width for responsive column sizing
+  // Track container width for responsive column sizing (bỏ qua khi tab đang ẩn clientWidth === 0)
   useEffect(() => {
     if (!containerRef.current) return;
     const updateWidth = () => {
-      if (containerRef.current) {
+      if (containerRef.current && containerRef.current.clientWidth > 0) {
         setContainerWidth(containerRef.current.clientWidth);
       }
     };
     updateWidth();
     window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
-  }, []);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(updateWidth);
+      ro.observe(containerRef.current);
+    }
+    return () => {
+      window.removeEventListener('resize', updateWidth);
+      ro?.disconnect();
+    };
+  }, [orientation]);
 
   const isMobile = containerWidth < 640;
 

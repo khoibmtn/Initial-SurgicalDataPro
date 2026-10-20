@@ -98,8 +98,21 @@ const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
   const { user, isAdmin, isHead, currentRole, can, isAuthenticated } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<TabKey>('daily');
-  const [hasVisitedStats, setHasVisitedStats] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = sessionStorage.getItem('surgical_active_tab');
+        if (saved === 'daily' || saved === 'monthly' || saved === 'statistics' || saved === 'scheduling' || saved === 'config') {
+          return saved;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return 'daily';
+  });
+  const [hasVisitedStats, setHasVisitedStats] = useState(() => activeTab === 'statistics');
+  const [hasVisitedScheduling, setHasVisitedScheduling] = useState(() => activeTab === 'scheduling');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [loginModalView, setLoginModalView] = useState<'login' | 'register'>('login');
   const [showAccountPanel, setShowAccountPanel] = useState(false);
@@ -122,8 +135,16 @@ const InnerApp: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    try {
+      sessionStorage.setItem('surgical_active_tab', activeTab);
+    } catch {
+      // ignore
+    }
     if (activeTab === 'statistics') {
       setHasVisitedStats(true);
+    }
+    if (activeTab === 'scheduling') {
+      setHasVisitedScheduling(true);
     }
   }, [activeTab]);
 
@@ -1223,10 +1244,12 @@ const InnerApp: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'scheduling' && (
-          <ErrorBoundary fallbackTitle="Không thể tải Lịch mổ">
-            <SchedulingTab />
-          </ErrorBoundary>
+        {hasVisitedScheduling && (
+          <div style={{ display: activeTab === 'scheduling' ? 'block' : 'none' }} className="w-full h-full flex-1">
+            <ErrorBoundary fallbackTitle="Không thể tải Lịch mổ">
+              <SchedulingTab />
+            </ErrorBoundary>
+          </div>
         )}
 
         {activeTab === 'config' && (
