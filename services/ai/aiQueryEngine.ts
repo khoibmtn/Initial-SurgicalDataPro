@@ -28,6 +28,12 @@ import { reportService } from '../reportService';
 import { dutyScheduleService, isWeekend } from '../dutyScheduleService';
 import { calculateOvertimeRows } from '../overtimeCalculationService';
 import { getAllowanceForRecord } from '../laborConfigService';
+import {
+  classifySpecialty,
+  getAllSpecialties,
+  getSpecialtyOverrides,
+  isRecordGayTe,
+} from '../specialtyComparisonService';
 import type { YearlyCacheData } from '../statisticsService';
 
 export interface AIDataContextInput {
@@ -48,6 +54,8 @@ export interface AIQueryExecutionOutput {
   executedTools: AIChatToolExecutionLog[];
   contextDataForLLM: string;
   artifacts: AIArtifact[];
+  scopedRecordCount?: number;
+  scopedDateRange?: string;
 }
 
 // ─── TEXT & VIETNAMESE NORMALIZATION HELPERS ─────────────────────────────────
@@ -163,8 +171,11 @@ export function getAllRecordsFromContext(
   return [];
 }
 
+// In-memory cache of full-year deduplicated Firestore records for instant AI Studio queries
+const aiFetchedYearsCache = new Map<number, PersistedSurgeryRecord[]>();
+
 /**
- * Tự động bóc tách tháng / năm được hỏi trong câu truy vấn tiếng Việt
+ * Tự động bóc tách tháng / khoảng tháng / quý / năm được hỏi trong câu truy vấn tiếng Việt
  */
 export function extractTimeConstraintsFromPrompt(
   prompt: string,
@@ -174,15 +185,62 @@ export function extractTimeConstraintsFromPrompt(
   years: number[];
   seasonFilter?: 'Mùa Hè' | 'Mùa Đông' | 'both';
 } {
-  const norm = normalizeText(prompt);
   const noTone = removeVietnameseTones(prompt);
 
   const months = new Set<number>();
   const years = new Set<number>();
 
-  // Match "tháng 1/2026", "tháng 05 năm 2025", "t5/2026"
-  const monthYearRegex = /(?:thang|thg|t)\s*(\d{1,2})\s*(?:\/|-|\s+nam\s+)(\d{4})/gi;
+  // 1. Match "N tháng đầu (năm)" e.g. "9 tháng đầu năm 2026", "6 tháng đầu"
+  const firstNMonthsRegex = /(\d{1,2})\s*thang\s*dau/gi;
   let mMatch: RegExpExecArray | null;
+  while ((mMatch = firstNMonthsRegex.exec(noTone)) !== null) {
+    const n = parseInt(mMatch[1], 10);
+    if (n >= 1 && n <= 12) {
+      for (let m = 1; m <= n; m++) months.add(m);
+    }
+  }
+
+  // 2. Match "N tháng cuối (năm)" e.g. "3 tháng cuối năm", "6 tháng cuối"
+  const lastNMonthsRegex = /(\d{1,2})\s*thang\s*cuoi/gi;
+  while ((mMatch = lastNMonthsRegex.exec(noTone)) !== null) {
+    const n = parseInt(mMatch[1], 10);
+    if (n >= 1 && n <= 12) {
+      for (let m = 12 - n + 1; m <= 12; m++) {
+        if (m >= 1 && m <= 12) months.add(m);
+      }
+    }
+  }
+
+  // 3. Match "từ tháng A đến tháng B" or "tháng A - tháng B" or "tA - tB"
+  const rangeMonthRegex = /(?:tu\s*)?(?:thang|thg|t)\s*(\d{1,2})\s*(?:den|toi|-|–)\s*(?:thang|thg|t)?\s*(\d{1,2})(?!\d)/gi;
+  while ((mMatch = rangeMonthRegex.exec(noTone)) !== null) {
+    const m1 = parseInt(mMatch[1], 10);
+    const m2 = parseInt(mMatch[2], 10);
+    if (m1 >= 1 && m1 <= 12 && m2 >= 1 && m2 <= 12 && m1 <= m2) {
+      for (let m = m1; m <= m2; m++) months.add(m);
+    }
+  }
+
+  // 4. Match "quý 1..4" / "quý I..IV"
+  const quarterRegex = /\bquy\s*(1|2|3|4|i|ii|iii|iv)\b/gi;
+  while ((mMatch = quarterRegex.exec(noTone)) !== null) {
+    const qRaw = mMatch[1].toLowerCase();
+    const q =
+      qRaw === '1' || qRaw === 'i'
+        ? 1
+        : qRaw === '2' || qRaw === 'ii'
+        ? 2
+        : qRaw === '3' || qRaw === 'iii'
+        ? 3
+        : 4;
+    const startM = (q - 1) * 3 + 1;
+    months.add(startM);
+    months.add(startM + 1);
+    months.add(startM + 2);
+  }
+
+  // 5. Match "tháng 1/2026", "tháng 05 năm 2025", "t5/2026"
+  const monthYearRegex = /(?:thang|thg|t)\s*(\d{1,2})\s*(?:\/|-|\s+nam\s+)(\d{4})/gi;
   while ((mMatch = monthYearRegex.exec(noTone)) !== null) {
     const m = parseInt(mMatch[1], 10);
     const y = parseInt(mMatch[2], 10);
@@ -190,18 +248,35 @@ export function extractTimeConstraintsFromPrompt(
     if (y >= 2020 && y <= 2035) years.add(y);
   }
 
-  // Match standalone "tháng X" (e.g. "tháng 3", "tháng 10")
+  // 6. Match standalone "tháng X" (only if not part of "X tháng đầu/cuối")
   const monthOnlyRegex = /(?:thang|thg)\s*(\d{1,2})(?!\d)/gi;
   while ((mMatch = monthOnlyRegex.exec(noTone)) !== null) {
     const m = parseInt(mMatch[1], 10);
     if (m >= 1 && m <= 12) months.add(m);
   }
 
-  // Match "năm 2025", "2026"
+  // 7. Match "năm 2025", "2026"
   const yearRegex = /(?:nam\s*)?(202\d)/g;
   while ((mMatch = yearRegex.exec(noTone)) !== null) {
     const y = parseInt(mMatch[1], 10);
     if (y >= 2020 && y <= 2035) years.add(y);
+  }
+
+  // Match relative years: "năm nay", "năm ngoái", "năm trước", "cùng kỳ"
+  if (/\bnam nay\b/.test(noTone)) {
+    years.add(defaultYear);
+  }
+  if (/\b(nam ngoai|nam truoc)\b/.test(noTone)) {
+    years.add(defaultYear - 1);
+  }
+  if (/\b(cung ky|so voi nam truoc|so voi nam ngoai)\b/.test(noTone)) {
+    if (years.size === 1) {
+      const onlyY = Array.from(years)[0];
+      years.add(onlyY - 1);
+    } else if (years.size === 0) {
+      years.add(defaultYear);
+      years.add(defaultYear - 1);
+    }
   }
 
   let seasonFilter: 'Mùa Hè' | 'Mùa Đông' | 'both' | undefined;
@@ -229,7 +304,62 @@ export function extractTimeConstraintsFromPrompt(
 }
 
 /**
+ * Tải và khử trùng lặp dữ liệu cả năm từ Firestore (ưu tiên MONTHLY cho từng tháng, fallback DAILY giống StatisticsTab)
+ */
+async function fetchDeduplicatedYearRecordsFromFirestore(
+  year: number
+): Promise<PersistedSurgeryRecord[]> {
+  const cached = aiFetchedYearsCache.get(year);
+  if (cached) return cached;
+
+  const dateFrom = `${year}-01-01T00:00:00.000Z`;
+  const dateTo = `${year}-12-31T23:59:59.999Z`;
+  const [monthly, daily] = await Promise.all([
+    reportService.getReports(dateFrom, dateTo, 'MONTHLY'),
+    reportService.getReports(dateFrom, dateTo, 'DAILY'),
+  ]);
+
+  const monthlyByMonth = new Map<number, PersistedSurgeryRecord[]>();
+  const dailyByMonth = new Map<number, PersistedSurgeryRecord[]>();
+  for (let m = 1; m <= 12; m++) {
+    monthlyByMonth.set(m, []);
+    dailyByMonth.set(m, []);
+  }
+
+  monthly.forEach((r) => {
+    const iso = getRecordIsoDate(r);
+    if (iso.length >= 7 && parseInt(iso.substring(0, 4), 10) === year) {
+      const m = parseInt(iso.substring(5, 7), 10);
+      monthlyByMonth.get(m)?.push(r);
+    }
+  });
+
+  daily.forEach((r) => {
+    const iso = getRecordIsoDate(r);
+    if (iso.length >= 7 && parseInt(iso.substring(0, 4), 10) === year) {
+      const m = parseInt(iso.substring(5, 7), 10);
+      dailyByMonth.get(m)?.push(r);
+    }
+  });
+
+  const combined: PersistedSurgeryRecord[] = [];
+  for (let m = 1; m <= 12; m++) {
+    const mRecs = monthlyByMonth.get(m) || [];
+    const dRecs = dailyByMonth.get(m) || [];
+    if (mRecs.length > 0) {
+      combined.push(...mRecs);
+    } else if (dRecs.length > 0) {
+      combined.push(...dRecs);
+    }
+  }
+
+  aiFetchedYearsCache.set(year, combined);
+  return combined;
+}
+
+/**
  * Hybrid Fetcher: Đảm bảo có đủ bản ghi ca mổ cho tháng/năm mà người dùng hỏi
+ * Trong trang Thống kê (statistics_studio), tự động truy vấn Firestore độc lập hoàn toàn với các tab khác.
  */
 async function ensureSurgeryRecordsForQuery(
   ctx: AIDataContextInput,
@@ -238,24 +368,40 @@ async function ensureSurgeryRecordsForQuery(
   logs: AIChatToolExecutionLog[]
 ): Promise<Array<SurgeryRecord | PersistedSurgeryRecord>> {
   const baseRecords = getAllRecordsFromContext(ctx);
-  if (months.length === 0 && years.length === 0) {
+
+  // For daily_storage / monthly_storage when no specific other period is requested, use opened records
+  if (
+    ctx.contextPage !== 'statistics_studio' &&
+    months.length === 0 &&
+    years.length === 0
+  ) {
     return baseRecords;
   }
 
-  const targetYears = years.length > 0 ? years : [new Date().getFullYear()];
+  const currentYear = new Date().getFullYear();
+  const targetYears =
+    years.length > 0
+      ? years
+      : ctx.contextPage === 'statistics_studio' && baseRecords.length === 0
+      ? [currentYear, currentYear - 1]
+      : [currentYear];
   const targetMonths = months.length > 0 ? months : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-  // Check if baseRecords already contain records in the requested year/month
-  const existingYearMonths = new Set<string>();
+  // Collect records per year-month without duplicates
+  const yearMonthMap = new Map<string, Array<SurgeryRecord | PersistedSurgeryRecord>>();
+
+  // 1. From baseRecords (already loaded in context)
   baseRecords.forEach((r) => {
     const iso = getRecordIsoDate(r);
     if (iso.length >= 7) {
-      existingYearMonths.add(iso.substring(0, 7));
+      const ym = iso.substring(0, 7);
+      const list = yearMonthMap.get(ym) || [];
+      list.push(r);
+      yearMonthMap.set(ym, list);
     }
   });
 
-  // Also check yearlyCacheData if available
-  const cacheRecords: PersistedSurgeryRecord[] = [];
+  // 2. From yearlyCacheData if available
   if (ctx.yearlyCacheData) {
     for (const y of targetYears) {
       const idx =
@@ -268,59 +414,62 @@ async function ensureSurgeryRecordsForQuery(
         for (const m of targetMonths) {
           const ym = `${y}-${String(m).padStart(2, '0')}`;
           const mEntry = idx.byMonth.get(m);
-          if (mEntry && mEntry.records.length > 0 && !existingYearMonths.has(ym)) {
-            cacheRecords.push(...mEntry.records);
-            existingYearMonths.add(ym);
+          if (mEntry && mEntry.records.length > 0 && !yearMonthMap.has(ym)) {
+            yearMonthMap.set(ym, [...mEntry.records]);
           }
         }
       }
     }
   }
 
-  const combined = [...baseRecords, ...cacheRecords];
-
-  // Determine missing year-months that need remote Firestore fetch
+  // 3. Remote Firestore fetch for any requested year that is not yet in yearMonthMap
   if (ctx.allowRemoteFirestoreFetch !== false) {
     for (const y of targetYears) {
-      for (const m of targetMonths) {
-        const ym = `${y}-${String(m).padStart(2, '0')}`;
-        if (!existingYearMonths.has(ym) && months.length > 0) {
-          try {
-            const lastDay = new Date(y, m, 0).getDate();
-            const dateFrom = `${ym}-01T00:00:00.000Z`;
-            const dateTo = `${ym}-${String(lastDay).padStart(2, '0')}T23:59:59.999Z`;
-            let fetched = await reportService.getReports(dateFrom, dateTo, 'MONTHLY');
-            if (fetched.length === 0) {
-              fetched = await reportService.getReports(dateFrom, dateTo, 'DAILY');
+      const hasAnyMonthInYear = targetMonths.some((m) =>
+        yearMonthMap.has(`${y}-${String(m).padStart(2, '0')}`)
+      );
+      const isCachedInYearly =
+        ctx.yearlyCacheData &&
+        (ctx.yearlyCacheData.primaryYear === y || ctx.yearlyCacheData.compareYear === y);
+
+      if (!hasAnyMonthInYear && !isCachedInYearly) {
+        try {
+          const yearRecords = await fetchDeduplicatedYearRecordsFromFirestore(y);
+          let addedForYear = 0;
+          yearRecords.forEach((r) => {
+            const iso = getRecordIsoDate(r);
+            if (iso.length >= 7) {
+              const ym = iso.substring(0, 7);
+              const list = yearMonthMap.get(ym) || [];
+              list.push(r);
+              yearMonthMap.set(ym, list);
+              addedForYear++;
             }
-            if (fetched.length > 0) {
-              combined.push(...fetched);
-              existingYearMonths.add(ym);
-              logs.push({
-                toolName: 'firestore_expand_surgeries',
-                summary: `Đã tự động truy vấn mở rộng Firestore kỳ ${String(m).padStart(2, '0')}/${y} (${fetched.length} ca PTTT)`,
-                recordCount: fetched.length,
-                expandedFirestoreFetch: true,
-              });
-            }
-          } catch (e) {
-            console.warn('[aiQueryEngine] Remote fetch fallback warning:', e);
-          }
+          });
+          logs.push({
+            toolName: 'firestore_expand_surgeries',
+            summary: `Đã tự động truy vấn trực tiếp CSDL Lưu trữ năm ${y} (${addedForYear.toLocaleString('vi-VN')} ca PTTT)`,
+            recordCount: addedForYear,
+            expandedFirestoreFetch: true,
+          });
+        } catch (e) {
+          console.warn('[aiQueryEngine] Remote year fetch fallback warning:', e);
         }
       }
     }
   }
 
-  // Filter to requested months/years if specified
-  return combined.filter((r) => {
-    const iso = getRecordIsoDate(r);
-    if (!iso) return months.length === 0 && years.length === 0;
-    const rYear = parseInt(iso.substring(0, 4), 10);
-    const rMonth = parseInt(iso.substring(5, 7), 10);
-    if (years.length > 0 && !years.includes(rYear)) return false;
-    if (months.length > 0 && !months.includes(rMonth)) return false;
-    return true;
-  });
+  // Flatten and filter strictly to requested targetYears & targetMonths
+  const result: Array<SurgeryRecord | PersistedSurgeryRecord> = [];
+  for (const [ym, recs] of yearMonthMap.entries()) {
+    const rYear = parseInt(ym.substring(0, 4), 10);
+    const rMonth = parseInt(ym.substring(5, 7), 10);
+    if (years.length > 0 && !years.includes(rYear)) continue;
+    if (months.length > 0 && !months.includes(rMonth)) continue;
+    result.push(...recs);
+  }
+
+  return result;
 }
 
 // ─── 1. PATIENT & SURGERY SEARCH TOOL ────────────────────────────────────────
@@ -1144,11 +1293,13 @@ ${tableRows
   return { summaryText, artifact };
 }
 
-// ─── 5. MULTI-DIMENSIONAL CROSS-TABLE PIVOT ENGINE ───────────────────────────
+// ─── 5. MULTI-DIMENSIONAL & PERIOD COMPARISON ANALYTICS ENGINE ──────────────
 
 /**
- * Phân tích đa chiều liên kết: Kỹ thuật / Chuyên khoa (VD: Phẫu thuật nội soi tiêu hóa)
- * × Tháng × Mùa (Mùa Hè vs Mùa Đông) × Bác sĩ (PTV chính) × Loại PTTT × Gói DV
+ * Phân tích thống kê & so sánh chuyên khoa chuẩn xác:
+ * - Mặc định tập trung vào: Tổng số lượng (SL quy đổi & Số ca thực tế), Chênh lệch tăng/giảm so với cùng kỳ,
+ *   Doanh thu viện phí, Cơ cấu Loại PTTT (PĐB, P1, P2, P3, Thủ thuật), Xu hướng theo Tháng và Chi tiết từng Kỹ thuật PTTT.
+ * - CHỈ phân tích theo Mùa (Mùa Hè / Mùa Đông) hoặc Phẫu thuật viên chính khi câu hỏi của người dùng có yêu cầu.
  */
 export function executeMultiDimensionalPivotTool(
   ctx: AIDataContextInput,
@@ -1159,61 +1310,111 @@ export function executeMultiDimensionalPivotTool(
   artifacts: AIArtifact[];
 } {
   const noTone = removeVietnameseTones(queryText);
+  const { months, years } = extractTimeConstraintsFromPrompt(queryText);
 
-  // 1. Identify clinical domain or procedure filter
-  let domainKey: string | null = null;
-  let customLabel = 'Tất cả Phẫu thuật / Thủ thuật';
+  const asksSeason = /\b(mua he|mua ha|mua dong|theo mua|cac mua|mua khac nhau|giua cac mua)\b/.test(
+    noTone
+  );
+  const asksSurgeon =
+    /\b(bac si|bs|ptv|phau thuat vien|theo bac si|tung bac si|kip mo)\b/.test(noTone);
 
-  if (noTone.includes('noi soi') && noTone.includes('tieu hoa')) {
-    domainKey = 'noi_soi_tieu_hoa';
-    customLabel = CLINICAL_DOMAIN_TAXONOMY.noi_soi_tieu_hoa.label;
-  } else if (noTone.includes('tieu hoa')) {
-    domainKey = 'tieu_hoa';
-    customLabel = CLINICAL_DOMAIN_TAXONOMY.tieu_hoa.label;
-  } else if (noTone.includes('san khoa') || noTone.includes('lay thai') || noTone.includes('phu san')) {
-    domainKey = 'san_phu_khoa';
-    customLabel = CLINICAL_DOMAIN_TAXONOMY.san_phu_khoa.label;
-  } else if (noTone.includes('chan thuong') || noTone.includes('chinh hinh') || noTone.includes('ket hop xuong')) {
-    domainKey = 'chan_thuong_chinh_hinh';
-    customLabel = CLINICAL_DOMAIN_TAXONOMY.chan_thuong_chinh_hinh.label;
-  } else if (noTone.includes('tai mui hong') || noTone.includes('amidan')) {
-    domainKey = 'tai_mui_hong';
-    customLabel = CLINICAL_DOMAIN_TAXONOMY.tai_mui_hong.label;
-  } else if (noTone.includes('phaco') || noTone.includes('thuy tinh the') || noTone.includes('nhan khoa')) {
-    domainKey = 'mat';
-    customLabel = CLINICAL_DOMAIN_TAXONOMY.mat.label;
-  } else if (noTone.includes('tiet nieu') || noTone.includes('tan soi')) {
-    domainKey = 'tiet_nieu';
-    customLabel = CLINICAL_DOMAIN_TAXONOMY.tiet_nieu.label;
+  const overrides = getSpecialtyOverrides();
+  const allSpecs = getAllSpecialties();
+  const staffList = ctx.config.staffList || [];
+
+  // 1. Identify target specialty or clinical sub-domain using the app's official classifySpecialty
+  let targetSpecialtyCode: string | null = null;
+  let subDomainKey: string | null = null;
+  let customLabel = 'Tất cả Chuyên khoa Phẫu thuật / Thủ thuật';
+
+  // Check custom specialties first
+  for (const sp of allSpecs) {
+    if (sp.isCustom) {
+      const spNorm = removeVietnameseTones(sp.name);
+      const spShort = removeVietnameseTones(sp.shortName || '');
+      if ((spNorm && noTone.includes(spNorm)) || (spShort && noTone.includes(spShort))) {
+        targetSpecialtyCode = sp.code;
+        customLabel = `Chuyên khoa ${sp.name}`;
+        break;
+      }
+    }
   }
 
-  const asksEndoscopicOnly = noTone.includes('noi soi') && !domainKey;
+  if (!targetSpecialtyCode) {
+    if (noTone.includes('noi soi') && noTone.includes('tieu hoa')) {
+      targetSpecialtyCode = 'ngoai_th';
+      subDomainKey = 'noi_soi_tieu_hoa';
+      customLabel = CLINICAL_DOMAIN_TAXONOMY.noi_soi_tieu_hoa.label;
+    } else if (
+      noTone.includes('chan thuong') ||
+      noTone.includes('chinh hinh') ||
+      /\bctch\b/.test(noTone) ||
+      noTone.includes('ket hop xuong')
+    ) {
+      targetSpecialtyCode = 'ctch';
+      customLabel = 'Chuyên khoa Chấn thương chỉnh hình (CTCH)';
+    } else if (
+      noTone.includes('san khoa') ||
+      noTone.includes('phu san') ||
+      noTone.includes('lay thai') ||
+      /\bsan\b/.test(noTone)
+    ) {
+      targetSpecialtyCode = 'phu_san';
+      customLabel = 'Chuyên khoa Phụ sản';
+    } else if (noTone.includes('tai mui hong') || /\btmh\b/.test(noTone) || noTone.includes('amidan')) {
+      targetSpecialtyCode = 'tmh';
+      customLabel = 'Chuyên khoa Tai Mũi Họng (TMH)';
+    } else if (
+      noTone.includes('nhan khoa') ||
+      noTone.includes('phaco') ||
+      noTone.includes('thuy tinh the') ||
+      /\bkhoa mat\b/.test(noTone) ||
+      /\bchuyen khoa mat\b/.test(noTone) ||
+      /\bphau thuat mat\b/.test(noTone)
+    ) {
+      targetSpecialtyCode = 'mat';
+      customLabel = 'Chuyên khoa Mắt';
+    } else if (noTone.includes('ngoai tong hop') || noTone.includes('ngoai th')) {
+      targetSpecialtyCode = 'ngoai_th';
+      customLabel = 'Chuyên khoa Ngoại tổng hợp';
+    } else if (noTone.includes('tieu hoa')) {
+      targetSpecialtyCode = 'ngoai_th';
+      subDomainKey = 'tieu_hoa';
+      customLabel = CLINICAL_DOMAIN_TAXONOMY.tieu_hoa.label;
+    } else if (noTone.includes('tiet nieu') || noTone.includes('tan soi')) {
+      targetSpecialtyCode = 'ngoai_th';
+      subDomainKey = 'tiet_nieu';
+      customLabel = CLINICAL_DOMAIN_TAXONOMY.tiet_nieu.label;
+    }
+  }
+
+  const asksEndoscopicOnly = noTone.includes('noi soi') && !targetSpecialtyCode && !subDomainKey;
   if (asksEndoscopicOnly) {
     customLabel = 'Phẫu thuật / Thủ thuật Nội soi';
   }
 
-  // Staff -> Department lookup
-  const staffDeptMap = new Map<string, string>();
-  (ctx.config.staffList || []).forEach((s) => {
-    staffDeptMap.set(removeVietnameseTones(s.name), s.department || '');
-  });
-
-  // Filter records matching clinical domain or keywords
+  // Filter records using official classifySpecialty from specialtyComparisonService.ts
   const matchedRecords = records.filter((r) => {
+    if (!r.tenKT) return false;
     const tenNorm = removeVietnameseTones(r.tenKT || '');
-    const maTD = (r.maTuongDuong || '').trim();
-    const prefix2 = maTD.substring(0, 2);
-    const surgeonDepts = splitStaffNames(r.ptChinh).map((n) => staffDeptMap.get(removeVietnameseTones(n)) || '');
+    const recordSpec = classifySpecialty(r.tenKT, r.ptChinh, staffList, overrides);
 
-    if (domainKey) {
-      const rule = CLINICAL_DOMAIN_TAXONOMY[domainKey];
-      if (rule.mustContainAny && !rule.mustContainAny.some((kw) => tenNorm.includes(removeVietnameseTones(kw)))) {
+    if (targetSpecialtyCode && recordSpec !== targetSpecialtyCode) {
+      return false;
+    }
+
+    if (subDomainKey) {
+      const rule = CLINICAL_DOMAIN_TAXONOMY[subDomainKey];
+      if (
+        rule.mustContainAny &&
+        !rule.mustContainAny.some((kw) => tenNorm.includes(removeVietnameseTones(kw)))
+      ) {
         return false;
       }
-      const matchesOrgan = rule.organKeywords.some((kw) => tenNorm.includes(removeVietnameseTones(kw)));
-      const matchesChapter = rule.chapterCodeHints.some((ch) => prefix2 === ch);
-      const matchesDept = rule.departmentHints.some((d) => surgeonDepts.includes(d));
-      return matchesOrgan || matchesChapter || matchesDept;
+      const matchesOrgan = rule.organKeywords.some((kw) =>
+        tenNorm.includes(removeVietnameseTones(kw))
+      );
+      return matchesOrgan;
     }
 
     if (asksEndoscopicOnly) {
@@ -1223,14 +1424,416 @@ export function executeMultiDimensionalPivotTool(
     return true;
   });
 
-  // Build package lookup
+  // Helper to get record quantity & revenue consistently with SpecialtyComparisonTab & StatisticsTab
+  const getRecQty = (r: SurgeryRecord | PersistedSurgeryRecord) =>
+    typeof r.soLuong === 'number' && r.soLuong > 0 ? r.soLuong : 1;
+
+  const getRecRev = (r: SurgeryRecord | PersistedSurgeryRecord) => {
+    const qty = getRecQty(r);
+    if (r.thanhTien != null && !isNaN(Number(r.thanhTien))) {
+      return Number(r.thanhTien);
+    }
+    if (r.donGia != null && !isNaN(Number(r.donGia))) {
+      return Number(r.donGia) * qty;
+    }
+    return 0;
+  };
+
+  // ── MODE A: SO SÁNH GIỮA 2 NĂM / CÙNG KỲ (khi có >= 2 năm và không yêu cầu phân tích theo Mùa/Bác sĩ) ──
+  const distinctYearsInRecords = Array.from(
+    new Set(
+      matchedRecords
+        .map((r) => {
+          const iso = getRecordIsoDate(r);
+          return iso.length >= 4 ? parseInt(iso.substring(0, 4), 10) : NaN;
+        })
+        .filter((y) => !isNaN(y))
+    )
+  ).sort((a, b) => a - b);
+
+  const effectiveYears = years.length >= 2 ? years : distinctYearsInRecords;
+  const isComparisonIntent =
+    /\b(so sanh|so voi|cung ky|tang giam|bien dong|chenh lech)\b/.test(noTone) ||
+    years.length >= 2;
+
+  if (effectiveYears.length >= 2 && isComparisonIntent && !asksSeason && !asksSurgeon) {
+    const primaryYear = effectiveYears[effectiveYears.length - 1];
+    const compareYear = effectiveYears[effectiveYears.length - 2];
+    const activeMonths =
+      months.length > 0 ? months : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    const periodRangeText =
+      activeMonths.length === 12
+        ? 'Cả năm (T1–T12)'
+        : activeMonths.length === 1
+        ? `Tháng ${activeMonths[0]}`
+        : `T${activeMonths[0]}–T${activeMonths[activeMonths.length - 1]} (${activeMonths.length} tháng)`;
+
+    const primaryLabel = `${periodRangeText}/${primaryYear}`;
+    const compareLabel = `${periodRangeText}/${compareYear}`;
+
+    let curCases = 0;
+    let cmpCases = 0;
+    let curQty = 0;
+    let cmpQty = 0;
+    let curRev = 0;
+    let cmpRev = 0;
+
+    // Month-by-month comparison table (T1..T9 or T1..T12)
+    const monthCompMap = new Map<
+      number,
+      {
+        month: number;
+        monthLabel: string;
+        curQty: number;
+        cmpQty: number;
+        curCases: number;
+        cmpCases: number;
+        curRev: number;
+        cmpRev: number;
+      }
+    >();
+    activeMonths.forEach((m) => {
+      monthCompMap.set(m, {
+        month: m,
+        monthLabel: `Tháng ${m}`,
+        curQty: 0,
+        cmpQty: 0,
+        curCases: 0,
+        cmpCases: 0,
+        curRev: 0,
+        cmpRev: 0,
+      });
+    });
+
+    // Loai PTTT comparison
+    const loaiOrder = ['PĐB', 'P1', 'P2', 'P3', 'Thủ thuật'];
+    const loaiCompMap = new Map<string, { curQty: number; cmpQty: number; curRev: number; cmpRev: number }>();
+    loaiOrder.forEach((l) => loaiCompMap.set(l, { curQty: 0, cmpQty: 0, curRev: 0, cmpRev: 0 }));
+
+    // Procedure-level comparison (matching SpecialtyComparisonTab grouping logic)
+    interface ProcCompItem {
+      tenKT: string;
+      maTuongDuong: string;
+      loaiPTTT: string;
+      curQty: number;
+      cmpQty: number;
+      curRev: number;
+      cmpRev: number;
+    }
+    const procMap = new Map<string, ProcCompItem>();
+
+    matchedRecords.forEach((r) => {
+      const iso = getRecordIsoDate(r);
+      if (!iso || iso.length < 7) return;
+      const y = parseInt(iso.substring(0, 4), 10);
+      const m = parseInt(iso.substring(5, 7), 10);
+      if (!activeMonths.includes(m)) return;
+      if (y !== primaryYear && y !== compareYear) return;
+
+      const qty = getRecQty(r);
+      const rev = getRecRev(r);
+      const isPrimary = y === primaryYear;
+
+      if (isPrimary) {
+        curCases += 1;
+        curQty = Math.round((curQty + qty) * 100) / 100;
+        curRev += rev;
+      } else {
+        cmpCases += 1;
+        cmpQty = Math.round((cmpQty + qty) * 100) / 100;
+        cmpRev += rev;
+      }
+
+      const mItem = monthCompMap.get(m);
+      if (mItem) {
+        if (isPrimary) {
+          mItem.curCases += 1;
+          mItem.curQty = Math.round((mItem.curQty + qty) * 100) / 100;
+          mItem.curRev += rev;
+        } else {
+          mItem.cmpCases += 1;
+          mItem.cmpQty = Math.round((mItem.cmpQty + qty) * 100) / 100;
+          mItem.cmpRev += rev;
+        }
+      }
+
+      const rawLoai = (r.loaiPTTT || '').toUpperCase().trim();
+      const loaiGroup =
+        rawLoai === 'PĐB' || rawLoai === 'PDB'
+          ? 'PĐB'
+          : rawLoai === 'P1'
+          ? 'P1'
+          : rawLoai === 'P2'
+          ? 'P2'
+          : rawLoai === 'P3'
+          ? 'P3'
+          : 'Thủ thuật';
+      const lItem = loaiCompMap.get(loaiGroup)!;
+      if (isPrimary) {
+        lItem.curQty = Math.round((lItem.curQty + qty) * 100) / 100;
+        lItem.curRev += rev;
+      } else {
+        lItem.cmpQty = Math.round((lItem.cmpQty + qty) * 100) / 100;
+        lItem.cmpRev += rev;
+      }
+
+      // Procedure grouping key (same as SpecialtyComparisonTab)
+      const rawMTD = (r.maTuongDuong || '').trim();
+      const isGT = isRecordGayTe(r.maTuongDuong, r.tenKT);
+      const baseMTD = rawMTD.toUpperCase().replace(/\s+/g, '').replace(/_GT$/i, '');
+      const method = isGT ? 'GT' : 'GM';
+      const normName = (r.tenKT || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const procKey = baseMTD ? `MTD_${baseMTD}:::${method}` : `NAME_${normName}:::${method}`;
+      const displayMTD = baseMTD ? (isGT ? `${baseMTD}_GT` : baseMTD) : '';
+
+      const pItem = procMap.get(procKey) || {
+        tenKT: (r.tenKT || '').trim(),
+        maTuongDuong: displayMTD,
+        loaiPTTT: rawLoai || 'PTTT',
+        curQty: 0,
+        cmpQty: 0,
+        curRev: 0,
+        cmpRev: 0,
+      };
+      if (isPrimary) {
+        pItem.curQty = Math.round((pItem.curQty + qty) * 100) / 100;
+        pItem.curRev += rev;
+      } else {
+        pItem.cmpQty = Math.round((pItem.cmpQty + qty) * 100) / 100;
+        pItem.cmpRev += rev;
+      }
+      procMap.set(procKey, pItem);
+    });
+
+    const diffQty = Math.round((curQty - cmpQty) * 100) / 100;
+    const pctQty = cmpQty > 0 ? ((curQty - cmpQty) / cmpQty) * 100 : null;
+    const diffCases = curCases - cmpCases;
+    const pctCases = cmpCases > 0 ? ((curCases - cmpCases) / cmpCases) * 100 : null;
+    const diffRev = curRev - cmpRev;
+    const pctRev = cmpRev > 0 ? ((curRev - cmpRev) / cmpRev) * 100 : null;
+
+    const monthCompRows = Array.from(monthCompMap.values()).map((m, idx) => {
+      const mDiff = Math.round((m.curQty - m.cmpQty) * 100) / 100;
+      const mPct =
+        m.cmpQty > 0 ? `${(((m.curQty - m.cmpQty) / m.cmpQty) * 100).toFixed(1)}%` : m.curQty > 0 ? 'Mới' : '0%';
+      return {
+        stt: idx + 1,
+        monthLabel: m.monthLabel,
+        curQty: m.curQty,
+        cmpQty: m.cmpQty,
+        diffQty: mDiff,
+        changePct: mPct,
+        curRev: m.curRev,
+        cmpRev: m.cmpRev,
+        diffRev: m.curRev - m.cmpRev,
+      };
+    });
+
+    const procCompRows = Array.from(procMap.values())
+      .sort((a, b) => b.curQty + b.cmpQty - (a.curQty + a.cmpQty))
+      .map((p, idx) => {
+        const dQty = Math.round((p.curQty - p.cmpQty) * 100) / 100;
+        const pPctNum = p.cmpQty > 0 ? ((p.curQty - p.cmpQty) / p.cmpQty) * 100 : null;
+        let status = 'ỔN ĐỊNH';
+        if (p.curQty === 0 && p.cmpQty > 0) status = 'CẢNH BÁO (Ngừng phát sinh)';
+        else if (p.curQty > 0 && p.cmpQty === 0) status = 'TÍCH CỰC (Mới phát sinh)';
+        else if (pPctNum !== null && pPctNum <= -10) status = 'CẢNH BÁO (Giảm)';
+        else if (pPctNum !== null && pPctNum >= 5) status = 'TÍCH CỰC (Tăng)';
+
+        return {
+          stt: idx + 1,
+          maTuongDuong: p.maTuongDuong || '—',
+          tenKT: p.tenKT,
+          loaiPTTT: p.loaiPTTT,
+          curQty: p.curQty,
+          cmpQty: p.cmpQty,
+          diffQty: dQty,
+          changePct: pPctNum !== null ? `${pPctNum >= 0 ? '+' : ''}${pPctNum.toFixed(1)}%` : p.curQty > 0 ? 'Mới' : '0%',
+          curRev: p.curRev,
+          cmpRev: p.cmpRev,
+          status,
+        };
+      });
+
+    const artifacts: AIArtifact[] = [];
+
+    // Artifact 1: Monthly Year-over-Year Comparison Chart & Table
+    artifacts.push({
+      id: `comp_monthly_${Date.now()}`,
+      type: 'composite',
+      title: `So sánh theo Tháng: ${customLabel} (${primaryLabel} so với ${compareLabel})`,
+      subtitle: `Năm ${primaryYear}: ${curQty.toLocaleString('vi-VN')} ca (${curRev.toLocaleString('vi-VN')}đ) | Năm ${compareYear}: ${cmpQty.toLocaleString('vi-VN')} ca (${cmpRev.toLocaleString('vi-VN')}đ)`,
+      querySummary: `So sánh chuẩn chuyên khoa: ${primaryLabel} vs ${compareLabel}`,
+      kpiCards: [
+        {
+          label: `Số lượng ${primaryLabel}`,
+          value: `${curQty.toLocaleString('vi-VN')} ca`,
+          tone: 'blue',
+        },
+        {
+          label: `Cùng kỳ ${compareLabel}`,
+          value: `${cmpQty.toLocaleString('vi-VN')} ca`,
+          tone: 'slate',
+        },
+        {
+          label: `Chênh lệch số lượng`,
+          value: `${diffQty >= 0 ? '+' : ''}${diffQty.toLocaleString('vi-VN')} ca (${
+            pctQty !== null ? `${pctQty >= 0 ? '+' : ''}${pctQty.toFixed(1)}%` : '—'
+          })`,
+          tone: diffQty >= 0 ? 'emerald' : 'amber',
+        },
+        {
+          label: `Doanh thu ${primaryLabel}`,
+          value: `${curRev.toLocaleString('vi-VN')} đ (${
+            pctRev !== null ? `${pctRev >= 0 ? '+' : ''}${pctRev.toFixed(1)}%` : '—'
+          })`,
+          tone: diffRev >= 0 ? 'emerald' : 'amber',
+        },
+      ],
+      chartConfig: {
+        chartType: 'composed',
+        xAxisKey: 'monthLabel',
+        xAxisLabel: `Tháng (${periodRangeText})`,
+        enableBrush: monthCompRows.length > 6,
+        stacked: false,
+        series: [
+          { key: 'curQty', name: `Số lượng năm ${primaryYear}`, color: '#0284c7', type: 'bar' },
+          { key: 'cmpQty', name: `Số lượng năm ${compareYear}`, color: '#94a3b8', type: 'bar' },
+          { key: 'diffQty', name: 'Chênh lệch (± ca)', color: '#10b981', type: 'line' },
+        ],
+        data: monthCompRows,
+      },
+      tableConfig: {
+        columns: [
+          { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+          { key: 'monthLabel', label: 'Tháng', align: 'center' },
+          { key: 'curQty', label: `SL Năm ${primaryYear}`, align: 'right', format: 'number' },
+          { key: 'cmpQty', label: `SL Năm ${compareYear}`, align: 'right', format: 'number' },
+          { key: 'diffQty', label: 'Chênh lệch (±)', align: 'right', format: 'number' },
+          { key: 'changePct', label: 'Tỷ lệ (%)', align: 'right' },
+          { key: 'curRev', label: `Doanh thu ${primaryYear} (đ)`, align: 'right', format: 'currency' },
+          { key: 'cmpRev', label: `Doanh thu ${compareYear} (đ)`, align: 'right', format: 'currency' },
+        ],
+        rows: monthCompRows,
+      },
+      rawRecords: monthCompRows,
+      createdAt: Date.now(),
+    });
+
+    // Artifact 2: Procedure-by-Procedure Comparison Table & Chart
+    if (procCompRows.length > 0) {
+      artifacts.push({
+        id: `comp_procedures_${Date.now() + 1}`,
+        type: 'composite',
+        title: `Chi tiết Kỹ thuật PTTT: ${customLabel} (${primaryLabel} vs ${compareLabel})`,
+        subtitle: `Tổng số ${procCompRows.length} nhóm kỹ thuật phát sinh — Đối chiếu số lượng, chênh lệch và doanh thu`,
+        chartConfig: {
+          chartType: 'bar',
+          xAxisKey: 'tenKT',
+          xAxisLabel: 'Tên kỹ thuật PTTT',
+          enableBrush: procCompRows.length > 8,
+          stacked: false,
+          series: [
+            { key: 'curQty', name: `Kỳ ${primaryYear}`, color: '#0284c7', type: 'bar' },
+            { key: 'cmpQty', name: `Cùng kỳ ${compareYear}`, color: '#94a3b8', type: 'bar' },
+          ],
+          data: procCompRows.slice(0, 20),
+        },
+        tableConfig: {
+          columns: [
+            { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+            { key: 'maTuongDuong', label: 'Mã TĐ', align: 'center' },
+            { key: 'tenKT', label: 'Tên kỹ thuật PTTT', align: 'left' },
+            { key: 'loaiPTTT', label: 'Loại', align: 'center' },
+            { key: 'curQty', label: `Kỳ ${primaryYear}`, align: 'right', format: 'number' },
+            { key: 'cmpQty', label: `Cùng kỳ ${compareYear}`, align: 'right', format: 'number' },
+            { key: 'diffQty', label: 'Chênh lệch (±)', align: 'right', format: 'number' },
+            { key: 'changePct', label: 'Tăng/Giảm (%)', align: 'right' },
+            { key: 'curRev', label: `Doanh thu ${primaryYear} (đ)`, align: 'right', format: 'currency' },
+            { key: 'cmpRev', label: `Doanh thu ${compareYear} (đ)`, align: 'right', format: 'currency' },
+            { key: 'status', label: 'Đánh giá', align: 'center' },
+          ],
+          rows: procCompRows,
+        },
+        rawRecords: procCompRows,
+        createdAt: Date.now() + 1,
+      });
+    }
+
+    const loaiLines = Array.from(loaiCompMap.entries())
+      .filter(([, v]) => v.curQty > 0 || v.cmpQty > 0)
+      .map(([loai, v]) => {
+        const d = Math.round((v.curQty - v.cmpQty) * 100) / 100;
+        const pct = v.cmpQty > 0 ? `${(((v.curQty - v.cmpQty) / v.cmpQty) * 100).toFixed(1)}%` : v.curQty > 0 ? 'Mới' : '0%';
+        return `  + **${loai}**: Kỳ ${primaryYear} đạt **${v.curQty} ca** (${v.curRev.toLocaleString('vi-VN')}đ) vs Cùng kỳ ${compareYear} đạt **${v.cmpQty} ca** (${v.cmpRev.toLocaleString('vi-VN')}đ) → Chênh lệch: **${d >= 0 ? '+' : ''}${d} ca (${pct})**`;
+      })
+      .join('\n');
+
+    const topPositive = procCompRows
+      .filter((p) => p.diffQty > 0)
+      .sort((a, b) => b.diffQty - a.diffQty)
+      .slice(0, 8);
+    const topAlert = procCompRows
+      .filter((p) => p.diffQty < 0)
+      .sort((a, b) => a.diffQty - b.diffQty)
+      .slice(0, 8);
+
+    const summaryText = `### Kết quả Phân tích So sánh ${customLabel} (${primaryLabel} so với ${compareLabel}):
+- **Tổng quan Số lượng PTTT**:
+  + **Kỳ ${primaryLabel}**: **${curQty.toLocaleString('vi-VN')} ca quy đổi** (${curCases.toLocaleString('vi-VN')} lượt hồ sơ ca mổ) — Doanh thu viện phí: **${curRev.toLocaleString('vi-VN')} VNĐ**.
+  + **Cùng kỳ ${compareLabel}**: **${cmpQty.toLocaleString('vi-VN')} ca quy đổi** (${cmpCases.toLocaleString('vi-VN')} lượt hồ sơ ca mổ) — Doanh thu viện phí: **${cmpRev.toLocaleString('vi-VN')} VNĐ**.
+  + **Chênh lệch Số lượng**: **${diffQty >= 0 ? '+' : ''}${diffQty.toLocaleString('vi-VN')} ca quy đổi** (${pctQty !== null ? `${pctQty >= 0 ? '+' : ''}${pctQty.toFixed(2)}%` : 'N/A'}) | Chênh lệch lượt hồ sơ: **${diffCases >= 0 ? '+' : ''}${diffCases} ca** (${pctCases !== null ? `${pctCases >= 0 ? '+' : ''}${pctCases.toFixed(2)}%` : 'N/A'}).
+  + **Chênh lệch Doanh thu viện phí**: **${diffRev >= 0 ? '+' : ''}${diffRev.toLocaleString('vi-VN')} VNĐ** (${pctRev !== null ? `${pctRev >= 0 ? '+' : ''}${pctRev.toFixed(2)}%` : 'N/A'}).
+
+- **So sánh theo Phân loại PTTT (${primaryLabel} vs ${compareLabel})**:
+${loaiLines || '  + Chưa có dữ liệu phân loại'}
+
+- **So sánh biến động theo từng Tháng (${periodRangeText})**:
+${monthCompRows
+  .map(
+    (m) =>
+      `  + **${m.monthLabel}**: Năm ${primaryYear} đạt **${m.curQty} ca** (${m.curRev.toLocaleString('vi-VN')}đ) | Năm ${compareYear} đạt **${m.cmpQty} ca** (${m.cmpRev.toLocaleString('vi-VN')}đ) → Chênh lệch: **${m.diffQty >= 0 ? '+' : ''}${m.diffQty} ca (${m.changePct})**`
+  )
+  .join('\n')}
+
+- **Top Kỹ thuật PTTT tăng trưởng mạnh nhất (TÍCH CỰC)**:
+${
+  topPositive.length > 0
+    ? topPositive
+        .map(
+          (p) =>
+            `  + **${p.tenKT}** (${p.maTuongDuong}): Kỳ ${primaryYear} **${p.curQty} ca** vs Cùng kỳ ${compareYear} **${p.cmpQty} ca** → Tăng **+${p.diffQty} ca (${p.changePct})**`
+        )
+        .join('\n')
+    : '  + Không có kỹ thuật tăng trưởng dương'
+}
+
+- **Top Kỹ thuật PTTT sụt giảm cần lưu ý (CẢNH BÁO)**:
+${
+  topAlert.length > 0
+    ? topAlert
+        .map(
+          (p) =>
+            `  + **${p.tenKT}** (${p.maTuongDuong}): Kỳ ${primaryYear} **${p.curQty} ca** vs Cùng kỳ ${compareYear} **${p.cmpQty} ca** → Giảm **${p.diffQty} ca (${p.changePct})**`
+        )
+        .join('\n')
+    : '  + Không có kỹ thuật sụt giảm'
+}`;
+
+    return { summaryText, artifacts };
+  }
+
+  // ── MODE B: PHÂN TÍCH TỔNG HỢP CHUNG (1 KỲ) HOẶC PHÂN TÍCH THEO MÙA / BÁC SĨ KHI ĐƯỢC HỎI ──
+  const staffDeptMap = new Map<string, string>();
+  staffList.forEach((s) => {
+    staffDeptMap.set(removeVietnameseTones(s.name), s.department || '');
+  });
+
   const pkgSet = new Set<string>();
   ctx.packageAssignments.forEach((pa) => {
     if (pa.compositeKey) pkgSet.add(pa.compositeKey);
   });
 
-  // 2. Multi-dimensional aggregation:
-  // (A) By Month (with Season & Revenue & Cases)
   const byMonthMap = new Map<
     string,
     {
@@ -1246,7 +1849,6 @@ export function executeMultiDimensionalPivotTool(
     }
   >();
 
-  // (B) By Surgeon × Season × Month
   const bySurgeonMap = new Map<
     string,
     {
@@ -1263,25 +1865,37 @@ export function executeMultiDimensionalPivotTool(
     }
   >();
 
-  // (C) By Season Summary
+  const byProcedureMap = new Map<
+    string,
+    {
+      tenKT: string;
+      maTuongDuong: string;
+      loaiPTTT: string;
+      totalCases: number;
+      equivalentCases: number;
+      revenue: number;
+    }
+  >();
+
   let totalSummerCases = 0;
   let totalWinterCases = 0;
+  let totalEquivalentCases = 0;
   let totalRevenue = 0;
 
   matchedRecords.forEach((r) => {
     const isoDate = getRecordIsoDate(r);
     const ym = isoDate ? isoDate.substring(0, 7) : 'Chưa rõ ngày';
     const season = determineSeason(isoDate, ctx.config.workingHours);
-    const eq = typeof r.soLuong === 'number' ? r.soLuong : 1;
-    const rev = Number(r.thanhTien || r.donGia || 0);
+    const eq = getRecQty(r);
+    const rev = getRecRev(r);
     const compKey = buildCompositeKey(r.patientId || '', isoDate, r.tenKT || '');
     const hasPkg = pkgSet.has(compKey) ? 1 : 0;
 
     if (season === 'Mùa Hè') totalSummerCases += 1;
     else totalWinterCases += 1;
+    totalEquivalentCases = Math.round((totalEquivalentCases + eq) * 100) / 100;
     totalRevenue += rev;
 
-    // Update Month bucket
     const mEntry = byMonthMap.get(ym) || {
       monthKey: ym,
       season,
@@ -1299,6 +1913,23 @@ export function executeMultiDimensionalPivotTool(
     mEntry.equivalentCases = Math.round((mEntry.equivalentCases + eq) * 100) / 100;
     mEntry.revenue += rev;
     mEntry.packageCases += hasPkg;
+
+    const ktName = (r.tenKT || '').trim();
+    if (ktName) {
+      const pKey = ktName.toLowerCase();
+      const pEntry = byProcedureMap.get(pKey) || {
+        tenKT: ktName,
+        maTuongDuong: (r.maTuongDuong || '').trim() || '—',
+        loaiPTTT: (r.loaiPTTT || '').trim() || 'PTTT',
+        totalCases: 0,
+        equivalentCases: 0,
+        revenue: 0,
+      };
+      pEntry.totalCases += 1;
+      pEntry.equivalentCases = Math.round((pEntry.equivalentCases + eq) * 100) / 100;
+      pEntry.revenue += rev;
+      byProcedureMap.set(pKey, pEntry);
+    }
 
     const surgeons = splitStaffNames(r.ptChinh);
     const effectiveSurgeons = surgeons.length > 0 ? surgeons : ['Chưa ghi PTV chính'];
@@ -1324,7 +1955,6 @@ export function executeMultiDimensionalPivotTool(
       sEntry.revenue += rev;
       sEntry.packageCases += hasPkg;
       sEntry.monthsActive.add(ym);
-      const ktName = (r.tenKT || '').trim();
       if (ktName) {
         sEntry.topProcedures.set(ktName, (sEntry.topProcedures.get(ktName) || 0) + 1);
       }
@@ -1347,6 +1977,18 @@ export function executeMultiDimensionalPivotTool(
       surgeonCount: m.uniqueSurgeons.size,
       packageCases: m.packageCases,
       revenue: m.revenue,
+    }));
+
+  const procedureRows = Array.from(byProcedureMap.values())
+    .sort((a, b) => b.equivalentCases - a.equivalentCases)
+    .map((p, idx) => ({
+      stt: idx + 1,
+      maTuongDuong: p.maTuongDuong,
+      tenKT: p.tenKT,
+      loaiPTTT: p.loaiPTTT,
+      totalCases: p.totalCases,
+      equivalentCases: p.equivalentCases,
+      revenue: p.revenue,
     }));
 
   const surgeonRows = Array.from(bySurgeonMap.values())
@@ -1372,85 +2014,138 @@ export function executeMultiDimensionalPivotTool(
       };
     });
 
-  const artifacts: AIArtifact[] = [];
-
-  // Artifact 1: Monthly & Seasonal Trend + Pivot Table
-  artifacts.push({
-    id: `pivot_month_season_${Date.now()}`,
-    type: 'composite',
-    title: `Phân tích Đa chiều: ${customLabel} — Theo Tháng & Mùa (Hè / Đông)`,
-    subtitle: `Tổng số: ${matchedRecords.length} ca (Mùa Hè: ${totalSummerCases} ca | Mùa Đông: ${totalWinterCases} ca) — Kéo thanh trượt dưới biểu đồ để lọc khoảng tháng`,
-    querySummary: `Liên kết bảng: Surgeries (${matchedRecords.length} ca) ⋈ WorkingHours (Mùa Hè/Đông) ⋈ ServicePackages ⋈ StaffList`,
-    kpiCards: [
-      { label: 'Tổng số ca khớp điều kiện', value: matchedRecords.length, tone: 'blue' },
-      { label: 'Số ca Mùa Hè (01/05–30/09)', value: totalSummerCases, tone: 'amber' },
-      { label: 'Số ca Mùa Đông (01/10–30/04)', value: totalWinterCases, tone: 'emerald' },
-      {
-        label: 'Tổng doanh thu DVKT',
-        value: `${totalRevenue.toLocaleString('vi-VN')} đ`,
-        tone: 'slate',
-      },
-    ],
-    chartConfig: {
-      chartType: 'composed',
-      xAxisKey: 'monthKey',
-      xAxisLabel: 'Tháng thực hiện (YYYY-MM)',
-      enableBrush: true,
-      stacked: true,
-      series: [
-        { key: 'summerCases', name: 'Số ca Mùa Hè', color: '#f59e0b', type: 'bar', yAxisId: 'left' },
-        { key: 'winterCases', name: 'Số ca Mùa Đông', color: '#0284c7', type: 'bar', yAxisId: 'left' },
-        { key: 'surgeonCount', name: 'Số BS thực hiện', color: '#10b981', type: 'line', yAxisId: 'right' },
-      ],
-      data: monthRows,
-    },
-    tableConfig: {
-      columns: [
-        { key: 'stt', label: 'STT', align: 'center', format: 'number' },
-        { key: 'monthKey', label: 'Tháng (YYYY-MM)', align: 'center' },
-        { key: 'season', label: 'Mùa làm việc', align: 'center' },
-        { key: 'totalCases', label: 'Tổng số ca', align: 'right', format: 'number' },
-        { key: 'equivalentCases', label: 'SL Quy đổi', align: 'right', format: 'number' },
-        { key: 'surgeonCount', label: 'Số PTV chính', align: 'right', format: 'number' },
-        { key: 'packageCases', label: 'Số ca Gói DV', align: 'right', format: 'number' },
-        { key: 'revenue', label: 'Doanh thu DVKT (VNĐ)', align: 'right', format: 'currency' },
-      ],
-      rows: monthRows,
-    },
-    rawRecords: matchedRecords.slice(0, 500).map((r, i) => ({
-      STT: i + 1,
-      MaBN: r.patientId,
-      HoTenBN: r.patientName,
-      NgayMo: getRecordIsoDate(r),
-      Mua: determineSeason(getRecordIsoDate(r), ctx.config.workingHours),
-      TenKyThuat: r.tenKT,
-      LoaiPTTT: r.loaiPTTT,
-      PTVChinh: r.ptChinh,
-      PTPhu: r.ptPhu,
-      BSGayMe: r.bsGM,
-      ThanhTien: r.thanhTien || r.donGia || 0,
-    })),
-    createdAt: Date.now(),
+  const byLoai: Record<string, number> = {};
+  LOAI_PTTT_ORDER.forEach((l) => (byLoai[l] = 0));
+  matchedRecords.forEach((r) => {
+    const l = (r.loaiPTTT || 'TKPL').trim();
+    byLoai[l] = Math.round(((byLoai[l] || 0) + getRecQty(r)) * 100) / 100;
   });
 
-  // Artifact 2: By Surgeon × Season Comparison
-  if (surgeonRows.length > 0) {
+  const artifacts: AIArtifact[] = [];
+
+  if (asksSeason) {
+    // Explicit Season Analysis Artifact
     artifacts.push({
-      id: `pivot_surgeon_season_${Date.now() + 1}`,
+      id: `pivot_month_season_${Date.now()}`,
       type: 'composite',
-      title: `So sánh theo Phẫu thuật viên chính × Mùa (Hè vs Đông) — ${customLabel}`,
-      subtitle: `${surgeonRows.length} bác sĩ tham gia thực hiện (Phân tách số ca Mùa Hè, Mùa Đông và Kỹ thuật chủ lực)`,
+      title: `Phân tích theo Tháng & Mùa (Hè / Đông): ${customLabel}`,
+      subtitle: `Tổng số: ${matchedRecords.length} ca (Mùa Hè: ${totalSummerCases} ca | Mùa Đông: ${totalWinterCases} ca)`,
+      kpiCards: [
+        { label: 'Tổng số ca', value: matchedRecords.length, tone: 'blue' },
+        { label: 'Số ca Mùa Hè (01/05–30/09)', value: totalSummerCases, tone: 'amber' },
+        { label: 'Số ca Mùa Đông (01/10–30/04)', value: totalWinterCases, tone: 'emerald' },
+        {
+          label: 'Tổng doanh thu DVKT',
+          value: `${totalRevenue.toLocaleString('vi-VN')} đ`,
+          tone: 'slate',
+        },
+      ],
+      chartConfig: {
+        chartType: 'composed',
+        xAxisKey: 'monthKey',
+        xAxisLabel: 'Tháng thực hiện (YYYY-MM)',
+        enableBrush: true,
+        stacked: true,
+        series: [
+          { key: 'summerCases', name: 'Số ca Mùa Hè', color: '#f59e0b', type: 'bar', yAxisId: 'left' },
+          { key: 'winterCases', name: 'Số ca Mùa Đông', color: '#0284c7', type: 'bar', yAxisId: 'left' },
+        ],
+        data: monthRows,
+      },
+      tableConfig: {
+        columns: [
+          { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+          { key: 'monthKey', label: 'Tháng (YYYY-MM)', align: 'center' },
+          { key: 'season', label: 'Mùa làm việc', align: 'center' },
+          { key: 'totalCases', label: 'Tổng số ca', align: 'right', format: 'number' },
+          { key: 'equivalentCases', label: 'SL Quy đổi', align: 'right', format: 'number' },
+          { key: 'revenue', label: 'Doanh thu DVKT (VNĐ)', align: 'right', format: 'currency' },
+        ],
+        rows: monthRows,
+      },
+      rawRecords: monthRows,
+      createdAt: Date.now(),
+    });
+  } else {
+    // Standard Monthly Trend Artifact (NO Season clutter)
+    artifacts.push({
+      id: `trend_monthly_${Date.now()}`,
+      type: 'composite',
+      title: `Thống kê theo Tháng & Doanh thu: ${customLabel}`,
+      subtitle: `Tổng số: ${totalEquivalentCases.toLocaleString('vi-VN')} ca quy đổi (${matchedRecords.length.toLocaleString('vi-VN')} hồ sơ) — Doanh thu: ${totalRevenue.toLocaleString('vi-VN')} đ`,
+      kpiCards: [
+        {
+          label: 'Tổng SL quy đổi',
+          value: `${totalEquivalentCases.toLocaleString('vi-VN')} ca`,
+          tone: 'blue',
+        },
+        {
+          label: 'Số lượt hồ sơ ca mổ',
+          value: `${matchedRecords.length.toLocaleString('vi-VN')} ca`,
+          tone: 'emerald',
+        },
+        {
+          label: 'Số nhóm kỹ thuật PTTT',
+          value: procedureRows.length,
+          tone: 'amber',
+        },
+        {
+          label: 'Tổng doanh thu DVKT',
+          value: `${totalRevenue.toLocaleString('vi-VN')} đ`,
+          tone: 'slate',
+        },
+      ],
+      chartConfig: {
+        chartType: 'composed',
+        xAxisKey: 'monthKey',
+        xAxisLabel: 'Tháng thực hiện (YYYY-MM)',
+        enableBrush: monthRows.length > 6,
+        stacked: false,
+        series: [
+          { key: 'equivalentCases', name: 'Số lượng quy đổi', color: '#0284c7', type: 'bar', yAxisId: 'left' },
+          { key: 'totalCases', name: 'Số lượt hồ sơ', color: '#10b981', type: 'line', yAxisId: 'left' },
+        ],
+        data: monthRows,
+      },
+      tableConfig: {
+        columns: [
+          { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+          { key: 'monthKey', label: 'Tháng (YYYY-MM)', align: 'center' },
+          { key: 'equivalentCases', label: 'SL Quy đổi', align: 'right', format: 'number' },
+          { key: 'totalCases', label: 'Số lượt hồ sơ', align: 'right', format: 'number' },
+          { key: 'packageCases', label: 'Số ca Gói DV', align: 'right', format: 'number' },
+          { key: 'revenue', label: 'Doanh thu DVKT (VNĐ)', align: 'right', format: 'currency' },
+        ],
+        rows: monthRows,
+      },
+      rawRecords: monthRows,
+      createdAt: Date.now(),
+    });
+  }
+
+  // Artifact 2: Top Procedures (default) OR Surgeon Breakdown (only when asksSurgeon is true)
+  if (asksSurgeon && surgeonRows.length > 0) {
+    artifacts.push({
+      id: `pivot_surgeon_${Date.now() + 1}`,
+      type: 'composite',
+      title: `Thống kê theo Phẫu thuật viên chính — ${customLabel}`,
+      subtitle: `${surgeonRows.length} bác sĩ tham gia thực hiện`,
       chartConfig: {
         chartType: 'bar',
         xAxisKey: 'surgeon',
         xAxisLabel: 'Phẫu thuật viên chính',
         enableBrush: surgeonRows.length > 8,
         stacked: false,
-        series: [
-          { key: 'summerCases', name: 'Mùa Hè (ca)', color: '#f59e0b', type: 'bar' },
-          { key: 'winterCases', name: 'Mùa Đông (ca)', color: '#0284c7', type: 'bar' },
-          { key: 'totalCases', name: 'Tổng số ca', color: '#0d9488', type: 'line' },
-        ],
+        series: asksSeason
+          ? [
+              { key: 'summerCases', name: 'Mùa Hè (ca)', color: '#f59e0b', type: 'bar' },
+              { key: 'winterCases', name: 'Mùa Đông (ca)', color: '#0284c7', type: 'bar' },
+              { key: 'totalCases', name: 'Tổng số ca', color: '#0d9488', type: 'line' },
+            ]
+          : [
+              { key: 'totalCases', name: 'Tổng số ca', color: '#0284c7', type: 'bar' },
+              { key: 'equivalentCases', name: 'SL Quy đổi', color: '#10b981', type: 'bar' },
+            ],
         data: surgeonRows.slice(0, 25),
       },
       tableConfig: {
@@ -1459,10 +2154,13 @@ export function executeMultiDimensionalPivotTool(
           { key: 'surgeon', label: 'Bác sĩ (PTV Chính)', align: 'left' },
           { key: 'department', label: 'Khoa', align: 'left' },
           { key: 'totalCases', label: 'Tổng số ca', align: 'right', format: 'number' },
-          { key: 'summerCases', label: 'Mùa Hè', align: 'right', format: 'number' },
-          { key: 'winterCases', label: 'Mùa Đông', align: 'right', format: 'number' },
-          { key: 'monthsCount', label: 'Số tháng có mổ', align: 'right', format: 'number' },
-          { key: 'packageCases', label: 'Ca Gói DV', align: 'right', format: 'number' },
+          { key: 'equivalentCases', label: 'SL Quy đổi', align: 'right', format: 'number' },
+          ...(asksSeason
+            ? [
+                { key: 'summerCases', label: 'Mùa Hè', align: 'right' as const, format: 'number' as const },
+                { key: 'winterCases', label: 'Mùa Đông', align: 'right' as const, format: 'number' as const },
+              ]
+            : []),
           { key: 'revenue', label: 'Doanh thu (VNĐ)', align: 'right', format: 'currency' },
           { key: 'topProcedures', label: 'Kỹ thuật thực hiện nhiều nhất', align: 'left' },
         ],
@@ -1471,41 +2169,78 @@ export function executeMultiDimensionalPivotTool(
       rawRecords: surgeonRows,
       createdAt: Date.now() + 1,
     });
+  } else if (procedureRows.length > 0) {
+    artifacts.push({
+      id: `top_procedures_${Date.now() + 1}`,
+      type: 'composite',
+      title: `Cơ cấu Chi tiết Kỹ thuật PTTT — ${customLabel}`,
+      subtitle: `${procedureRows.length} kỹ thuật phát sinh trong kỳ`,
+      chartConfig: {
+        chartType: 'bar',
+        xAxisKey: 'tenKT',
+        xAxisLabel: 'Tên kỹ thuật PTTT',
+        enableBrush: procedureRows.length > 8,
+        stacked: false,
+        series: [
+          { key: 'equivalentCases', name: 'Số lượng quy đổi', color: '#0284c7', type: 'bar' },
+        ],
+        data: procedureRows.slice(0, 20),
+      },
+      tableConfig: {
+        columns: [
+          { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+          { key: 'maTuongDuong', label: 'Mã TĐ', align: 'center' },
+          { key: 'tenKT', label: 'Tên kỹ thuật PTTT', align: 'left' },
+          { key: 'loaiPTTT', label: 'Loại PTTT', align: 'center' },
+          { key: 'equivalentCases', label: 'SL Quy đổi', align: 'right', format: 'number' },
+          { key: 'totalCases', label: 'Số lượt hồ sơ', align: 'right', format: 'number' },
+          { key: 'revenue', label: 'Doanh thu (VNĐ)', align: 'right', format: 'currency' },
+        ],
+        rows: procedureRows,
+      },
+      rawRecords: procedureRows,
+      createdAt: Date.now() + 1,
+    });
   }
 
-  // Also calculate breakdown by LOAI_PTTT
-  const byLoai: Record<string, number> = {};
-  LOAI_PTTT_ORDER.forEach((l) => (byLoai[l] = 0));
-  matchedRecords.forEach((r) => {
-    const l = (r.loaiPTTT || 'TKPL').trim();
-    byLoai[l] = (byLoai[l] || 0) + 1;
-  });
+  const seasonSummarySection = asksSeason
+    ? `\n- **Phân tích theo Mùa làm việc**:\n  + **Mùa Hè (01/05 – 30/09)**: **${totalSummerCases} ca** (${matchedRecords.length > 0 ? ((totalSummerCases / matchedRecords.length) * 100).toFixed(1) : 0}%)\n  + **Mùa Đông (01/10 – 30/04)**: **${totalWinterCases} ca** (${matchedRecords.length > 0 ? ((totalWinterCases / matchedRecords.length) * 100).toFixed(1) : 0}%)`
+    : '';
 
-  const summaryText = `### Kết quả Phân tích Đa chiều Liên kết (${customLabel}):
-- **Tổng số ca khớp điều kiện**: **${matchedRecords.length} ca** (Tổng doanh thu viện phí: **${totalRevenue.toLocaleString('vi-VN')} VNĐ**).
-- **Phân tích theo Mùa làm việc**:
-  + **Mùa Hè (01/05 – 30/09)**: **${totalSummerCases} ca** (${matchedRecords.length > 0 ? ((totalSummerCases / matchedRecords.length) * 100).toFixed(1) : 0}%)
-  + **Mùa Đông (01/10 – 30/04)**: **${totalWinterCases} ca** (${matchedRecords.length > 0 ? ((totalWinterCases / matchedRecords.length) * 100).toFixed(1) : 0}%)
-- **Phân loại PTTT**: ${Object.entries(byLoai)
-    .filter(([, count]) => count > 0)
-    .map(([k, v]) => `${k}: **${v}** ca`)
-    .join(', ') || 'Không có'}.
-- **Xu hướng theo Tháng**:
+  const surgeonSummarySection = asksSurgeon
+    ? `\n- **Thống kê theo Bác sĩ (PTV chính)**:\n${surgeonRows
+        .slice(0, 15)
+        .map(
+          (s) =>
+            `  + BS **${s.surgeon}** (${s.department}): Tổng **${s.totalCases} ca** (SL quy đổi: ${s.equivalentCases}, Doanh thu: ${s.revenue.toLocaleString('vi-VN')}đ) — KT tiêu biểu: ${s.topProcedures}`
+        )
+        .join('\n')}`
+    : '';
+
+  const summaryText = `### Kết quả Phân tích Thống kê (${customLabel}):
+- **Tổng số lượng PTTT**: **${totalEquivalentCases.toLocaleString('vi-VN')} ca quy đổi** (${matchedRecords.length.toLocaleString('vi-VN')} lượt hồ sơ ca mổ) — Tổng doanh thu viện phí: **${totalRevenue.toLocaleString('vi-VN')} VNĐ**.${seasonSummarySection}
+- **Cơ cấu Phân loại PTTT**: ${
+    Object.entries(byLoai)
+      .filter(([, count]) => count > 0)
+      .map(([k, v]) => `${k}: **${v}** ca`)
+      .join(', ') || 'Không có'
+  }.
+- **Diễn biến theo Tháng**:
 ${monthRows
   .slice(0, 15)
   .map(
     (m) =>
-      `  + Tháng **${m.monthKey}** (${m.season}): **${m.totalCases} ca** (SL quy đổi: ${m.equivalentCases}, ${m.surgeonCount} bác sĩ, ${m.packageCases} ca gói DV, Doanh thu: ${m.revenue.toLocaleString('vi-VN')}đ)`
+      `  + Tháng **${m.monthKey}**: **${m.equivalentCases} ca quy đổi** (${m.totalCases} lượt hồ sơ, Doanh thu: ${m.revenue.toLocaleString('vi-VN')}đ)`
   )
   .join('\n')}
-- **Phân tích theo Bác sĩ (PTV chính) × Mùa**:
-${surgeonRows
+- **Top Kỹ thuật PTTT chiếm tỷ trọng cao nhất**:
+${procedureRows
   .slice(0, 15)
   .map(
-    (s) =>
-      `  + BS **${s.surgeon}** (${s.department}): Tổng **${s.totalCases} ca** (Mùa Hè: **${s.summerCases}**, Mùa Đông: **${s.winterCases}**, Gói DV: ${s.packageCases}) — KT tiêu biểu: ${s.topProcedures}`
+    (p) =>
+      `  + **${p.tenKT}** (${p.maTuongDuong} - Loại ${p.loaiPTTT}): **${p.equivalentCases} ca quy đổi** (${p.totalCases} lượt hồ sơ, Doanh thu: ${p.revenue.toLocaleString('vi-VN')}đ)`
   )
-  .join('\n')}`;
+  .join('\n')}${surgeonSummarySection}`;
 
   return { summaryText, artifacts };
 }
@@ -1514,7 +2249,7 @@ ${surgeonRows
 
 /**
  * Tự động phân tích câu hỏi của người dùng, kích hoạt đồng thời các Tool truy vấn
- * liên kết cần thiết (Bệnh nhân, Nhân sự, Lịch trực, Gói DV, Pivot Đa chiều)
+ * liên kết cần thiết (Bệnh nhân, Nhân sự, Lịch trực, Gói DV, Thống kê & So sánh)
  * và trả về cả dữ liệu ngữ cảnh chính xác 100% cho LLM lẫn danh sách Interactive Artifacts.
  */
 export async function runRelationalQueryPipeline(
@@ -1531,6 +2266,15 @@ export async function runRelationalQueryPipeline(
 
   // 1. Ensure surgery records for requested period
   const scopedRecords = await ensureSurgeryRecordsForQuery(ctx, months, years, executedTools);
+
+  const scopedDates = scopedRecords
+    .map((r) => getRecordIsoDate(r))
+    .filter(Boolean)
+    .sort();
+  const scopedDateRange =
+    scopedDates.length > 0
+      ? `${scopedDates[0]} → ${scopedDates[scopedDates.length - 1]}`
+      : 'Chưa có bản ghi';
 
   // 2. Detect intents (multiple tools can run in parallel for compound questions!)
   const isPatientQuery =
@@ -1606,14 +2350,14 @@ export async function runRelationalQueryPipeline(
     });
   }
 
-  // Execute Multi-Dimensional Pivot if triggered or as default comprehensive analysis
+  // Execute Statistical / Comparison / Pivot Analysis if triggered or as default comprehensive analysis
   if (isPivotOrTrendQuery || sections.length === 0) {
     const pivotRes = executeMultiDimensionalPivotTool(ctx, scopedRecords, prompt);
     sections.push(pivotRes.summaryText);
     artifacts.push(...pivotRes.artifacts);
     executedTools.push({
       toolName: 'multi_dimensional_pivot',
-      summary: `Phân tích đa chiều (Tháng × Mùa Hè/Đông × Bác sĩ × Loại PTTT × Doanh thu) trên ${scopedRecords.length} ca`,
+      summary: `Phân tích & so sánh số liệu PTTT trên ${scopedRecords.length.toLocaleString('vi-VN')} bản ghi kỳ truy vấn`,
       recordCount: scopedRecords.length,
     });
   }
@@ -1622,5 +2366,7 @@ export async function runRelationalQueryPipeline(
     executedTools,
     contextDataForLLM: sections.join('\n\n---\n\n'),
     artifacts,
+    scopedRecordCount: scopedRecords.length,
+    scopedDateRange,
   };
 }

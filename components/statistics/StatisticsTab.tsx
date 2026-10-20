@@ -32,12 +32,20 @@ interface StatisticsTabProps {
 
 export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConfig }) => {
   const { config } = useConfig();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAdmin, can } = useAuth();
+  const canUseAI = isAdmin || can('use_ai_assistant');
+  const canConfigAI = isAdmin || can('config_ai_settings');
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentRealMonth = now.getMonth() + 1;
 
   const [subTab, setSubTab] = useState<SubTab>('summary');
+
+  useEffect(() => {
+    if (!canUseAI && subTab === 'ai_studio') {
+      setSubTab('summary');
+    }
+  }, [canUseAI, subTab]);
   const [primaryYear, setPrimaryYear] = useState(currentYear);
   const [compareYear, setCompareYear] = useState(currentYear - 1);
   const [selectedMonth, setSelectedMonth] = useState(currentRealMonth);
@@ -501,7 +509,9 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
     { value: 'summary' as const, label: 'Thống kê', icon: Table2 },
     { value: 'comparison' as const, label: 'Phân tích so sánh', icon: BarChart3 },
     { value: 'kpi' as const, label: 'Quản trị phòng mổ', icon: Gauge },
-    { value: 'ai_studio' as const, label: 'AI Phân tích & Hỏi đáp', icon: Bot },
+    ...(canUseAI
+      ? [{ value: 'ai_studio' as const, label: 'AI Phân tích & Hỏi đáp', icon: Bot }]
+      : []),
     { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
 
@@ -569,15 +579,17 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
                 <><Download className="h-3.5 w-3.5" /> Tải dữ liệu</>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => setSubTab('ai_studio')}
-              className="px-3 py-1.5 bg-gradient-to-r from-sky-600 to-teal-600 text-white rounded-lg text-xs font-bold hover:from-sky-700 hover:to-teal-700 transition-all flex items-center gap-1.5 shadow-sm"
-              title="Mở Không gian Phân tích & Hỏi đáp dữ liệu bằng AI"
-            >
-              <Bot className="h-3.5 w-3.5" />
-              Hỏi đáp & Phân tích AI
-            </button>
+            {canUseAI && (
+              <button
+                type="button"
+                onClick={() => setSubTab('ai_studio')}
+                className="px-3 py-1.5 bg-gradient-to-r from-sky-600 to-teal-600 text-white rounded-lg text-xs font-bold hover:from-sky-700 hover:to-teal-700 transition-all flex items-center gap-1.5 shadow-sm"
+                title="Mở Không gian Phân tích & Hỏi đáp dữ liệu bằng AI"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                Hỏi đáp & Phân tích AI
+              </button>
+            )}
           </div>
         </div>
 
@@ -833,28 +845,32 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
       </div>
 
       {/* AI ANALYTICS STUDIO tab body */}
-      <div style={{ display: subTab === 'ai_studio' ? 'block' : 'none' }}>
-        <div className="px-4 pt-3 pb-8">
-          <AIChatWorkspace
-            slotId="statistics_studio"
-            defaultExpanded={true}
-            onOpenAIConfigTab={onNavigateToAIConfig}
-            dataContext={{
-              contextPage: 'statistics_studio',
-              periodLabel: `Năm ${primaryYear} & ${compareYear}`,
-              currentRecords: aiStudioRecords,
-              yearlyCacheData: yearlyCacheData || yearCacheRef.current?.data || null,
-              dutySchedules: {},
-              packageAssignments,
-              packageDefinitions,
-              chapters,
-              surgeryNamePrices,
-              config,
-              allowRemoteFirestoreFetch: true,
-            }}
-          />
+      {canUseAI && (
+        <div style={{ display: subTab === 'ai_studio' ? 'block' : 'none' }}>
+          <div className="px-4 pt-3 pb-8">
+            <AIChatWorkspace
+              slotId="statistics_studio"
+              defaultExpanded={true}
+              onOpenAIConfigTab={canConfigAI ? onNavigateToAIConfig : undefined}
+              onRequestLoadData={() => handleLoadData(false)}
+              isLoadingExternalData={loading}
+              dataContext={{
+                contextPage: 'statistics_studio',
+                periodLabel: `Năm ${primaryYear} & ${compareYear}`,
+                currentRecords: aiStudioRecords,
+                yearlyCacheData: yearlyCacheData || yearCacheRef.current?.data || null,
+                dutySchedules: {},
+                packageAssignments,
+                packageDefinitions,
+                chapters,
+                surgeryNamePrices,
+                config,
+                allowRemoteFirestoreFetch: true,
+              }}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* CONFIG tab body */}
       <div style={{ display: subTab === 'config' ? 'block' : 'none' }}>

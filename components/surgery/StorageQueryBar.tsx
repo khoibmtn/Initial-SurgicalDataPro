@@ -23,6 +23,7 @@ export interface StorageQueryBarProps {
   onAutoFill24hShift: () => void;
   handleTimeChange: (val: string, setter: (v: string) => void) => void;
   onOpenAIAssistant?: () => void;
+  hasLoadedData?: boolean;
 }
 
 export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
@@ -47,6 +48,7 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
   onAutoFill24hShift,
   handleTimeChange,
   onOpenAIAssistant,
+  hasLoadedData = false,
 }) => {
   return (
     <div className="px-4 pt-2 pb-1">
@@ -107,11 +109,22 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
               {onOpenAIAssistant && (
                 <button
                   type="button"
-                  onClick={onOpenAIAssistant}
-                  className="px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-colors shadow-sm cursor-pointer"
-                  title="Mở Trợ lý AI tra cứu & phân tích số liệu BC Tháng (Lưu trữ)"
+                  disabled={!hasLoadedData}
+                  onClick={() => {
+                    if (hasLoadedData) onOpenAIAssistant();
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors shadow-sm ${
+                    hasLoadedData
+                      ? 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
+                      : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
+                  }`}
+                  title={
+                    hasLoadedData
+                      ? 'Mở Trợ lý AI tra cứu & phân tích số liệu BC Tháng (Lưu trữ)'
+                      : 'Vui lòng bấm "Lấy dữ liệu" trước khi sử dụng Trợ lý AI'
+                  }
                 >
-                  <Bot className="h-4 w-4 text-sky-400" />
+                  <Bot className={`h-4 w-4 ${hasLoadedData ? 'text-sky-400' : 'text-slate-400'}`} />
                   <span>Trợ lý AI</span>
                 </button>
               )}
@@ -170,11 +183,22 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
               {onOpenAIAssistant && (
                 <button
                   type="button"
-                  onClick={onOpenAIAssistant}
-                  className="px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-colors shadow-sm cursor-pointer"
-                  title="Mở Trợ lý AI tra cứu & phân tích số liệu BC Tháng (Lưu trữ)"
+                  disabled={!hasLoadedData}
+                  onClick={() => {
+                    if (hasLoadedData) onOpenAIAssistant();
+                  }}
+                  className={`px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors shadow-sm ${
+                    hasLoadedData
+                      ? 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
+                      : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
+                  }`}
+                  title={
+                    hasLoadedData
+                      ? 'Mở Trợ lý AI tra cứu & phân tích số liệu BC Tháng (Lưu trữ)'
+                      : 'Vui lòng bấm "Lấy dữ liệu" trước khi sử dụng Trợ lý AI'
+                  }
                 >
-                  <Bot className="h-4 w-4 text-sky-400" />
+                  <Bot className={`h-4 w-4 ${hasLoadedData ? 'text-sky-400' : 'text-slate-400'}`} />
                   <span>Trợ lý AI</span>
                 </button>
               )}
@@ -235,11 +259,22 @@ export const StorageQueryBar: React.FC<StorageQueryBarProps> = ({
           {onOpenAIAssistant && (
             <button
               type="button"
-              onClick={onOpenAIAssistant}
-              className="px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white transition-colors shadow-sm cursor-pointer"
-              title="Mở Trợ lý AI tra cứu & phân tích số liệu BC Hàng ngày (Lưu trữ)"
+              disabled={!hasLoadedData}
+              onClick={() => {
+                if (hasLoadedData) onOpenAIAssistant();
+              }}
+              className={`px-3.5 py-1.5 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors shadow-sm ${
+                hasLoadedData
+                  ? 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
+                  : 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed'
+              }`}
+              title={
+                hasLoadedData
+                  ? 'Mở Trợ lý AI tra cứu & phân tích số liệu BC Hàng ngày (Lưu trữ)'
+                  : 'Vui lòng bấm "Lấy dữ liệu" trước khi sử dụng Trợ lý AI'
+              }
             >
-              <Bot className="h-4 w-4 text-sky-400" />
+              <Bot className={`h-4 w-4 ${hasLoadedData ? 'text-sky-400' : 'text-slate-400'}`} />
               <span>Trợ lý AI</span>
             </button>
           )}

@@ -56,6 +56,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
 
     const canManageAdmin = can('manage_admin_settings');
     const canConfigServicePackage = isAdmin || can('config_service_package');
+    const canConfigAI = isAdmin || can('config_ai_settings');
 
     useEffect(() => {
         if (!canManageAdmin && staffSubTab === 'admin') {
@@ -68,6 +69,12 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
             setActiveSubTab('norms');
         }
     }, [canConfigServicePackage, activeSubTab]);
+
+    useEffect(() => {
+        if (!canConfigAI && activeSubTab === 'ai') {
+            setActiveSubTab('norms');
+        }
+    }, [canConfigAI, activeSubTab]);
 
     // --- Timeline-based labor config ---
     const [laborConfigs, setLaborConfigs] = useState<LaborConfigVersion[]>([]);
@@ -138,7 +145,9 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                   ...(canConfigServicePackage
                     ? [{ value: 'packages', label: 'Gói dịch vụ', icon: Package }]
                     : []),
-                  { value: 'ai', label: 'Cấu hình AI', icon: Bot },
+                  ...(canConfigAI
+                    ? [{ value: 'ai', label: 'Cấu hình AI', icon: Bot }]
+                    : []),
                 ]}
               />
             </ContextToolbar>
@@ -280,7 +289,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
                     </div>
                 )}
 
-                {activeSubTab === 'ai' && (
+                {activeSubTab === 'ai' && canConfigAI && (
                     <div className="animate-fade-in">
                         <AIConfigPanel />
                     </div>

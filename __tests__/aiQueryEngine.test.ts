@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  extractTimeConstraintsFromPrompt,
   executePatientSearchTool,
   executeStaffWorkloadTool,
   executeServicePackageAnalysisTool,
@@ -273,6 +274,56 @@ describe('AI Relational Query Engine', () => {
     expect(out.artifacts.length).toBeGreaterThanOrEqual(2);
     expect(out.contextDataForLLM).toContain('Sản khoa VIP 1');
     expect(out.contextDataForLLM).toContain('2 buổi trực');
+  });
+
+  it('parses "9 tháng đầu năm 2026 so với 2025" and compares CTCH without unrequested Season/Surgeon dimensions', () => {
+    const prompt = 'phân tích so sánh phẫu thuật chấn thương chỉnh hình 9 tháng đầu năm 2026 so với 2025';
+    const timeConstraints = extractTimeConstraintsFromPrompt(prompt);
+    expect(timeConstraints.months).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(timeConstraints.years).toEqual([2025, 2026]);
+
+    const ctchRecords: SurgeryRecord[] = [
+      {
+        ...sampleSurgeries[0],
+        patientId: 'CTCH_2025_1',
+        ngayBD: '2025-03-10 09:00',
+        start: new Date('2025-03-10T09:00:00'),
+        tenKT: 'Phẫu thuật kết hợp xương đùi bằng nẹp vít',
+        soLuong: 1,
+        loaiPTTT: 'P1',
+        thanhTien: 5000000,
+      },
+      {
+        ...sampleSurgeries[0],
+        patientId: 'CTCH_2026_1',
+        ngayBD: '2026-03-12 09:00',
+        start: new Date('2026-03-12T09:00:00'),
+        tenKT: 'Phẫu thuật kết hợp xương đùi bằng nẹp vít',
+        soLuong: 1,
+        loaiPTTT: 'P1',
+        thanhTien: 5000000,
+      },
+      {
+        ...sampleSurgeries[0],
+        patientId: 'CTCH_2026_2',
+        ngayBD: '2026-05-18 10:00',
+        start: new Date('2026-05-18T10:00:00'),
+        tenKT: 'Phẫu thuật tháo phương tiện kết hợp xương',
+        soLuong: 1,
+        loaiPTTT: 'P2',
+        thanhTien: 3000000,
+      },
+    ];
+
+    const res = executeMultiDimensionalPivotTool(baseContext, ctchRecords, prompt);
+    expect(res.summaryText).toContain('Chuyên khoa Chấn thương chỉnh hình (CTCH)');
+    expect(res.summaryText).toContain('T1–T9 (9 tháng)/2026');
+    expect(res.summaryText).toContain('T1–T9 (9 tháng)/2025');
+    expect(res.summaryText).toContain('+1 ca');
+    // Must NOT include unrequested Mùa Hè / Mùa Đông or Phẫu thuật viên chính sections
+    expect(res.summaryText).not.toContain('Mùa Hè');
+    expect(res.summaryText).not.toContain('Mùa Đông');
+    expect(res.summaryText).not.toContain('Phẫu thuật viên chính');
   });
 });
 

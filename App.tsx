@@ -119,6 +119,7 @@ const InnerApp: React.FC = () => {
   const [showAccountPanel, setShowAccountPanel] = useState(false);
   const [configInitialSubTab, setConfigInitialSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages' | 'ai' | undefined>(undefined);
   const [isAIStorageDrawerOpen, setIsAIStorageDrawerOpen] = useState(false);
+  const [isAIStorageMinimized, setIsAIStorageMinimized] = useState(false);
 
   // Lắng nghe sự kiện yêu cầu mở modal đăng nhập / tạo tài khoản từ các toast hoặc bảo vệ tính năng
   useEffect(() => {
@@ -993,7 +994,15 @@ const InnerApp: React.FC = () => {
                   onGetReport={handleGetReport}
                   onAutoFill24hShift={handleAutoFill24hShift}
                   handleTimeChange={handleTimeChange}
-                  onOpenAIAssistant={() => setIsAIStorageDrawerOpen(true)}
+                  hasLoadedData={(getState(currentType, 'storage').result?.validRecords?.length ?? 0) > 0}
+                  onOpenAIAssistant={(isAdmin || can('use_ai_assistant')) ? () => {
+                    if ((getState(currentType, 'storage').result?.validRecords?.length ?? 0) === 0) {
+                      addToast('Vui lòng bấm "Lấy dữ liệu" trước khi sử dụng Trợ lý AI!', 'info');
+                      return;
+                    }
+                    setIsAIStorageDrawerOpen(true);
+                    setIsAIStorageMinimized(false);
+                  } : undefined}
                 />
               )}
             </div>
@@ -1243,10 +1252,10 @@ const InnerApp: React.FC = () => {
           <div style={{ display: activeTab === 'statistics' ? 'block' : 'none' }} className="w-full h-full flex-1">
             <ErrorBoundary fallbackTitle="Không thể tải tab Thống kê">
               <StatisticsTab
-                onNavigateToAIConfig={() => {
+                onNavigateToAIConfig={(isAdmin || can('config_ai_settings')) ? () => {
                   setConfigInitialSubTab('ai');
                   setActiveTab('config');
-                }}
+                } : undefined}
               />
             </ErrorBoundary>
           </div>
@@ -1278,28 +1287,39 @@ const InnerApp: React.FC = () => {
         )}
 
 
-        <AIStorageDrawer
-          isOpen={isAIStorageDrawerOpen}
-          onClose={() => setIsAIStorageDrawerOpen(false)}
-          slotId={currentType === 'monthly' ? 'monthly_storage' : 'daily_storage'}
-          onOpenAIConfigTab={() => {
-            setIsAIStorageDrawerOpen(false);
-            setConfigInitialSubTab('ai');
-            setActiveTab('config');
-          }}
-          dataContext={{
-            contextPage: currentType === 'monthly' ? 'monthly_storage' : 'daily_storage',
-            periodLabel: currentPeriodLabel,
-            currentRecords: currentReport.result?.validRecords || [],
-            dutySchedules,
-            packageAssignments,
-            packageDefinitions,
-            chapters: [],
-            surgeryNamePrices: namePrices,
-            config,
-            allowRemoteFirestoreFetch: true,
-          }}
-        />
+        {(isAdmin || can('use_ai_assistant')) && (
+          <AIStorageDrawer
+            isOpen={isAIStorageDrawerOpen}
+            isMinimized={isAIStorageMinimized}
+            onMinimize={() => setIsAIStorageMinimized(true)}
+            onRestore={() => setIsAIStorageMinimized(false)}
+            onClose={() => {
+              setIsAIStorageDrawerOpen(false);
+              setIsAIStorageMinimized(false);
+            }}
+            slotId={currentType === 'monthly' ? 'monthly_storage' : 'daily_storage'}
+            onOpenAIConfigTab={(isAdmin || can('config_ai_settings')) ? () => {
+              setIsAIStorageDrawerOpen(false);
+              setIsAIStorageMinimized(false);
+              setConfigInitialSubTab('ai');
+              setActiveTab('config');
+            } : undefined}
+            onRequestLoadData={handleGetReport}
+            isLoadingExternalData={currentReport.isProcessing}
+            dataContext={{
+              contextPage: currentType === 'monthly' ? 'monthly_storage' : 'daily_storage',
+              periodLabel: currentPeriodLabel,
+              currentRecords: currentReport.result?.validRecords || [],
+              dutySchedules,
+              packageAssignments,
+              packageDefinitions,
+              chapters: [],
+              surgeryNamePrices: namePrices,
+              config,
+              allowRemoteFirestoreFetch: true,
+            }}
+          />
+        )}
 
         {editingRecord && (
           <SurgeryEditModal

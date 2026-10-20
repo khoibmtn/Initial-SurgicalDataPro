@@ -6,10 +6,10 @@ export interface PermissionDefinition {
   key: string;
   label: string;
   description: string;
-  category: 'Dữ liệu' | 'Lịch mổ' | 'Thống kê' | 'Gói DVKT' | 'Cấu hình' | 'Quản trị';
+  category: 'Dữ liệu' | 'Lịch mổ' | 'Thống kê' | 'Gói DVKT' | 'Trợ lý AI' | 'Cấu hình' | 'Quản trị';
 }
 
-/** Danh sách 24 quyền trong hệ thống */
+/** Danh sách 26 quyền trong hệ thống */
 export const ALL_PERMISSIONS: PermissionDefinition[] = [
   // ── Dữ liệu & Báo cáo ──
   { key: 'view_daily_report', label: 'Xem BC hàng ngày', description: 'Xem báo cáo phẫu thuật hàng ngày', category: 'Dữ liệu' },
@@ -30,6 +30,9 @@ export const ALL_PERMISSIONS: PermissionDefinition[] = [
   { key: 'assign_service_package', label: 'Gán & Phân công gói', description: 'Gán gói DVYC, phân công nhân lực, sửa và gỡ gói cho ca mổ', category: 'Gói DVKT' },
   { key: 'manage_package_payment', label: 'Quản lý đợt thanh toán', description: 'Tạo đợt mới, nhập TCKT, chốt và mở khóa đợt thanh toán', category: 'Gói DVKT' },
   { key: 'config_service_package', label: 'Cấu hình danh mục gói', description: 'Cấu hình danh mục gói DVKT, vị trí phân công và đơn giá', category: 'Gói DVKT' },
+  // ── Trợ lý AI ──
+  { key: 'use_ai_assistant', label: 'Sử dụng Trợ lý & Phân tích AI', description: 'Hỏi đáp, truy vấn dữ liệu liên kết và vẽ biểu đồ AI tại BC Hàng ngày, BC Tháng, Thống kê', category: 'Trợ lý AI' },
+  { key: 'config_ai_settings', label: 'Cấu hình Mô hình AI', description: 'Truy cập tab Cấu hình AI để thiết lập API Key, Base URL và phân bổ mô hình', category: 'Trợ lý AI' },
   // ── Cấu hình ──
   { key: 'manage_norms', label: 'Quản lý định mức', description: 'Thay đổi định mức phụ cấp, thời gian', category: 'Cấu hình' },
   { key: 'manage_dmkt', label: 'Quản lý DMKT', description: 'Quản lý danh mục kỹ thuật, giá', category: 'Cấu hình' },
@@ -51,6 +54,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
     'manage_schedule', 'lock_schedule', 'unlock_schedule',
     'view_statistics', 'view_cost_report',
     'view_service_package', 'assign_service_package', 'manage_package_payment', 'config_service_package',
+    'use_ai_assistant', 'config_ai_settings',
     'manage_norms', 'manage_dmkt', 'manage_staff', 'manage_admin_settings',
     'approve_users', 'view_audit_log',
   ],
@@ -81,8 +85,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<'head' | 'deputy_head' | 'staff' |
 
 /**
  * Chuẩn hóa dữ liệu role_permissions đọc từ Firebase RTDB:
- * Nếu bản ghi RTDB cũ chưa từng khởi tạo nhóm quyền 'Lịch mổ' (_schedulePermsInitialized !== true),
- * tự động gộp các quyền mặc định của nhóm 'Lịch mổ' cho từng vai trò (trừ khách).
+ * - Nếu bản ghi RTDB cũ chưa từng khởi tạo nhóm quyền 'Lịch mổ' (_schedulePermsInitialized !== true),
+ *   tự động gộp các quyền mặc định của nhóm 'Lịch mổ' cho từng vai trò (trừ khách).
+ * - Nếu bản ghi RTDB cũ chưa từng khởi tạo nhóm quyền 'Trợ lý AI' (_aiPermsInitialized !== true),
+ *   tự động gộp 2 quyền AI mặc định ('use_ai_assistant', 'config_ai_settings') riêng cho Trưởng khoa (head).
  */
 export function normalizeStoredRolePermissions(data: Record<string, any> | null | undefined): {
   head: string[];
@@ -99,10 +105,20 @@ export function normalizeStoredRolePermissions(data: Record<string, any> | null 
     };
   }
 
-  const mergeMissing = (existing: string[] | undefined, defaults: string[], keysToEnsure: string[]) => {
+  const mergeMissing = (
+    existing: string[] | undefined,
+    defaults: string[],
+    scheduleKeysToEnsure: string[],
+    aiKeysToEnsure: string[] = []
+  ) => {
     const base = Array.isArray(existing) ? [...existing] : [...defaults];
     if (!data._schedulePermsInitialized) {
-      for (const k of keysToEnsure) {
+      for (const k of scheduleKeysToEnsure) {
+        if (!base.includes(k)) base.push(k);
+      }
+    }
+    if (!data._aiPermsInitialized) {
+      for (const k of aiKeysToEnsure) {
         if (!base.includes(k)) base.push(k);
       }
     }
@@ -110,7 +126,12 @@ export function normalizeStoredRolePermissions(data: Record<string, any> | null 
   };
 
   return {
-    head: mergeMissing(data.head, DEFAULT_ROLE_PERMISSIONS.head, ['manage_schedule', 'lock_schedule', 'unlock_schedule']),
+    head: mergeMissing(
+      data.head,
+      DEFAULT_ROLE_PERMISSIONS.head,
+      ['manage_schedule', 'lock_schedule', 'unlock_schedule'],
+      ['use_ai_assistant', 'config_ai_settings']
+    ),
     deputy_head: mergeMissing(data.deputy_head, DEFAULT_ROLE_PERMISSIONS.deputy_head, ['manage_schedule', 'lock_schedule', 'unlock_schedule']),
     staff: mergeMissing(data.staff, DEFAULT_ROLE_PERMISSIONS.staff, ['manage_schedule']),
     guest: Array.isArray(data.guest) ? [...data.guest] : [...DEFAULT_ROLE_PERMISSIONS.guest],

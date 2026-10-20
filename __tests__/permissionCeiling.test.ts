@@ -9,11 +9,23 @@ import {
 } from '../services/permissionService';
 
 describe('RBAC Permission Ceiling & Resolution', () => {
-  it('should have 24 total defined system permissions including Lịch mổ, lock_report, view_audit_log, manage_admin_settings, and Gói DVKT permissions', () => {
-    expect(ALL_PERMISSIONS.length).toBe(24);
+  it('should have 26 total defined system permissions including Lịch mổ, Trợ lý AI, lock_report, view_audit_log, manage_admin_settings, and Gói DVKT permissions', () => {
+    expect(ALL_PERMISSIONS.length).toBe(26);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'lock_report')).toBe(true);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'view_audit_log')).toBe(true);
     expect(ALL_PERMISSIONS.some((p) => p.key === 'manage_admin_settings')).toBe(true);
+
+    // Trợ lý AI permissions (mặc định chỉ bật cho Admin và Trưởng khoa)
+    const aiPermKeys = ['use_ai_assistant', 'config_ai_settings'];
+    for (const key of aiPermKeys) {
+      const perm = ALL_PERMISSIONS.find((p) => p.key === key);
+      expect(perm).toBeDefined();
+      expect(perm?.category).toBe('Trợ lý AI');
+      expect(DEFAULT_ROLE_PERMISSIONS.head).toContain(key);
+      expect(DEFAULT_ROLE_PERMISSIONS.deputy_head).not.toContain(key);
+      expect(DEFAULT_ROLE_PERMISSIONS.staff).not.toContain(key);
+      expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain(key);
+    }
 
     // Lịch mổ permissions
     const schedulePermKeys = ['manage_schedule', 'lock_schedule', 'unlock_schedule'];
@@ -70,7 +82,7 @@ describe('RBAC Permission Ceiling & Resolution', () => {
     expect(DEFAULT_ROLE_PERMISSIONS.guest).not.toContain('approve_users');
   });
 
-  it('should auto-backfill Lịch mổ permissions on legacy RTDB role_permissions and respect explicit toggles when initialized', () => {
+  it('should auto-backfill Lịch mổ and Trợ lý AI permissions on legacy RTDB role_permissions and respect explicit toggles when initialized', () => {
     const legacyRtdb = {
       head: ['view_daily_report'],
       deputy_head: ['view_daily_report'],
@@ -78,7 +90,14 @@ describe('RBAC Permission Ceiling & Resolution', () => {
       guest: ['view_daily_report'],
     };
     const normalized = normalizeStoredRolePermissions(legacyRtdb);
-    expect(normalized.head).toEqual(['view_daily_report', 'manage_schedule', 'lock_schedule', 'unlock_schedule']);
+    expect(normalized.head).toEqual([
+      'view_daily_report',
+      'manage_schedule',
+      'lock_schedule',
+      'unlock_schedule',
+      'use_ai_assistant',
+      'config_ai_settings',
+    ]);
     expect(normalized.deputy_head).toEqual(['view_daily_report', 'manage_schedule', 'lock_schedule', 'unlock_schedule']);
     expect(normalized.staff).toEqual(['view_daily_report', 'manage_schedule']);
     expect(normalized.guest).toEqual(['view_daily_report']);
@@ -89,8 +108,10 @@ describe('RBAC Permission Ceiling & Resolution', () => {
       staff: ['view_daily_report'],
       guest: ['view_daily_report'],
       _schedulePermsInitialized: true,
+      _aiPermsInitialized: true,
     };
     const respected = normalizeStoredRolePermissions(initializedRtdb);
+    expect(respected.head).toEqual(['view_daily_report']);
     expect(respected.staff).toEqual(['view_daily_report']);
   });
 

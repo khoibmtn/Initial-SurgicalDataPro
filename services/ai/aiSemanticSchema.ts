@@ -103,10 +103,12 @@ export const CLINICAL_DOMAIN_TAXONOMY: Record<
     label: 'Chấn thương chỉnh hình (CTCH)',
     organKeywords: [
       'kết hợp xương',
+      'gãy xương',
       'xương',
       'khớp',
       'dây chằng',
-      'gân',
+      'đứt gân',
+      'nối gân',
       'tháo phương tiện',
       'đinh nội tủy',
       'nẹp vít',
@@ -270,10 +272,14 @@ ${pkgListText}
 
 ## 3. NGUYÊN TẮC TRẢ LỜI & TRÌNH DIỄN DỮ LIỆU CHUYÊN NGHIỆP
 1. **Chính xác tuyệt đối**: Luôn dựa hoàn toàn vào **KẾT QUẢ TRUY VẤN DỮ LIỆU ĐÃ THỰC THI (TOOL EXECUTION RESULTS)** được cung cấp kèm câu hỏi. Không bao giờ tự bịa số liệu.
-2. **Trình bày chuẩn Chuyên gia Phân tích Số liệu**:
-   - Mở đầu bằng **Tóm tắt Kết quả Chính (Key Takeaways)** ngắn gọn, làm nổi bật con số quan trọng nhất (in đậm số ca, số tiền, tỷ lệ %, số buổi trực).
-   - Phân tích chi tiết theo từng chiều (Tháng, Mùa Hè/Đông, Bác sĩ/Nhân viên, Vai trò trong kíp mổ, Gói dịch vụ, Ngày trực thường vs Ngày nghỉ).
-   - Sử dụng bảng Markdown gọn gàng khi liệt kê danh sách ngắn, và giải thích ý nghĩa xu hướng trên Biểu đồ / Bảng dữ liệu tương tác (Artifact) đã được hệ thống dựng sẵn bên cạnh.
-3. **Tùy biến Biểu đồ / Bảng theo yêu cầu**:
+2. **Đúng trọng tâm câu hỏi — KHÔNG phân tích lan man ngoài yêu cầu**:
+   - **Hỏi gì trả lời đúng trọng tâm đó**:
+     + Khi người dùng yêu cầu **phân tích / thống kê / so sánh chung** (ví dụ: *"phân tích so sánh phẫu thuật chấn thương chỉnh hình 9 tháng đầu năm 2026 so với 2025"*), hãy tập trung vào: **Tổng số lượng PTTT (số lượng quy đổi & số ca thực tế), Chênh lệch tăng/giảm (± ca, ± %) giữa các kỳ/năm, Doanh thu viện phí, Cơ cấu Phân loại PTTT (PĐB, P1, P2, P3, Thủ thuật), Diễn biến theo từng tháng và Các kỹ thuật PTTT cụ thể tăng/giảm nổi bật (TÍCH CỰC / CẢNH BÁO / ỔN ĐỊNH)**.
+     + **TUYỆT ĐỐI KHÔNG tự ý đưa phân tích theo Mùa (Mùa Hè / Mùa Đông), theo Phẫu thuật viên chính / Bác sĩ, theo Lịch trực 24h hay Gói dịch vụ vào câu trả lời** nếu người dùng KHÔNG hỏi đến các yếu tố đó trong câu hỏi.
+     + Chỉ phân tích theo Mùa Hè/Đông khi câu hỏi có từ khóa về mùa; chỉ phân tích theo Bác sĩ/Nhân viên khi câu hỏi có yêu cầu về bác sĩ/nhân viên.
+3. **Trình bày chuẩn Chuyên gia Phân tích Số liệu**:
+   - Mở đầu bằng **Tóm tắt Kết quả Chính (Key Takeaways)** ngắn gọn, làm nổi bật các con số tổng hợp và tỷ lệ tăng/giảm quan trọng nhất.
+   - Sử dụng bảng Markdown gọn gàng, rõ ràng để đối chiếu các chỉ tiêu chính và giải thích xu hướng dựa trên Biểu đồ / Bảng dữ liệu tương tác (Artifact) đã được hệ thống dựng sẵn bên cạnh.
+4. **Tùy biến Biểu đồ / Bảng theo yêu cầu**:
    - Nếu người dùng yêu cầu vẽ thêm biểu đồ tùy chỉnh hoặc thay đổi góc nhìn, bạn có thể xuất thêm khối \`\`\`artifact_json ... \`\`\` theo cấu trúc chuẩn \`AIArtifact\` (tùy chọn, vì hệ thống Query Engine đã tự động sinh Artifact chuẩn xác từ dữ liệu truy vấn).`;
 }

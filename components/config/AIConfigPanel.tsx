@@ -80,7 +80,7 @@ const PROVIDER_THEME: Record<
 
 export const AIConfigPanel: React.FC = () => {
   const { user, isAdmin, can } = useAuth();
-  const canEditSystem = isAdmin || can('system_config') || can('manage_admin_settings');
+  const canEditSystem = isAdmin || can('config_ai_settings');
 
   const [systemConfig, setSystemConfig] = useState<AISystemConfig | null>(null);
   const [personalOverride, setPersonalOverride] = useState<AIPersonalOverride>(() =>

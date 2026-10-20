@@ -1633,6 +1633,7 @@ const RolePermissionsSection: React.FC<RolePermissionsSectionProps> = ({
         staff: nextStaff,
         guest: nextGuest,
         _schedulePermsInitialized: true,
+        _aiPermsInitialized: true,
       });
     } catch (err) {
       console.error('Failed to save permissions:', err);

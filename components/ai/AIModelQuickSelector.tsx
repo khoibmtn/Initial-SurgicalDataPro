@@ -31,7 +31,26 @@ export const AIModelQuickSelector: React.FC<AIModelQuickSelectorProps> = ({
   onOpenAIConfigTab,
 }) => {
   const [open, setOpen] = useState(false);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const popoverRef = useRef<HTMLDivElement>(null);
+  const triggerBtnRef = useRef<HTMLButtonElement>(null);
+
+  const updatePopoverPosition = () => {
+    if (!triggerBtnRef.current) return;
+    const rect = triggerBtnRef.current.getBoundingClientRect();
+    const popoverWidth = 320; // w-80 = 20rem = 320px
+    const margin = 12;
+    const clampedLeft = Math.max(
+      margin,
+      Math.min(rect.left, window.innerWidth - popoverWidth - margin)
+    );
+    const estimatedHeight = 410;
+    const top =
+      rect.bottom + 6 + estimatedHeight > window.innerHeight && rect.top > estimatedHeight
+        ? Math.max(margin, rect.top - estimatedHeight - 6)
+        : rect.bottom + 6;
+    setPopoverPos({ top, left: clampedLeft });
+  };
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -39,10 +58,20 @@ export const AIModelQuickSelector: React.FC<AIModelQuickSelectorProps> = ({
         setOpen(false);
       }
     };
+    const handleReposition = () => {
+      if (open) updatePopoverPosition();
+    };
     if (open) {
+      updatePopoverPosition();
       document.addEventListener('mousedown', handleOutside);
+      window.addEventListener('resize', handleReposition);
+      window.addEventListener('scroll', handleReposition, true);
     }
-    return () => document.removeEventListener('mousedown', handleOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
   }, [open]);
 
   const modelsCatalog = getAvailableModelsCatalog(systemConfig, personalOverride);
@@ -88,8 +117,12 @@ export const AIModelQuickSelector: React.FC<AIModelQuickSelectorProps> = ({
   return (
     <div className="relative" ref={popoverRef}>
       <button
+        ref={triggerBtnRef}
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          if (!open) updatePopoverPosition();
+          setOpen((prev) => !prev);
+        }}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs transition-colors cursor-pointer"
         title="Đổi mô hình AI, mức độ suy luận (Effort) và Temperature"
       >
@@ -104,7 +137,10 @@ export const AIModelQuickSelector: React.FC<AIModelQuickSelectorProps> = ({
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1.5 w-80 rounded-xl bg-white border border-slate-200 shadow-xl z-50 p-3 space-y-3 animate-fade-in">
+        <div
+          style={{ top: popoverPos.top, left: popoverPos.left }}
+          className="fixed w-80 max-w-[calc(100vw-24px)] rounded-xl bg-white border border-slate-200 shadow-2xl z-[80] p-3 space-y-3 animate-fade-in"
+        >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 pb-2">
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
