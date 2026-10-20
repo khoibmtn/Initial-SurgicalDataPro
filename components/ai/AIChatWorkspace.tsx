@@ -506,6 +506,10 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
     return allArtifacts[allArtifacts.length - 1];
   }, [allArtifacts, selectedArtifactId]);
 
+  useEffect(() => {
+    setIsExpandedStudio(defaultExpanded);
+  }, [defaultExpanded]);
+
   const handleToggleStudio = () => {
     const next = !isExpandedStudio;
     setIsExpandedStudio(next);
@@ -513,13 +517,10 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
   };
 
   const allRecordsCount = getAllRecordsFromContext(dataContext).length;
-  // Trong trang Thống kê (statistics_studio), AI tự động truy vấn trực tiếp Firestore độc lập hoàn toàn với các tab khác
-  const isStandaloneDatabaseQueryMode = slotId === 'statistics_studio';
-  const hasDataToQuery = isStandaloneDatabaseQueryMode || allRecordsCount > 0;
 
   const handleSendQuestion = async (questionText?: string) => {
     const prompt = (questionText ?? inputPrompt).trim();
-    if (!prompt || isGenerating || !hasDataToQuery) return;
+    if (!prompt || isGenerating) return;
 
     if (!questionText) {
       setInputPrompt('');
@@ -538,8 +539,26 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
     const startTick = performance.now();
 
     try {
-      // 1. Run Relational Query Pipeline (TypeScript in-browser + Firestore hybrid expand)
+      // 1. Run Relational Query Pipeline (TypeScript in-browser + Firestore hybrid expand + Clarification check)
       const queryOutput = await runRelationalQueryPipeline(prompt, dataContext);
+
+      // If data source is ambiguous & no local data is opened on the active tab, ask user to clarify immediately (0ms)
+      if (queryOutput.needsClarification) {
+        const clarifyMsg: AIChatMessage = {
+          id: `clarify_${Date.now()}`,
+          role: 'assistant',
+          content:
+            queryOutput.clarificationMessage ||
+            'Vui lòng chọn rõ nguồn dữ liệu hoặc khoảng thời gian cần truy vấn:',
+          timestamp: Date.now(),
+          modelId: 'Trợ lý Định tuyến Nguồn Dữ liệu',
+          latencyMs: Math.round(performance.now() - startTick),
+          clarificationOptions: queryOutput.clarificationOptions,
+        };
+        setMessages((prev) => [...prev, clarifyMsg]);
+        return;
+      }
+
       const generatedArtifacts = [...queryOutput.artifacts];
 
       // Auto-focus newest artifact in Studio
@@ -570,6 +589,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           {
             contextPage: dataContext.contextPage,
             periodLabel: dataContext.periodLabel,
+            dataSourceCitation: queryOutput.dataSourceCitation,
             loadedRecordCount: Math.max(allRecords.length, queryOutput.scopedRecordCount || 0),
             loadedDateRange:
               queryOutput.scopedDateRange && queryOutput.scopedDateRange !== 'Chưa có bản ghi'
@@ -605,7 +625,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
               ...recentHistory,
               {
                 role: 'user',
-                content: `CÂU HỎI CỦA NGƯỜI DÙNG:\n"${prompt}"\n\n=== KẾT QUẢ TRUY VẤN DỮ LIỆU ĐÃ THỰC THI CHÍNH XÁC 100% TỪ CƠ SỞ DỮ LIỆU ===\n${queryOutput.contextDataForLLM}\n\nHãy trả lời trực tiếp, chính xác và đúng trọng tâm câu hỏi trên dựa hoàn toàn vào số liệu truy vấn ở trên. LƯU Ý QUAN TRỌNG: Không tự ý đưa phân tích theo Mùa (Mùa Hè/Mùa Đông) hay theo Phẫu thuật viên chính / Bác sĩ vào câu trả lời nếu người dùng không yêu cầu trong câu hỏi.`,
+                content: `CÂU HỎI CỦA NGƯỜI DÙNG:\n"${prompt}"\n\n=== KẾT QUẢ TRUY VẤN DỮ LIỆU ĐÃ THỰC THI CHÍNH XÁC 100% TỪ CƠ SỞ DỮ LIỆU ===\n${queryOutput.contextDataForLLM}\n\nHãy trả lời trực tiếp, chính xác và đúng trọng tâm câu hỏi trên dựa hoàn toàn vào số liệu truy vấn ở trên. BẮT BUỘC nêu rõ nguồn dữ liệu ("${queryOutput.dataSourceCitation || dataContext.periodLabel}") ở đầu câu trả lời. LƯU Ý QUAN TRỌNG: Không tự ý đưa phân tích theo Mùa (Mùa Hè/Mùa Đông) hay theo Phẫu thuật viên chính / Bác sĩ vào câu trả lời nếu người dùng không yêu cầu trong câu hỏi.`,
               },
             ],
           });
@@ -637,6 +657,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
         reasoningEffort: activeSlotConfig.reasoningEffort,
         temperature: activeSlotConfig.temperature,
         latencyMs,
+        dataSourceCitation: queryOutput.dataSourceCitation,
         artifacts: generatedArtifacts,
         toolLogs: queryOutput.executedTools,
       };
@@ -671,32 +692,26 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             <Bot className="h-4 w-4" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-xs font-bold text-slate-900 truncate">
-                {activeSlotConfig.label}
+                Trợ lý AI Phân tích Số liệu Phẫu thuật
               </h3>
               <span
                 className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
-                  hasDataToQuery
+                  allRecordsCount > 0
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-amber-50 text-amber-700 border-amber-300'
+                    : 'bg-sky-50 text-sky-700 border-sky-200'
                 }`}
               >
-                {hasDataToQuery ? (
-                  <Database className="h-2.5 w-2.5" />
-                ) : (
-                  <AlertTriangle className="h-2.5 w-2.5" />
-                )}
+                <Database className="h-2.5 w-2.5" />
                 {allRecordsCount > 0
-                  ? `${allRecordsCount.toLocaleString('vi-VN')} ca PTTT`
-                  : isStandaloneDatabaseQueryMode
-                  ? 'Truy vấn trực tiếp CSDL Lưu trữ'
-                  : '0 ca PTTT (Chưa mở dữ liệu)'}
+                  ? `Đang mở: ${allRecordsCount.toLocaleString('vi-VN')} ca PTTT`
+                  : 'Truy vấn tự động theo câu hỏi'}
               </span>
             </div>
             <p className="text-[11px] text-slate-500 truncate">
-              Kỳ đang mở: <b>{dataContext.periodLabel}</b> • Liên kết: Ca mổ + Gói DV (
-              {dataContext.packageAssignments.length}) + Lịch trực (
+              Ngữ cảnh màn hình: <b>{dataContext.activeSourceCitation || dataContext.periodLabel}</b> • Gói DV (
+              {dataContext.packageAssignments.length}) • Lịch trực (
               {Object.keys(dataContext.dutySchedules || {}).length} ngày)
             </p>
           </div>
@@ -772,53 +787,16 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
         >
           {/* Messages Scroll Area */}
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
-            {!hasDataToQuery && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start justify-between gap-3 text-xs text-amber-900 shadow-2xs flex-wrap">
-                <div className="flex items-start gap-2.5 flex-1 min-w-[220px]">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="space-y-1 leading-relaxed">
-                    <div className="font-bold text-amber-950">
-                      Chưa có dữ liệu kỳ báo cáo để truy vấn AI (0 ca PTTT)
-                    </div>
-                    <p className="text-amber-800">
-                      Vui lòng chọn khoảng thời gian và bấm nút <b>&ldquo;Lấy dữ liệu&rdquo;</b> trước khi đặt câu hỏi. Hệ thống tự động khóa truy vấn khi chưa mở dữ liệu để tránh mất thời gian chờ AI xử lý dữ liệu rỗng.
-                    </p>
-                  </div>
-                </div>
-                {onRequestLoadData && (
-                  <button
-                    type="button"
-                    disabled={isLoadingExternalData}
-                    onClick={onRequestLoadData}
-                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50 shrink-0"
-                  >
-                    {isLoadingExternalData ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        <span>Đang tải dữ liệu...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Database className="h-3.5 w-3.5" />
-                        <span>Lấy dữ liệu ngay</span>
-                      </>
-                    )}
-                  </button>
-                )}
-              </div>
-            )}
-
             {messages.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shadow-2xs">
                 <div className="flex items-center gap-2 text-sky-700 font-bold text-xs">
                   <Sparkles className="h-4 w-4 shrink-0" />
                   <span>
-                    Chuyên gia Phân tích Số liệu Phẫu thuật AI đã sẵn sàng
+                    Chuyên gia Phân tích Số liệu Phẫu thuật AI (Dùng chung toàn hệ thống)
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Bạn có thể đặt câu hỏi bằng ngôn ngữ tự nhiên. AI hiểu toàn bộ mối quan hệ giữa{' '}
-                  <b>Danh sách ca mổ, Kíp phẫu thuật 6 vị trí, Gói dịch vụ yêu cầu, Lịch trực 24h, Mùa Hè/Đông và Danh mục Chương/Giá DVKT</b>, tự động vẽ biểu đồ tương tác và xuất Excel/Ảnh.
+                  Bạn có thể đặt câu hỏi ở bất kỳ màn hình nào. Nếu câu hỏi nêu rõ thời gian/nguồn (VD: <i>&ldquo;9 tháng đầu năm 2026 so với 2025&rdquo;</i>, <i>&ldquo;tháng 10/2026&rdquo;</i>), AI tự động truy vấn đúng nguồn đó và ghi rõ <b>Nguồn số liệu</b>. Nếu câu hỏi chưa nêu thời gian và màn hình chưa mở dữ liệu, AI sẽ hỏi lại để bạn chọn nhanh.
                 </p>
 
                 <div className="space-y-1.5 pt-1">
@@ -831,9 +809,9 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                         <button
                           key={idx}
                           type="button"
-                          disabled={!hasDataToQuery || isGenerating}
+                          disabled={isGenerating}
                           onClick={() => handleSendQuestion(q)}
-                          className="text-left px-3 py-2 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-sky-50 hover:border-sky-300 text-xs text-slate-700 hover:text-sky-900 font-medium transition-colors flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-50/70 disabled:hover:border-slate-200 disabled:hover:text-slate-700"
+                          className="text-left px-3 py-2 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-sky-50 hover:border-sky-300 text-xs text-slate-700 hover:text-sky-900 font-medium transition-colors flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <span>{q}</span>
                           <Send className="h-3 w-3 text-sky-600 shrink-0" />
@@ -880,6 +858,17 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                       </div>
                     )}
 
+                    {/* Explicit Data Source Citation Badge */}
+                    {msg.role === 'assistant' && msg.dataSourceCitation && (
+                      <div className="mb-2.5 px-3 py-1.5 rounded-lg bg-sky-50 border border-sky-200/90 text-[11px] text-sky-900 flex items-start gap-1.5">
+                        <Database className="h-3.5 w-3.5 text-sky-600 shrink-0 mt-0.5" />
+                        <div className="leading-snug">
+                          <span className="font-bold text-sky-950">Nguồn số liệu: </span>
+                          <span className="font-medium">{msg.dataSourceCitation}</span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Tool Execution Badges */}
                     {msg.toolLogs && msg.toolLogs.length > 0 && (
                       <div className="mb-2.5 space-y-1">
@@ -900,6 +889,36 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                       <p className="whitespace-pre-wrap">{msg.content}</p>
                     ) : (
                       <FormattedMessageContent content={msg.content} />
+                    )}
+
+                    {/* Interactive Clarification Quick-Choice Options */}
+                    {msg.clarificationOptions && msg.clarificationOptions.length > 0 && (
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1.5">
+                        <span className="text-[11px] font-bold text-slate-600 block">
+                          Chọn nhanh nguồn dữ liệu để AI truy vấn ngay:
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                          {msg.clarificationOptions.map((opt, oIdx) => (
+                            <button
+                              key={oIdx}
+                              type="button"
+                              disabled={isGenerating}
+                              onClick={() => handleSendQuestion(opt.followUpPrompt)}
+                              className="text-left px-3 py-2 rounded-lg border border-sky-200 bg-sky-50/70 hover:bg-sky-100 hover:border-sky-300 text-xs text-sky-900 font-semibold transition-colors flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate">{opt.label}</div>
+                                {opt.description && (
+                                  <div className="text-[10px] text-slate-500 font-normal truncate">
+                                    {opt.description}
+                                  </div>
+                                )}
+                              </div>
+                              <Send className="h-3 w-3 text-sky-600 shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
 
                     {/* Inline Artifacts (when NOT in Expanded Studio mode, or quick selector pills when in Studio mode) */}
@@ -985,19 +1004,15 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           >
             <input
               type="text"
-              disabled={!hasDataToQuery || isGenerating}
+              disabled={isGenerating}
               value={inputPrompt}
               onChange={(e) => setInputPrompt(e.target.value)}
-              placeholder={
-                hasDataToQuery
-                  ? 'Nhập câu hỏi phân tích (VD: Phẫu thuật nội soi tiêu hóa ở các tháng, mùa Hè/Đông, bác sĩ...)'
-                  : 'Vui lòng bấm "Lấy dữ liệu" để mở dữ liệu trước khi đặt câu hỏi cho AI...'
-              }
+              placeholder="Nhập câu hỏi phân tích (VD: Phân tích phẫu thuật CTCH 9 tháng đầu năm 2026 so với 2025...)"
               className="flex-1 px-3.5 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none bg-slate-50/60 focus:bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
             />
             <button
               type="submit"
-              disabled={!hasDataToQuery || !inputPrompt.trim() || isGenerating}
+              disabled={!inputPrompt.trim() || isGenerating}
               className="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="h-3.5 w-3.5" />

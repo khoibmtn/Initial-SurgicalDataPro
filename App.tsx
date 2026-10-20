@@ -7,7 +7,8 @@ import { StatisticsTab } from './components/statistics/StatisticsTab';
 import { ServicePriceTab } from './components/ServicePriceTab';
 import { SchedulingTab } from './components/scheduling/SchedulingTab';
 import { subscribeToSurgeryNamePrices } from './services/surgeryNamePriceService';
-import { PatientServicePriceGroup, SurgeryNamePrice } from './types';
+import { PatientServicePriceGroup, SurgeryNamePrice, PersistedSurgeryRecord, ChapterCatalog } from './types';
+import type { YearlyCacheData } from './services/statisticsService';
 import { SurgeryEditModal } from './components/surgery/SurgeryEditModal';
 import {
   Sidebar,
@@ -120,6 +121,13 @@ const InnerApp: React.FC = () => {
   const [configInitialSubTab, setConfigInitialSubTab] = useState<'norms' | 'dmkt' | 'staff' | 'users' | 'packages' | 'ai' | undefined>(undefined);
   const [isAIStorageDrawerOpen, setIsAIStorageDrawerOpen] = useState(false);
   const [isAIStorageMinimized, setIsAIStorageMinimized] = useState(false);
+  const [isAIDrawerDefaultExpanded, setIsAIDrawerDefaultExpanded] = useState(false);
+  const [syncedStatsContext, setSyncedStatsContext] = useState<{
+    records: PersistedSurgeryRecord[];
+    yearlyCacheData: YearlyCacheData | null;
+    chapters: ChapterCatalog[];
+    periodLabel: string;
+  } | null>(null);
 
   // Lắng nghe sự kiện yêu cầu mở modal đăng nhập / tạo tài khoản từ các toast hoặc bảo vệ tính năng
   useEffect(() => {
@@ -996,10 +1004,7 @@ const InnerApp: React.FC = () => {
                   handleTimeChange={handleTimeChange}
                   hasLoadedData={(getState(currentType, 'storage').result?.validRecords?.length ?? 0) > 0}
                   onOpenAIAssistant={(isAdmin || can('use_ai_assistant')) ? () => {
-                    if ((getState(currentType, 'storage').result?.validRecords?.length ?? 0) === 0) {
-                      addToast('Vui lòng bấm "Lấy dữ liệu" trước khi sử dụng Trợ lý AI!', 'info');
-                      return;
-                    }
+                    setIsAIDrawerDefaultExpanded(false);
                     setIsAIStorageDrawerOpen(true);
                     setIsAIStorageMinimized(false);
                   } : undefined}
@@ -1256,6 +1261,12 @@ const InnerApp: React.FC = () => {
                   setConfigInitialSubTab('ai');
                   setActiveTab('config');
                 } : undefined}
+                onOpenAIAssistant={(isAdmin || can('use_ai_assistant')) ? () => {
+                  setIsAIDrawerDefaultExpanded(true);
+                  setIsAIStorageDrawerOpen(true);
+                  setIsAIStorageMinimized(false);
+                } : undefined}
+                onStatsContextSync={setSyncedStatsContext}
               />
             </ErrorBoundary>
           </div>
@@ -1287,39 +1298,111 @@ const InnerApp: React.FC = () => {
         )}
 
 
-        {(isAdmin || can('use_ai_assistant')) && (
-          <AIStorageDrawer
-            isOpen={isAIStorageDrawerOpen}
-            isMinimized={isAIStorageMinimized}
-            onMinimize={() => setIsAIStorageMinimized(true)}
-            onRestore={() => setIsAIStorageMinimized(false)}
-            onClose={() => {
-              setIsAIStorageDrawerOpen(false);
-              setIsAIStorageMinimized(false);
-            }}
-            slotId={currentType === 'monthly' ? 'monthly_storage' : 'daily_storage'}
-            onOpenAIConfigTab={(isAdmin || can('config_ai_settings')) ? () => {
-              setIsAIStorageDrawerOpen(false);
-              setIsAIStorageMinimized(false);
-              setConfigInitialSubTab('ai');
-              setActiveTab('config');
-            } : undefined}
-            onRequestLoadData={handleGetReport}
-            isLoadingExternalData={currentReport.isProcessing}
-            dataContext={{
-              contextPage: currentType === 'monthly' ? 'monthly_storage' : 'daily_storage',
-              periodLabel: currentPeriodLabel,
-              currentRecords: currentReport.result?.validRecords || [],
-              dutySchedules,
-              packageAssignments,
-              packageDefinitions,
-              chapters: [],
-              surgeryNamePrices: namePrices,
-              config,
-              allowRemoteFirestoreFetch: true,
-            }}
-          />
-        )}
+        {(isAdmin || can('use_ai_assistant')) && (() => {
+          const dailyOpenedRecs =
+            dailyStorageState.result?.validRecords ||
+            dailyUploadState.result?.validRecords ||
+            [];
+          const dailyRangeStr =
+            dailyStorageState.queryDateRangeText ||
+            dailyStorageState.result?.dateRangeText ||
+            dailyUploadState.result?.dateRangeText ||
+            '';
+          const dailyOpenedCitation =
+            dailyOpenedRecs.length > 0
+              ? `Số liệu Báo cáo hàng ngày (${dailyStorageState.result?.validRecords?.length ? 'Lưu trữ' : 'Minh Lộ'}) ${dailyRangeStr} (${dailyOpenedRecs.length.toLocaleString('vi-VN')} ca PTTT)`.trim()
+              : undefined;
+
+          const monthlyOpenedRecs =
+            monthlyStorageState.result?.validRecords ||
+            monthlyUploadState.result?.validRecords ||
+            [];
+          const monthlyRangeStr =
+            monthlyStorageState.queryDateRangeText ||
+            monthlyStorageState.result?.dateRangeText ||
+            monthlyUploadState.result?.dateRangeText ||
+            '';
+          const monthlyOpenedCitation =
+            monthlyOpenedRecs.length > 0
+              ? `Số liệu Báo cáo tháng (${monthlyStorageState.result?.validRecords?.length ? 'Lưu trữ' : 'Minh Lộ'}) ${monthlyRangeStr} (${monthlyOpenedRecs.length.toLocaleString('vi-VN')} ca PTTT)`.trim()
+              : undefined;
+
+          const activeCurrentRecords =
+            activeTab === 'daily' || activeTab === 'monthly'
+              ? currentReport.result?.validRecords || []
+              : activeTab === 'statistics'
+              ? syncedStatsContext?.records || []
+              : [];
+
+          const activePeriodLabel =
+            activeTab === 'statistics'
+              ? syncedStatsContext?.periodLabel || 'Thống kê phẫu thuật'
+              : activeTab === 'scheduling'
+              ? 'Lịch mổ'
+              : activeTab === 'config'
+              ? 'Cấu hình hệ thống'
+              : currentPeriodLabel;
+
+          const activeSourceCitation =
+            activeTab === 'daily'
+              ? dailyOpenedCitation || 'Báo cáo hàng ngày (Chưa mở dữ liệu)'
+              : activeTab === 'monthly'
+              ? monthlyOpenedCitation || 'Báo cáo tháng (Chưa mở dữ liệu)'
+              : activeTab === 'statistics'
+              ? syncedStatsContext && syncedStatsContext.records.length > 0
+                ? `Số liệu ${syncedStatsContext.periodLabel} (${syncedStatsContext.records.length.toLocaleString('vi-VN')} ca PTTT)`
+                : 'Thống kê phẫu thuật (Tự động truy vấn CSDL theo câu hỏi)'
+              : activeTab === 'scheduling'
+              ? 'Lịch mổ (Tự động truy vấn CSDL theo câu hỏi)'
+              : 'Toàn hệ thống (Tự động truy vấn CSDL theo câu hỏi)';
+
+          return (
+            <AIStorageDrawer
+              isOpen={isAIStorageDrawerOpen}
+              isMinimized={isAIStorageMinimized}
+              defaultExpanded={isAIDrawerDefaultExpanded}
+              onMinimize={() => setIsAIStorageMinimized(true)}
+              onRestore={() => setIsAIStorageMinimized(false)}
+              onClose={() => {
+                setIsAIStorageDrawerOpen(false);
+                setIsAIStorageMinimized(false);
+              }}
+              slotId="statistics_studio"
+              onOpenAIConfigTab={(isAdmin || can('config_ai_settings')) ? () => {
+                setIsAIStorageDrawerOpen(false);
+                setIsAIStorageMinimized(false);
+                setConfigInitialSubTab('ai');
+                setActiveTab('config');
+              } : undefined}
+              onRequestLoadData={activeTab === 'daily' || activeTab === 'monthly' ? handleGetReport : undefined}
+              isLoadingExternalData={currentReport.isProcessing}
+              dataContext={{
+                contextPage:
+                  activeTab === 'daily'
+                    ? 'daily_storage'
+                    : activeTab === 'monthly'
+                    ? 'monthly_storage'
+                    : 'statistics_studio',
+                activeAppTab: activeTab,
+                periodLabel: activePeriodLabel,
+                activeSourceCitation,
+                currentRecords: activeCurrentRecords,
+                dailyOpenedRecords: dailyOpenedRecs,
+                dailyOpenedCitation,
+                monthlyOpenedRecords: monthlyOpenedRecs,
+                monthlyOpenedCitation,
+                yearlyCacheData: syncedStatsContext?.yearlyCacheData || null,
+                dutySchedules,
+                packageAssignments,
+                packageDefinitions,
+                chapters: syncedStatsContext?.chapters || [],
+                surgeryNamePrices: namePrices,
+                config,
+                allowRemoteFirestoreFetch: true,
+              }}
+            />
+          );
+        })()}
 
         {editingRecord && (
           <SurgeryEditModal

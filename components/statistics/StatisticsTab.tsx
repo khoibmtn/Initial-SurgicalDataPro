@@ -19,33 +19,35 @@ import { StatsSummary } from './StatsSummary';
 import { StatsConfig } from './StatsConfig';
 import { SpecialtyComparisonTab } from './SpecialtyComparisonTab';
 import { ORAnalyticsDashboard } from './ORAnalyticsDashboard';
-import { AIChatWorkspace } from '../ai/AIChatWorkspace';
 import { ContextToolbar, TabLine } from '../ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { AuthGuardView } from '../auth/AuthGuardView';
 
-type SubTab = 'summary' | 'comparison' | 'kpi' | 'ai_studio' | 'config';
+type SubTab = 'summary' | 'comparison' | 'kpi' | 'config';
 
 interface StatisticsTabProps {
   onNavigateToAIConfig?: () => void;
+  onOpenAIAssistant?: () => void;
+  onStatsContextSync?: (ctx: {
+    records: PersistedSurgeryRecord[];
+    yearlyCacheData: YearlyCacheData | null;
+    chapters: ChapterCatalog[];
+    periodLabel: string;
+  }) => void;
 }
 
-export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConfig }) => {
+export const StatisticsTab: React.FC<StatisticsTabProps> = ({
+  onOpenAIAssistant,
+  onStatsContextSync,
+}) => {
   const { config } = useConfig();
   const { isAuthenticated, isAdmin, can } = useAuth();
   const canUseAI = isAdmin || can('use_ai_assistant');
-  const canConfigAI = isAdmin || can('config_ai_settings');
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentRealMonth = now.getMonth() + 1;
 
   const [subTab, setSubTab] = useState<SubTab>('summary');
-
-  useEffect(() => {
-    if (!canUseAI && subTab === 'ai_studio') {
-      setSubTab('summary');
-    }
-  }, [canUseAI, subTab]);
   const [primaryYear, setPrimaryYear] = useState(currentYear);
   const [compareYear, setCompareYear] = useState(currentYear - 1);
   const [selectedMonth, setSelectedMonth] = useState(currentRealMonth);
@@ -160,6 +162,15 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
     }
     return combined;
   }, [yearlyCacheData]);
+
+  useEffect(() => {
+    onStatsContextSync?.({
+      records: aiStudioRecords,
+      yearlyCacheData: yearlyCacheData || yearCacheRef.current?.data || null,
+      chapters,
+      periodLabel: `Thống kê Năm ${primaryYear} & ${compareYear}`,
+    });
+  }, [aiStudioRecords, yearlyCacheData, chapters, primaryYear, compareYear, onStatsContextSync]);
 
   // --- Full yearly fetch (Firestore queries + 24× aggregation) ---
   const loadYearlyData = useCallback(async (
@@ -509,9 +520,6 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
     { value: 'summary' as const, label: 'Thống kê', icon: Table2 },
     { value: 'comparison' as const, label: 'Phân tích so sánh', icon: BarChart3 },
     { value: 'kpi' as const, label: 'Quản trị phòng mổ', icon: Gauge },
-    ...(canUseAI
-      ? [{ value: 'ai_studio' as const, label: 'AI Phân tích & Hỏi đáp', icon: Bot }]
-      : []),
     { value: 'config' as const, label: 'Cấu hình thống kê', icon: Settings2 },
   ];
 
@@ -531,11 +539,24 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
     <div className="flex flex-col animate-fade-in relative w-full h-full">
       {/* ── Firebase-style Page Header: title + sub-tabs ── */}
       <ContextToolbar title="Thống kê phẫu thuật">
-        <TabLine
-          value={subTab}
-          onChange={(v) => setSubTab(v as SubTab)}
-          options={subTabOptions}
-        />
+        <div className="flex items-center gap-3 flex-wrap">
+          <TabLine
+            value={subTab}
+            onChange={(v) => setSubTab(v as SubTab)}
+            options={subTabOptions}
+          />
+          {canUseAI && onOpenAIAssistant && (
+            <button
+              type="button"
+              onClick={onOpenAIAssistant}
+              className="px-3 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              title="Mở cửa sổ Trợ lý AI Phân tích (Dùng chung toàn hệ thống)"
+            >
+              <Bot className="h-3.5 w-3.5 text-sky-400" />
+              <span>Trợ lý AI Phân tích</span>
+            </button>
+          )}
+        </div>
       </ContextToolbar>
 
       {/* ── Tab Body ── */}
@@ -579,15 +600,15 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
                 <><Download className="h-3.5 w-3.5" /> Tải dữ liệu</>
               )}
             </button>
-            {canUseAI && (
+            {canUseAI && onOpenAIAssistant && (
               <button
                 type="button"
-                onClick={() => setSubTab('ai_studio')}
-                className="px-3 py-1.5 bg-gradient-to-r from-sky-600 to-teal-600 text-white rounded-lg text-xs font-bold hover:from-sky-700 hover:to-teal-700 transition-all flex items-center gap-1.5 shadow-sm"
-                title="Mở Không gian Phân tích & Hỏi đáp dữ liệu bằng AI"
+                onClick={onOpenAIAssistant}
+                className="px-3 py-1.5 bg-gradient-to-r from-sky-600 to-teal-600 text-white rounded-lg text-xs font-bold hover:from-sky-700 hover:to-teal-700 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                title="Mở Trợ lý AI Phân tích & Hỏi đáp (chế độ Studio mở rộng)"
               >
                 <Bot className="h-3.5 w-3.5" />
-                Hỏi đáp & Phân tích AI
+                Trợ lý AI Phân tích
               </button>
             )}
           </div>
@@ -843,34 +864,6 @@ export const StatisticsTab: React.FC<StatisticsTabProps> = ({ onNavigateToAIConf
           />
         </div>
       </div>
-
-      {/* AI ANALYTICS STUDIO tab body */}
-      {canUseAI && (
-        <div style={{ display: subTab === 'ai_studio' ? 'block' : 'none' }}>
-          <div className="px-4 pt-3 pb-8">
-            <AIChatWorkspace
-              slotId="statistics_studio"
-              defaultExpanded={true}
-              onOpenAIConfigTab={canConfigAI ? onNavigateToAIConfig : undefined}
-              onRequestLoadData={() => handleLoadData(false)}
-              isLoadingExternalData={loading}
-              dataContext={{
-                contextPage: 'statistics_studio',
-                periodLabel: `Năm ${primaryYear} & ${compareYear}`,
-                currentRecords: aiStudioRecords,
-                yearlyCacheData: yearlyCacheData || yearCacheRef.current?.data || null,
-                dutySchedules: {},
-                packageAssignments,
-                packageDefinitions,
-                chapters,
-                surgeryNamePrices,
-                config,
-                allowRemoteFirestoreFetch: true,
-              }}
-            />
-          </div>
-        </div>
-      )}
 
       {/* CONFIG tab body */}
       <div style={{ display: subTab === 'config' ? 'block' : 'none' }}>

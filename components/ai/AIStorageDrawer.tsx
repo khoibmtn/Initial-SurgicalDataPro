@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Minus, Bot, Loader2, MessageSquare } from 'lucide-react';
 import { AISlotId } from '../../types/ai';
 import { AIDataContextInput } from '../../services/ai/aiQueryEngine';
@@ -7,6 +7,7 @@ import { AIChatWorkspace, AIChatSessionStatus } from './AIChatWorkspace';
 interface AIStorageDrawerProps {
   isOpen: boolean;
   isMinimized?: boolean;
+  defaultExpanded?: boolean;
   onMinimize?: () => void;
   onRestore?: () => void;
   onClose: () => void;
@@ -20,6 +21,7 @@ interface AIStorageDrawerProps {
 export const AIStorageDrawer: React.FC<AIStorageDrawerProps> = ({
   isOpen,
   isMinimized = false,
+  defaultExpanded = false,
   onMinimize,
   onRestore,
   onClose,
@@ -29,13 +31,19 @@ export const AIStorageDrawer: React.FC<AIStorageDrawerProps> = ({
   onRequestLoadData,
   isLoadingExternalData = false,
 }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [sessionStatus, setSessionStatus] = useState<AIChatSessionStatus>({
     messageCount: 0,
     artifactCount: 0,
     isGenerating: false,
     lastMessagePreview: '',
   });
+
+  useEffect(() => {
+    if (defaultExpanded) {
+      setIsExpanded(true);
+    }
+  }, [defaultExpanded]);
 
   const handleMinimize = () => {
     if (onMinimize) {
@@ -44,9 +52,6 @@ export const AIStorageDrawer: React.FC<AIStorageDrawerProps> = ({
       onClose();
     }
   };
-
-  const slotShortLabel =
-    slotId === 'daily_storage' ? 'BC Hàng ngày (Lưu trữ)' : 'BC Tháng (Lưu trữ)';
 
   return (
     <>
@@ -76,7 +81,7 @@ export const AIStorageDrawer: React.FC<AIStorageDrawerProps> = ({
             <div className="flex items-center gap-2 min-w-0">
               <Bot className="h-4 w-4 text-sky-400 shrink-0" />
               <span className="text-xs font-bold tracking-tight truncate">
-                Trợ lý Phân tích Dữ liệu AI — {slotShortLabel}
+                Trợ lý AI Phân tích Số liệu Phẫu thuật — {dataContext.periodLabel}
               </span>
             </div>
 
@@ -126,7 +131,7 @@ export const AIStorageDrawer: React.FC<AIStorageDrawerProps> = ({
             type="button"
             onClick={onRestore}
             className="flex items-center gap-2.5 text-left cursor-pointer group"
-            title="Bấm để mở lại cửa sổ Trợ lý AI"
+            title="Bấm để mở lại cửa sổ Trợ lý AI Phân tích"
           >
             {/* Circular Avatar Icon with Badge */}
             <div className="relative h-10 w-10 rounded-full bg-sky-600 group-hover:bg-sky-500 flex items-center justify-center shrink-0 shadow-md transition-colors">
@@ -145,10 +150,10 @@ export const AIStorageDrawer: React.FC<AIStorageDrawerProps> = ({
             </div>
 
             {/* Compact Banner Info */}
-            <div className="hidden sm:flex flex-col min-w-0 max-w-[215px] pr-1">
+            <div className="hidden sm:flex flex-col min-w-0 max-w-[235px] pr-1">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-bold text-white truncate">
-                  Trợ lý AI • {slotId === 'daily_storage' ? 'BC Ngày' : 'BC Tháng'}
+                  Trợ lý AI Phân tích
                 </span>
                 <span className="h-2 w-2 rounded-full bg-emerald-400 shrink-0" />
               </div>

@@ -148,32 +148,34 @@ export const AIConfigPanel: React.FC = () => {
     });
   };
 
-  const updateSlotField = (slotId: AISlotId, patch: Partial<AISlotConfig>) => {
+  const updateSlotField = (_slotId: AISlotId, patch: Partial<AISlotConfig>) => {
     setSystemConfig((prev) => {
       if (!prev) return prev;
+      const nextSlots = { ...prev.slots };
+      SLOT_ORDER.forEach((sid) => {
+        nextSlots[sid] = {
+          ...nextSlots[sid],
+          ...patch,
+        };
+      });
       return {
         ...prev,
-        slots: {
-          ...prev.slots,
-          [slotId]: {
-            ...prev.slots[slotId],
-            ...patch,
-          },
-        },
+        slots: nextSlots,
       };
     });
 
     // Đồng bộ luôn vào personal override nếu user không phải Admin để họ dùng ngay
     if (!canEditSystem) {
+      const nextSlotOverrides = { ...(personalOverride.slotOverrides || {}) };
+      SLOT_ORDER.forEach((sid) => {
+        nextSlotOverrides[sid] = {
+          ...(nextSlotOverrides[sid] || {}),
+          ...patch,
+        };
+      });
       const nextPersonal: AIPersonalOverride = {
         ...personalOverride,
-        slotOverrides: {
-          ...(personalOverride.slotOverrides || {}),
-          [slotId]: {
-            ...(personalOverride.slotOverrides?.[slotId] || {}),
-            ...patch,
-          },
-        },
+        slotOverrides: nextSlotOverrides,
       };
       setPersonalOverride(nextPersonal);
       savePersonalAIOverride(nextPersonal);
@@ -698,18 +700,18 @@ export const AIConfigPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* SECTION 2: AI SLOTS & INTELLIGENCE PARAMETERS */}
+      {/* SECTION 2: UNIFIED GLOBAL AI ASSISTANT DEFAULT PARAMETERS */}
       <div className="space-y-3 pt-2">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <Sliders className="h-4 w-4 text-emerald-600" />
               <span>
-                2. Phân bổ Mô hình theo Vị trí trong Ứng dụng & Điều chỉnh Độ thông minh (AI Slots)
+                2. Cấu hình Mặc định cho Trợ lý AI Phân tích Toàn hệ thống
               </span>
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Mỗi vị trí tương tác AI trong ứng dụng được gán 1 mô hình mặc định cùng thông số <b>Temperature</b> (độ chính xác vs sáng tạo) và <b>Reasoning Effort</b> (chiều sâu suy luận). Người dùng vẫn có thể đổi nhanh mô hình ngay trong cửa sổ chat.
+              Thiết lập mô hình mặc định cùng thông số <b>Temperature</b> (độ chính xác vs sáng tạo) và <b>Reasoning Effort</b> (chiều sâu suy luận) dùng chung cho cửa sổ Trợ lý AI trên toàn ứng dụng. Người dùng vẫn có thể đổi nhanh mô hình ngay trong cửa sổ chat.
             </p>
           </div>
 
@@ -728,154 +730,159 @@ export const AIConfigPanel: React.FC = () => {
             className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            <span>Đặt lại vị trí mặc định</span>
+            <span>Đặt lại thông số mặc định</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {SLOT_ORDER.map((slotId) => {
-            const slot = systemConfig.slots[slotId];
-            const selectedProvider =
-              systemConfig.providers[slot.provider] || systemConfig.providers.gemini;
-            const enabledModels = selectedProvider.models.filter((m) => m.enabled);
+        {(() => {
+          const unifiedSlot = systemConfig.slots.statistics_studio;
+          const selectedProvider =
+            systemConfig.providers[unifiedSlot.provider] || systemConfig.providers.gemini;
+          const enabledModels = selectedProvider.models.filter((m) => m.enabled);
 
-            return (
-              <div
-                key={slotId}
-                className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs space-y-3.5"
-              >
-                <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="h-4 w-4 text-sky-600 shrink-0" />
-                      <h4 className="font-bold text-slate-900 text-sm">{slot.label}</h4>
-                    </div>
-                    <p className="text-[11px] font-medium text-sky-700 mt-0.5">
-                      Vị trí: {slot.locationHint}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-0.5">{slot.description}</p>
+          return (
+            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
+              <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-sky-600 shrink-0" />
+                    <h4 className="font-bold text-slate-900 text-sm">
+                      Trợ lý AI Phân tích Số liệu Phẫu thuật (Popup & Bong bóng nổi dùng chung toàn hệ thống)
+                    </h4>
                   </div>
-                </div>
-
-                {/* Provider & Model Selectors */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Nhà cung cấp (Provider)
-                    </label>
-                    <select
-                      value={slot.provider}
-                      onChange={(e) => {
-                        const nextProvider = e.target.value as AIProviderId;
-                        const firstModel =
-                          systemConfig.providers[nextProvider]?.models.find((m) => m.enabled)?.id ||
-                          systemConfig.providers[nextProvider]?.models[0]?.id ||
-                          '';
-                        updateSlotField(slotId, {
-                          provider: nextProvider,
-                          modelId: firstModel,
-                        });
-                      }}
-                      className="w-full px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 outline-none"
-                    >
-                      {PROVIDER_ORDER.map((pid) => (
-                        <option key={pid} value={pid}>
-                          {systemConfig.providers[pid].name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Mô hình mặc định (Model)
-                    </label>
-                    <select
-                      value={slot.modelId}
-                      onChange={(e) => updateSlotField(slotId, { modelId: e.target.value })}
-                      className="w-full px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 outline-none"
-                    >
-                      {enabledModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} ({m.id})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Intelligence Parameters: Temperature, Reasoning Effort, Max Tokens */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 bg-slate-50/70 p-3 rounded-lg border border-slate-200/80">
-                  {/* Temperature */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-[11px] font-semibold text-slate-700">
-                        Temperature
-                      </label>
-                      <span className="text-[11px] font-mono font-bold text-sky-700">
-                        {slot.temperature.toFixed(1)}
-                      </span>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1.5}
-                      step={0.1}
-                      value={slot.temperature}
-                      onChange={(e) =>
-                        updateSlotField(slotId, { temperature: parseFloat(e.target.value) })
-                      }
-                      className="w-full accent-sky-600 cursor-pointer"
-                    />
-                    <div className="flex justify-between text-[10px] text-slate-400">
-                      <span>0.0 (Chính xác)</span>
-                      <span>1.5 (Sáng tạo)</span>
-                    </div>
-                  </div>
-
-                  {/* Reasoning Effort */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Mức suy luận (Effort)
-                    </label>
-                    <select
-                      value={slot.reasoningEffort}
-                      onChange={(e) =>
-                        updateSlotField(slotId, {
-                          reasoningEffort: e.target.value as AIReasoningEffort,
-                        })
-                      }
-                      className="w-full px-2 py-1 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800"
-                    >
-                      <option value="low">Low (Phản hồi nhanh)</option>
-                      <option value="medium">Medium (Cân bằng)</option>
-                      <option value="high">High (Phân tích sâu)</option>
-                    </select>
-                  </div>
-
-                  {/* Max Tokens */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                      Max Output Tokens
-                    </label>
-                    <select
-                      value={slot.maxTokens}
-                      onChange={(e) =>
-                        updateSlotField(slotId, { maxTokens: Number(e.target.value) })
-                      }
-                      className="w-full px-2 py-1 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800"
-                    >
-                      <option value={2048}>2,048 tokens (Ngắn gọn)</option>
-                      <option value={4096}>4,096 tokens (Chuẩn)</option>
-                      <option value={8192}>8,192 tokens (Báo cáo dài)</option>
-                      <option value={16384}>16,384 tokens (Toàn diện)</option>
-                    </select>
-                  </div>
+                  <p className="text-[11px] font-medium text-sky-700 mt-0.5">
+                    Phạm vi áp dụng: Báo cáo hàng ngày • Báo cáo tháng • Thống kê phẫu thuật • Lịch mổ
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Tự động nhận diện ngữ cảnh dữ liệu theo câu hỏi, ghi rõ nguồn số liệu & khoảng thời gian, hỗ trợ vẽ biểu đồ tương tác và xuất Excel/Ảnh.
+                  </p>
                 </div>
               </div>
-            );
-          })}
-        </div>
+
+              {/* Provider & Model Selectors */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nhà cung cấp mặc định (Provider)
+                  </label>
+                  <select
+                    value={unifiedSlot.provider}
+                    onChange={(e) => {
+                      const nextProvider = e.target.value as AIProviderId;
+                      const firstModel =
+                        systemConfig.providers[nextProvider]?.models.find((m) => m.enabled)?.id ||
+                        systemConfig.providers[nextProvider]?.models[0]?.id ||
+                        '';
+                      updateSlotField('statistics_studio', {
+                        provider: nextProvider,
+                        modelId: firstModel,
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 outline-none"
+                  >
+                    {PROVIDER_ORDER.map((pid) => (
+                      <option key={pid} value={pid}>
+                        {systemConfig.providers[pid].name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Mô hình mặc định (Model)
+                  </label>
+                  <select
+                    value={unifiedSlot.modelId}
+                    onChange={(e) =>
+                      updateSlotField('statistics_studio', { modelId: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 outline-none"
+                  >
+                    {enabledModels.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Intelligence Parameters: Temperature, Reasoning Effort, Max Tokens */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1 bg-slate-50/70 p-3.5 rounded-lg border border-slate-200/80">
+                {/* Temperature */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-semibold text-slate-700">
+                      Temperature
+                    </label>
+                    <span className="text-[11px] font-mono font-bold text-sky-700">
+                      {unifiedSlot.temperature.toFixed(1)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1.5}
+                    step={0.1}
+                    value={unifiedSlot.temperature}
+                    onChange={(e) =>
+                      updateSlotField('statistics_studio', {
+                        temperature: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-full accent-sky-600 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>0.0 (Chính xác)</span>
+                    <span>1.5 (Sáng tạo)</span>
+                  </div>
+                </div>
+
+                {/* Reasoning Effort */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Mức suy luận (Effort)
+                  </label>
+                  <select
+                    value={unifiedSlot.reasoningEffort}
+                    onChange={(e) =>
+                      updateSlotField('statistics_studio', {
+                        reasoningEffort: e.target.value as AIReasoningEffort,
+                      })
+                    }
+                    className="w-full px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800"
+                  >
+                    <option value="low">Low (Phản hồi nhanh)</option>
+                    <option value="medium">Medium (Cân bằng)</option>
+                    <option value="high">High (Phân tích sâu)</option>
+                  </select>
+                </div>
+
+                {/* Max Tokens */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                    Max Output Tokens
+                  </label>
+                  <select
+                    value={unifiedSlot.maxTokens}
+                    onChange={(e) =>
+                      updateSlotField('statistics_studio', {
+                        maxTokens: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800"
+                  >
+                    <option value={2048}>2,048 tokens (Ngắn gọn)</option>
+                    <option value={4096}>4,096 tokens (Chuẩn)</option>
+                    <option value={8192}>8,192 tokens (Báo cáo dài)</option>
+                    <option value={16384}>16,384 tokens (Toàn diện)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

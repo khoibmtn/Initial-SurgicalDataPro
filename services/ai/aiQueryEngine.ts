@@ -22,6 +22,7 @@ import {
 import {
   AIArtifact,
   AIChatToolExecutionLog,
+  AIClarificationOption,
 } from '../../types/ai';
 import { CLINICAL_DOMAIN_TAXONOMY } from './aiSemanticSchema';
 import { reportService } from '../reportService';
@@ -38,8 +39,14 @@ import type { YearlyCacheData } from '../statisticsService';
 
 export interface AIDataContextInput {
   contextPage: 'daily_storage' | 'monthly_storage' | 'statistics_studio';
+  activeAppTab?: 'daily' | 'monthly' | 'statistics' | 'scheduling' | 'config';
   periodLabel: string;
+  activeSourceCitation?: string;
   currentRecords: Array<SurgeryRecord | PersistedSurgeryRecord>;
+  dailyOpenedRecords?: Array<SurgeryRecord | PersistedSurgeryRecord>;
+  dailyOpenedCitation?: string;
+  monthlyOpenedRecords?: Array<SurgeryRecord | PersistedSurgeryRecord>;
+  monthlyOpenedCitation?: string;
   yearlyCacheData?: YearlyCacheData | null;
   dutySchedules: Record<string, DutyScheduleDateConfig>;
   packageAssignments: ServicePackageAssignment[];
@@ -56,6 +63,10 @@ export interface AIQueryExecutionOutput {
   artifacts: AIArtifact[];
   scopedRecordCount?: number;
   scopedDateRange?: string;
+  dataSourceCitation?: string;
+  needsClarification?: boolean;
+  clarificationMessage?: string;
+  clarificationOptions?: AIClarificationOption[];
 }
 
 // ─── TEXT & VIETNAMESE NORMALIZATION HELPERS ─────────────────────────────────
@@ -174,8 +185,21 @@ export function getAllRecordsFromContext(
 // In-memory cache of full-year deduplicated Firestore records for instant AI Studio queries
 const aiFetchedYearsCache = new Map<number, PersistedSurgeryRecord[]>();
 
+export function formatIsoToDMY(iso: string): string {
+  if (!iso || iso.length < 10) return iso || '';
+  const y = iso.substring(0, 4);
+  const m = iso.substring(5, 7);
+  const d = iso.substring(8, 10);
+  return `${d}/${m}/${y}`;
+}
+
+export function getLastDayOfMonthDMY(year: number, month: number): string {
+  const lastDay = new Date(year, month, 0).getDate();
+  return `${String(lastDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+}
+
 /**
- * Tự động bóc tách tháng / khoảng tháng / quý / năm được hỏi trong câu truy vấn tiếng Việt
+ * Tự động bóc tách ngày cụ thể / tháng / khoảng tháng / quý / năm và nguồn báo cáo trong câu truy vấn tiếng Việt
  */
 export function extractTimeConstraintsFromPrompt(
   prompt: string,
@@ -183,16 +207,66 @@ export function extractTimeConstraintsFromPrompt(
 ): {
   months: number[];
   years: number[];
+  specificDates: string[];
+  explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db';
+  hasExplicitTimeOrSource: boolean;
   seasonFilter?: 'Mùa Hè' | 'Mùa Đông' | 'both';
 } {
   const noTone = removeVietnameseTones(prompt);
 
   const months = new Set<number>();
   const years = new Set<number>();
+  const specificDates = new Set<string>();
+
+  // 0. Match explicit opened data references
+  let explicitSource:
+    | 'daily_opened'
+    | 'monthly_opened'
+    | 'current_opened'
+    | 'daily_db'
+    | 'monthly_db'
+    | undefined;
+
+  if (/\b(bao cao ngay dang mo|bc ngay dang mo|bao cao hang ngay dang mo)\b/.test(noTone)) {
+    explicitSource = 'daily_opened';
+  } else if (/\b(bao cao thang dang mo|bc thang dang mo)\b/.test(noTone)) {
+    explicitSource = 'monthly_opened';
+  } else if (/\b(ky dang mo|du lieu dang mo|tren man hinh|ky nay)\b/.test(noTone)) {
+    explicitSource = 'current_opened';
+  } else if (/\b(bao cao ngay|bc ngay|bao cao hang ngay|bc hang ngay)\b/.test(noTone)) {
+    explicitSource = 'daily_db';
+  } else if (/\b(bao cao thang|bc thang)\b/.test(noTone)) {
+    explicitSource = 'monthly_db';
+  }
+
+  // 0b. Match specific dates DD/MM/YYYY or DD-MM-YYYY
+  const dmyFullRegex = /\b(\d{1,2})[/-](\d{1,2})[/-](202\d)\b/g;
+  let mMatch: RegExpExecArray | null;
+  while ((mMatch = dmyFullRegex.exec(noTone)) !== null) {
+    const d = parseInt(mMatch[1], 10);
+    const m = parseInt(mMatch[2], 10);
+    const y = parseInt(mMatch[3], 10);
+    if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y >= 2020 && y <= 2035) {
+      specificDates.add(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    }
+  }
+
+  // Relative dates: "hôm nay", "hôm qua"
+  if (/\bhom nay\b/.test(noTone)) {
+    const now = new Date();
+    specificDates.add(
+      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    );
+  }
+  if (/\bhom qua\b/.test(noTone)) {
+    const yest = new Date(Date.now() - 86400000);
+    specificDates.add(
+      `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`
+    );
+  }
 
   // 1. Match "N tháng đầu (năm)" e.g. "9 tháng đầu năm 2026", "6 tháng đầu"
   const firstNMonthsRegex = /(\d{1,2})\s*thang\s*dau/gi;
-  let mMatch: RegExpExecArray | null;
   while ((mMatch = firstNMonthsRegex.exec(noTone)) !== null) {
     const n = parseInt(mMatch[1], 10);
     if (n >= 1 && n <= 12) {
@@ -255,9 +329,10 @@ export function extractTimeConstraintsFromPrompt(
     if (m >= 1 && m <= 12) months.add(m);
   }
 
-  // 7. Match "năm 2025", "2026"
+  // 7. Match "năm 2025", "2026" (skip if only matched inside specificDates)
+  const textWithoutFullDates = noTone.replace(/\b\d{1,2}[/-]\d{1,2}[/-]202\d\b/g, '');
   const yearRegex = /(?:nam\s*)?(202\d)/g;
-  while ((mMatch = yearRegex.exec(noTone)) !== null) {
+  while ((mMatch = yearRegex.exec(textWithoutFullDates)) !== null) {
     const y = parseInt(mMatch[1], 10);
     if (y >= 2020 && y <= 2035) years.add(y);
   }
@@ -296,9 +371,19 @@ export function extractTimeConstraintsFromPrompt(
     years.add(defaultYear);
   }
 
+  const hasExplicitTimeOrSource =
+    months.size > 0 ||
+    years.size > 0 ||
+    specificDates.size > 0 ||
+    Boolean(explicitSource) ||
+    Boolean(seasonFilter);
+
   return {
     months: Array.from(months).sort((a, b) => a - b),
     years: Array.from(years).sort((a, b) => a - b),
+    specificDates: Array.from(specificDates).sort(),
+    explicitSource,
+    hasExplicitTimeOrSource,
     seasonFilter,
   };
 }
@@ -358,33 +443,120 @@ async function fetchDeduplicatedYearRecordsFromFirestore(
 }
 
 /**
- * Hybrid Fetcher: Đảm bảo có đủ bản ghi ca mổ cho tháng/năm mà người dùng hỏi
- * Trong trang Thống kê (statistics_studio), tự động truy vấn Firestore độc lập hoàn toàn với các tab khác.
+ * Hybrid Fetcher: Đảm bảo có đủ bản ghi ca mổ cho ngày/tháng/năm/nguồn mà người dùng hỏi
  */
 async function ensureSurgeryRecordsForQuery(
   ctx: AIDataContextInput,
   months: number[],
   years: number[],
-  logs: AIChatToolExecutionLog[]
-): Promise<Array<SurgeryRecord | PersistedSurgeryRecord>> {
+  logs: AIChatToolExecutionLog[],
+  specificDates: string[] = [],
+  explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db'
+): Promise<{
+  records: Array<SurgeryRecord | PersistedSurgeryRecord>;
+  dataSourceCitation: string;
+}> {
   const baseRecords = getAllRecordsFromContext(ctx);
 
-  // For daily_storage / monthly_storage when no specific other period is requested, use opened records
+  // 1. Explicit opened Daily report
   if (
-    ctx.contextPage !== 'statistics_studio' &&
-    months.length === 0 &&
-    years.length === 0
+    explicitSource === 'daily_opened' ||
+    (explicitSource === 'daily_db' &&
+      months.length === 0 &&
+      years.length === 0 &&
+      specificDates.length === 0 &&
+      (ctx.dailyOpenedRecords?.length ?? 0) > 0)
   ) {
-    return baseRecords;
+    const recs = ctx.dailyOpenedRecords || [];
+    const dates = recs.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
+    const rangeStr =
+      dates.length > 0
+        ? `từ ${formatIsoToDMY(dates[0])} 00:00 đến ${formatIsoToDMY(dates[dates.length - 1])} 23:59`
+        : '';
+    return {
+      records: recs,
+      dataSourceCitation:
+        ctx.dailyOpenedCitation ||
+        `Số liệu Báo cáo hàng ngày đang mở ${rangeStr} (${recs.length.toLocaleString('vi-VN')} ca PTTT)`.trim(),
+    };
+  }
+
+  // 2. Explicit opened Monthly report
+  if (
+    explicitSource === 'monthly_opened' ||
+    (explicitSource === 'monthly_db' &&
+      months.length === 0 &&
+      years.length === 0 &&
+      specificDates.length === 0 &&
+      (ctx.monthlyOpenedRecords?.length ?? 0) > 0)
+  ) {
+    const recs = ctx.monthlyOpenedRecords || [];
+    const dates = recs.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
+    const rangeStr =
+      dates.length > 0
+        ? `từ ${formatIsoToDMY(dates[0])} đến ${formatIsoToDMY(dates[dates.length - 1])}`
+        : '';
+    return {
+      records: recs,
+      dataSourceCitation:
+        ctx.monthlyOpenedCitation ||
+        `Số liệu Báo cáo tháng đang mở ${rangeStr} (${recs.length.toLocaleString('vi-VN')} ca PTTT)`.trim(),
+    };
+  }
+
+  // 3. Specific Dates (e.g., "20/10/2026", "hôm nay", "hôm qua")
+  if (specificDates.length > 0) {
+    const firstDate = specificDates[0];
+    const lastDate = specificDates[specificDates.length - 1];
+    const combinedPool = [
+      ...(ctx.dailyOpenedRecords || []),
+      ...baseRecords,
+      ...(ctx.monthlyOpenedRecords || []),
+    ];
+    let matchedDates = combinedPool.filter((r) => specificDates.includes(getRecordIsoDate(r)));
+
+    if (matchedDates.length === 0 && ctx.allowRemoteFirestoreFetch !== false) {
+      try {
+        const fetched = await reportService.getReports(
+          `${firstDate}T00:00:00.000Z`,
+          `${lastDate}T23:59:59.999Z`,
+          'DAILY'
+        );
+        matchedDates = fetched.filter((r) => specificDates.includes(getRecordIsoDate(r)));
+        logs.push({
+          toolName: 'firestore_expand_daily',
+          summary: `Đã truy vấn trực tiếp Báo cáo hàng ngày từ ${formatIsoToDMY(firstDate)} đến ${formatIsoToDMY(lastDate)} (${matchedDates.length.toLocaleString('vi-VN')} ca PTTT)`,
+          recordCount: matchedDates.length,
+          expandedFirestoreFetch: true,
+        });
+      } catch (e) {
+        console.warn('[aiQueryEngine] Daily date fetch warning:', e);
+      }
+    }
+
+    return {
+      records: matchedDates,
+      dataSourceCitation: `Số liệu Báo cáo hàng ngày (CSDL Lưu trữ) từ ${formatIsoToDMY(firstDate)} 00:00 đến ${formatIsoToDMY(lastDate)} 23:59 (${matchedDates.length.toLocaleString('vi-VN')} ca PTTT)`,
+    };
+  }
+
+  // 4. When no specific month/year is requested, use the currently opened screen records
+  if (months.length === 0 && years.length === 0) {
+    const dates = baseRecords.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
+    const fallbackRange =
+      dates.length > 0
+        ? `từ ${formatIsoToDMY(dates[0])} đến ${formatIsoToDMY(dates[dates.length - 1])}`
+        : ctx.periodLabel;
+    return {
+      records: baseRecords,
+      dataSourceCitation:
+        ctx.activeSourceCitation ||
+        `Số liệu đang mở trên màn hình (${ctx.periodLabel}) ${fallbackRange} — ${baseRecords.length.toLocaleString('vi-VN')} ca PTTT`,
+    };
   }
 
   const currentYear = new Date().getFullYear();
-  const targetYears =
-    years.length > 0
-      ? years
-      : ctx.contextPage === 'statistics_studio' && baseRecords.length === 0
-      ? [currentYear, currentYear - 1]
-      : [currentYear];
+  const targetYears = years.length > 0 ? years : [currentYear];
   const targetMonths = months.length > 0 ? months : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
   // Collect records per year-month without duplicates
@@ -469,7 +641,28 @@ async function ensureSurgeryRecordsForQuery(
     result.push(...recs);
   }
 
-  return result;
+  // Format explicit dataSourceCitation for the queried period
+  const minM = targetMonths[0];
+  const maxM = targetMonths[targetMonths.length - 1];
+  const padM = (m: number) => String(m).padStart(2, '0');
+  let dataSourceCitation = '';
+
+  if (targetYears.length >= 2) {
+    const sortedDesc = [...targetYears].sort((a, b) => b - a);
+    const yCurr = sortedDesc[0];
+    const yPrev = sortedDesc[1];
+    const countCurr = result.filter((r) => getRecordIsoDate(r).startsWith(String(yCurr))).length;
+    const countPrev = result.filter((r) => getRecordIsoDate(r).startsWith(String(yPrev))).length;
+    dataSourceCitation = `Số liệu Báo cáo tháng (CSDL Lưu trữ) từ 01/${padM(minM)}/${yCurr} đến ${getLastDayOfMonthDMY(yCurr, maxM)} (${countCurr.toLocaleString('vi-VN')} ca) so sánh với từ 01/${padM(minM)}/${yPrev} đến ${getLastDayOfMonthDMY(yPrev, maxM)} (${countPrev.toLocaleString('vi-VN')} ca)`;
+  } else {
+    const yOnly = targetYears[0];
+    dataSourceCitation = `Số liệu Báo cáo tháng (CSDL Lưu trữ) từ 01/${padM(minM)}/${yOnly} đến ${getLastDayOfMonthDMY(yOnly, maxM)} (${result.length.toLocaleString('vi-VN')} ca PTTT)`;
+  }
+
+  return {
+    records: result,
+    dataSourceCitation,
+  };
 }
 
 // ─── 1. PATIENT & SURGERY SEARCH TOOL ────────────────────────────────────────
@@ -2261,11 +2454,83 @@ export async function runRelationalQueryPipeline(
   const sections: string[] = [];
 
   const noTone = removeVietnameseTones(prompt);
-  const { months, years } = extractTimeConstraintsFromPrompt(prompt);
+  const {
+    months,
+    years,
+    specificDates,
+    explicitSource,
+    hasExplicitTimeOrSource,
+  } = extractTimeConstraintsFromPrompt(prompt);
   const targetStaffNames = extractTargetStaffNames(prompt, ctx.config);
 
-  // 1. Ensure surgery records for requested period
-  const scopedRecords = await ensureSurgeryRecordsForQuery(ctx, months, years, executedTools);
+  const baseRecords = getAllRecordsFromContext(ctx);
+
+  // Clarification Gate: If current active screen has NO opened data AND prompt does NOT specify any time period or data source
+  if (baseRecords.length === 0 && !hasExplicitTimeOrSource) {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth() + 1;
+    const padCurMonth = String(curMonth).padStart(2, '0');
+
+    const clarificationOptions: AIClarificationOption[] = [];
+
+    if (ctx.dailyOpenedRecords && ctx.dailyOpenedRecords.length > 0) {
+      clarificationOptions.push({
+        label: `Báo cáo hàng ngày đang mở (${ctx.dailyOpenedRecords.length} ca)`,
+        followUpPrompt: `${prompt} (trên dữ liệu báo cáo ngày đang mở)`,
+        description: ctx.dailyOpenedCitation,
+      });
+    }
+    if (ctx.monthlyOpenedRecords && ctx.monthlyOpenedRecords.length > 0) {
+      clarificationOptions.push({
+        label: `Báo cáo tháng đang mở (${ctx.monthlyOpenedRecords.length} ca)`,
+        followUpPrompt: `${prompt} (trên dữ liệu báo cáo tháng đang mở)`,
+        description: ctx.monthlyOpenedCitation,
+      });
+    }
+
+    clarificationOptions.push(
+      {
+        label: `Tháng ${padCurMonth}/${curYear} (CSDL Báo cáo tháng)`,
+        followUpPrompt: `${prompt} trong tháng ${curMonth}/${curYear}`,
+      },
+      {
+        label: `${curMonth} tháng đầu năm ${curYear} so với ${curYear - 1}`,
+        followUpPrompt: `${prompt} ${curMonth} tháng đầu năm ${curYear} so với năm ${curYear - 1}`,
+      },
+      {
+        label: `Cả năm ${curYear} (CSDL Lưu trữ)`,
+        followUpPrompt: `${prompt} trong năm ${curYear}`,
+      },
+      {
+        label: `So sánh năm ${curYear} và năm ${curYear - 1}`,
+        followUpPrompt: `${prompt} năm ${curYear} so với năm ${curYear - 1}`,
+      }
+    );
+
+    const clarificationMessage = `Bạn chưa nêu rõ **nguồn số liệu hoặc khoảng thời gian** cần truy vấn cho câu hỏi *"${prompt}"* (và màn hình hiện tại chưa mở dữ liệu nào).\n\n👉 Vui lòng **bấm chọn nhanh nguồn dữ liệu bên dưới** hoặc nhập rõ ngày/tháng/năm cần tra cứu:`;
+
+    return {
+      executedTools: [],
+      contextDataForLLM: clarificationMessage,
+      artifacts: [],
+      scopedRecordCount: 0,
+      scopedDateRange: 'Chưa xác định kỳ dữ liệu',
+      needsClarification: true,
+      clarificationMessage,
+      clarificationOptions,
+    };
+  }
+
+  // 1. Ensure surgery records for requested period & resolve exact citation
+  const { records: scopedRecords, dataSourceCitation } = await ensureSurgeryRecordsForQuery(
+    ctx,
+    months,
+    years,
+    executedTools,
+    specificDates,
+    explicitSource
+  );
 
   const scopedDates = scopedRecords
     .map((r) => getRecordIsoDate(r))
@@ -2273,8 +2538,11 @@ export async function runRelationalQueryPipeline(
     .sort();
   const scopedDateRange =
     scopedDates.length > 0
-      ? `${scopedDates[0]} → ${scopedDates[scopedDates.length - 1]}`
+      ? `${formatIsoToDMY(scopedDates[0])} → ${formatIsoToDMY(scopedDates[scopedDates.length - 1])}`
       : 'Chưa có bản ghi';
+
+  // Prepend explicit data source citation section
+  sections.push(`📌 **Nguồn số liệu sử dụng:** ${dataSourceCitation}`);
 
   // 2. Detect intents (multiple tools can run in parallel for compound questions!)
   const isPatientQuery =
@@ -2351,7 +2619,7 @@ export async function runRelationalQueryPipeline(
   }
 
   // Execute Statistical / Comparison / Pivot Analysis if triggered or as default comprehensive analysis
-  if (isPivotOrTrendQuery || sections.length === 0) {
+  if (isPivotOrTrendQuery || sections.length <= 1) {
     const pivotRes = executeMultiDimensionalPivotTool(ctx, scopedRecords, prompt);
     sections.push(pivotRes.summaryText);
     artifacts.push(...pivotRes.artifacts);
@@ -2368,5 +2636,6 @@ export async function runRelationalQueryPipeline(
     artifacts,
     scopedRecordCount: scopedRecords.length,
     scopedDateRange,
+    dataSourceCitation,
   };
 }

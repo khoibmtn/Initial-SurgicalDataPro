@@ -185,6 +185,7 @@ export const CLINICAL_DOMAIN_TAXONOMY: Record<
 export interface AISemanticContextSummary {
   contextPage: 'daily_storage' | 'monthly_storage' | 'statistics_studio';
   periodLabel: string;
+  dataSourceCitation?: string;
   loadedRecordCount: number;
   loadedDateRange: string;
   loadedPackageAssignmentsCount: number;
@@ -265,13 +266,14 @@ ${pkgListText}
 6. **DANH MỤC CHƯƠNG & GIÁ DVKT (\`ChapterCatalog\` & \`SurgeryNamePrice\`)**:
    - 2 ký tự đầu của \`maTuongDuong\` ánh xạ tới Chương chuyên khoa (${chapterListText}).
 
-## 2. NGỮ CẢNH MÀN HÌNH HIỆN TẠI
-- Vị trí người dùng đang mở: **${summary.contextPage}**
-- Kỳ dữ liệu đang nạp sẵn trên màn hình: **${summary.periodLabel}** (${summary.loadedRecordCount} ca PTTT, khoảng ngày: ${summary.loadedDateRange})
+## 2. NGỮ CẢNH & NGUỒN SỐ LIỆU ĐƯỢC SỬ DỤNG CHO CÂU HỎI NÀY
+- Nguồn số liệu & Khoảng thời gian: **${summary.dataSourceCitation || `${summary.periodLabel} (${summary.loadedRecordCount} ca PTTT, khoảng ngày: ${summary.loadedDateRange})`}**
 - Số bản ghi Gói DV đã nạp: **${summary.loadedPackageAssignmentsCount}** | Số ngày lịch trực đã nạp: **${summary.loadedDutyScheduleDaysCount}**
 
 ## 3. NGUYÊN TẮC TRẢ LỜI & TRÌNH DIỄN DỮ LIỆU CHUYÊN NGHIỆP
-1. **Chính xác tuyệt đối**: Luôn dựa hoàn toàn vào **KẾT QUẢ TRUY VẤN DỮ LIỆU ĐÃ THỰC THI (TOOL EXECUTION RESULTS)** được cung cấp kèm câu hỏi. Không bao giờ tự bịa số liệu.
+1. **Chính xác tuyệt đối & Nêu rõ Nguồn số liệu**:
+   - Luôn dựa hoàn toàn vào **KẾT QUẢ TRUY VẤN DỮ LIỆU ĐÃ THỰC THI (TOOL EXECUTION RESULTS)** được cung cấp kèm câu hỏi. Không bao giờ tự bịa số liệu.
+   - **BẮT BUỘC mở đầu câu trả lời bằng dòng ghi rõ Nguồn số liệu & Khoảng thời gian đã dùng để tính toán** (ví dụ: *"📌 **Nguồn số liệu:** ${summary.dataSourceCitation || summary.periodLabel}"*).
 2. **Đúng trọng tâm câu hỏi — KHÔNG phân tích lan man ngoài yêu cầu**:
    - **Hỏi gì trả lời đúng trọng tâm đó**:
      + Khi người dùng yêu cầu **phân tích / thống kê / so sánh chung** (ví dụ: *"phân tích so sánh phẫu thuật chấn thương chỉnh hình 9 tháng đầu năm 2026 so với 2025"*), hãy tập trung vào: **Tổng số lượng PTTT (số lượng quy đổi & số ca thực tế), Chênh lệch tăng/giảm (± ca, ± %) giữa các kỳ/năm, Doanh thu viện phí, Cơ cấu Phân loại PTTT (PĐB, P1, P2, P3, Thủ thuật), Diễn biến theo từng tháng và Các kỹ thuật PTTT cụ thể tăng/giảm nổi bật (TÍCH CỰC / CẢNH BÁO / ỔN ĐỊNH)**.

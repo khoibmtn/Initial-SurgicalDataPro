@@ -325,6 +325,32 @@ describe('AI Relational Query Engine', () => {
     expect(res.summaryText).not.toContain('Mùa Đông');
     expect(res.summaryText).not.toContain('Phẫu thuật viên chính');
   });
+
+  it('asks for clarification when no data is opened on the active tab and prompt has no time period', async () => {
+    const emptyCtx: AIDataContextInput = {
+      ...baseContext,
+      currentRecords: [],
+      dailyOpenedRecords: sampleSurgeries,
+      dailyOpenedCitation: 'Số liệu Báo cáo hàng ngày từ 15/06/2026 00:00 đến 15/06/2026 23:59 (3 ca)',
+    };
+
+    const out = await runRelationalQueryPipeline('Nhân viên nào mổ nhiều ca nhất?', emptyCtx);
+    expect(out.needsClarification).toBe(true);
+    expect(out.clarificationOptions).toBeDefined();
+    expect(out.clarificationOptions!.length).toBeGreaterThanOrEqual(4);
+    expect(out.clarificationOptions![0].label).toContain('Báo cáo hàng ngày đang mở');
+  });
+
+  it('resolves explicit time period and cites exact DD/MM/YYYY date range in dataSourceCitation', async () => {
+    const out = await runRelationalQueryPipeline(
+      'Phân tích phẫu thuật chấn thương chỉnh hình 9 tháng đầu năm 2026 so với 2025',
+      baseContext
+    );
+    expect(out.needsClarification).toBeFalsy();
+    expect(out.dataSourceCitation).toContain('01/01/2026 đến 30/09/2026');
+    expect(out.dataSourceCitation).toContain('so sánh với từ 01/01/2025 đến 30/09/2025');
+    expect(out.contextDataForLLM).toContain('Nguồn số liệu sử dụng:');
+  });
 });
 
 describe('AI Configuration Service', () => {

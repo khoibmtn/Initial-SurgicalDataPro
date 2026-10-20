@@ -141,6 +141,12 @@ export interface AIChatToolExecutionLog {
   expandedFirestoreFetch?: boolean;
 }
 
+export interface AIClarificationOption {
+  label: string;
+  followUpPrompt: string;
+  description?: string;
+}
+
 export interface AIChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
@@ -151,6 +157,8 @@ export interface AIChatMessage {
   reasoningEffort?: AIReasoningEffort;
   temperature?: number;
   latencyMs?: number;
+  dataSourceCitation?: string;
+  clarificationOptions?: AIClarificationOption[];
   artifacts?: AIArtifact[];
   toolLogs?: AIChatToolExecutionLog[];
   isError?: boolean;
