@@ -137,3 +137,25 @@ components/ai/
 - [x] `npx tsc --noEmit` & `npm run build` pass với 0 lỗi.
 - [x] Unit tests (`npm test`) cho `aiQueryEngine` và `aiConfigService` pass 100%.
 - [x] Tuân thủ quy tắc thiết kế (không dùng màu tím/violet, bố cục rõ ràng, chuẩn y khoa chuyên nghiệp).
+
+---
+
+## 8. Phase 2: Jev System One (TypeSafe AI) Decision Engine, RLCD Reinforcement Learning & Chat UX Enhancements
+
+### 8.1. Kiến trúc Mô hình System One (Jev — TypeSafe AI) (`services/ai/jevSystemOneEngine.ts`)
+- **Nguyên lý cốt lõi**:
+  - Áp dụng mô hình **System One (Jev)** của **TypeSafe AI**: Đánh giá câu hỏi và trạng thái dữ liệu song song trong một bước duy nhất (`< 15ms`) để trả về các nguyên thủy định kiểu nghiêm ngặt (**Typed Primitives**) kèm xác suất đã hiệu chỉnh (**Calibrated Probabilities**):
+    1. **`Choice<AIQueryIntent>`**: Chọn ý định chính (`overtime_audit`, `conflict_quality`, `duty_schedule`, `service_package`, `staff_workload`, `patient_lookup`, `specialty_yoy`, `or_utilization`, `general_summary`) kèm phân phối xác suất $\sum P_i = 1$.
+    2. **`Noul` (Boolean Probability)**: Đánh giá xác suất đúng/sai cho `isDirectTableLookup`, `requiresDeepReasoning`, `hasSufficientDataContext`, `matchesLearnedPattern`.
+    3. **`Score` (Continuous Calibrated Scale)**: Điểm độ tin cậy hiệu chỉnh `calibrationConfidence` ($0-100\%$), `focusStrictness` ($0-100\%$), `complexityScore` ($0-100\%$).
+- **Thực thi trọng tâm (Focused Tool Routing) & 3 Chế độ (`Auto` / `⚡ Nhanh` / `🧠 Sâu`)**:
+  - Chỉ kích hoạt các công cụ truy vấn khớp với `intentChoice` có xác suất cao (loại bỏ các bảng thống kê phụ không được hỏi để câu trả lời ngắn gọn, đúng trọng tâm 100%).
+  - **System 1 Fast-Path**: Khi ở chế độ `Auto` với `calibrationConfidence >= 88%` cho câu hỏi tra cứu trực tiếp (hoặc khi người dùng chọn chế độ `⚡ Nhanh`), trả lời tức thì (< 80ms) bằng kết quả định lượng chuẩn xác + nút mở rộng phân tích System 2 (LLM) theo yêu cầu.
+- **Tự học tăng cường RLCD (`Reinforcement Learning for Calibrated Decisions`)**:
+  - Đồng bộ toàn viện qua **Firebase Realtime Database (`ai_rlcd_memory`)** kèm bộ nhớ đệm `localStorage` (`sdp_ai_rlcd_memory_v1`).
+  - Khi người dùng bấm `👍 Chính xác` hoặc `👎 Chưa đúng trọng tâm` (kèm chọn lại Intent đúng / ghi chú), hệ thống cập nhật trọng số từ khóa (`tokenIntentWeights`), thống kê hiệu chỉnh xác suất (`calibrationStats`) và lưu mẫu câu hỏi đã xác thực (`learnedExemplars`) để các lần hỏi sau đạt độ chính xác và tốc độ cao hơn.
+
+### 8.2. Tiện ích Câu hỏi & Quản lý Lịch sử Trò chuyện (`components/ai/AIChatWorkspace.tsx`)
+- Hiển thị **Thời gian hỏi (`HH:mm • DD/MM/YYYY`)** trên từng câu hỏi và câu trả lời.
+- Nút **Copy câu hỏi** (kèm phản hồi `✓ Đã chép`), nút **Điền lại câu hỏi** vào ô nhập và nút **Xóa cặp câu hỏi – trả lời** trên từng bong bóng hội thoại.
+- Nút **Xóa lịch sử** có nhãn chữ rõ ràng trên thanh tiêu đề khung chat.

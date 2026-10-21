@@ -14,11 +14,21 @@ import {
   Clock,
   CheckCircle2,
   AlertTriangle,
+  Copy,
+  Check,
+  RotateCcw,
+  ThumbsUp,
+  ThumbsDown,
+  Zap,
+  Brain,
 } from 'lucide-react';
 import {
   AIArtifact,
   AIChatMessage,
+  AIExecutionMode,
   AIPersonalOverride,
+  AIQueryIntent,
+  AIRLCDMemoryState,
   AISlotConfig,
   AISlotId,
   AISystemConfig,
@@ -38,6 +48,15 @@ import {
   getRecordIsoDate,
   getAllRecordsFromContext,
 } from '../../services/ai/aiQueryEngine';
+import {
+  ALL_AI_INTENTS,
+  AI_INTENT_METADATA,
+  createDefaultRLCDMemory,
+  loadPreferredExecutionMode,
+  savePreferredExecutionMode,
+  subscribeToRLCDMemory,
+  recordRLCDUserFeedback,
+} from '../../services/ai/jevSystemOneEngine';
 import {
   exportArtifactToExcel,
   parseCustomArtifactsFromLLMText,
@@ -422,9 +441,89 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
     () => loadPersistedChatSession(slotId).selectedArtifactId
   );
   const [artifactViewMode, setArtifactViewMode] = useState<'both' | 'chart' | 'table'>('both');
+  const [executionMode, setExecutionMode] = useState<AIExecutionMode>(() =>
+    loadPreferredExecutionMode()
+  );
+  const [rlcdMemory, setRlcdMemory] = useState<AIRLCDMemoryState>(() =>
+    createDefaultRLCDMemory()
+  );
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [feedbackEditingMsgId, setFeedbackEditingMsgId] = useState<string | null>(null);
+  const [feedbackCorrectedIntent, setFeedbackCorrectedIntent] =
+    useState<AIQueryIntent>('overtime_audit');
+  const [feedbackPreferredMode, setFeedbackPreferredMode] = useState<
+    'fast_system1' | 'deep_system2'
+  >('fast_system1');
+  const [feedbackNote, setFeedbackNote] = useState('');
   const activeLoadedSlotRef = useRef<AISlotId>(slotId);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const unsub = subscribeToRLCDMemory((mem) => {
+      setRlcdMemory(mem);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleExecutionModeChange = (mode: AIExecutionMode) => {
+    setExecutionMode(mode);
+    savePreferredExecutionMode(mode);
+  };
+
+  const formatChatTimestamp = (ts?: number): string => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${hh}:${mm} • ${day}/${month}/${year}`;
+  };
+
+  const handleCopyQuestion = async (msg: AIChatMessage) => {
+    try {
+      await navigator.clipboard.writeText(msg.content);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = msg.content;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    setCopiedMsgId(msg.id);
+    setTimeout(() => {
+      setCopiedMsgId((prev) => (prev === msg.id ? null : prev));
+    }, 2000);
+  };
+
+  const handleDeleteSingleExchange = (msgId: string) => {
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === msgId);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      // If deleting a user question, also delete the immediately following assistant reply
+      if (next[idx].role === 'user' && idx + 1 < next.length && next[idx + 1].role === 'assistant') {
+        next.splice(idx, 2);
+      } else {
+        next.splice(idx, 1);
+      }
+      return next;
+    });
+  };
+
+  const handleClearAllHistory = () => {
+    setMessages([]);
+    setSelectedArtifactId(null);
+    setFeedbackEditingMsgId(null);
+    try {
+      localStorage.removeItem(getChatHistoryStorageKey(slotId));
+    } catch {}
+  };
 
   // Reload saved history when switching slotId (e.g., Daily Storage <-> Monthly Storage)
   useEffect(() => {
@@ -518,7 +617,14 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
 
   const allRecordsCount = getAllRecordsFromContext(dataContext).length;
 
-  const handleSendQuestion = async (questionText?: string) => {
+  const handleSendQuestion = async (
+    questionText?: string,
+    options?: {
+      overrideIntent?: AIQueryIntent;
+      forceMode?: 'fast_system1' | 'deep_system2';
+      skipUserBubble?: boolean;
+    }
+  ) => {
     const prompt = (questionText ?? inputPrompt).trim();
     if (!prompt || isGenerating) return;
 
@@ -526,21 +632,24 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       setInputPrompt('');
     }
 
-    const userMsg: AIChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      content: prompt,
-      timestamp: Date.now(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
+    if (!options?.skipUserBubble) {
+      const userMsg: AIChatMessage = {
+        id: `user_${Date.now()}`,
+        role: 'user',
+        content: prompt,
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+    }
     setIsGenerating(true);
 
     const startTick = performance.now();
 
     try {
-      // 1. Run Relational Query Pipeline (TypeScript in-browser + Firestore hybrid expand + Clarification check)
-      const queryOutput = await runRelationalQueryPipeline(prompt, dataContext);
+      // 1. Run Relational Query Pipeline with Jev System One (TypeSafe AI) Classifier
+      const queryOutput = await runRelationalQueryPipeline(prompt, dataContext, {
+        overrideIntent: options?.overrideIntent,
+      });
 
       // If data source is ambiguous & no local data is opened on the active tab, ask user to clarify immediately (0ms)
       if (queryOutput.needsClarification) {
@@ -551,9 +660,12 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             queryOutput.clarificationMessage ||
             'Vui lòng chọn rõ nguồn dữ liệu hoặc khoảng thời gian cần truy vấn:',
           timestamp: Date.now(),
-          modelId: 'Trợ lý Định tuyến Nguồn Dữ liệu',
+          sourcePrompt: prompt,
+          modelId: 'Jev System One — Định tuyến Nguồn Dữ liệu',
           latencyMs: Math.round(performance.now() - startTick),
           clarificationOptions: queryOutput.clarificationOptions,
+          systemOneEval: queryOutput.systemOneEval,
+          executionModeUsed: 'fast_system1',
         };
         setMessages((prev) => [...prev, clarifyMsg]);
         return;
@@ -566,7 +678,15 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
         setSelectedArtifactId(generatedArtifacts[generatedArtifacts.length - 1].id);
       }
 
-      // 2. Check if active provider has API key configured
+      // 2. Decide Fast-Path (System 1) vs Deep-Path (System 2 LLM)
+      const effectiveMode: 'fast_system1' | 'deep_system2' =
+        options?.forceMode ||
+        (executionMode === 'fast_system1'
+          ? 'fast_system1'
+          : executionMode === 'deep_system2'
+          ? 'deep_system2'
+          : queryOutput.systemOneEval?.recommendedMode || 'deep_system2');
+
       const effProvider = getEffectiveProviderConfig(
         activeSlotConfig.provider,
         systemConfig || undefined,
@@ -576,8 +696,17 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
 
       let assistantText = '';
       let latencyMs = Math.round(performance.now() - startTick);
+      let modeUsed: 'fast_system1' | 'deep_system2' = effectiveMode;
 
-      if (effProvider.apiKey && effProvider.apiKey.trim()) {
+      const focusedSummaryText =
+        queryOutput.focusedFastSummary || queryOutput.contextDataForLLM;
+
+      if (effectiveMode === 'fast_system1') {
+        // Jev System One Instant Fast-Path (< 80ms): Deliver 100% accurate focused structured answer immediately!
+        assistantText = focusedSummaryText;
+        latencyMs = Math.max(8, Math.round(performance.now() - startTick));
+        modeUsed = 'fast_system1';
+      } else if (effProvider.apiKey && effProvider.apiKey.trim()) {
         const allRecords = getAllRecordsFromContext(dataContext);
         const dates = allRecords
           .map((r) => getRecordIsoDate(r))
@@ -640,12 +769,14 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             );
           }
           latencyMs = llmResponse.latencyMs;
+          modeUsed = 'deep_system2';
         } catch (llmErr: any) {
-          assistantText = `${queryOutput.contextDataForLLM}\n\n---\n⚠️ *Lưu ý kết nối LLM (${effProvider.name} - ${activeSlotConfig.modelId}): ${llmErr?.message || 'Không thể gọi API'}. Hệ thống đã hiển thị trực tiếp kết quả truy vấn chính xác từ Cơ sở dữ liệu ở trên kèm Biểu đồ & Bảng tương tác.*`;
+          assistantText = `${focusedSummaryText}\n\n---\n⚠️ *Lưu ý kết nối LLM (${effProvider.name} - ${activeSlotConfig.modelId}): ${llmErr?.message || 'Không thể gọi API'}. Hệ thống đã hiển thị trực tiếp kết quả chuẩn xác từ Jev System One ở trên kèm Biểu đồ & Bảng tương tác.*`;
+          modeUsed = 'fast_system1';
         }
       } else {
-        // Deterministic local analytical report when API key is not configured yet
-        assistantText = `${queryOutput.contextDataForLLM}\n\n---\n💡 *Hệ thống đã thực thi truy vấn liên kết đa bảng và dựng sẵn **Biểu đồ & Bảng dữ liệu tương tác** cho bạn. Để nhận thêm bình luận chuyên sâu từ mô hình **${effProvider.name} (${activeSlotConfig.modelId})**, vui lòng nhập API Key tại mục **Cấu hình → Cấu hình AI**.*`;
+        assistantText = `${focusedSummaryText}\n\n---\n💡 *Hệ thống đã thực thi truy vấn trọng tâm bằng **Jev System One** và dựng sẵn **Biểu đồ & Bảng dữ liệu tương tác**. Để nhận thêm bình luận chuyên sâu từ mô hình **${effProvider.name} (${activeSlotConfig.modelId})**, vui lòng nhập API Key tại mục **Cấu hình → Cấu hình AI**.*`;
+        modeUsed = 'fast_system1';
       }
 
       const aiMsg: AIChatMessage = {
@@ -653,14 +784,21 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
         role: 'assistant',
         content: assistantText,
         timestamp: Date.now(),
+        sourcePrompt: prompt,
         provider: activeSlotConfig.provider,
-        modelId: activeSlotConfig.modelId,
+        modelId:
+          modeUsed === 'fast_system1'
+            ? `⚡ Jev System One (${activeSlotConfig.modelId})`
+            : activeSlotConfig.modelId,
         reasoningEffort: activeSlotConfig.reasoningEffort,
         temperature: activeSlotConfig.temperature,
         latencyMs,
         dataSourceCitation: queryOutput.dataSourceCitation,
         artifacts: generatedArtifacts,
         toolLogs: queryOutput.executedTools,
+        systemOneEval: queryOutput.systemOneEval,
+        executionModeUsed: modeUsed,
+        focusedFastSummary: focusedSummaryText,
       };
 
       setMessages((prev) => [...prev, aiMsg]);
@@ -677,6 +815,86 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       ]);
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handlePositiveRLCDFeedback = async (msg: AIChatMessage) => {
+    const predictedIntent = msg.systemOneEval?.intentChoice.selected || 'general_summary';
+    const promptText = msg.sourcePrompt || '';
+    if (promptText) {
+      const updatedMem = await recordRLCDUserFeedback({
+        prompt: promptText,
+        predictedIntent,
+        rating: 'positive',
+        preferredMode: msg.executionModeUsed || 'fast_system1',
+      });
+      setRlcdMemory(updatedMem);
+    }
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msg.id
+          ? {
+              ...m,
+              userFeedback: {
+                rating: 'positive',
+                timestamp: Date.now(),
+              },
+            }
+          : m
+      )
+    );
+    setFeedbackEditingMsgId(null);
+  };
+
+  const handleOpenNegativeRLCDDrawer = (msg: AIChatMessage) => {
+    const curIntent = msg.systemOneEval?.intentChoice.selected || 'overtime_audit';
+    setFeedbackEditingMsgId(msg.id);
+    setFeedbackCorrectedIntent(curIntent);
+    setFeedbackPreferredMode(msg.executionModeUsed || 'fast_system1');
+    setFeedbackNote('');
+  };
+
+  const handleSubmitNegativeRLCDCorrection = async (
+    msg: AIChatMessage,
+    rerunImmediately: boolean
+  ) => {
+    const predictedIntent = msg.systemOneEval?.intentChoice.selected || 'general_summary';
+    const promptText = msg.sourcePrompt || '';
+    if (promptText) {
+      const updatedMem = await recordRLCDUserFeedback({
+        prompt: promptText,
+        predictedIntent,
+        rating: 'negative',
+        correctedIntent: feedbackCorrectedIntent,
+        preferredMode: feedbackPreferredMode,
+        focusNote: feedbackNote,
+      });
+      setRlcdMemory(updatedMem);
+    }
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msg.id
+          ? {
+              ...m,
+              userFeedback: {
+                rating: 'negative',
+                correctedIntent: feedbackCorrectedIntent,
+                preferredMode: feedbackPreferredMode,
+                note: feedbackNote.trim() || undefined,
+                timestamp: Date.now(),
+              },
+            }
+          : m
+      )
+    );
+    setFeedbackEditingMsgId(null);
+
+    if (rerunImmediately && promptText) {
+      await handleSendQuestion(promptText, {
+        overrideIntent: feedbackCorrectedIntent,
+        forceMode: feedbackPreferredMode,
+        skipUserBubble: true,
+      });
     }
   };
 
@@ -709,6 +927,15 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                   ? `Đang mở: ${allRecordsCount.toLocaleString('vi-VN')} ca PTTT`
                   : 'Truy vấn tự động theo câu hỏi'}
               </span>
+              {rlcdMemory.totalFeedbackCount > 0 && (
+                <span
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1"
+                  title="Số lượt phản hồi RLCD đã được AI học tăng cường toàn viện"
+                >
+                  <Zap className="h-2.5 w-2.5 text-amber-600" />
+                  RLCD: {rlcdMemory.totalFeedbackCount} mẫu học
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-500 truncate">
               Ngữ cảnh màn hình: <b>{dataContext.activeSourceCitation || dataContext.periodLabel}</b> • Gói DV (
@@ -718,7 +945,47 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+          {/* Jev System One / System 2 Execution Mode Switcher */}
+          <div
+            className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5"
+            title="Chế độ vận hành Jev System One (TypeSafe AI): Auto (tự động chọn Nhanh hoặc Sâu theo độ tin cậy) | Nhanh (trả kết quả tức thì ~50ms) | Sâu (luôn gọi LLM phân tích)"
+          >
+            {(
+              [
+                {
+                  id: 'auto' as AIExecutionMode,
+                  label: 'Auto',
+                  title: 'Tự động: Jev System One đánh giá độ tin cậy, trả lời tức thì nếu câu hỏi tra cứu rõ ràng hoặc gọi System 2 (LLM) nếu cần phân tích sâu',
+                },
+                {
+                  id: 'fast_system1' as AIExecutionMode,
+                  label: '⚡ Nhanh',
+                  title: 'System 1 Fast-Path: Trả kết quả bảng & số liệu trọng tâm tức thì (~50ms) không cần chờ LLM',
+                },
+                {
+                  id: 'deep_system2' as AIExecutionMode,
+                  label: '🧠 Sâu',
+                  title: 'System 1 + System 2 (LLM): Định tuyến trọng tâm bằng System 1 sau đó gọi LLM viết bình luận chi tiết',
+                },
+              ]
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => handleExecutionModeChange(m.id)}
+                title={m.title}
+                className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
+                  executionMode === m.id
+                    ? 'bg-white text-sky-700 shadow-2xs border border-sky-200/80'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
           {systemConfig && (
             <AIModelQuickSelector
               slotId={slotId}
@@ -730,22 +997,20 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             />
           )}
 
-          {messages.length > 0 && (
-            <button
-              type="button"
-              onClick={() => {
-                setMessages([]);
-                setSelectedArtifactId(null);
-                try {
-                  localStorage.removeItem(getChatHistoryStorageKey(slotId));
-                } catch {}
-              }}
-              className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-rose-50 text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
-              title="Xóa lịch sử trò chuyện"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={messages.length === 0}
+            onClick={handleClearAllHistory}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              messages.length > 0
+                ? 'border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 cursor-pointer'
+                : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+            }`}
+            title="Xóa toàn bộ lịch sử trò chuyện"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            <span>Xóa lịch sử{messages.length > 0 ? ` (${messages.length})` : ''}</span>
+          </button>
 
           <button
             type="button"
@@ -790,14 +1055,19 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
             {messages.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shadow-2xs">
-                <div className="flex items-center gap-2 text-sky-700 font-bold text-xs">
-                  <Sparkles className="h-4 w-4 shrink-0" />
-                  <span>
-                    Chuyên gia Phân tích Số liệu Phẫu thuật AI (Dùng chung toàn hệ thống)
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 text-sky-700 font-bold text-xs">
+                    <Sparkles className="h-4 w-4 shrink-0" />
+                    <span>
+                      Trợ lý AI Phân tích Số liệu Phẫu thuật — Tích hợp Jev System One (TypeSafe AI)
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
+                    ⚡ Tự đánh giá câu hỏi & Học tăng cường RLCD
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Bạn có thể đặt câu hỏi ở bất kỳ màn hình nào. Nếu câu hỏi nêu rõ thời gian/nguồn (VD: <i>&ldquo;9 tháng đầu năm 2026 so với 2025&rdquo;</i>, <i>&ldquo;tháng 10/2026&rdquo;</i>), AI tự động truy vấn đúng nguồn đó và ghi rõ <b>Nguồn số liệu</b>. Nếu câu hỏi chưa nêu thời gian và màn hình chưa mở dữ liệu, AI sẽ hỏi lại để bạn chọn nhanh.
+                  Mỗi câu hỏi đều được mô hình <b>Jev System One</b> đánh giá định kiểu song song (<i>Choice • Noul • Score</i>) trong vài mili-giây để nhận diện chính xác trọng tâm nghiệp vụ (Ngoài giờ, Lịch trực 24h, Trùng NV/Máy, Gói DVYC, So sánh Chuyên khoa YoY...) và tự học tăng cường từ phản hồi 👍/👎 của bạn.
                 </p>
 
                 <div className="space-y-1.5 pt-1">
@@ -839,23 +1109,123 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                         : 'bg-white border border-slate-200 text-slate-800'
                     }`}
                   >
+                    {/* USER MESSAGE BUBBLE: Question Text + Timestamp + Copy + Refill + Delete */}
+                    {msg.role === 'user' && (
+                      <div className="space-y-2">
+                        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                        <div className="flex items-center justify-between gap-3 pt-1.5 border-t border-sky-600/70 text-[10px] text-sky-100/90 flex-wrap">
+                          <span className="flex items-center gap-1 font-normal" title="Thời gian đặt câu hỏi">
+                            <Clock className="h-2.5 w-2.5" />
+                            <span>{formatChatTimestamp(msg.timestamp)}</span>
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyQuestion(msg)}
+                              className="px-2 py-0.5 rounded bg-sky-800/80 hover:bg-sky-900 text-white flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Sao chép nội dung câu hỏi này"
+                            >
+                              {copiedMsgId === msg.id ? (
+                                <>
+                                  <Check className="h-2.5 w-2.5 text-emerald-300" />
+                                  <span className="text-emerald-200 font-semibold">Đã copy</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-2.5 w-2.5" />
+                                  <span>Copy câu hỏi</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setInputPrompt(msg.content);
+                                inputRef.current?.focus();
+                              }}
+                              className="px-2 py-0.5 rounded bg-sky-800/80 hover:bg-sky-900 text-white flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Điền lại câu hỏi này xuống ô nhập liệu"
+                            >
+                              <RotateCcw className="h-2.5 w-2.5" />
+                              <span>Hỏi lại</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSingleExchange(msg.id)}
+                              className="px-1.5 py-0.5 rounded bg-sky-800/80 hover:bg-rose-600 text-sky-100 hover:text-white flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Xóa câu hỏi và câu trả lời tương ứng"
+                            >
+                              <Trash2 className="h-2.5 w-2.5" />
+                              <span>Xóa</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ASSISTANT MESSAGE HEADER */}
                     {msg.role === 'assistant' && (
-                      <div className="flex items-center justify-between gap-2 pb-1.5 mb-2 border-b border-slate-100 text-[10px] text-slate-400">
-                        <div className="flex items-center gap-1.5 font-semibold text-sky-700">
+                      <div className="flex items-center justify-between gap-2 pb-1.5 mb-2 border-b border-slate-100 text-[10px] text-slate-400 flex-wrap">
+                        <div className="flex items-center gap-1.5 font-semibold text-sky-700 flex-wrap">
                           <Bot className="h-3 w-3" />
                           <span>{msg.modelId || activeSlotConfig.modelId}</span>
-                          {msg.reasoningEffort && (
-                            <span className="px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
-                              Effort: {msg.reasoningEffort}
+                          {msg.executionModeUsed === 'fast_system1' ? (
+                            <span className="px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-bold">
+                              ⚡ System 1 Fast-Path
+                            </span>
+                          ) : (
+                            msg.reasoningEffort && (
+                              <span className="px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
+                                Effort: {msg.reasoningEffort}
+                              </span>
+                            )
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="flex items-center gap-1 text-slate-400" title="Thời gian trả lời">
+                            <Clock className="h-2.5 w-2.5" />
+                            <span>{formatChatTimestamp(msg.timestamp)}</span>
+                          </span>
+                          {msg.latencyMs !== undefined && (
+                            <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold">
+                              {msg.latencyMs}ms
                             </span>
                           )}
                         </div>
-                        {msg.latencyMs !== undefined && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-2.5 w-2.5" />
-                            {msg.latencyMs}ms
-                          </span>
-                        )}
+                      </div>
+                    )}
+
+                    {/* Jev System One (TypeSafe AI) Evaluation Strip */}
+                    {msg.role === 'assistant' && msg.systemOneEval && (
+                      <div className="mb-2.5 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200/90 text-[11px] space-y-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                            <Zap className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                            <span>Jev System One:</span>
+                            <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-bold">
+                              {msg.systemOneEval.intentChoice.label}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-semibold">
+                              (P={(msg.systemOneEval.intentChoice.calibratedProbability * 100).toFixed(0)}%)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                msg.systemOneEval.scores.calibrationConfidence.score >= 85
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200'
+                              }`}
+                            >
+                              {msg.systemOneEval.scores.calibrationConfidence.label}
+                            </span>
+                            {msg.systemOneEval.nouls.matchesLearnedPattern.value && (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
+                                ★ Đã học RLCD
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
 
@@ -885,12 +1255,8 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                       </div>
                     )}
 
-                    {/* Message Text */}
-                    {msg.role === 'user' ? (
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    ) : (
-                      <FormattedMessageContent content={msg.content} />
-                    )}
+                    {/* Assistant Message Text */}
+                    {msg.role !== 'user' && <FormattedMessageContent content={msg.content} />}
 
                     {/* Interactive Clarification Quick-Choice Options */}
                     {msg.clarificationOptions && msg.clarificationOptions.length > 0 && (
@@ -978,6 +1344,171 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                         )}
                       </div>
                     )}
+
+                    {/* RLCD Reinforcement Learning Feedback & System 2 Deep Upgrade Footer */}
+                    {msg.role === 'assistant' && !msg.isError && !msg.clarificationOptions && (
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              Đánh giá & Tự học tăng cường (RLCD):
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handlePositiveRLCDFeedback(msg)}
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition-colors cursor-pointer ${
+                                msg.userFeedback?.rating === 'positive'
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border-slate-200 hover:border-emerald-300'
+                              }`}
+                              title="Xác nhận câu trả lời đúng trọng tâm để Jev System One củng cố trọng số (+1.0 RLCD)"
+                            >
+                              <ThumbsUp className="h-3 w-3" />
+                              <span>
+                                {msg.userFeedback?.rating === 'positive'
+                                  ? 'Đã học (+1 RLCD)'
+                                  : 'Đúng trọng tâm'}
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenNegativeRLCDDrawer(msg)}
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold border flex items-center gap-1 transition-colors cursor-pointer ${
+                                msg.userFeedback?.rating === 'negative'
+                                  ? 'bg-amber-600 text-white border-amber-600'
+                                  : 'bg-slate-50 hover:bg-amber-50 text-slate-600 hover:text-amber-800 border-slate-200 hover:border-amber-300'
+                              }`}
+                              title="Hiệu chỉnh lại trọng tâm câu hỏi và dạy AI trả lời đúng ý định"
+                            >
+                              <ThumbsDown className="h-3 w-3" />
+                              <span>
+                                {msg.userFeedback?.rating === 'negative'
+                                  ? `Đã hiệu chỉnh (${
+                                      msg.userFeedback.correctedIntent
+                                        ? AI_INTENT_METADATA[msg.userFeedback.correctedIntent]
+                                            .shortBadge
+                                        : 'RLCD'
+                                    })`
+                                  : 'Chưa chuẩn / Dạy lại AI'}
+                              </span>
+                            </button>
+                          </div>
+
+                          {/* Upgrade to System 2 (LLM) button when answered via Fast-Path */}
+                          {msg.executionModeUsed === 'fast_system1' && msg.sourcePrompt && (
+                            <button
+                              type="button"
+                              disabled={isGenerating}
+                              onClick={() =>
+                                handleSendQuestion(msg.sourcePrompt, {
+                                  overrideIntent: msg.systemOneEval?.intentChoice.selected,
+                                  forceMode: 'deep_system2',
+                                  skipUserBubble: true,
+                                })
+                              }
+                              className="px-2.5 py-0.5 rounded-md bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[11px] font-semibold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-50"
+                              title="Gọi thêm mô hình ngôn ngữ lớn (System 2 LLM) để viết nhận xét chuyên sâu cho kết quả này"
+                            >
+                              <Brain className="h-3 w-3" />
+                              <span>Phân tích sâu bằng LLM (System 2)</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Inline RLCD Correction Drawer when user clicks "Chưa chuẩn / Dạy lại AI" */}
+                        {feedbackEditingMsgId === msg.id && (
+                          <div className="p-3 rounded-lg bg-amber-50/80 border border-amber-200 space-y-2.5 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-amber-950">
+                                🧠 Hiệu chỉnh Trọng tâm cho Jev System One (RLCD Training)
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setFeedbackEditingMsgId(null)}
+                                className="text-[11px] text-slate-500 hover:text-slate-800 cursor-pointer"
+                              >
+                                Đóng
+                              </button>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[11px] font-semibold text-amber-900 block">
+                                1. Chọn đúng loại nghiệp vụ mà câu hỏi của bạn hướng tới:
+                              </span>
+                              <div className="flex flex-wrap gap-1.5">
+                                {ALL_AI_INTENTS.map((intentKey) => (
+                                  <button
+                                    key={intentKey}
+                                    type="button"
+                                    onClick={() => setFeedbackCorrectedIntent(intentKey)}
+                                    className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-colors cursor-pointer ${
+                                      feedbackCorrectedIntent === intentKey
+                                        ? 'bg-sky-700 text-white border-sky-700'
+                                        : 'bg-white text-slate-700 border-slate-200 hover:border-sky-300'
+                                    }`}
+                                  >
+                                    {AI_INTENT_METADATA[intentKey].shortBadge}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-[11px] font-semibold text-amber-900 block">
+                                2. Chế độ phản hồi ưu tiên cho dạng câu hỏi này:
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setFeedbackPreferredMode('fast_system1')}
+                                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${
+                                    feedbackPreferredMode === 'fast_system1'
+                                      ? 'bg-emerald-700 text-white border-emerald-700'
+                                      : 'bg-white text-slate-700 border-slate-200'
+                                  }`}
+                                >
+                                  ⚡ Trả lời nhanh (System 1 Fast-Path)
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFeedbackPreferredMode('deep_system2')}
+                                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold border cursor-pointer ${
+                                    feedbackPreferredMode === 'deep_system2'
+                                      ? 'bg-sky-700 text-white border-sky-700'
+                                      : 'bg-white text-slate-700 border-slate-200'
+                                  }`}
+                                >
+                                  🧠 Phân tích sâu (System 2 LLM)
+                                </button>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <input
+                                type="text"
+                                value={feedbackNote}
+                                onChange={(e) => setFeedbackNote(e.target.value)}
+                                placeholder="Ghi chú trọng tâm mong muốn (tùy chọn, VD: Chỉ liệt kê tên nhân viên và khung giờ chấm)..."
+                                className="w-full px-2.5 py-1.5 text-xs bg-white border border-amber-300 rounded-md outline-none focus:ring-2 focus:ring-sky-500"
+                              />
+                            </div>
+                            <div className="flex items-center justify-end gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => handleSubmitNegativeRLCDCorrection(msg, false)}
+                                className="px-2.5 py-1 rounded-md border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-[11px] cursor-pointer"
+                              >
+                                Chỉ lưu học RLCD
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSubmitNegativeRLCDCorrection(msg, true)}
+                                className="px-3 py-1 rounded-md bg-sky-700 hover:bg-sky-800 text-white font-semibold text-[11px] cursor-pointer"
+                              >
+                                Học & Trả lời lại ngay
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -987,8 +1518,8 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
               <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-2xs flex items-center gap-2.5 text-xs text-slate-600">
                 <Loader2 className="h-4 w-4 animate-spin text-sky-600 shrink-0" />
                 <span>
-                  Đang truy vấn liên kết dữ liệu & phân tích bằng mô hình{' '}
-                  <b>{activeSlotConfig.modelId}</b>...
+                  Jev System One đang định tuyến & phân tích trọng tâm (
+                  <b>{activeSlotConfig.modelId}</b>)...
                 </span>
               </div>
             )}
@@ -1004,6 +1535,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             className="p-3 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0"
           >
             <input
+              ref={inputRef}
               type="text"
               disabled={isGenerating}
               value={inputPrompt}

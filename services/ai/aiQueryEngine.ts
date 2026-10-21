@@ -23,8 +23,15 @@ import {
   AIArtifact,
   AIChatToolExecutionLog,
   AIClarificationOption,
+  AIQueryIntent,
+  JevSystemOneEvaluation,
 } from '../../types/ai';
 import { CLINICAL_DOMAIN_TAXONOMY } from './aiSemanticSchema';
+import {
+  evaluateWithJevSystemOne,
+  buildJevSystemOneDirectiveForLLM,
+  AI_INTENT_METADATA,
+} from './jevSystemOneEngine';
 import { reportService } from '../reportService';
 import { dutyScheduleService, isWeekend } from '../dutyScheduleService';
 import { calculateOvertimeRows } from '../overtimeCalculationService';
@@ -63,6 +70,8 @@ export interface AIDataContextInput {
 export interface AIQueryExecutionOutput {
   executedTools: AIChatToolExecutionLog[];
   contextDataForLLM: string;
+  focusedFastSummary?: string;
+  systemOneEval?: JevSystemOneEvaluation;
   artifacts: AIArtifact[];
   scopedRecordCount?: number;
   scopedDateRange?: string;
@@ -2968,11 +2977,13 @@ ${procedureRows
  */
 export async function runRelationalQueryPipeline(
   prompt: string,
-  ctx: AIDataContextInput
+  ctx: AIDataContextInput,
+  options?: { overrideIntent?: AIQueryIntent }
 ): Promise<AIQueryExecutionOutput> {
   const executedTools: AIChatToolExecutionLog[] = [];
   const artifacts: AIArtifact[] = [];
   const sections: string[] = [];
+  const focusedSections: string[] = [];
 
   const noTone = removeVietnameseTones(prompt);
   const {
@@ -2985,6 +2996,34 @@ export async function runRelationalQueryPipeline(
   const targetStaffNames = extractTargetStaffNames(prompt, ctx.config);
 
   const baseRecords = getAllRecordsFromContext(ctx);
+
+  // 0. Jev System One (TypeSafe AI) Single-Pass Typed Decision & Calibration
+  const rawSystemOneEval = evaluateWithJevSystemOne(prompt, {
+    hasLoadedRecords: baseRecords.length > 0,
+    hasExplicitTimeOrSource,
+  });
+
+  const systemOneEval: JevSystemOneEvaluation = options?.overrideIntent
+    ? {
+        ...rawSystemOneEval,
+        intentChoice: {
+          ...rawSystemOneEval.intentChoice,
+          selected: options.overrideIntent,
+          label: AI_INTENT_METADATA[options.overrideIntent].label,
+          calibratedProbability: 0.99,
+        },
+        focusInstruction: AI_INTENT_METADATA[options.overrideIntent].focusDirective,
+      }
+    : rawSystemOneEval;
+
+  executedTools.push({
+    toolName: 'jev_system_one_classifier',
+    summary: `⚡ Jev System One: ${systemOneEval.intentChoice.label} (${Math.round(
+      systemOneEval.intentChoice.calibratedProbability * 100
+    )}% • Tin cậy ${systemOneEval.scores.calibrationConfidence.score}% • ${
+      systemOneEval.evaluationLatencyMs
+    }ms)`,
+  });
 
   // Clarification Gate: If current active screen has NO opened data AND prompt does NOT specify any time period or data source
   if (baseRecords.length === 0 && !hasExplicitTimeOrSource) {
@@ -3032,8 +3071,10 @@ export async function runRelationalQueryPipeline(
     const clarificationMessage = `Bạn chưa nêu rõ **nguồn số liệu hoặc khoảng thời gian** cần truy vấn cho câu hỏi *"${prompt}"* (và màn hình hiện tại chưa mở dữ liệu nào).\n\n👉 Vui lòng **bấm chọn nhanh nguồn dữ liệu bên dưới** hoặc nhập rõ ngày/tháng/năm cần tra cứu:`;
 
     return {
-      executedTools: [],
+      executedTools,
       contextDataForLLM: clarificationMessage,
+      focusedFastSummary: clarificationMessage,
+      systemOneEval,
       artifacts: [],
       scopedRecordCount: 0,
       scopedDateRange: 'Chưa xác định kỳ dữ liệu',
@@ -3063,42 +3104,74 @@ export async function runRelationalQueryPipeline(
       : 'Chưa có bản ghi';
 
   // Prepend explicit data source citation section
-  sections.push(`📌 **Nguồn số liệu sử dụng:** ${dataSourceCitation}`);
+  const citationHeader = `📌 **Nguồn số liệu sử dụng:** ${dataSourceCitation}`;
+  sections.push(buildJevSystemOneDirectiveForLLM(systemOneEval));
+  sections.push(citationHeader);
+  focusedSections.push(citationHeader);
 
-  // 2. Detect intents (multiple tools can run in parallel for compound questions!)
-  const isPatientQuery =
-    /\b(ma bn|ma benh nhan|tim bn|tim kiem bn|tim benh nhan|ho so bn|the bhyt)\b/.test(noTone) ||
-    /\b(\d{6,12})\b/.test(noTone);
+  const primaryIntent = systemOneEval.intentChoice.selected;
+  const secondarySet = new Set(systemOneEval.secondaryIntents);
 
+  // 2. Detect intents guided by Jev System One Choice<AIQueryIntent>
   const isOvertimeQuery =
-    /\b(ngoai gio|cham ngoai gio|lam ngoai gio|lam them|kip tang cuong|kip mo phien|kip truc|cham cong)\b/.test(
-      noTone
-    );
+    primaryIntent === 'overtime_audit' ||
+    secondarySet.has('overtime_audit') ||
+    /\b(ngoai gio|cham ngoai gio|lam ngoai gio|lam them|kip tang cuong|kip mo phien)\b/.test(noTone);
 
   const isConflictOrQualityQuery =
+    primaryIntent === 'conflict_quality' ||
+    secondarySet.has('conflict_quality') ||
     /\b(trung lich|trung gio|xung dot|trung nhan vien|trung nv|trung may|thieu may|thieu ma may|chua gv|chua co giup viec|thieu giup viec|loi tg|loi thoi gian|thoi gian toi thieu|duoi 100|50%|80%|kiem tra loi|ra soat loi|bat thuong|kinh phi|thanh toan pttt)\b/.test(
       noTone
     );
 
-  const isDutyQuery = /\b(truc|lich truc|buoi truc|tua truc|ngay nghi|ngay le)\b/.test(noTone);
+  const isDutyQuery =
+    primaryIntent === 'duty_schedule' ||
+    (!isOvertimeQuery &&
+      (secondarySet.has('duty_schedule') ||
+        /\b(truc|lich truc|buoi truc|tua truc|ngay nghi|ngay le)\b/.test(noTone)));
 
-  const isPackageQuery = /\b(goi dv|goi dich vu|yeu cau|chon bac si|chon bs|goi san)\b/.test(noTone);
+  const isPackageQuery =
+    primaryIntent === 'service_package' ||
+    secondarySet.has('service_package') ||
+    /\b(goi dv|goi dich vu|yeu cau|chon bac si|chon bs|goi san)\b/.test(noTone);
+
+  const isPatientQuery =
+    primaryIntent === 'patient_lookup' ||
+    /\b(ma bn|ma benh nhan|tim bn|tim kiem bn|tim benh nhan|ho so bn|the bhyt)\b/.test(noTone) ||
+    /\b(\d{6,12})\b/.test(noTone);
 
   const isStaffQuery =
-    targetStaffNames.length > 0 ||
-    /\b(nhan vien|bac si|ptv|kip mo|lam bao nhieu ca|mo bao nhieu ca|phu cap|nhung ai|ai mo|ai tham gia)\b/.test(
-      noTone
-    );
+    primaryIntent === 'staff_workload' ||
+    (targetStaffNames.length > 0 && !isOvertimeQuery && !isDutyQuery) ||
+    (!isOvertimeQuery &&
+      !isConflictOrQualityQuery &&
+      /\b(nhan vien|bac si|ptv|kip mo|lam bao nhieu ca|mo bao nhieu ca|phu cap|ai mo|ai tham gia)\b/.test(
+        noTone
+      ));
+
+  const hasSpecificOperationalTool =
+    isOvertimeQuery ||
+    isConflictOrQualityQuery ||
+    isDutyQuery ||
+    isPackageQuery ||
+    isPatientQuery ||
+    isStaffQuery;
 
   const isPivotOrTrendQuery =
-    /\b(bieu do|thong ke|so sanh|cac thang|mua he|mua dong|mua khac nhau|noi soi|tieu hoa|xu huong|theo thang|theo mua|phan tich)\b/.test(
+    primaryIntent === 'specialty_yoy' ||
+    primaryIntent === 'or_utilization' ||
+    primaryIntent === 'general_summary' ||
+    /\b(bieu do|so sanh|cung ky|cac thang|mua he|mua dong|mua khac nhau|noi soi|tieu hoa|xu huong|theo thang|theo mua)\b/.test(
       noTone
-    ) || ctx.contextPage === 'statistics_studio';
+    ) ||
+    !hasSpecificOperationalTool;
 
   // Execute Overtime Analysis if triggered (Tab "Ngoài giờ")
   if (isOvertimeQuery) {
     const otRes = await executeOvertimeAnalysisTool(ctx, scopedRecords, prompt, executedTools);
     sections.push(otRes.summaryText);
+    focusedSections.push(otRes.summaryText);
     if (otRes.artifact) artifacts.push(otRes.artifact);
     executedTools.push({
       toolName: 'analyze_overtime_records',
@@ -3111,6 +3184,7 @@ export async function runRelationalQueryPipeline(
   if (isConflictOrQualityQuery) {
     const cqRes = executeConflictAndQualityTool(ctx, scopedRecords, prompt);
     sections.push(cqRes.summaryText);
+    focusedSections.push(cqRes.summaryText);
     if (cqRes.artifact) artifacts.push(cqRes.artifact);
     executedTools.push({
       toolName: 'analyze_conflicts_and_quality',
@@ -3124,6 +3198,7 @@ export async function runRelationalQueryPipeline(
     const res = executePatientSearchTool(scopedRecords, ctx.packageAssignments, prompt);
     if (res.summaryText) {
       sections.push(res.summaryText);
+      focusedSections.push(res.summaryText);
       if (res.artifact) artifacts.push(res.artifact);
       executedTools.push({
         toolName: 'search_patients_and_surgeries',
@@ -3145,6 +3220,7 @@ export async function runRelationalQueryPipeline(
       specificDates
     );
     sections.push(dutyRes.summaryText);
+    focusedSections.push(dutyRes.summaryText);
     if (dutyRes.artifact) artifacts.push(dutyRes.artifact);
     executedTools.push({
       toolName: 'analyze_duty_schedule',
@@ -3156,6 +3232,7 @@ export async function runRelationalQueryPipeline(
   if (isPackageQuery) {
     const pkgRes = executeServicePackageAnalysisTool(ctx, scopedRecords, prompt, months, years);
     sections.push(pkgRes.summaryText);
+    focusedSections.push(pkgRes.summaryText);
     if (pkgRes.artifact) artifacts.push(pkgRes.artifact);
     executedTools.push({
       toolName: 'analyze_service_packages',
@@ -3164,10 +3241,11 @@ export async function runRelationalQueryPipeline(
     });
   }
 
-  // Execute Staff Workload Analysis if triggered (skip if only "những ai" inside an explicit overtime query)
-  if (isStaffQuery && (!isOvertimeQuery || targetStaffNames.length > 0 || /\b(lam bao nhieu ca|mo bao nhieu ca|phu cap)\b/.test(noTone))) {
+  // Execute Staff Workload Analysis if triggered
+  if (isStaffQuery) {
     const staffRes = executeStaffWorkloadTool(ctx, scopedRecords, targetStaffNames);
     sections.push(staffRes.summaryText);
+    focusedSections.push(staffRes.summaryText);
     if (staffRes.artifact) artifacts.push(staffRes.artifact);
     executedTools.push({
       toolName: 'analyze_staff_workload',
@@ -3176,18 +3254,11 @@ export async function runRelationalQueryPipeline(
     });
   }
 
-  // Always include direct row-by-row table snapshot when the dataset is small (<= 60 records, e.g. Daily Report)
-  if (scopedRecords.length > 0 && scopedRecords.length <= 60) {
-    const directSnapshot = buildDirectTableSnapshotForLLM(scopedRecords);
-    if (directSnapshot) {
-      sections.push(directSnapshot);
-    }
-  }
-
-  // Execute Statistical / Comparison / Pivot Analysis if triggered or as default comprehensive analysis
-  if (isPivotOrTrendQuery || sections.length <= 1) {
+  // Execute Statistical / Comparison / Pivot Analysis ONLY when relevant or when no specific operational tool matched
+  if (isPivotOrTrendQuery || focusedSections.length <= 1) {
     const pivotRes = executeMultiDimensionalPivotTool(ctx, scopedRecords, prompt);
     sections.push(pivotRes.summaryText);
+    focusedSections.push(pivotRes.summaryText);
     artifacts.push(...pivotRes.artifacts);
     executedTools.push({
       toolName: 'multi_dimensional_pivot',
@@ -3196,9 +3267,19 @@ export async function runRelationalQueryPipeline(
     });
   }
 
+  // Include direct row-by-row table snapshot in contextDataForLLM when dataset is small (<= 60 records)
+  if (scopedRecords.length > 0 && scopedRecords.length <= 60) {
+    const directSnapshot = buildDirectTableSnapshotForLLM(scopedRecords);
+    if (directSnapshot) {
+      sections.push(directSnapshot);
+    }
+  }
+
   return {
     executedTools,
     contextDataForLLM: sections.join('\n\n---\n\n'),
+    focusedFastSummary: focusedSections.join('\n\n---\n\n'),
+    systemOneEval,
     artifacts,
     scopedRecordCount: scopedRecords.length,
     scopedDateRange,

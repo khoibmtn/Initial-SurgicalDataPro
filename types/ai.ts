@@ -171,11 +171,136 @@ export interface AIClarificationOption {
   description?: string;
 }
 
+// ─── JEV SYSTEM ONE (TYPESAFE AI) & RLCD REINFORCEMENT LEARNING TYPES ────────
+
+/**
+ * Tập ý định truy vấn định kiểu nghiêm ngặt (Type-Safe Choice Enum của Jev System One)
+ */
+export type AIQueryIntent =
+  | 'overtime_audit'        // Chấm công ngoài giờ, kíp mổ phiên lố giờ, kíp tăng cường, loại trừ trực 24h
+  | 'conflict_quality'      // Đối soát Trùng NV, Trùng máy, Thiếu mã máy, Chưa gán GV, Lỗi TG, TT <100%, Phụ cấp PTTT
+  | 'duty_schedule'         // Lịch trực 24h, buổi trực ngày thường / ngày nghỉ lễ
+  | 'service_package'       // Gói dịch vụ yêu cầu (DVYC), doanh thu gói, thực lĩnh sau thuế
+  | 'staff_workload'        // Khối lượng công việc nhân sự / khoa theo 6 vị trí kíp mổ
+  | 'patient_lookup'        // Tra cứu bệnh nhân / ca mổ cụ thể theo Mã BN, Họ tên, BHYT, Kỹ thuật, Máy
+  | 'specialty_yoy'         // Phân tích chuyên khoa, so sánh cùng kỳ YoY, xu hướng tháng / mùa
+  | 'or_utilization'        // Công suất phòng mổ, khung giờ cao điểm, thời lượng phẫu thuật
+  | 'general_summary';      // Tổng quan chung toàn bộ báo cáo
+
+/**
+ * Chế độ vận hành kết hợp System 1 (Jev Fast Decision) & System 2 (LLM Deep Prose)
+ */
+export type AIExecutionMode = 'auto' | 'fast_system1' | 'deep_system2';
+
+/**
+ * Nguyên thủy Choice<T> của Jev (TypeSafe AI):
+ * Chọn 1 phương án tối ưu từ tập hữu hạn kèm phân phối xác suất đã hiệu chỉnh (Calibrated Probabilities).
+ */
+export interface JevChoicePrimitive<T extends string> {
+  selected: T;
+  label: string;
+  calibratedProbability: number; // 0.0 -> 1.0
+  distribution: Record<T, number>;
+}
+
+/**
+ * Nguyên thủy Noul của Jev (TypeSafe AI):
+ * Đánh giá xác suất Đúng/Sai (Yes/No condition probability) đã hiệu chỉnh.
+ */
+export interface JevNoulPrimitive {
+  value: boolean;
+  probability: number; // 0.0 -> 1.0
+  rationale: string;
+}
+
+/**
+ * Nguyên thủy Score của Jev (TypeSafe AI):
+ * Điểm số định lượng trên thang đo liên tục [0..100].
+ */
+export interface JevScorePrimitive {
+  score: number; // 0 -> 100
+  level: 'low' | 'medium' | 'high' | 'critical';
+  label: string;
+}
+
+/**
+ * Kết quả đánh giá song song trong 1 bước của Jev System One (< 15ms)
+ */
+export interface JevSystemOneEvaluation {
+  intentChoice: JevChoicePrimitive<AIQueryIntent>;
+  secondaryIntents: AIQueryIntent[];
+  nouls: {
+    isDirectTableLookup: JevNoulPrimitive;
+    requiresDeepReasoning: JevNoulPrimitive;
+    hasSufficientDataContext: JevNoulPrimitive;
+    matchesLearnedPattern: JevNoulPrimitive;
+  };
+  scores: {
+    calibrationConfidence: JevScorePrimitive;
+    focusStrictness: JevScorePrimitive;
+    complexityScore: JevScorePrimitive;
+  };
+  recommendedMode: 'fast_system1' | 'deep_system2';
+  matchedExemplarId?: string;
+  focusInstruction: string;
+  evaluationLatencyMs: number;
+}
+
+/**
+ * Mẫu câu hỏi đã được học tăng cường (Verified RLCD Exemplar)
+ */
+export interface AIRLCDExemplar {
+  id: string;
+  normalizedPrompt: string;
+  samplePrompt: string;
+  keywords: string[];
+  verifiedIntent: AIQueryIntent;
+  preferredMode: 'fast_system1' | 'deep_system2';
+  focusNote?: string;
+  positiveCount: number;
+  negativeCount: number;
+  rewardScore: number;
+  updatedAt: number;
+  updatedBy?: string;
+}
+
+/**
+ * Thống kê hiệu chỉnh xác suất (Calibration Statistics) cho từng Intent
+ */
+export interface AIRLCDIntentCalibrationStat {
+  intent: AIQueryIntent;
+  totalPredictions: number;
+  positiveConfirmations: number;
+  negativeCorrections: number;
+  priorBoost: number; // Hệ số điều chỉnh xác suất [-0.35 .. +0.35]
+}
+
+/**
+ * Trạng thái bộ nhớ Tự học tăng cường RLCD đồng bộ toàn viện (Firebase RTDB + LocalStorage)
+ */
+export interface AIRLCDMemoryState {
+  version: number;
+  totalFeedbackCount: number;
+  tokenIntentWeights: Record<string, Partial<Record<AIQueryIntent, number>>>;
+  intentStats: Record<AIQueryIntent, AIRLCDIntentCalibrationStat>;
+  exemplars: AIRLCDExemplar[];
+  updatedAt: number;
+}
+
+export interface AIMessageUserFeedback {
+  rating: 'positive' | 'negative';
+  correctedIntent?: AIQueryIntent;
+  preferredMode?: 'fast_system1' | 'deep_system2';
+  note?: string;
+  timestamp: number;
+}
+
 export interface AIChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
+  sourcePrompt?: string;
   provider?: AIProviderId;
   modelId?: string;
   reasoningEffort?: AIReasoningEffort;
@@ -185,5 +310,9 @@ export interface AIChatMessage {
   clarificationOptions?: AIClarificationOption[];
   artifacts?: AIArtifact[];
   toolLogs?: AIChatToolExecutionLog[];
+  systemOneEval?: JevSystemOneEvaluation;
+  executionModeUsed?: 'fast_system1' | 'deep_system2';
+  focusedFastSummary?: string;
+  userFeedback?: AIMessageUserFeedback;
   isError?: boolean;
 }

@@ -22,6 +22,11 @@ import {
   clearAIStorageCache,
   maskApiKeyPreview,
 } from '../services/ai/aiConfigService';
+import {
+  evaluateWithJevSystemOne,
+  recordRLCDUserFeedback,
+  clearLocalRLCDMemory,
+} from '../services/ai/jevSystemOneEngine';
 import type { SurgeryRecord, DutyScheduleDateConfig } from '../types';
 import type { ServicePackageAssignment, ServicePackageDefinition } from '../types/servicePackage';
 import { DEFAULT_CONFIG } from '../contexts/ConfigContext';
@@ -463,5 +468,81 @@ describe('AI Configuration Service', () => {
     expect(effSlot.reasoningEffort).toBe('high');
     expect(effSlot.temperature).toBe(0.1);
     expect(effProvider.apiKey).toBe('sk-personal-deepseek');
+  });
+});
+
+describe('Jev System One Decision Engine & RLCD Reinforcement Learning', () => {
+  beforeEach(() => {
+    clearLocalRLCDMemory();
+  });
+
+  it('evaluates overtime questions into Choice<overtime_audit> with high confidence and recommends fast_system1', () => {
+    const evalRes = evaluateWithJevSystemOne(
+      'Trong danh sách các ca mổ hôm qua, những ai phải chấm ngoài giờ, từ giờ nào đến giờ nào?',
+      { hasLoadedRecords: true }
+    );
+    expect(evalRes.intentChoice.selected).toBe('overtime_audit');
+    expect(evalRes.intentChoice.calibratedProbability).toBeGreaterThan(0.65);
+    expect(evalRes.nouls.isDirectTableLookup.value).toBe(true);
+    expect(evalRes.recommendedMode).toBe('fast_system1');
+    expect(evalRes.scores.calibrationConfidence.score).toBeGreaterThanOrEqual(82);
+  });
+
+  it('routes overtime query in statistics_studio strictly to 1 Overtime artifact without unrelated monthly/specialty charts', async () => {
+    const overtimeSurgery: SurgeryRecord = {
+      ...sampleSurgeries[0],
+      patientId: 'BN_OT_STUDIO',
+      patientName: 'Ngô Văn Trực',
+      ngayBD: '2026-06-15 18:15',
+      ngayKT: '2026-06-15 19:45',
+      timeMinutes: 90,
+      ptChinh: 'BS. Nguyễn Minh Khoa',
+      ptPhu: 'BS. Trần Thanh Hải',
+      bsGM: 'BS. Lê Văn Tâm',
+      ktvGM: 'KTV. Hoàng Hoa',
+      tdc: 'ĐD. Vũ Thị Mai',
+      gv: 'ĐD. Phạm Lan',
+      start: undefined,
+      end: undefined,
+    };
+
+    const studioCtx: AIDataContextInput = {
+      ...baseContext,
+      contextPage: 'statistics_studio', // Previously caused 2 extra multi-dimensional pivot artifacts!
+      currentRecords: [overtimeSurgery],
+    };
+
+    const out = await runRelationalQueryPipeline(
+      'Trong danh sách các ca mổ ngày 15/06/2026, những ai phải chấm ngoài giờ?',
+      studioCtx
+    );
+
+    expect(out.systemOneEval).toBeDefined();
+    expect(out.systemOneEval?.intentChoice.selected).toBe('overtime_audit');
+    expect(out.executedTools.map((t) => t.toolName)).toContain('analyze_overtime_records');
+    expect(out.executedTools.map((t) => t.toolName)).not.toContain('multi_dimensional_pivot');
+    expect(out.artifacts.length).toBe(1);
+    expect(out.artifacts[0].title).toContain('Chấm Ngoài Giờ');
+    expect(out.focusedFastSummary).toContain('BS. Trần Thanh Hải');
+  });
+
+  it('learns from RLCD negative feedback with correctedIntent and shifts future routing immediately', async () => {
+    const ambiguousPrompt = 'Kiểm tra danh sách ка trực và đối chiếu lịch';
+    const initialEval = evaluateWithJevSystemOne(ambiguousPrompt, { hasLoadedRecords: true });
+
+    // User teaches AI via RLCD that this prompt should be 'conflict_quality'
+    await recordRLCDUserFeedback({
+      prompt: ambiguousPrompt,
+      predictedIntent: initialEval.intentChoice.selected,
+      rating: 'negative',
+      correctedIntent: 'conflict_quality',
+      preferredMode: 'fast_system1',
+      focusNote: 'Câu này tôi muốn kiểm tra trùng lịch mổ',
+    });
+
+    const learnedEval = evaluateWithJevSystemOne(ambiguousPrompt, { hasLoadedRecords: true });
+    expect(learnedEval.intentChoice.selected).toBe('conflict_quality');
+    expect(learnedEval.matchedExemplarId).toBeDefined();
+    expect(learnedEval.nouls.matchesLearnedPattern.value).toBe(true);
   });
 });
