@@ -28,6 +28,9 @@ import { CLINICAL_DOMAIN_TAXONOMY } from './aiSemanticSchema';
 import { reportService } from '../reportService';
 import { dutyScheduleService, isWeekend } from '../dutyScheduleService';
 import { calculateOvertimeRows } from '../overtimeCalculationService';
+import { groupOvertimeDataForReport } from '../overtimeReportDataService';
+import { reprocessSurgicalRecords } from '../reprocess';
+import { buildPackagePaymentRows } from '../packagePaymentRows';
 import { getAllowanceForRecord } from '../laborConfigService';
 import {
   classifySpecialty,
@@ -123,6 +126,96 @@ export function getRecordIsoDate(rec: SurgeryRecord | PersistedSurgeryRecord): s
     return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
   return '';
+}
+
+export function parseFlexibleDateTime(raw: Date | string | undefined | null): Date | undefined {
+  if (!raw) return undefined;
+  if (raw instanceof Date) {
+    return isNaN(raw.getTime()) ? undefined : raw;
+  }
+  const str = String(raw).trim();
+  if (!str) return undefined;
+
+  // DD/MM/YYYY HH:mm or DD/MM/YYYY
+  const dmyMatch = str.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/
+  );
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const hour = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
+    const min = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
+    const sec = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+    const d = new Date(year, month, day, hour, min, sec);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  // YYYY-MM-DD HH:mm or ISO
+  const isoCandidate = str.includes(' ') && !str.includes('T') ? str.replace(' ', 'T') : str;
+  const parsed = new Date(isoCandidate);
+  if (!isNaN(parsed.getTime())) return parsed;
+
+  const fallback = new Date(str);
+  return isNaN(fallback.getTime()) ? undefined : fallback;
+}
+
+export function ensureHydratedSurgeryRecord(
+  rec: SurgeryRecord | PersistedSurgeryRecord
+): SurgeryRecord {
+  const start =
+    rec.start instanceof Date && !isNaN(rec.start.getTime())
+      ? rec.start
+      : parseFlexibleDateTime(rec.ngayBD) || parseFlexibleDateTime(rec.ngayCD);
+  const end =
+    rec.end instanceof Date && !isNaN(rec.end.getTime())
+      ? rec.end
+      : parseFlexibleDateTime(rec.ngayKT) ||
+        (start && typeof rec.timeMinutes === 'number' && rec.timeMinutes > 0
+          ? new Date(start.getTime() + rec.timeMinutes * 60000)
+          : start);
+
+  let timeMinutes = rec.timeMinutes;
+  if ((!timeMinutes || timeMinutes <= 0) && start && end) {
+    timeMinutes = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+  }
+
+  return {
+    ...rec,
+    start,
+    end,
+    timeMinutes,
+  };
+}
+
+export function deduplicateSurgeryRecords<T extends SurgeryRecord | PersistedSurgeryRecord>(
+  records: T[]
+): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const r of records) {
+    if (!r) continue;
+    const persisted = r as PersistedSurgeryRecord;
+    const key =
+      persisted.firestorePath ||
+      persisted.id ||
+      `${(r.patientId || '').trim()}|${(r.ngayBD || '').trim()}|${(r.ngayKT || '').trim()}|${normalizeText(r.tenKT)}|${normalizeText(r.ptChinh)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(r);
+  }
+  return result;
+}
+
+export function getPreviousDayIso(isoDate: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return '';
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - 1);
+  const py = dt.getFullYear();
+  const pm = String(dt.getMonth() + 1).padStart(2, '0');
+  const pd = String(dt.getDate()).padStart(2, '0');
+  return `${py}-${pm}-${pd}`;
 }
 
 export function determineSeason(
@@ -467,7 +560,7 @@ async function ensureSurgeryRecordsForQuery(
       specificDates.length === 0 &&
       (ctx.dailyOpenedRecords?.length ?? 0) > 0)
   ) {
-    const recs = ctx.dailyOpenedRecords || [];
+    const recs = deduplicateSurgeryRecords(ctx.dailyOpenedRecords || []);
     const dates = recs.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
     const rangeStr =
       dates.length > 0
@@ -490,7 +583,7 @@ async function ensureSurgeryRecordsForQuery(
       specificDates.length === 0 &&
       (ctx.monthlyOpenedRecords?.length ?? 0) > 0)
   ) {
-    const recs = ctx.monthlyOpenedRecords || [];
+    const recs = deduplicateSurgeryRecords(ctx.monthlyOpenedRecords || []);
     const dates = recs.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
     const rangeStr =
       dates.length > 0
@@ -508,11 +601,27 @@ async function ensureSurgeryRecordsForQuery(
   if (specificDates.length > 0) {
     const firstDate = specificDates[0];
     const lastDate = specificDates[specificDates.length - 1];
-    const combinedPool = [
+
+    // If Daily Report is open on screen and its date range matches the queried date, use the deduplicated opened daily report
+    // (preserving 24h shift surgeries that cross midnight 00:00 -> 07:30)
+    const openedDaily = deduplicateSurgeryRecords(ctx.dailyOpenedRecords || []);
+    if (openedDaily.length > 0) {
+      const openedDates = Array.from(new Set(openedDaily.map((r) => getRecordIsoDate(r)).filter(Boolean))).sort();
+      if (openedDates.length > 0 && specificDates.includes(openedDates[0])) {
+        return {
+          records: openedDaily,
+          dataSourceCitation:
+            ctx.dailyOpenedCitation ||
+            `Số liệu Báo cáo hàng ngày đang mở từ ${formatIsoToDMY(openedDates[0])} (${openedDaily.length.toLocaleString('vi-VN')} ca PTTT)`,
+        };
+      }
+    }
+
+    const combinedPool = deduplicateSurgeryRecords([
       ...(ctx.dailyOpenedRecords || []),
       ...baseRecords,
       ...(ctx.monthlyOpenedRecords || []),
-    ];
+    ]);
     let matchedDates = combinedPool.filter((r) => specificDates.includes(getRecordIsoDate(r)));
 
     if (matchedDates.length === 0 && ctx.allowRemoteFirestoreFetch !== false) {
@@ -522,7 +631,9 @@ async function ensureSurgeryRecordsForQuery(
           `${lastDate}T23:59:59.999Z`,
           'DAILY'
         );
-        matchedDates = fetched.filter((r) => specificDates.includes(getRecordIsoDate(r)));
+        matchedDates = deduplicateSurgeryRecords(
+          fetched.filter((r) => specificDates.includes(getRecordIsoDate(r)))
+        );
         logs.push({
           toolName: 'firestore_expand_daily',
           summary: `Đã truy vấn trực tiếp Báo cáo hàng ngày từ ${formatIsoToDMY(firstDate)} đến ${formatIsoToDMY(lastDate)} (${matchedDates.length.toLocaleString('vi-VN')} ca PTTT)`,
@@ -542,16 +653,17 @@ async function ensureSurgeryRecordsForQuery(
 
   // 4. When no specific month/year is requested, use the currently opened screen records
   if (months.length === 0 && years.length === 0) {
-    const dates = baseRecords.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
+    const dedupedBase = deduplicateSurgeryRecords(baseRecords);
+    const dates = dedupedBase.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
     const fallbackRange =
       dates.length > 0
         ? `từ ${formatIsoToDMY(dates[0])} đến ${formatIsoToDMY(dates[dates.length - 1])}`
         : ctx.periodLabel;
     return {
-      records: baseRecords,
+      records: dedupedBase,
       dataSourceCitation:
         ctx.activeSourceCitation ||
-        `Số liệu đang mở trên màn hình (${ctx.periodLabel}) ${fallbackRange} — ${baseRecords.length.toLocaleString('vi-VN')} ca PTTT`,
+        `Số liệu đang mở trên màn hình (${ctx.periodLabel}) ${fallbackRange} — ${dedupedBase.length.toLocaleString('vi-VN')} ca PTTT`,
     };
   }
 
@@ -807,7 +919,8 @@ export async function executeDutyScheduleAnalysisTool(
   months: number[],
   years: number[],
   targetStaffNames: string[],
-  logs: AIChatToolExecutionLog[]
+  logs: AIChatToolExecutionLog[],
+  specificDates: string[] = []
 ): Promise<{
   summaryText: string;
   artifact?: AIArtifact;
@@ -818,7 +931,9 @@ export async function executeDutyScheduleAnalysisTool(
   // Build list of dateKeys to inspect
   const dateKeysToInspect = new Set<string>(Object.keys(ctx.dutySchedules || {}));
 
-  if (targetMonths.length > 0) {
+  if (specificDates.length > 0) {
+    specificDates.forEach((d) => dateKeysToInspect.add(d));
+  } else if (targetMonths.length > 0) {
     for (const m of targetMonths) {
       const daysInM = new Date(targetYear, m, 0).getDate();
       for (let d = 1; d <= daysInM; d++) {
@@ -851,10 +966,13 @@ export async function executeDutyScheduleAnalysisTool(
     });
   }
 
-  // Filter schedules by targetMonths / targetYear if specified
+  // Filter schedules by specificDates / targetMonths / targetYear if specified
   const filteredDates = Object.keys(mergedSchedules)
     .filter((dateKey) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return false;
+      if (specificDates.length > 0) {
+        return specificDates.includes(dateKey);
+      }
       const y = parseInt(dateKey.substring(0, 4), 10);
       const m = parseInt(dateKey.substring(5, 7), 10);
       if (years.length > 0 && !years.includes(y)) return false;
@@ -987,19 +1105,34 @@ export async function executeDutyScheduleAnalysisTool(
     createdAt: Date.now(),
   };
 
+  const dailyBreakdownLines =
+    filteredDates.length > 0 && filteredDates.length <= 15
+      ? filteredDates
+          .map((d) => {
+            const cfg = mergedSchedules[d];
+            const staffListStr =
+              cfg && Array.isArray(cfg.onCallStaff) && cfg.onCallStaff.length > 0
+                ? cfg.onCallStaff.join(', ')
+                : 'Chưa nhập danh sách trực';
+            const isHol = cfg?.isHoliday !== undefined ? cfg.isHoliday : isWeekend(d);
+            return `  + Ngày **${formatIsoToDMY(d)}** (${isHol ? 'Ngày nghỉ/T7/CN' : 'Ngày thường'}): ${staffListStr}`;
+          })
+          .join('\n')
+      : '';
+
   const summaryText = `### Kết quả truy vấn Lịch trực 24h (${periodTitle}):
 - Số ngày kiểm tra trong kỳ: **${filteredDates.length}** ngày.
-${
-  tableRows.length === 0
-    ? '- Chưa có dữ liệu phân công lịch trực 24h nào được lưu trong kỳ này.'
-    : tableRows
-        .slice(0, 20)
-        .map(
-          (r) =>
-            `- Nhân viên **${r.staffName}**: Tổng cộng **${r.totalShifts} buổi trực** (gồm **${r.weekdayShifts}** buổi ngày thường và **${r.holidayShifts}** buổi Thứ 7/CN/Lễ). Ngày trực: ${r.datesList || 'Không có'}.`
-        )
-        .join('\n')
-}`;
+${dailyBreakdownLines ? `- Danh sách nhân viên trực theo ngày:\n${dailyBreakdownLines}\n` : ''}${
+    tableRows.length === 0
+      ? '- Chưa có dữ liệu phân công lịch trực 24h nào được lưu trong kỳ này.'
+      : tableRows
+          .slice(0, 20)
+          .map(
+            (r) =>
+              `- Nhân viên **${r.staffName}**: Tổng cộng **${r.totalShifts} buổi trực** (gồm **${r.weekdayShifts}** buổi ngày thường và **${r.holidayShifts}** buổi Thứ 7/CN/Lễ). Ngày trực: ${r.datesList || 'Không có'}.`
+          )
+          .join('\n')
+  }`;
 
   void queryText;
   return { summaryText, artifact };
@@ -1163,6 +1296,23 @@ export function executeServicePackageAnalysisTool(
     createdAt: Date.now(),
   };
 
+  const staffPaymentRows = buildPackagePaymentRows(
+    filteredAssignments,
+    ctx.packageDefinitions || [],
+    ctx.config.staffList || []
+  ).filter((r) => !r.isUnassigned && r.totalCount > 0);
+
+  const staffPaymentText =
+    staffPaymentRows.length > 0
+      ? `\n- Thanh toán thù lao Gói dịch vụ theo nhân viên (Thực lĩnh sau khấu trừ):\n${staffPaymentRows
+          .slice(0, 20)
+          .map(
+            (sr) =>
+              `  + **${sr.staffName}** (${sr.department || 'Chưa phân khoa'}): **${sr.totalCount} lượt** | Thực lĩnh gói DV: **${Math.round(sr.total).toLocaleString('vi-VN')} VNĐ**`
+          )
+          .join('\n')}`
+      : '';
+
   const summaryText = `### Kết quả truy vấn Gói Dịch vụ Yêu cầu ${asksObstetrics ? '(Nhóm Sản khoa)' : ''}:
 - Tổng số ca sử dụng gói dịch vụ khớp điều kiện: **${totalPkgCases} ca** ( trên tổng số ${records.length} ca PTTT trong kỳ).
 - Tổng doanh thu gói dịch vụ: **${totalPkgRevenue.toLocaleString('vi-VN')} VNĐ**.
@@ -1176,7 +1326,7 @@ ${
             `  + **${r.packageName}**: **${r.caseCount} ca** | Đơn giá: ${r.unitAmount.toLocaleString('vi-VN')}đ | Tổng tiền: **${r.totalRevenue.toLocaleString('vi-VN')}đ**`
         )
         .join('\n')
-}`;
+}${staffPaymentText}`;
 
   return { summaryText, artifact };
 }
@@ -1338,8 +1488,9 @@ export function executeStaffWorkloadTool(
 
   // 4. Scan Overtime rows if applicable
   try {
+    const hydratedForOt = records.map((r) => ensureHydratedSurgeryRecord(r));
     const overtimeRows = calculateOvertimeRows(
-      records as SurgeryRecord[],
+      hydratedForOt,
       ctx.dutySchedules || {},
       ctx.config.workingHours,
       true
@@ -1484,6 +1635,376 @@ ${tableRows
   .join('\n')}`;
 
   return { summaryText, artifact };
+}
+
+// ─── 4B. OVERTIME ANALYSIS TOOL (TAB NGOÀI GIỜ — BC HÀNG NGÀY & BC THÁNG) ────
+
+export async function executeOvertimeAnalysisTool(
+  ctx: AIDataContextInput,
+  records: Array<SurgeryRecord | PersistedSurgeryRecord>,
+  queryText: string,
+  logs: AIChatToolExecutionLog[]
+): Promise<{
+  summaryText: string;
+  artifact?: AIArtifact;
+  mergedSchedules: Record<string, DutyScheduleDateConfig>;
+}> {
+  const noTone = removeVietnameseTones(queryText);
+  const hydratedRecords = records.map((r) => ensureHydratedSurgeryRecord(r));
+
+  // Collect all surgery dateKeys AND their previous day (T-1) for 24h duty schedule shift resolution
+  const neededDateKeys = new Set<string>();
+  hydratedRecords.forEach((r) => {
+    const iso = getRecordIsoDate(r);
+    if (iso) {
+      neededDateKeys.add(iso);
+      const prev = getPreviousDayIso(iso);
+      if (prev) neededDateKeys.add(prev);
+    }
+  });
+
+  let mergedSchedules: Record<string, DutyScheduleDateConfig> = { ...(ctx.dutySchedules || {}) };
+  const missingDateKeys = Array.from(neededDateKeys).filter((k) => !mergedSchedules[k]);
+  if (missingDateKeys.length > 0) {
+    try {
+      const fetched = await dutyScheduleService.getDutySchedulesForDates(missingDateKeys);
+      mergedSchedules = { ...mergedSchedules, ...fetched };
+      if (Object.keys(fetched).length > 0) {
+        logs.push({
+          toolName: 'fetch_overtime_duty_schedules',
+          summary: `Đã nạp lịch trực 24h cho ${Object.keys(fetched).length} ngày để đối chiếu tính Ngoài giờ`,
+          recordCount: Object.keys(fetched).length,
+          expandedFirestoreFetch: true,
+        });
+      }
+    } catch {
+      // ignore offline error
+    }
+  }
+
+  let includeGV = false;
+  try {
+    if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+      includeGV = localStorage.getItem('sdp_overtime_include_gv') === 'true';
+    }
+  } catch {
+    // ignore
+  }
+  if (/\b(giup viec|gv)\b/.test(noTone)) {
+    includeGV = true;
+  }
+
+  const overtimeRows = calculateOvertimeRows(
+    hydratedRecords,
+    mergedSchedules,
+    ctx.config.workingHours,
+    includeGV
+  );
+  const groupedReport = groupOvertimeDataForReport(
+    overtimeRows,
+    ctx.config,
+    'ALL',
+    'ALL',
+    includeGV
+  );
+  const deptBlocks = groupedReport.departmentBlocks || [];
+
+  const totalOvertimeMinutes = overtimeRows.reduce(
+    (sum, r) => sum + (r.durationMinutes || 0),
+    0
+  );
+  const totalStaffCount = deptBlocks.reduce((sum, g) => sum + g.staffBlocks.length, 0);
+
+  // Summarize active duty schedules on the surgery dates
+  const surgeryDates = Array.from(
+    new Set(hydratedRecords.map((r) => getRecordIsoDate(r)).filter(Boolean))
+  ).sort();
+  const dutySummaryLines = surgeryDates.slice(0, 10).map((d) => {
+    const ds = mergedSchedules[d];
+    const staffOnDuty =
+      ds && Array.isArray(ds.onCallStaff) && ds.onCallStaff.length > 0
+        ? ds.onCallStaff.join(', ')
+        : 'Chưa khai báo danh sách trực';
+    const isHol = ds?.isHoliday !== undefined ? ds.isHoliday : isWeekend(d);
+    return `  + Ngày **${formatIsoToDMY(d)}** (${isHol ? 'Ngày nghỉ/Cuối tuần/Lễ' : 'Ngày làm việc hành chính'}): Tua trực 24h gồm: **${staffOnDuty}** *(Những nhân sự này đã trực 24h nên được loại trừ không chấm ngoài giờ)*.`;
+  });
+
+  // Staff-level breakdown (Who must clock overtime & from what time to what time)
+  const staffBreakdownLines: string[] = [];
+  deptBlocks.forEach((dept) => {
+    dept.staffBlocks.forEach((st) => {
+      const caseDetails = st.surgeries
+        .map(
+          (s) =>
+            `KT: *"${s.surgeryName}"* (Ngày ${s.dateText}): **Chấm ngoài giờ từ \`${s.timeFromText}\` đến \`${s.timeToText}\`** (${s.durationMinutes} phút — ${s.durationText})`
+        )
+        .join('; ');
+      staffBreakdownLines.push(
+        `- **${st.staffName}** (Khoa: ${dept.deptFullName || dept.deptCode}): Tổng **${st.surgeries.length} ca ngoài giờ** — Tổng thời gian: **${st.totalMinutes} phút (${st.totalDurationText})**.\n  + Chi tiết: ${caseDetails}`
+      );
+    });
+  });
+
+  // Case-level breakdown
+  const caseBreakdownLines = overtimeRows.map((row, idx) => {
+    const rolesList = [
+      row.ptChinh ? `PT Chính: **${row.ptChinh}**` : '',
+      row.ptPhu ? `PT Phụ: **${row.ptPhu}**` : '',
+      row.bsGM ? `BS Gây mê: **${row.bsGM}**` : '',
+      row.ktvGM ? `KTV Gây mê: **${row.ktvGM}**` : '',
+      row.tdc ? `Tít dụng cụ (TDC): **${row.tdc}**` : '',
+      includeGV && row.gv ? `Giúp việc (GV): **${row.gv}**` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+
+    return `  ${idx + 1}. BN **${row.patientName}** (Mã BN: \`${row.patientId || '—'}\`, Năm sinh: ${row.yob || '—'}) — KT: **"${row.tenKT}"** (${row.loaiPTTT || '—'})\n     - Giờ mổ thực tế: \`${row.ngayBD}\` → \`${row.ngayKT}\`\n     - **Khung giờ chấm ngoài giờ: Từ \`${row.timeFrom}\` đến \`${row.timeTo}\` (Tổng: ${row.durationText} = ${row.durationMinutes} phút)** — Phân loại: **${row.ghiChu}**\n     - **Nhân viên phải chấm ngoài giờ trong ca này:** ${rolesList || 'Không có'}`;
+  });
+
+  const tableRows = overtimeRows.map((row, idx) => ({
+    stt: idx + 1,
+    patientId: row.patientId,
+    patientName: row.patientName,
+    tenKT: row.tenKT,
+    ngayBD: row.ngayBD,
+    ngayKT: row.ngayKT,
+    ptChinh: row.ptChinh || '—',
+    ptPhu: row.ptPhu || '—',
+    bsGM: row.bsGM || '—',
+    ktvGM: row.ktvGM || '—',
+    tdc: row.tdc || '—',
+    timeFrom: row.timeFrom,
+    timeTo: row.timeTo,
+    durationText: row.durationText,
+    durationMinutes: row.durationMinutes,
+    ghiChu: row.ghiChu,
+  }));
+
+  const artifact: AIArtifact = {
+    id: `overtime_analysis_${Date.now()}`,
+    type: 'composite',
+    title: 'Bảng Kê Chấm Ngoài Giờ Phẫu Thuật Thủ Thuật (Tab Ngoài Giờ)',
+    subtitle: `Phát sinh ${overtimeRows.length} ca ngoài giờ / ${hydratedRecords.length} ca PTTT — ${totalStaffCount} nhân viên phải chấm ngoài giờ`,
+    kpiCards: [
+      { label: 'Tổng số ca PTTT kiểm tra', value: hydratedRecords.length, tone: 'slate' },
+      { label: 'Số ca phát sinh ngoài giờ', value: overtimeRows.length, tone: 'blue' },
+      { label: 'Số nhân viên chấm ngoài giờ', value: totalStaffCount, tone: 'emerald' },
+      {
+        label: 'Tổng thời lượng ca ngoài giờ',
+        value: `${totalOvertimeMinutes} phút (${(totalOvertimeMinutes / 60).toFixed(2)}h)`,
+        tone: 'amber',
+      },
+    ],
+    tableConfig: {
+      columns: [
+        { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+        { key: 'patientId', label: 'Mã BN', align: 'left' },
+        { key: 'patientName', label: 'Họ tên BN', align: 'left' },
+        { key: 'tenKT', label: 'Tên kỹ thuật PTTT', align: 'left' },
+        { key: 'ngayBD', label: 'Bắt đầu mổ', align: 'center' },
+        { key: 'ngayKT', label: 'Kết thúc mổ', align: 'center' },
+        { key: 'ptChinh', label: 'PT Chính', align: 'left' },
+        { key: 'ptPhu', label: 'PT Phụ', align: 'left' },
+        { key: 'bsGM', label: 'BS GM', align: 'left' },
+        { key: 'ktvGM', label: 'KTV GM', align: 'left' },
+        { key: 'tdc', label: 'TDC', align: 'left' },
+        { key: 'timeFrom', label: 'Chấm từ', align: 'center' },
+        { key: 'timeTo', label: 'Chấm đến', align: 'center' },
+        { key: 'durationText', label: 'Tổng TG', align: 'center' },
+        { key: 'ghiChu', label: 'Ghi chú kíp', align: 'center' },
+      ],
+      rows: tableRows,
+    },
+    rawRecords: tableRows,
+    createdAt: Date.now(),
+  };
+
+  const summaryText = `### Kết quả Tính toán Chấm Ngoài Giờ (Chuẩn logic Tab "Ngoài giờ" trên phần mềm):
+- Tổng số ca PTTT trong danh sách kiểm tra: **${hydratedRecords.length} ca**.
+- Số ca phát sinh làm thêm ngoài giờ: **${overtimeRows.length} ca** (Tổng thời lượng ca ngoài giờ: **${totalOvertimeMinutes} phút ≈ ${(totalOvertimeMinutes / 60).toFixed(2)} giờ**).
+- Số nhân viên phải chấm ngoài giờ: **${totalStaffCount} nhân viên** (thuộc **${deptBlocks.length}** khoa/phòng; chế độ tính Giúp việc: **${includeGV ? 'Đang BẬT' : 'Đang TẮT - chỉ tính 5 vị trí chuyên môn'}**).
+${dutySummaryLines.length > 0 ? `- Đối chiếu Lịch trực 24h:\n${dutySummaryLines.join('\n')}` : ''}
+
+#### 1. Danh sách nhân viên phải chấm ngoài giờ (Ai chấm, từ giờ nào đến giờ nào):
+${
+  staffBreakdownLines.length === 0
+    ? '- **Không có nhân viên nào phải chấm ngoài giờ** trong danh sách này (tất cả các ca mổ đều nằm trong giờ hành chính hoặc toàn bộ nhân sự tham gia đều thuộc tua trực 24h).'
+    : staffBreakdownLines.join('\n')
+}
+
+#### 2. Chi tiết từng ca mổ phát sinh ngoài giờ:
+${
+  caseBreakdownLines.length === 0
+    ? '  + Không có ca mổ nào phát sinh ngoài giờ.'
+    : caseBreakdownLines.join('\n')
+}`;
+
+  return {
+    summaryText,
+    artifact,
+    mergedSchedules,
+  };
+}
+
+// ─── 4C. CONFLICT, VALIDATION & ALLOWANCE QUALITY TOOL ───────────────────────
+
+export function executeConflictAndQualityTool(
+  ctx: AIDataContextInput,
+  records: Array<SurgeryRecord | PersistedSurgeryRecord>,
+  queryText: string
+): {
+  summaryText: string;
+  artifact?: AIArtifact;
+} {
+  void queryText;
+  const hydratedRecords = records.map((r) => ensureHydratedSurgeryRecord(r));
+  const result = reprocessSurgicalRecords(hydratedRecords, ctx.config);
+  const procRecords = result.records || [];
+
+  const missingGvRecords = procRecords.filter((r) => !(r.gv || '').trim());
+  const violateMinTimeRecords = procRecords.filter((r) => r.violateMinTime);
+  const lowPaymentRecords = procRecords.filter(
+    (r) => typeof r.paymentPercentage === 'number' && r.paymentPercentage < 100
+  );
+
+  const conflictRows: Array<Record<string, any>> = [];
+  result.staffConflicts.forEach((sc, idx) => {
+    conflictRows.push({
+      stt: idx + 1,
+      conflictType: `Trùng lịch NV (${sc.severity === 'high' ? 'Nghiêm trọng' : sc.severity === 'medium' ? 'Trung bình' : 'Thấp'})`,
+      subject: sc.staffName,
+      detail1: `BN ${sc.surgery1.patientName} (${sc.role1}) [${sc.surgery1.ngayBD} → ${sc.surgery1.ngayKT}]`,
+      detail2: `BN ${sc.surgery2.patientName} (${sc.role2}) [${sc.surgery2.ngayBD} → ${sc.surgery2.ngayKT}]`,
+      note: `Chồng lấn ${sc.overlapMinutes} phút`,
+    });
+  });
+
+  result.machineConflicts.forEach((mc) => {
+    conflictRows.push({
+      stt: conflictRows.length + 1,
+      conflictType: 'Trùng mã máy',
+      subject: mc.machine,
+      detail1: `BN ${mc.surgery1.patientName} [${mc.surgery1.ngayBD} → ${mc.surgery1.ngayKT}]`,
+      detail2: `BN ${mc.surgery2.patientName} [${mc.surgery2.ngayBD} → ${mc.surgery2.ngayKT}]`,
+      note: 'Sử dụng cùng máy cùng thời điểm',
+    });
+  });
+
+  result.missingRecords.forEach((mr) => {
+    conflictRows.push({
+      stt: conflictRows.length + 1,
+      conflictType: 'Thiếu mã máy',
+      subject: `BN ${mr.patientName} (${mr.patientId})`,
+      detail1: `${mr.tenKT} (${mr.loaiPTTT})`,
+      detail2: `PT Chính: ${mr.ptChinh || '—'}`,
+      note: `Ngày mổ: ${mr.ngayBD}`,
+    });
+  });
+
+  const artifact: AIArtifact = {
+    id: `conflict_quality_${Date.now()}`,
+    type: 'composite',
+    title: 'Kiểm định Xung đột Lịch mổ, Chất lượng Dữ liệu & Phụ cấp PTTT',
+    subtitle: `Tổng hợp trên ${procRecords.length} ca PTTT — Tổng phụ cấp: ${Math.round(result.totalCost).toLocaleString('vi-VN')} VNĐ`,
+    kpiCards: [
+      { label: 'Trùng lịch nhân viên', value: result.staffConflicts.length, tone: 'rose' },
+      { label: 'Trùng máy / Thiếu máy', value: `${result.machineConflicts.length} / ${result.missingRecords.length}`, tone: 'amber' },
+      { label: 'Chưa GV / Lỗi TG tối thiểu', value: `${result.missingAssistantCount} / ${result.violateMinTimeCount}`, tone: 'blue' },
+      { label: 'Tổng phụ cấp PTTT', value: `${Math.round(result.totalCost).toLocaleString('vi-VN')} đ`, tone: 'emerald' },
+    ],
+    tableConfig: {
+      columns: [
+        { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+        { key: 'conflictType', label: 'Loại cảnh báo', align: 'left' },
+        { key: 'subject', label: 'Nhân viên / Máy / Bệnh nhân', align: 'left' },
+        { key: 'detail1', label: 'Ca PTTT thứ 1 / Kỹ thuật', align: 'left' },
+        { key: 'detail2', label: 'Ca PTTT thứ 2 / PTV', align: 'left' },
+        { key: 'note', label: 'Chi tiết', align: 'left' },
+      ],
+      rows: conflictRows,
+    },
+    rawRecords: conflictRows,
+    createdAt: Date.now(),
+  };
+
+  const summaryText = `### Kết quả Kiểm định Xung đột, Chất lượng Dữ liệu & Phụ cấp PTTT (${procRecords.length} ca):
+- **Tổng kinh phí phụ cấp PTTT:** **${Math.round(result.totalCost).toLocaleString('vi-VN')} VNĐ**.
+- **Trùng lịch nhân viên (\`Trùng NV\`):** **${result.staffConflicts.length} trường hợp**.
+${result.staffConflicts
+  .slice(0, 15)
+  .map(
+    (sc) =>
+      `  + Nhân viên **${sc.staffName}** trùng **${sc.overlapMinutes} phút** (Mức độ: ${sc.severity}): Ca 1 BN **${sc.surgery1.patientName}** (${sc.role1}, ${sc.surgery1.ngayBD} → ${sc.surgery1.ngayKT}) ⋈ Ca 2 BN **${sc.surgery2.patientName}** (${sc.role2}, ${sc.surgery2.ngayBD} → ${sc.surgery2.ngayKT}).`
+  )
+  .join('\n')}
+- **Trùng máy (\`Trùng máy\`):** **${result.machineConflicts.length} trường hợp**.
+${result.machineConflicts
+  .slice(0, 10)
+  .map(
+    (mc) =>
+      `  + Máy **${mc.machine}**: Ca 1 BN **${mc.surgery1.patientName}** (${mc.surgery1.ngayBD} → ${mc.surgery1.ngayKT}) ⋈ Ca 2 BN **${mc.surgery2.patientName}** (${mc.surgery2.ngayBD} → ${mc.surgery2.ngayKT}).`
+  )
+  .join('\n')}
+- **Ca mổ thiếu mã máy (\`Thiếu máy\`):** **${result.missingRecords.length} ca**${
+    result.missingRecords.length > 0
+      ? ` (${result.missingRecords
+          .slice(0, 10)
+          .map((r) => `BN ${r.patientName} - "${r.tenKT}"`)
+          .join('; ')})`
+      : ''
+  }.
+- **Ca mổ chưa có Giúp việc (\`Chưa GV\`):** **${result.missingAssistantCount} ca**${
+    missingGvRecords.length > 0
+      ? ` (${missingGvRecords
+          .slice(0, 10)
+          .map((r) => `BN ${r.patientName} - "${r.tenKT}"`)
+          .join('; ')})`
+      : ''
+  }.
+- **Ca mổ vi phạm thời gian tối thiểu (\`Lỗi TG\`):** **${result.violateMinTimeCount} ca**${
+    violateMinTimeRecords.length > 0
+      ? ` (${violateMinTimeRecords
+          .slice(0, 10)
+          .map((r) => `BN ${r.patientName} - ${r.timeMinutes} phút`)
+          .join('; ')})`
+      : ''
+  }.
+- **Ca mổ thanh toán phụ cấp dưới 100% (\`TT <100%\` — 50% hoặc 80%):** **${result.lowPaymentCount} ca**${
+    lowPaymentRecords.length > 0
+      ? ` (${lowPaymentRecords
+          .slice(0, 10)
+          .map((r) => `BN ${r.patientName} - "${r.tenKT}": ${r.paymentPercentage}%`)
+          .join('; ')})`
+      : ''
+  }.`;
+
+  return { summaryText, artifact };
+}
+
+/**
+ * Khi danh sách ca mổ đang xét nhỏ gọn (<= 60 ca, ví dụ BC Hàng ngày),
+ * cung cấp trực tiếp bảng chi tiết từng ca mổ để AI nắm 100% dữ liệu trên bảng.
+ */
+export function buildDirectTableSnapshotForLLM(
+  records: Array<SurgeryRecord | PersistedSurgeryRecord>
+): string {
+  if (records.length === 0 || records.length > 60) return '';
+  const hydrated = records.map((r) => ensureHydratedSurgeryRecord(r));
+  const lines = hydrated.map((r, idx) => {
+    const team = [
+      r.ptChinh ? `PT Chính: ${r.ptChinh}` : '',
+      r.ptPhu ? `PT Phụ: ${r.ptPhu}` : '',
+      r.bsGM ? `BS GM: ${r.bsGM}` : '',
+      r.ktvGM ? `KTV GM: ${r.ktvGM}` : '',
+      r.tdc ? `TDC: ${r.tdc}` : '',
+      r.gv ? `GV: ${r.gv}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
+    return `${idx + 1}. Mã BN: \`${r.patientId || '—'}\` | Họ tên: **${r.patientName || '—'}** (${r.gender || '—'}, ${r.yob || '—'}) | Bắt đầu: \`${r.ngayBD || '—'}\` → Kết thúc: \`${r.ngayKT || '—'}\` (${r.timeMinutes || 0} phút) | Kỹ thuật: **"${r.tenKT || '—'}"** (Loại: ${r.loaiPTTT || '—'}, SL: ${r.soLuong ?? 1}) | Kíp mổ: [${team}] | Máy: ${r.machineCode || r.machine || '—'} | Viện phí: ${(Number(r.thanhTien) || 0).toLocaleString('vi-VN')}đ`;
+  });
+
+  return `### Danh sách Chi tiết ${hydrated.length} Ca PTTT Trực tiếp trên Bảng:\n${lines.join('\n')}`;
 }
 
 // ─── 5. MULTI-DIMENSIONAL & PERIOD COMPARISON ANALYTICS ENGINE ──────────────
@@ -2549,18 +3070,54 @@ export async function runRelationalQueryPipeline(
     /\b(ma bn|ma benh nhan|tim bn|tim kiem bn|tim benh nhan|ho so bn|the bhyt)\b/.test(noTone) ||
     /\b(\d{6,12})\b/.test(noTone);
 
+  const isOvertimeQuery =
+    /\b(ngoai gio|cham ngoai gio|lam ngoai gio|lam them|kip tang cuong|kip mo phien|kip truc|cham cong)\b/.test(
+      noTone
+    );
+
+  const isConflictOrQualityQuery =
+    /\b(trung lich|trung gio|xung dot|trung nhan vien|trung nv|trung may|thieu may|thieu ma may|chua gv|chua co giup viec|thieu giup viec|loi tg|loi thoi gian|thoi gian toi thieu|duoi 100|50%|80%|kiem tra loi|ra soat loi|bat thuong|kinh phi|thanh toan pttt)\b/.test(
+      noTone
+    );
+
   const isDutyQuery = /\b(truc|lich truc|buoi truc|tua truc|ngay nghi|ngay le)\b/.test(noTone);
 
   const isPackageQuery = /\b(goi dv|goi dich vu|yeu cau|chon bac si|chon bs|goi san)\b/.test(noTone);
 
   const isStaffQuery =
     targetStaffNames.length > 0 ||
-    /\b(nhan vien|bac si|ptv|kip mo|lam bao nhieu ca|mo bao nhieu ca|phu cap)\b/.test(noTone);
+    /\b(nhan vien|bac si|ptv|kip mo|lam bao nhieu ca|mo bao nhieu ca|phu cap|nhung ai|ai mo|ai tham gia)\b/.test(
+      noTone
+    );
 
   const isPivotOrTrendQuery =
     /\b(bieu do|thong ke|so sanh|cac thang|mua he|mua dong|mua khac nhau|noi soi|tieu hoa|xu huong|theo thang|theo mua|phan tich)\b/.test(
       noTone
     ) || ctx.contextPage === 'statistics_studio';
+
+  // Execute Overtime Analysis if triggered (Tab "Ngoài giờ")
+  if (isOvertimeQuery) {
+    const otRes = await executeOvertimeAnalysisTool(ctx, scopedRecords, prompt, executedTools);
+    sections.push(otRes.summaryText);
+    if (otRes.artifact) artifacts.push(otRes.artifact);
+    executedTools.push({
+      toolName: 'analyze_overtime_records',
+      summary: `Tính toán chi tiết Chấm ngoài giờ (calculateOvertimeRows ⋈ duty_schedules) trên ${scopedRecords.length} ca PTTT`,
+      recordCount: scopedRecords.length,
+    });
+  }
+
+  // Execute Conflict, Validation & Allowance Quality Check if triggered
+  if (isConflictOrQualityQuery) {
+    const cqRes = executeConflictAndQualityTool(ctx, scopedRecords, prompt);
+    sections.push(cqRes.summaryText);
+    if (cqRes.artifact) artifacts.push(cqRes.artifact);
+    executedTools.push({
+      toolName: 'analyze_conflicts_and_quality',
+      summary: `Kiểm định Trùng lịch NV, Trùng máy, Thiếu máy, Chưa GV, Lỗi TG & Phụ cấp PTTT (${scopedRecords.length} ca)`,
+      recordCount: scopedRecords.length,
+    });
+  }
 
   // Execute Patient Search if triggered
   if (isPatientQuery) {
@@ -2584,7 +3141,8 @@ export async function runRelationalQueryPipeline(
       months,
       years,
       targetStaffNames,
-      executedTools
+      executedTools,
+      specificDates
     );
     sections.push(dutyRes.summaryText);
     if (dutyRes.artifact) artifacts.push(dutyRes.artifact);
@@ -2606,8 +3164,8 @@ export async function runRelationalQueryPipeline(
     });
   }
 
-  // Execute Staff Workload Analysis if triggered
-  if (isStaffQuery) {
+  // Execute Staff Workload Analysis if triggered (skip if only "những ai" inside an explicit overtime query)
+  if (isStaffQuery && (!isOvertimeQuery || targetStaffNames.length > 0 || /\b(lam bao nhieu ca|mo bao nhieu ca|phu cap)\b/.test(noTone))) {
     const staffRes = executeStaffWorkloadTool(ctx, scopedRecords, targetStaffNames);
     sections.push(staffRes.summaryText);
     if (staffRes.artifact) artifacts.push(staffRes.artifact);
@@ -2616,6 +3174,14 @@ export async function runRelationalQueryPipeline(
       summary: `Tổng hợp khối lượng ca PTTT (6 vị trí) + Gói DV + Trực 24h${targetStaffNames.length > 0 ? ` cho ${targetStaffNames.join(', ')}` : ''}`,
       recordCount: scopedRecords.length,
     });
+  }
+
+  // Always include direct row-by-row table snapshot when the dataset is small (<= 60 records, e.g. Daily Report)
+  if (scopedRecords.length > 0 && scopedRecords.length <= 60) {
+    const directSnapshot = buildDirectTableSnapshotForLLM(scopedRecords);
+    if (directSnapshot) {
+      sections.push(directSnapshot);
+    }
   }
 
   // Execute Statistical / Comparison / Pivot Analysis if triggered or as default comprehensive analysis

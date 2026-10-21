@@ -14,6 +14,7 @@ import {
   AISystemConfig,
   AIPersonalOverride,
   AIModelOption,
+  AIDeclaredModelProfile,
 } from '../../types/ai';
 
 export const AI_CONFIG_RTDB_PATH = 'app_config/ai_settings';
@@ -263,9 +264,28 @@ export const DEFAULT_SLOT_CONFIGS: Record<AISlotId, AISlotConfig> = {
   },
 };
 
+export const DEFAULT_DECLARED_MODELS: AIDeclaredModelProfile[] = [
+  {
+    id: 'gemini__gemini-2.5-flash',
+    provider: 'gemini',
+    modelId: 'gemini-2.5-flash',
+    modelName: 'Gemini 2.5 Flash',
+    apiKey: '',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    temperature: 0.3,
+    maxTokens: 2048,
+    reasoningEffort: 'medium',
+    supportsVision: true,
+    active: true,
+    isDefault: true,
+    lastTestStatus: 'untested',
+  },
+];
+
 export const DEFAULT_AI_SYSTEM_CONFIG: AISystemConfig = {
   providers: DEFAULT_PROVIDER_CONFIGS,
   slots: DEFAULT_SLOT_CONFIGS,
+  declaredModels: DEFAULT_DECLARED_MODELS,
   updatedAt: 0,
 };
 
@@ -275,6 +295,15 @@ export const DEFAULT_PERSONAL_OVERRIDE: AIPersonalOverride = {
   providerBaseUrls: {},
   slotOverrides: {},
 };
+
+export function maskApiKeyPreview(apiKey?: string): string {
+  const trimmed = (apiKey || '').trim();
+  if (!trimmed) return 'Chưa nhập';
+  if (trimmed.length <= 9) {
+    return `${trimmed.slice(0, 3)}••••${trimmed.slice(-2)}`;
+  }
+  return `${trimmed.slice(0, 6)}••••${trimmed.slice(-3)}`;
+}
 
 // ─── MERGE & NORMALIZATION HELPERS ───────────────────────────────────────────
 
@@ -338,9 +367,123 @@ export function normalizeAISystemConfig(raw?: Partial<AISystemConfig> | null): A
     };
   });
 
+  // Normalize or synthesize declaredModels (MCQ-style model profiles)
+  let declaredModels: AIDeclaredModelProfile[] = [];
+  if (Array.isArray(raw.declaredModels) && raw.declaredModels.length > 0) {
+    declaredModels = raw.declaredModels
+      .filter((item): item is AIDeclaredModelProfile => Boolean(item && item.provider && item.modelId))
+      .map((item) => {
+        const pid = item.provider;
+        const pCfg = providers[pid] || DEFAULT_PROVIDER_CONFIGS[pid];
+        const presetModel = pCfg.models.find((m) => m.id === item.modelId);
+        return {
+          id: item.id || `${pid}__${item.modelId}`,
+          provider: pid,
+          modelId: item.modelId.trim(),
+          modelName: (item.modelName || presetModel?.name || item.modelId).trim(),
+          apiKey: (item.apiKey ?? pCfg.apiKey ?? '').trim(),
+          baseUrl: (item.baseUrl || pCfg.baseUrl || pCfg.defaultBaseUrl).trim(),
+          temperature: typeof item.temperature === 'number' ? item.temperature : 0.3,
+          maxTokens: typeof item.maxTokens === 'number' && item.maxTokens > 0 ? item.maxTokens : 2048,
+          reasoningEffort: item.reasoningEffort || 'medium',
+          supportsVision: item.supportsVision !== undefined ? Boolean(item.supportsVision) : true,
+          active: item.active !== undefined ? Boolean(item.active) : true,
+          isDefault: Boolean(item.isDefault),
+          lastTestedAt: item.lastTestedAt,
+          lastTestStatus: item.lastTestStatus || 'untested',
+          lastTestMessage: item.lastTestMessage,
+          lastTestReply: item.lastTestReply,
+          lastTestLatencyMs: item.lastTestLatencyMs,
+        };
+      });
+  } else {
+    // Synthesize from existing providers & slots so existing configs appear immediately as cards
+    const primarySlot = slots.daily_storage || DEFAULT_SLOT_CONFIGS.daily_storage;
+    const seenKeys = new Set<string>();
+
+    const addSynthesized = (pid: AIProviderId, modelId: string, isPrimary: boolean) => {
+      const key = `${pid}__${modelId}`;
+      if (seenKeys.has(key)) return;
+      seenKeys.add(key);
+      const pCfg = providers[pid];
+      const modelMeta = pCfg.models.find((m) => m.id === modelId) || pCfg.models[0];
+      const resolvedId = modelMeta?.id || modelId;
+      declaredModels.push({
+        id: `${pid}__${resolvedId}`,
+        provider: pid,
+        modelId: resolvedId,
+        modelName: modelMeta?.name || resolvedId,
+        apiKey: (pCfg.apiKey || '').trim(),
+        baseUrl: pCfg.baseUrl || pCfg.defaultBaseUrl,
+        temperature: 0.3,
+        maxTokens: 2048,
+        reasoningEffort: 'medium',
+        supportsVision: !resolvedId.includes('reasoner'),
+        active: pCfg.enabled !== false,
+        isDefault: isPrimary,
+        lastTestedAt: pCfg.lastTestedAt,
+        lastTestStatus: pCfg.lastTestStatus || 'untested',
+        lastTestMessage: pCfg.lastTestMessage,
+        lastTestLatencyMs: pCfg.lastTestLatencyMs,
+      });
+    };
+
+    // Primary slot model first
+    addSynthesized(primarySlot.provider, primarySlot.modelId, true);
+
+    // Any other provider that already has an API key configured
+    (Object.keys(providers) as AIProviderId[]).forEach((pid) => {
+      const pCfg = providers[pid];
+      if (pCfg.apiKey && pCfg.apiKey.trim()) {
+        const firstEnabled = pCfg.models.find((m) => m.enabled) || pCfg.models[0];
+        if (firstEnabled) {
+          addSynthesized(pid, firstEnabled.id, false);
+        }
+      }
+    });
+  }
+
+  // Ensure exactly one default among declared models
+  if (declaredModels.length > 0 && !declaredModels.some((m) => m.isDefault)) {
+    const firstActive = declaredModels.find((m) => m.active) || declaredModels[0];
+    firstActive.isDefault = true;
+  }
+
+  // Sync declaredModels back into providers so getEffectiveProviderConfig & getAvailableModelsCatalog stay in sync
+  declaredModels.forEach((dm) => {
+    const pCfg = providers[dm.provider];
+    if (!pCfg) return;
+    if (dm.apiKey && dm.apiKey.trim()) {
+      pCfg.apiKey = dm.apiKey.trim();
+    }
+    if (dm.baseUrl && dm.baseUrl.trim()) {
+      pCfg.baseUrl = dm.baseUrl.trim();
+    }
+    if (dm.active) {
+      pCfg.enabled = true;
+    }
+    const existingModel = pCfg.models.find((m) => m.id === dm.modelId);
+    if (existingModel) {
+      existingModel.enabled = dm.active;
+      if (dm.modelName) existingModel.name = dm.modelName;
+    } else {
+      pCfg.models.push({
+        id: dm.modelId,
+        name: dm.modelName || dm.modelId,
+        provider: dm.provider,
+        description: dm.supportsVision ? 'Vision/OCR & Text' : 'Mô hình khai báo',
+        supportsReasoning: dm.modelId.includes('2.5') || dm.modelId.includes('reasoner') || dm.modelId.startsWith('o'),
+        supportsTools: !dm.modelId.includes('reasoner'),
+        enabled: dm.active,
+        isCustom: true,
+      });
+    }
+  });
+
   return {
     providers,
     slots,
+    declaredModels,
     updatedAt: raw.updatedAt || Date.now(),
     updatedBy: raw.updatedBy,
   };
@@ -510,7 +653,8 @@ export async function getAISystemConfigOnce(): Promise<AISystemConfig> {
 export function getEffectiveProviderConfig(
   providerId: AIProviderId,
   systemConfig: AISystemConfig = loadCachedAISystemConfig(),
-  personalOverride: AIPersonalOverride = loadPersonalAIOverride()
+  personalOverride: AIPersonalOverride = loadPersonalAIOverride(),
+  modelId?: string
 ): AIProviderConfig {
   const base = systemConfig.providers[providerId] || DEFAULT_PROVIDER_CONFIGS[providerId];
   const personalKey = personalOverride.usePersonalKeys
@@ -520,7 +664,18 @@ export function getEffectiveProviderConfig(
     ? (personalOverride.providerBaseUrls?.[providerId] || '').trim()
     : '';
 
-  let effectiveKey = personalKey || (base.apiKey || '').trim();
+  const declaredForProvider = (systemConfig.declaredModels || []).filter(
+    (dm) => dm.provider === providerId && dm.active
+  );
+  const matchingDeclared =
+    (modelId ? declaredForProvider.find((dm) => dm.modelId === modelId) : undefined) ||
+    declaredForProvider.find((dm) => dm.apiKey && dm.apiKey.trim()) ||
+    declaredForProvider[0];
+
+  const declaredKey = (matchingDeclared?.apiKey || '').trim();
+  const declaredUrl = (matchingDeclared?.baseUrl || '').trim();
+
+  let effectiveKey = personalKey || declaredKey || (base.apiKey || '').trim();
 
   // Fallback env key for Gemini if neither personal nor system key is set
   if (!effectiveKey && providerId === 'gemini') {
@@ -533,7 +688,7 @@ export function getEffectiveProviderConfig(
   return {
     ...base,
     apiKey: effectiveKey,
-    baseUrl: personalUrl || base.baseUrl || base.defaultBaseUrl,
+    baseUrl: personalUrl || declaredUrl || base.baseUrl || base.defaultBaseUrl,
   };
 }
 

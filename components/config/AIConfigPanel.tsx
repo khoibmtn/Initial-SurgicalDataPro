@@ -1,46 +1,96 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Bot,
-  Key,
-  Globe,
+  Plus,
   CheckCircle2,
-  AlertCircle,
+  XCircle,
   Loader2,
-  Save,
-  RotateCcw,
   Eye,
   EyeOff,
-  Plus,
+  Save,
+  RotateCcw,
+  Settings,
+  ChevronDown,
+  ChevronUp,
+  CloudDownload,
+  Wifi,
   Trash2,
+  Star,
+  X,
   Sliders,
-  Sparkles,
-  Zap,
-  ShieldCheck,
-  UserCheck,
-  Cpu,
 } from 'lucide-react';
 import {
+  AIDeclaredModelProfile,
   AIProviderId,
-  AIProviderConfig,
-  AISlotId,
-  AISlotConfig,
-  AISystemConfig,
-  AIPersonalOverride,
   AIReasoningEffort,
+  AISlotId,
+  AISystemConfig,
 } from '../../types/ai';
 import {
-  subscribeToAISystemConfig,
-  saveAISystemConfig,
-  loadPersonalAIOverride,
-  savePersonalAIOverride,
+  DEFAULT_AI_SYSTEM_CONFIG,
   DEFAULT_PROVIDER_CONFIGS,
-  DEFAULT_SLOT_CONFIGS,
-  getEffectiveProviderConfig,
+  loadCachedAISystemConfig,
+  loadPersonalAIOverride,
+  maskApiKeyPreview,
+  saveAISystemConfig,
+  savePersonalAIOverride,
+  subscribeToAISystemConfig,
 } from '../../services/ai/aiConfigService';
-import { testProviderConnection } from '../../services/ai/aiProviderClient';
-import { useAuth } from '../../contexts/AuthContext';
+import {
+  AIFetchedModelItem,
+  fetchModelsFromProviderAPI,
+  testProviderConnection,
+} from '../../services/ai/aiProviderClient';
+
+interface AIConfigPanelProps {
+  currentUserEmail?: string;
+  isAdmin?: boolean;
+}
 
 const PROVIDER_ORDER: AIProviderId[] = ['gemini', 'openai', 'anthropic', 'deepseek'];
+
+const PROVIDER_META: Record<
+  AIProviderId,
+  {
+    label: string;
+    quickBtnClass: string;
+    quickBtnActiveClass: string;
+    badgeClass: string;
+    keyPlaceholder: string;
+  }
+> = {
+  gemini: {
+    label: 'Google Gemini',
+    quickBtnClass:
+      'bg-emerald-100/80 text-emerald-800 border-emerald-300 hover:bg-emerald-200/70',
+    quickBtnActiveClass:
+      'bg-emerald-100 text-emerald-900 border-emerald-700 ring-2 ring-emerald-500/30',
+    badgeClass: 'bg-emerald-100/90 text-emerald-800 border-emerald-300',
+    keyPlaceholder: 'Nhập API Key (AIzaSy...)...',
+  },
+  openai: {
+    label: 'OpenAI',
+    quickBtnClass: 'bg-teal-50 text-teal-800 border-teal-300 hover:bg-teal-100',
+    quickBtnActiveClass: 'bg-teal-50 text-teal-900 border-sky-700 ring-2 ring-sky-500/30',
+    badgeClass: 'bg-teal-50 text-teal-800 border-teal-300',
+    keyPlaceholder: 'Nhập API Key (sk-proj-...)...',
+  },
+  anthropic: {
+    label: 'Anthropic Claude',
+    quickBtnClass: 'bg-amber-100/80 text-amber-900 border-amber-300 hover:bg-amber-200/70',
+    quickBtnActiveClass:
+      'bg-amber-100 text-amber-950 border-amber-700 ring-2 ring-amber-500/30',
+    badgeClass: 'bg-amber-100/90 text-amber-900 border-amber-300',
+    keyPlaceholder: 'Nhập API Key (sk-ant-...)...',
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    quickBtnClass: 'bg-sky-100/80 text-sky-800 border-sky-300 hover:bg-sky-200/70',
+    quickBtnActiveClass: 'bg-sky-100 text-sky-950 border-sky-700 ring-2 ring-sky-500/30',
+    badgeClass: 'bg-sky-100/90 text-sky-800 border-sky-300',
+    keyPlaceholder: 'Nhập API Key (sk-...)...',
+  },
+};
+
 const SLOT_ORDER: AISlotId[] = [
   'daily_storage',
   'monthly_storage',
@@ -48,70 +98,47 @@ const SLOT_ORDER: AISlotId[] = [
   'conflict_insight',
 ];
 
-const PROVIDER_THEME: Record<
-  AIProviderId,
-  { border: string; headerBg: string; badgeBg: string; accentText: string }
-> = {
-  gemini: {
-    border: 'border-sky-200',
-    headerBg: 'bg-sky-50/80',
-    badgeBg: 'bg-sky-100 text-sky-800 border-sky-200',
-    accentText: 'text-sky-700',
-  },
-  openai: {
-    border: 'border-emerald-200',
-    headerBg: 'bg-emerald-50/80',
-    badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    accentText: 'text-emerald-700',
-  },
-  anthropic: {
-    border: 'border-amber-200',
-    headerBg: 'bg-amber-50/80',
-    badgeBg: 'bg-amber-100 text-amber-900 border-amber-200',
-    accentText: 'text-amber-800',
-  },
-  deepseek: {
-    border: 'border-teal-200',
-    headerBg: 'bg-teal-50/80',
-    badgeBg: 'bg-teal-100 text-teal-800 border-teal-200',
-    accentText: 'text-teal-700',
-  },
-};
-
-export const AIConfigPanel: React.FC = () => {
-  const { user, isAdmin, can } = useAuth();
-  const canEditSystem = isAdmin || can('config_ai_settings');
-
-  const [systemConfig, setSystemConfig] = useState<AISystemConfig | null>(null);
-  const [personalOverride, setPersonalOverride] = useState<AIPersonalOverride>(() =>
-    loadPersonalAIOverride()
+export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({
+  currentUserEmail,
+  isAdmin = true,
+}) => {
+  void isAdmin;
+  const [systemConfig, setSystemConfig] = useState<AISystemConfig>(() =>
+    loadCachedAISystemConfig()
   );
 
-  const [showKeyMap, setShowKeyMap] = useState<Record<string, boolean>>({});
-  const [testingMap, setTestingMap] = useState<Record<AIProviderId, boolean>>({
-    gemini: false,
-    openai: false,
-    anthropic: false,
-    deepseek: false,
-  });
-  const [selectedTestModelMap, setSelectedTestModelMap] = useState<Record<AIProviderId, string>>({
-    gemini: 'gemini-2.5-flash',
-    openai: 'gpt-4.1-mini',
-    anthropic: 'claude-sonnet-4-20250514',
-    deepseek: 'deepseek-chat',
-  });
-  const [newModelInput, setNewModelInput] = useState<
-    Record<AIProviderId, { id: string; name: string }>
-  >({
-    gemini: { id: '', name: '' },
-    openai: { id: '', name: '' },
-    anthropic: { id: '', name: '' },
-    deepseek: { id: '', name: '' },
-  });
-  const [savingProvider, setSavingProvider] = useState<AIProviderId | 'ALL' | null>(null);
-  const [saveMessage, setSaveMessage] = useState<{ text: string; type: 'success' | 'info' } | null>(
-    null
+  // Add New Model Form State (MCQ style)
+  const [showAddForm, setShowAddForm] = useState<boolean>(false);
+  const [formProvider, setFormProvider] = useState<AIProviderId>('openai');
+  const [formModelId, setFormModelId] = useState<string>('gpt-4o');
+  const [formCustomModelId, setFormCustomModelId] = useState<string>('');
+  const [formCustomModelName, setFormCustomModelName] = useState<string>('');
+  const [formApiKey, setFormApiKey] = useState<string>('');
+  const [formShowKey, setFormShowKey] = useState<boolean>(false);
+  const [formBaseUrl, setFormBaseUrl] = useState<string>(
+    DEFAULT_PROVIDER_CONFIGS.openai.defaultBaseUrl
   );
+  const [formTemp, setFormTemp] = useState<number>(0.3);
+  const [formMaxTokens, setFormMaxTokens] = useState<number>(2048);
+  const [formSupportsVision, setFormSupportsVision] = useState<boolean>(true);
+  const [formActive, setFormActive] = useState<boolean>(true);
+  const [formTesting, setFormTesting] = useState<boolean>(false);
+  const [formTestResult, setFormTestResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+  const [fetchingApiModels, setFetchingApiModels] = useState<boolean>(false);
+  const [fetchedModelsByProvider, setFetchedModelsByProvider] = useState<
+    Partial<Record<AIProviderId, AIFetchedModelItem[]>>
+  >({});
+  const [fetchApiNotice, setFetchApiNotice] = useState<string | null>(null);
+
+  // Per-card states
+  const [testingCardId, setTestingCardId] = useState<string | null>(null);
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const [visibleCardKeyMap, setVisibleCardKeyMap] = useState<Record<string, boolean>>({});
+  const [showSlotRouting, setShowSlotRouting] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = subscribeToAISystemConfig((cfg) => {
@@ -120,363 +147,924 @@ export const AIConfigPanel: React.FC = () => {
     return () => unsub();
   }, []);
 
-  if (!systemConfig) {
-    return (
-      <div className="p-8 flex items-center justify-center text-slate-500 gap-2">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        <span>Đang tải cấu hình AI...</span>
-      </div>
-    );
-  }
-
-  const updateProviderField = (
-    providerId: AIProviderId,
-    patch: Partial<AIProviderConfig>
-  ) => {
-    setSystemConfig((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        providers: {
-          ...prev.providers,
-          [providerId]: {
-            ...prev.providers[providerId],
-            ...patch,
-          },
-        },
-      };
-    });
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3500);
   };
 
-  const updateSlotField = (_slotId: AISlotId, patch: Partial<AISlotConfig>) => {
-    setSystemConfig((prev) => {
-      if (!prev) return prev;
-      const nextSlots = { ...prev.slots };
-      SLOT_ORDER.forEach((sid) => {
-        nextSlots[sid] = {
-          ...nextSlots[sid],
-          ...patch,
-        };
+  const declaredModels: AIDeclaredModelProfile[] =
+    systemConfig.declaredModels && systemConfig.declaredModels.length > 0
+      ? systemConfig.declaredModels
+      : DEFAULT_AI_SYSTEM_CONFIG.declaredModels || [];
+
+  // Helper to get combined preset + API-fetched models for a provider
+  const getModelsForProviderSelect = (providerId: AIProviderId): AIFetchedModelItem[] => {
+    const pCfg = systemConfig.providers[providerId] || DEFAULT_PROVIDER_CONFIGS[providerId];
+    const map = new Map<string, AIFetchedModelItem>();
+    pCfg.models.forEach((m) => {
+      map.set(m.id, {
+        id: m.id,
+        name: m.name,
+        description: m.description || 'Đa phương thức mạnh mẽ (Vision + Text)',
+        supportsVision: !m.id.includes('reasoner'),
       });
-      return {
-        ...prev,
-        slots: nextSlots,
-      };
+    });
+    (fetchedModelsByProvider[providerId] || []).forEach((fm) => {
+      if (!map.has(fm.id)) {
+        map.set(fm.id, fm);
+      }
+    });
+    return Array.from(map.values());
+  };
+
+  // Open the "+ Khai báo mô hình AI mới" form pre-filled for a provider
+  const handleOpenAddForm = (providerId: AIProviderId = 'gemini') => {
+    const pCfg = systemConfig.providers[providerId] || DEFAULT_PROVIDER_CONFIGS[providerId];
+    const existingCardWithKey = declaredModels.find(
+      (dm) => dm.provider === providerId && dm.apiKey && dm.apiKey.trim()
+    );
+    const defaultModel =
+      providerId === 'openai'
+        ? pCfg.models.find((m) => m.id === 'gpt-4o') || pCfg.models[0]
+        : pCfg.models[0];
+
+    setFormProvider(providerId);
+    setFormModelId(defaultModel?.id || '');
+    setFormCustomModelId('');
+    setFormCustomModelName('');
+    setFormApiKey(existingCardWithKey?.apiKey || pCfg.apiKey || '');
+    setFormBaseUrl(pCfg.baseUrl || pCfg.defaultBaseUrl);
+    setFormTemp(0.3);
+    setFormMaxTokens(2048);
+    setFormSupportsVision(true);
+    setFormActive(true);
+    setFormTestResult(null);
+    setFetchApiNotice(null);
+    setShowAddForm(true);
+  };
+
+  const handleProviderChangeInForm = (nextProvider: AIProviderId) => {
+    const pCfg = systemConfig.providers[nextProvider] || DEFAULT_PROVIDER_CONFIGS[nextProvider];
+    const existingCardWithKey = declaredModels.find(
+      (dm) => dm.provider === nextProvider && dm.apiKey && dm.apiKey.trim()
+    );
+    const defaultModel =
+      nextProvider === 'openai'
+        ? pCfg.models.find((m) => m.id === 'gpt-4o') || pCfg.models[0]
+        : pCfg.models[0];
+
+    setFormProvider(nextProvider);
+    setFormModelId(defaultModel?.id || '');
+    setFormCustomModelId('');
+    setFormCustomModelName('');
+    setFormApiKey(existingCardWithKey?.apiKey || pCfg.apiKey || '');
+    setFormBaseUrl(pCfg.baseUrl || pCfg.defaultBaseUrl);
+    setFormTemp(0.3);
+    setFormMaxTokens(2048);
+    setFormSupportsVision(true);
+    setFormTestResult(null);
+    setFetchApiNotice(null);
+  };
+
+  // Persist changes to systemConfig + clear conflicting personal overrides so changes apply immediately
+  const persistDeclaredModels = async (
+    nextDeclared: AIDeclaredModelProfile[],
+    nextSlots = systemConfig.slots,
+    toastText?: string
+  ) => {
+    // Ensure at least one default if non-empty
+    const cloned = nextDeclared.map((m) => ({ ...m }));
+    if (cloned.length > 0 && !cloned.some((m) => m.isDefault)) {
+      const firstActive = cloned.find((m) => m.active) || cloned[0];
+      firstActive.isDefault = true;
+    }
+
+    // Sync providers keys & models from declaredModels
+    const nextProviders = structuredClone(systemConfig.providers);
+    cloned.forEach((dm) => {
+      const pCfg = nextProviders[dm.provider];
+      if (!pCfg) return;
+      if (dm.apiKey && dm.apiKey.trim()) {
+        pCfg.apiKey = dm.apiKey.trim();
+      }
+      if (dm.baseUrl && dm.baseUrl.trim()) {
+        pCfg.baseUrl = dm.baseUrl.trim();
+      }
+      if (dm.active) {
+        pCfg.enabled = true;
+      }
     });
 
-    // Đồng bộ luôn vào personal override nếu user không phải Admin để họ dùng ngay
-    if (!canEditSystem) {
-      const nextSlotOverrides = { ...(personalOverride.slotOverrides || {}) };
-      SLOT_ORDER.forEach((sid) => {
-        nextSlotOverrides[sid] = {
-          ...(nextSlotOverrides[sid] || {}),
-          ...patch,
-        };
-      });
-      const nextPersonal: AIPersonalOverride = {
-        ...personalOverride,
-        slotOverrides: nextSlotOverrides,
-      };
-      setPersonalOverride(nextPersonal);
-      savePersonalAIOverride(nextPersonal);
+    const nextConfig: AISystemConfig = {
+      ...systemConfig,
+      providers: nextProviders,
+      slots: nextSlots,
+      declaredModels: cloned,
+      updatedAt: Date.now(),
+      updatedBy: currentUserEmail,
+    };
+
+    setSystemConfig(nextConfig);
+    await saveAISystemConfig(nextConfig, currentUserEmail);
+    if (toastText) showToast(toastText);
+  };
+
+  // Fetch models from live API in form
+  const handleFetchModelsFromAPI = async () => {
+    setFetchingApiModels(true);
+    setFetchApiNotice(null);
+    try {
+      const defaultUrl = DEFAULT_PROVIDER_CONFIGS[formProvider].defaultBaseUrl;
+      const list = await fetchModelsFromProviderAPI(
+        formProvider,
+        formApiKey,
+        formBaseUrl,
+        defaultUrl
+      );
+      if (list.length === 0) {
+        setFetchApiNotice('API không trả về danh sách model nào.');
+      } else {
+        setFetchedModelsByProvider((prev) => ({
+          ...prev,
+          [formProvider]: list,
+        }));
+        setFormModelId(list[0].id);
+        setFetchApiNotice(`Đã tải thành công ${list.length} model từ API!`);
+      }
+    } catch (err: any) {
+      setFetchApiNotice(`Lỗi tải model: ${err?.message || 'Không xác định'}`);
+    } finally {
+      setFetchingApiModels(false);
     }
   };
 
-  const handleToggleModelEnabled = (providerId: AIProviderId, modelId: string) => {
-    const provider = systemConfig.providers[providerId];
-    const updatedModels = provider.models.map((m) =>
-      m.id === modelId ? { ...m, enabled: !m.enabled } : m
-    );
-    updateProviderField(providerId, { models: updatedModels });
+  // Test connection inside the Add Form
+  const handleTestInForm = async () => {
+    const resolvedModelId =
+      formModelId === '__custom__' ? formCustomModelId.trim() : formModelId.trim();
+    if (!resolvedModelId) {
+      setFormTestResult({
+        success: false,
+        message: 'Vui lòng chọn hoặc nhập mã Model trước khi Test.',
+      });
+      return;
+    }
+    setFormTesting(true);
+    setFormTestResult(null);
+    try {
+      const baseProvider =
+        systemConfig.providers[formProvider] || DEFAULT_PROVIDER_CONFIGS[formProvider];
+      const result = await testProviderConnection(
+        {
+          ...baseProvider,
+          apiKey: formApiKey.trim(),
+          baseUrl: formBaseUrl.trim() || baseProvider.defaultBaseUrl,
+        },
+        resolvedModelId
+      );
+      setFormTestResult({
+        success: result.success,
+        message: result.message,
+      });
+    } finally {
+      setFormTesting(false);
+    }
   };
 
-  const handleAddCustomModel = (providerId: AIProviderId) => {
-    const input = newModelInput[providerId];
-    const cleanId = (input?.id || '').trim();
-    const cleanName = (input?.name || '').trim() || cleanId;
-    if (!cleanId) return;
+  // Save & Activate New Model from Form
+  const handleSaveNewModel = async () => {
+    const resolvedModelId =
+      formModelId === '__custom__' ? formCustomModelId.trim() : formModelId.trim();
+    if (!resolvedModelId) {
+      setFormTestResult({
+        success: false,
+        message: 'Vui lòng chọn hoặc nhập mã Model.',
+      });
+      return;
+    }
 
-    const provider = systemConfig.providers[providerId];
-    if (provider.models.some((m) => m.id === cleanId)) return;
+    const providerModels = getModelsForProviderSelect(formProvider);
+    const matchedMeta = providerModels.find((m) => m.id === resolvedModelId);
+    const resolvedName =
+      formModelId === '__custom__'
+        ? (formCustomModelName || resolvedModelId).trim()
+        : matchedMeta?.name || resolvedModelId;
 
-    const updatedModels = [
-      ...provider.models,
-      {
-        id: cleanId,
-        name: cleanName,
-        provider: providerId,
-        description: 'Mô hình tùy chỉnh do người dùng thêm',
-        supportsReasoning: true,
-        supportsTools: true,
-        enabled: true,
-        isCustom: true,
-      },
-    ];
-    updateProviderField(providerId, { models: updatedModels });
-    setNewModelInput((prev) => ({
+    const newProfileId = `${formProvider}__${resolvedModelId}`;
+    const existingIdx = declaredModels.findIndex(
+      (m) => m.id === newProfileId || (m.provider === formProvider && m.modelId === resolvedModelId)
+    );
+
+    const newProfile: AIDeclaredModelProfile = {
+      id: newProfileId,
+      provider: formProvider,
+      modelId: resolvedModelId,
+      modelName: resolvedName,
+      apiKey: formApiKey.trim(),
+      baseUrl: formBaseUrl.trim() || DEFAULT_PROVIDER_CONFIGS[formProvider].defaultBaseUrl,
+      temperature: Number.isFinite(formTemp) ? formTemp : 0.3,
+      maxTokens: Number.isFinite(formMaxTokens) && formMaxTokens > 0 ? formMaxTokens : 2048,
+      reasoningEffort: 'medium',
+      supportsVision: formSupportsVision,
+      active: formActive,
+      isDefault: declaredModels.length === 0,
+      lastTestedAt: formTestResult ? Date.now() : undefined,
+      lastTestStatus: formTestResult ? (formTestResult.success ? 'success' : 'error') : 'untested',
+      lastTestMessage: formTestResult?.message,
+    };
+
+    const nextDeclared = [...declaredModels];
+    if (existingIdx >= 0) {
+      newProfile.isDefault = nextDeclared[existingIdx].isDefault;
+      nextDeclared[existingIdx] = newProfile;
+    } else {
+      nextDeclared.push(newProfile);
+    }
+
+    // Also propagate API key to other cards of the same provider if they didn't have a key yet
+    if (newProfile.apiKey) {
+      nextDeclared.forEach((item) => {
+        if (item.provider === formProvider && !item.apiKey) {
+          item.apiKey = newProfile.apiKey;
+        }
+      });
+    }
+
+    await persistDeclaredModels(
+      nextDeclared,
+      systemConfig.slots,
+      `Đã lưu & kích hoạt mô hình ${resolvedName} (${resolvedModelId}).`
+    );
+    setShowAddForm(false);
+  };
+
+  // Card Actions: Toggle Active, Set Default, Test Connection, Update Card Config, Delete Card
+  const handleToggleCardActive = async (cardId: string) => {
+    const nextDeclared = declaredModels.map((m) =>
+      m.id === cardId ? { ...m, active: !m.active } : m
+    );
+    await persistDeclaredModels(nextDeclared, systemConfig.slots, 'Đã cập nhật trạng thái mô hình.');
+  };
+
+  const handleSetDefaultModel = async (card: AIDeclaredModelProfile) => {
+    const nextDeclared = declaredModels.map((m) => ({
+      ...m,
+      isDefault: m.id === card.id,
+      active: m.id === card.id ? true : m.active,
+    }));
+
+    // Update all 4 AI slots to use this default model so the entire app switches immediately
+    const nextSlots = structuredClone(systemConfig.slots);
+    SLOT_ORDER.forEach((slotId) => {
+      nextSlots[slotId] = {
+        ...nextSlots[slotId],
+        provider: card.provider,
+        modelId: card.modelId,
+        temperature: card.temperature,
+        maxTokens: card.maxTokens,
+      };
+    });
+
+    // Clear personal slot overrides so default model takes effect across all drawers/studios
+    const personal = loadPersonalAIOverride();
+    if (personal.slotOverrides && Object.keys(personal.slotOverrides).length > 0) {
+      savePersonalAIOverride({
+        ...personal,
+        slotOverrides: {},
+      });
+    }
+
+    await persistDeclaredModels(
+      nextDeclared,
+      nextSlots,
+      `Đã đặt ${card.modelName} (${card.modelId}) làm Mặc định chính cho toàn hệ thống.`
+    );
+  };
+
+  const handleTestCard = async (card: AIDeclaredModelProfile) => {
+    setTestingCardId(card.id);
+    try {
+      const baseProvider =
+        systemConfig.providers[card.provider] || DEFAULT_PROVIDER_CONFIGS[card.provider];
+      const effectiveKey = (card.apiKey || baseProvider.apiKey || '').trim();
+      const result = await testProviderConnection(
+        {
+          ...baseProvider,
+          apiKey: effectiveKey,
+          baseUrl: card.baseUrl || baseProvider.baseUrl || baseProvider.defaultBaseUrl,
+        },
+        card.modelId
+      );
+
+      const nextDeclared = declaredModels.map((m) =>
+        m.id === card.id
+          ? {
+              ...m,
+              lastTestedAt: Date.now(),
+              lastTestStatus: (result.success ? 'success' : 'error') as 'success' | 'error',
+              lastTestMessage: result.message,
+              lastTestReply: result.replyPreview,
+              lastTestLatencyMs: result.latencyMs,
+            }
+          : m
+      );
+      await persistDeclaredModels(nextDeclared, systemConfig.slots);
+    } finally {
+      setTestingCardId(null);
+    }
+  };
+
+  const handleUpdateCardField = (
+    cardId: string,
+    patch: Partial<AIDeclaredModelProfile>
+  ) => {
+    setSystemConfig((prev) => ({
       ...prev,
-      [providerId]: { id: '', name: '' },
+      declaredModels: (prev.declaredModels || []).map((m) =>
+        m.id === cardId ? { ...m, ...patch } : m
+      ),
     }));
   };
 
-  const handleDeleteCustomModel = (providerId: AIProviderId, modelId: string) => {
-    const provider = systemConfig.providers[providerId];
-    const updatedModels = provider.models.filter((m) => m.id !== modelId);
-    updateProviderField(providerId, { models: updatedModels });
-  };
-
-  const handleTestProvider = async (providerId: AIProviderId) => {
-    setTestingMap((prev) => ({ ...prev, [providerId]: true }));
-    try {
-      const effectiveProvider = getEffectiveProviderConfig(
-        providerId,
-        systemConfig,
-        personalOverride
-      );
-      const targetModel =
-        selectedTestModelMap[providerId] ||
-        effectiveProvider.models.find((m) => m.enabled)?.id ||
-        effectiveProvider.models[0]?.id;
-
-      const res = await testProviderConnection(effectiveProvider, targetModel);
-
-      updateProviderField(providerId, {
-        lastTestedAt: Date.now(),
-        lastTestStatus: res.success ? 'success' : 'error',
-        lastTestMessage: res.message,
-        lastTestLatencyMs: res.latencyMs,
-      });
-    } finally {
-      setTestingMap((prev) => ({ ...prev, [providerId]: false }));
-    }
-  };
-
-  const handleSaveConfig = async (scope: AIProviderId | 'ALL' = 'ALL') => {
-    setSavingProvider(scope);
-    try {
-      savePersonalAIOverride(personalOverride);
-      if (canEditSystem) {
-        await saveAISystemConfig(
-          systemConfig,
-          user?.displayName || user?.nickname || user?.email || 'Admin'
-        );
-        setSaveMessage({
-          text:
-            scope === 'ALL'
-              ? 'Đã lưu toàn bộ cấu hình AI lên hệ thống Firebase & bộ nhớ đệm!'
-              : `Đã lưu cấu hình mô hình ${systemConfig.providers[scope].name} thành công!`,
-          type: 'success',
-        });
-      } else {
-        setSaveMessage({
-          text: 'Đã lưu cấu hình AI cá nhân trên trình duyệt của bạn!',
-          type: 'info',
-        });
+  const handleSaveCardConfig = async (card: AIDeclaredModelProfile) => {
+    const nextDeclared = declaredModels.map((m) => {
+      if (m.id === card.id) return { ...card };
+      // If user updated API key for this provider and another card of same provider has empty key, fill it
+      if (m.provider === card.provider && card.apiKey && !m.apiKey) {
+        return { ...m, apiKey: card.apiKey };
       }
-      setTimeout(() => setSaveMessage(null), 4000);
-    } finally {
-      setSavingProvider(null);
+      return m;
+    });
+
+    // If this card isDefault, also sync temperature/maxTokens/modelId to slots
+    const nextSlots = structuredClone(systemConfig.slots);
+    if (card.isDefault) {
+      SLOT_ORDER.forEach((slotId) => {
+        if (nextSlots[slotId].provider === card.provider) {
+          nextSlots[slotId].modelId = card.modelId;
+          nextSlots[slotId].temperature = card.temperature;
+          nextSlots[slotId].maxTokens = card.maxTokens;
+        }
+      });
     }
+
+    await persistDeclaredModels(
+      nextDeclared,
+      nextSlots,
+      `Đã lưu cấu hình mô hình ${card.modelName}.`
+    );
+    setExpandedCardId(null);
   };
+
+  const handleDeleteCard = async (cardId: string) => {
+    if (declaredModels.length <= 1) {
+      showToast('Hệ thống cần giữ lại ít nhất 1 mô hình AI.');
+      return;
+    }
+    const nextDeclared = declaredModels.filter((m) => m.id !== cardId);
+    await persistDeclaredModels(nextDeclared, systemConfig.slots, 'Đã xóa mô hình khỏi danh sách.');
+    if (expandedCardId === cardId) setExpandedCardId(null);
+  };
+
+  const handleSlotChange = async (
+    slotId: AISlotId,
+    patch: Partial<{
+      provider: AIProviderId;
+      modelId: string;
+      temperature: number;
+      reasoningEffort: AIReasoningEffort;
+      maxTokens: number;
+    }>
+  ) => {
+    const nextSlots = {
+      ...systemConfig.slots,
+      [slotId]: {
+        ...systemConfig.slots[slotId],
+        ...patch,
+      },
+    };
+    await persistDeclaredModels(
+      declaredModels,
+      nextSlots,
+      `Đã cập nhật vị trí ${systemConfig.slots[slotId].label}.`
+    );
+  };
+
+  const providerSelectModels = getModelsForProviderSelect(formProvider);
 
   return (
-    <div className="space-y-6 pb-8 max-w-7xl mx-auto">
-      {/* Banner Header & Hybrid Mode Switch */}
-      <div className="bg-slate-900 text-white rounded-xl p-5 border border-slate-800 shadow-sm flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-lg bg-sky-500/20 border border-sky-400/30 text-sky-300">
-              <Bot className="h-5 w-5" />
-            </div>
-            <h2 className="text-base font-bold tracking-tight">
-              Trung tâm Cấu hình Đa Mô Hình AI & Phân tích Số liệu Y khoa
-            </h2>
+    <div className="space-y-4">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-300 px-4 py-2.5 flex items-center justify-between text-xs font-semibold text-emerald-800 shadow-2xs animate-fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>{toastMessage}</span>
           </div>
-          <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
-            Thiết lập kết nối tới <span className="font-semibold text-white">Google Gemini, OpenAI, Anthropic Claude, DeepSeek</span>. Hỗ trợ tùy chỉnh Base URL, chọn phiên bản mô hình cho từng vị trí trong ứng dụng và tinh chỉnh độ thông minh (<span className="font-mono text-sky-300">Temperature</span>, <span className="font-mono text-emerald-300">Reasoning Effort</span>).
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 shrink-0">
-          <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={personalOverride.usePersonalKeys}
-              onChange={(e) => {
-                const next = { ...personalOverride, usePersonalKeys: e.target.checked };
-                setPersonalOverride(next);
-                savePersonalAIOverride(next);
-              }}
-              className="rounded border-slate-600 text-sky-600 focus:ring-sky-500"
-            />
-            <UserCheck className="h-3.5 w-3.5 text-emerald-400" />
-            <span>Dùng API Key cá nhân riêng trên máy này</span>
-          </label>
-
           <button
             type="button"
-            onClick={() => handleSaveConfig('ALL')}
-            disabled={savingProvider !== null}
-            className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs flex items-center gap-2 shadow-sm transition-colors cursor-pointer disabled:opacity-60"
+            onClick={() => setToastMessage(null)}
+            className="text-emerald-600 hover:text-emerald-900 cursor-pointer"
           >
-            {savingProvider === 'ALL' ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            <span>Lưu toàn bộ cấu hình AI</span>
+            ✕
           </button>
-        </div>
-      </div>
-
-      {saveMessage && (
-        <div
-          className={`px-4 py-3 rounded-xl border flex items-center gap-2.5 text-xs font-medium animate-fade-in ${
-            saveMessage.type === 'success'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-sky-50 border-sky-200 text-sky-800'
-          }`}
-        >
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-          <span>{saveMessage.text}</span>
         </div>
       )}
 
-      {/* SECTION 1: 4 AI PROVIDERS CARDS */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <Key className="h-4 w-4 text-sky-600" />
-              <span>1. Kết nối Nhà cung cấp & Phiên bản Mô hình (Providers & Models)</span>
+      {/* 1. MCQ-Style Top Header Card */}
+      <div className="rounded-2xl border border-emerald-200/90 bg-gradient-to-r from-emerald-50/50 via-teal-50/25 to-white p-5 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div className="space-y-1 max-w-3xl">
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <span role="img" aria-label="robot">
+                🤖
+              </span>
+              <span>Quản lý & Khai báo các mô hình AI</span>
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Điền API Key, kiểm tra Base URL (đã điền sẵn mặc định), tích chọn các phiên bản mô hình khả dụng và bấm <b>Test kết nối</b>.
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Khai báo nhiều mô hình từ{' '}
+              <strong className="font-bold text-slate-800">
+                Google Gemini, OpenAI, Anthropic Claude, DeepSeek
+              </strong>
+              . Các mô hình được bật <strong className="font-bold text-slate-800">Active</strong> sẽ
+              được lưu cố định và sẵn sàng để gán cho từng Prompt.
             </p>
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-            <ShieldCheck className="h-3.5 w-3.5 text-sky-600" />
-            <span>
-              {canEditSystem
-                ? 'Quyền Admin: Lưu đồng bộ toàn viện (Firebase)'
-                : 'Chế độ Nhân viên: Lưu Override cá nhân trên trình duyệt'}
-            </span>
-          </div>
+
+          <button
+            type="button"
+            onClick={() => handleOpenAddForm('gemini')}
+            className="self-start px-4 py-2.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Thêm mô hình mới</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Quick Add By Provider Bar */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-slate-500 font-medium mr-1">Thêm nhanh theo hãng:</span>
           {PROVIDER_ORDER.map((pid) => {
-            const pConfig = systemConfig.providers[pid];
-            const theme = PROVIDER_THEME[pid];
-            const isKeyVisible = Boolean(showKeyMap[pid]);
-            const isTesting = testingMap[pid];
-
-            const activeKeyValue = personalOverride.usePersonalKeys
-              ? personalOverride.providerKeys?.[pid] ?? ''
-              : pConfig.apiKey || '';
-
-            const hasSystemKey = Boolean(pConfig.apiKey && pConfig.apiKey.trim());
-            const hasPersonalKey = Boolean(
-              personalOverride.providerKeys?.[pid] && personalOverride.providerKeys?.[pid]?.trim()
-            );
-
+            const meta = PROVIDER_META[pid];
+            const isSelectedInForm = showAddForm && formProvider === pid;
             return (
-              <div
+              <button
                 key={pid}
-                className={`rounded-xl border ${theme.border} bg-white shadow-xs flex flex-col overflow-hidden`}
+                type="button"
+                onClick={() => handleOpenAddForm(pid)}
+                className={`px-3 py-1 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer ${
+                  isSelectedInForm ? meta.quickBtnActiveClass : meta.quickBtnClass
+                }`}
               >
-                {/* Provider Card Header */}
-                <div
-                  className={`px-4 py-3 ${theme.headerBg} border-b ${theme.border} flex items-center justify-between gap-2`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={pConfig.enabled}
-                      onChange={(e) => updateProviderField(pid, { enabled: e.target.checked })}
-                      className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 h-4 w-4 cursor-pointer"
-                      title="Bật/tắt nhà cung cấp này"
-                    />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900 text-sm">{pConfig.name}</span>
-                        {pConfig.badgeText && (
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${theme.badgeBg}`}
-                          >
-                            {pConfig.badgeText}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                <span>+</span>
+                <span>{meta.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-                  <div className="flex items-center gap-1.5">
-                    {hasSystemKey && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                        Key Hệ thống: Đã nạp
+      {/* 2. Add New Model Form Panel (Matches Screenshot 2) */}
+      {showAddForm && (
+        <div className="rounded-2xl border-2 border-emerald-500 bg-white p-5 shadow-md space-y-4 animate-fade-in">
+          <div className="flex items-start justify-between border-b border-slate-200 pb-3">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                <span className="text-emerald-600 font-normal text-base leading-none">+</span>
+                <span>Khai báo mô hình AI mới</span>
+              </h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Các thông số Base URL, Temperature, Max Tokens đã được điền sẵn mặc định theo nhà
+                cung cấp
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddForm(false)}
+              className="p-1 text-slate-400 hover:text-slate-700 rounded-lg transition-colors cursor-pointer"
+              title="Đóng khung khai báo"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Row 1: Provider & Model Select */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+            <div className="md:col-span-4">
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Nhà cung cấp (Provider)
+              </label>
+              <select
+                value={formProvider}
+                onChange={(e) => handleProviderChangeInForm(e.target.value as AIProviderId)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+              >
+                {PROVIDER_ORDER.map((pid) => (
+                  <option key={pid} value={pid}>
+                    {PROVIDER_META[pid].label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="md:col-span-8">
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-slate-700">
+                  Chọn Model (tải sẵn hoặc từ API)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleFetchModelsFromAPI}
+                  disabled={fetchingApiModels}
+                  className="text-xs font-semibold text-teal-700 hover:text-teal-900 flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  {fetchingApiModels ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <CloudDownload className="h-3.5 w-3.5" />
+                  )}
+                  <span>Tải danh sách model từ API</span>
+                </button>
+              </div>
+              <select
+                value={formModelId}
+                onChange={(e) => setFormModelId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+              >
+                {providerSelectModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.id}) — {m.supportsVision !== false ? '📷 Vision/OCR • ' : ''}
+                    {m.description || 'Đa phương thức mạnh mẽ (Vision + Text)'}
+                  </option>
+                ))}
+                <option value="__custom__">
+                  ➕ Nhập mã Model tùy chỉnh khác (Custom Model ID)...
+                </option>
+              </select>
+
+              {fetchApiNotice && (
+                <p
+                  className={`mt-1 text-[11px] font-medium ${
+                    fetchApiNotice.startsWith('Lỗi') ? 'text-rose-600' : 'text-emerald-700'
+                  }`}
+                >
+                  {fetchApiNotice}
+                </p>
+              )}
+
+              {formModelId === '__custom__' && (
+                <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={formCustomModelId}
+                    onChange={(e) => setFormCustomModelId(e.target.value)}
+                    placeholder="Mã Model ID (VD: deepseek-flash, gpt-4.1-nano)"
+                    className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-mono text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+                  />
+                  <input
+                    type="text"
+                    value={formCustomModelName}
+                    onChange={(e) => setFormCustomModelName(e.target.value)}
+                    placeholder="Tên hiển thị (tùy chọn)"
+                    className="rounded-xl border border-slate-300 px-3 py-1.5 text-xs text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Row 2: API Key */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              API Key ({PROVIDER_META[formProvider].label})
+            </label>
+            <div className="relative">
+              <input
+                type={formShowKey ? 'text' : 'password'}
+                value={formApiKey}
+                onChange={(e) => setFormApiKey(e.target.value)}
+                placeholder={PROVIDER_META[formProvider].keyPlaceholder}
+                className="w-full rounded-xl border border-slate-200 bg-white pl-3.5 pr-10 py-2.5 text-xs font-mono text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+              />
+              <button
+                type="button"
+                onClick={() => setFormShowKey((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                title={formShowKey ? 'Ẩn API Key' : 'Hiện API Key'}
+              >
+                {formShowKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Row 3: Base URL, Temperature, Max Tokens, OCR Checkbox */}
+          <div className="rounded-xl bg-slate-50/90 border border-slate-200/80 p-3.5 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div className="md:col-span-5">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] font-bold text-slate-600">Base URL (Endpoint)</label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFormBaseUrl(DEFAULT_PROVIDER_CONFIGS[formProvider].defaultBaseUrl)
+                  }
+                  className="text-[11px] text-slate-400 hover:text-teal-700 cursor-pointer"
+                >
+                  Mặc định
+                </button>
+              </div>
+              <input
+                type="text"
+                value={formBaseUrl}
+                onChange={(e) => setFormBaseUrl(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-mono text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Temperature
+              </label>
+              <input
+                type="number"
+                step={0.1}
+                min={0}
+                max={2}
+                value={formTemp}
+                onChange={(e) => setFormTemp(parseFloat(e.target.value) || 0)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-center text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">Max Tokens</label>
+              <input
+                type="number"
+                step={256}
+                min={256}
+                max={32768}
+                value={formMaxTokens}
+                onChange={(e) => setFormMaxTokens(parseInt(e.target.value, 10) || 2048)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-center text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+              />
+            </div>
+
+            <div className="md:col-span-3 pb-1.5">
+              <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={formSupportsVision}
+                  onChange={(e) => setFormSupportsVision(e.target.checked)}
+                  className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 h-4 w-4"
+                />
+                <span>Hỗ trợ ảnh (OCR)</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Test Result inside Add Form */}
+          {formTestResult && (
+            <div
+              className={`rounded-xl px-3.5 py-2 text-xs font-semibold flex items-center gap-2 border ${
+                formTestResult.success
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'
+              }`}
+            >
+              {formTestResult.success ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 text-rose-600 shrink-0" />
+              )}
+              <span>{formTestResult.message}</span>
+            </div>
+          )}
+
+          {/* Row 4: Active Checkbox + Test & Save Buttons */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-800 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={formActive}
+                onChange={(e) => setFormActive(e.target.checked)}
+                className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 h-4 w-4"
+              />
+              <span>Kích hoạt (Active) ngay trong ứng dụng</span>
+            </label>
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleTestInForm}
+                disabled={formTesting || !formApiKey.trim()}
+                className="px-4 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {formTesting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-teal-700" />
+                ) : (
+                  <Wifi className="h-3.5 w-3.5 text-slate-500" />
+                )}
+                <span>Test mô hình</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveNewModel}
+                className="px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              >
+                <Save className="h-3.5 w-3.5" />
+                <span>Lưu & Kích hoạt</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Declared Model Cards List (Matches Screenshot 1 & 2) */}
+      <div className="space-y-3">
+        {declaredModels.map((card) => {
+          const meta = PROVIDER_META[card.provider] || PROVIDER_META.gemini;
+          const baseProvider =
+            systemConfig.providers[card.provider] || DEFAULT_PROVIDER_CONFIGS[card.provider];
+          const effectiveKey = (card.apiKey || baseProvider.apiKey || '').trim();
+          const hasKey = effectiveKey.length > 0;
+          const isTesting = testingCardId === card.id;
+          const isExpanded = expandedCardId === card.id;
+          const showCardKey = Boolean(visibleCardKeyMap[card.id]);
+
+          return (
+            <div
+              key={card.id}
+              className={`rounded-2xl bg-white px-5 py-4 transition-all ${
+                card.isDefault
+                  ? 'border-2 border-emerald-500 shadow-xs'
+                  : card.active
+                  ? 'border border-emerald-300 shadow-2xs'
+                  : 'border border-slate-200 bg-slate-50/60 opacity-85'
+              }`}
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                {/* Left Info */}
+                <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                  <span
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border shrink-0 ${meta.badgeClass}`}
+                  >
+                    {meta.label}
+                  </span>
+
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-bold text-slate-900">{card.modelName}</span>
+                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-mono text-xs border border-slate-200/80">
+                        {card.modelId}
                       </span>
-                    )}
-                    {personalOverride.usePersonalKeys && hasPersonalKey && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
-                        Key Cá nhân: Đang bật
+                      {card.supportsVision && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 text-[11px] font-semibold flex items-center gap-1">
+                          <span>📷</span>
+                          <span>Vision/OCR & Text</span>
+                        </span>
+                      )}
+                      {card.isDefault && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 shadow-2xs">
+                          <Star className="h-3 w-3 fill-current" />
+                          <span>Mặc định chính</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-slate-500">
+                      <span>
+                        Temp: <strong className="font-bold text-slate-700">{card.temperature}</strong>
                       </span>
-                    )}
+                      <span>
+                        MaxTokens:{' '}
+                        <strong className="font-bold text-slate-700">{card.maxTokens}</strong>
+                      </span>
+                      <span>
+                        API Key:{' '}
+                        <strong className="font-bold text-slate-700 font-mono">
+                          {maskApiKeyPreview(effectiveKey)}
+                        </strong>
+                      </span>
+                      {hasKey ? (
+                        <span className="text-emerald-700 font-semibold inline-flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                          <span>Đã kết nối</span>
+                        </span>
+                      ) : (
+                        <span className="text-amber-600 font-semibold inline-flex items-center gap-1">
+                          <span>Chưa nhập API Key</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Provider Card Body */}
-                <div className="p-4 space-y-3.5 flex-1 flex flex-col justify-between">
-                  <div className="space-y-3">
-                    {/* API Key Input */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                          <Key className="h-3.5 w-3.5 text-slate-400" />
-                          <span>
-                            {personalOverride.usePersonalKeys
-                              ? `API Key Cá nhân (${pConfig.name})`
-                              : `API Key Hệ thống (${pConfig.name})`}
-                          </span>
-                        </label>
-                        {!personalOverride.usePersonalKeys && !canEditSystem && (
-                          <span className="text-[11px] text-amber-700 font-medium">
-                            Bật "Dùng API Key cá nhân" ở trên để nhập key riêng
-                          </span>
-                        )}
-                      </div>
-                      <div className="relative flex items-center">
+                {/* Right Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleToggleCardActive(card.id)}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      card.active
+                        ? 'border-emerald-300 bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100'
+                        : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        card.active ? 'bg-emerald-500' : 'bg-slate-400'
+                      }`}
+                    />
+                    <span>{card.active ? 'Đang Active' : 'Đang tắt'}</span>
+                  </button>
+
+                  {!card.isDefault && (
+                    <button
+                      type="button"
+                      onClick={() => handleSetDefaultModel(card)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                    >
+                      Đặt mặc định
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => handleTestCard(card)}
+                    disabled={isTesting}
+                    className="px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    {isTesting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                    <span>Test</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedCardId((prev) => (prev === card.id ? null : card.id))
+                    }
+                    className="px-3 py-1.5 rounded-lg border border-transparent hover:border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Settings className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Cấu hình</span>
+                    {isExpanded ? (
+                      <ChevronUp className="h-3.5 w-3.5 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Test Status Banner */}
+              {card.lastTestStatus && card.lastTestStatus !== 'untested' && card.lastTestMessage && (
+                <div
+                  className={`mt-2.5 pt-2 border-t text-xs font-semibold flex items-center gap-1.5 ${
+                    card.lastTestStatus === 'success'
+                      ? 'border-emerald-100/80 text-emerald-700'
+                      : 'border-rose-100 text-rose-600'
+                  }`}
+                >
+                  <span>{card.lastTestStatus === 'success' ? '✅' : '❌'}</span>
+                  <span>{card.lastTestMessage}</span>
+                </div>
+              )}
+
+              {/* Inline Configuration Drawer when "⚙️ Cấu hình ⌄" is clicked */}
+              {isExpanded && (
+                <div className="mt-4 pt-4 border-t border-slate-200 space-y-3 bg-slate-50/70 -mx-5 -mb-4 px-5 py-4 rounded-b-2xl">
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                    <div className="md:col-span-5">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        API Key ({meta.label})
+                      </label>
+                      <div className="relative">
                         <input
-                          type={isKeyVisible ? 'text' : 'password'}
-                          value={activeKeyValue}
-                          disabled={!personalOverride.usePersonalKeys && !canEditSystem}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (personalOverride.usePersonalKeys) {
-                              const next: AIPersonalOverride = {
-                                ...personalOverride,
-                                providerKeys: {
-                                  ...(personalOverride.providerKeys || {}),
-                                  [pid]: val,
-                                },
-                              };
-                              setPersonalOverride(next);
-                            } else {
-                              updateProviderField(pid, { apiKey: val });
-                            }
-                          }}
-                          placeholder={`Nhập API Key cho ${pConfig.name} (VD: sk-..., AIza...)`}
-                          className="w-full pl-3 pr-9 py-1.5 text-xs font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none disabled:bg-slate-100"
+                          type={showCardKey ? 'text' : 'password'}
+                          value={card.apiKey || effectiveKey}
+                          onChange={(e) =>
+                            handleUpdateCardField(card.id, { apiKey: e.target.value })
+                          }
+                          placeholder={meta.keyPlaceholder}
+                          className="w-full rounded-lg border border-slate-300 bg-white pl-3 pr-9 py-1.5 text-xs font-mono text-slate-800 focus:border-emerald-600 focus:outline-hidden"
                         />
                         <button
                           type="button"
                           onClick={() =>
-                            setShowKeyMap((prev) => ({ ...prev, [pid]: !prev[pid] }))
+                            setVisibleCardKeyMap((prev) => ({
+                              ...prev,
+                              [card.id]: !prev[card.id],
+                            }))
                           }
-                          className="absolute right-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                          title={isKeyVisible ? 'Ẩn API Key' : 'Hiện API Key'}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
                         >
-                          {isKeyVisible ? (
+                          {showCardKey ? (
                             <EyeOff className="h-3.5 w-3.5" />
                           ) : (
                             <Eye className="h-3.5 w-3.5" />
@@ -485,404 +1073,222 @@ export const AIConfigPanel: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Base URL Input with Default Reset */}
-                    <div>
+                    <div className="md:col-span-4">
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                          <Globe className="h-3.5 w-3.5 text-slate-400" />
-                          <span>Base URL (Endpoint mặc định điền sẵn)</span>
+                        <label className="text-[11px] font-bold text-slate-700">
+                          Base URL (Endpoint)
                         </label>
                         <button
                           type="button"
                           onClick={() =>
-                            updateProviderField(pid, {
-                              baseUrl: DEFAULT_PROVIDER_CONFIGS[pid].defaultBaseUrl,
+                            handleUpdateCardField(card.id, {
+                              baseUrl: DEFAULT_PROVIDER_CONFIGS[card.provider].defaultBaseUrl,
                             })
                           }
-                          className="text-[11px] text-sky-700 hover:underline flex items-center gap-1 cursor-pointer"
-                          title="Khôi phục Base URL mặc định của hãng"
+                          className="text-[10px] text-slate-400 hover:text-teal-700 flex items-center gap-0.5 cursor-pointer"
                         >
-                          <RotateCcw className="h-3 w-3" />
+                          <RotateCcw className="h-2.5 w-2.5" />
                           <span>Mặc định</span>
                         </button>
                       </div>
                       <input
                         type="text"
-                        value={pConfig.baseUrl}
-                        onChange={(e) => updateProviderField(pid, { baseUrl: e.target.value })}
-                        placeholder={pConfig.defaultBaseUrl}
-                        className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg bg-slate-50/70 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none"
+                        value={card.baseUrl}
+                        onChange={(e) =>
+                          handleUpdateCardField(card.id, { baseUrl: e.target.value })
+                        }
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-800 focus:border-emerald-600 focus:outline-hidden"
                       />
                     </div>
 
-                    {/* Available Models List */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                          <Cpu className="h-3.5 w-3.5 text-slate-400" />
-                          <span>Các mô hình & phiên bản khả dụng ({pConfig.models.filter((m) => m.enabled).length}/{pConfig.models.length})</span>
-                        </label>
-                        <span className="text-[11px] text-slate-400">
-                          Tích chọn để hiển thị trong ứng dụng
-                        </span>
-                      </div>
-
-                      <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-44 overflow-y-auto bg-slate-50/40">
-                        {pConfig.models.map((m) => (
-                          <div
-                            key={m.id}
-                            className="px-3 py-2 flex items-start justify-between gap-2 hover:bg-white transition-colors"
-                          >
-                            <label className="flex items-start gap-2 cursor-pointer flex-1 min-w-0">
-                              <input
-                                type="checkbox"
-                                checked={m.enabled}
-                                onChange={() => handleToggleModelEnabled(pid, m.id)}
-                                className="mt-0.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500 cursor-pointer"
-                              />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-xs font-semibold text-slate-800">
-                                    {m.name}
-                                  </span>
-                                  <code className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded border border-slate-200">
-                                    {m.id}
-                                  </code>
-                                  {m.supportsReasoning && (
-                                    <span className="text-[10px] px-1.5 py-0.2 bg-amber-50 text-amber-800 border border-amber-200 rounded font-medium">
-                                      Reasoning
-                                    </span>
-                                  )}
-                                </div>
-                                {m.description && (
-                                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                    {m.description}
-                                  </p>
-                                )}
-                              </div>
-                            </label>
-
-                            {m.isCustom && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteCustomModel(pid, m.id)}
-                                className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
-                                title="Xóa mô hình tùy chỉnh"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Add custom model version row */}
-                      <div className="mt-2 flex items-center gap-1.5">
-                        <input
-                          type="text"
-                          value={newModelInput[pid]?.id || ''}
-                          onChange={(e) =>
-                            setNewModelInput((prev) => ({
-                              ...prev,
-                              [pid]: { ...(prev[pid] || { name: '' }), id: e.target.value },
-                            }))
-                          }
-                          placeholder="Thêm mã model mới (VD: gpt-4.1-nano)..."
-                          className="flex-1 px-2.5 py-1 text-xs font-mono border border-slate-200 rounded-lg focus:ring-1 focus:ring-sky-500 outline-none"
-                        />
-                        <input
-                          type="text"
-                          value={newModelInput[pid]?.name || ''}
-                          onChange={(e) =>
-                            setNewModelInput((prev) => ({
-                              ...prev,
-                              [pid]: { ...(prev[pid] || { id: '' }), name: e.target.value },
-                            }))
-                          }
-                          placeholder="Tên hiển thị..."
-                          className="w-36 px-2.5 py-1 text-xs border border-slate-200 rounded-lg focus:ring-1 focus:ring-sky-500 outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleAddCustomModel(pid)}
-                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 border border-slate-300 cursor-pointer shrink-0"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                          <span>Thêm</span>
-                        </button>
-                      </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                        Mã Model (Model ID)
+                      </label>
+                      <input
+                        type="text"
+                        value={card.modelId}
+                        onChange={(e) =>
+                          handleUpdateCardField(card.id, {
+                            modelId: e.target.value,
+                            modelName: e.target.value,
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-800 focus:border-emerald-600 focus:outline-hidden"
+                      />
                     </div>
                   </div>
 
-                  {/* Test Connection Status & Footer Actions */}
-                  <div className="pt-3 border-t border-slate-100 space-y-2.5">
-                    {pConfig.lastTestStatus && pConfig.lastTestStatus !== 'untested' && (
-                      <div
-                        className={`px-3 py-2 rounded-lg border text-xs flex items-start gap-2 ${
-                          pConfig.lastTestStatus === 'success'
-                            ? 'bg-emerald-50/90 border-emerald-200 text-emerald-800'
-                            : 'bg-rose-50/90 border-rose-200 text-rose-800'
-                        }`}
-                      >
-                        {pConfig.lastTestStatus === 'success' ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
-                        ) : (
-                          <AlertCircle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold break-words">{pConfig.lastTestMessage}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-slate-500 font-medium">Model test:</span>
-                        <select
-                          value={
-                            selectedTestModelMap[pid] ||
-                            pConfig.models.find((m) => m.enabled)?.id ||
-                            ''
-                          }
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-[11px] font-bold text-slate-600">Temperature:</label>
+                        <input
+                          type="number"
+                          step={0.1}
+                          min={0}
+                          max={2}
+                          value={card.temperature}
                           onChange={(e) =>
-                            setSelectedTestModelMap((prev) => ({
-                              ...prev,
-                              [pid]: e.target.value,
-                            }))
+                            handleUpdateCardField(card.id, {
+                              temperature: parseFloat(e.target.value) || 0,
+                            })
                           }
-                          className="px-2 py-1 text-xs border border-slate-300 rounded-lg bg-white font-medium text-slate-700"
-                        >
-                          {pConfig.models
-                            .filter((m) => m.enabled)
-                            .map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.name}
-                              </option>
-                            ))}
-                        </select>
+                          className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-center text-slate-800"
+                        />
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleTestProvider(pid)}
-                          disabled={isTesting}
-                          className="px-3 py-1.5 rounded-lg border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-800 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                        >
-                          {isTesting ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Zap className="h-3.5 w-3.5 text-sky-600" />
-                          )}
-                          <span>Test kết nối</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleSaveConfig(pid)}
-                          disabled={savingProvider !== null}
-                          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                        >
-                          {savingProvider === pid ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Save className="h-3.5 w-3.5" />
-                          )}
-                          <span>Lưu mô hình</span>
-                        </button>
+                        <label className="text-[11px] font-bold text-slate-600">Max Tokens:</label>
+                        <input
+                          type="number"
+                          step={256}
+                          min={256}
+                          max={32768}
+                          value={card.maxTokens}
+                          onChange={(e) =>
+                            handleUpdateCardField(card.id, {
+                              maxTokens: parseInt(e.target.value, 10) || 2048,
+                            })
+                          }
+                          className="w-24 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-center text-slate-800"
+                        />
                       </div>
+
+                      <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={card.supportsVision}
+                          onChange={(e) =>
+                            handleUpdateCardField(card.id, {
+                              supportsVision: e.target.checked,
+                            })
+                          }
+                          className="rounded border-slate-300 text-sky-600 h-3.5 w-3.5"
+                        />
+                        <span>Vision/OCR</span>
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {declaredModels.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCard(card.id)}
+                          className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-rose-600 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          <span>Xóa</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleSaveCardConfig(card)}
+                        className="px-4 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        <span>Lưu cấu hình</span>
+                      </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* SECTION 2: UNIFIED GLOBAL AI ASSISTANT DEFAULT PARAMETERS */}
-      <div className="space-y-3 pt-2">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <Sliders className="h-4 w-4 text-emerald-600" />
-              <span>
-                2. Cấu hình Mặc định cho Trợ lý AI Phân tích Toàn hệ thống
-              </span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Thiết lập mô hình mặc định cùng thông số <b>Temperature</b> (độ chính xác vs sáng tạo) và <b>Reasoning Effort</b> (chiều sâu suy luận) dùng chung cho cửa sổ Trợ lý AI trên toàn ứng dụng. Người dùng vẫn có thể đổi nhanh mô hình ngay trong cửa sổ chat.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => {
-              setSystemConfig((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      slots: structuredClone(DEFAULT_SLOT_CONFIGS),
-                    }
-                  : prev
-              );
-            }}
-            className="text-xs text-slate-600 hover:text-slate-900 flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 cursor-pointer"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>Đặt lại thông số mặc định</span>
-          </button>
-        </div>
-
-        {(() => {
-          const unifiedSlot = systemConfig.slots.statistics_studio;
-          const selectedProvider =
-            systemConfig.providers[unifiedSlot.provider] || systemConfig.providers.gemini;
-          const enabledModels = selectedProvider.models.filter((m) => m.enabled);
-
-          return (
-            <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4">
-              <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-sky-600 shrink-0" />
-                    <h4 className="font-bold text-slate-900 text-sm">
-                      Trợ lý AI Phân tích Số liệu Phẫu thuật (Popup & Bong bóng nổi dùng chung toàn hệ thống)
-                    </h4>
-                  </div>
-                  <p className="text-[11px] font-medium text-sky-700 mt-0.5">
-                    Phạm vi áp dụng: Báo cáo hàng ngày • Báo cáo tháng • Thống kê phẫu thuật • Lịch mổ
-                  </p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Tự động nhận diện ngữ cảnh dữ liệu theo câu hỏi, ghi rõ nguồn số liệu & khoảng thời gian, hỗ trợ vẽ biểu đồ tương tác và xuất Excel/Ảnh.
-                  </p>
-                </div>
-              </div>
-
-              {/* Provider & Model Selectors */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Nhà cung cấp mặc định (Provider)
-                  </label>
-                  <select
-                    value={unifiedSlot.provider}
-                    onChange={(e) => {
-                      const nextProvider = e.target.value as AIProviderId;
-                      const firstModel =
-                        systemConfig.providers[nextProvider]?.models.find((m) => m.enabled)?.id ||
-                        systemConfig.providers[nextProvider]?.models[0]?.id ||
-                        '';
-                      updateSlotField('statistics_studio', {
-                        provider: nextProvider,
-                        modelId: firstModel,
-                      });
-                    }}
-                    className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 outline-none"
-                  >
-                    {PROVIDER_ORDER.map((pid) => (
-                      <option key={pid} value={pid}>
-                        {systemConfig.providers[pid].name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Mô hình mặc định (Model)
-                  </label>
-                  <select
-                    value={unifiedSlot.modelId}
-                    onChange={(e) =>
-                      updateSlotField('statistics_studio', { modelId: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 outline-none"
-                  >
-                    {enabledModels.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} ({m.id})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Intelligence Parameters: Temperature, Reasoning Effort, Max Tokens */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1 bg-slate-50/70 p-3.5 rounded-lg border border-slate-200/80">
-                {/* Temperature */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-semibold text-slate-700">
-                      Temperature
-                    </label>
-                    <span className="text-[11px] font-mono font-bold text-sky-700">
-                      {unifiedSlot.temperature.toFixed(1)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={1.5}
-                    step={0.1}
-                    value={unifiedSlot.temperature}
-                    onChange={(e) =>
-                      updateSlotField('statistics_studio', {
-                        temperature: parseFloat(e.target.value),
-                      })
-                    }
-                    className="w-full accent-sky-600 cursor-pointer"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-400">
-                    <span>0.0 (Chính xác)</span>
-                    <span>1.5 (Sáng tạo)</span>
-                  </div>
-                </div>
-
-                {/* Reasoning Effort */}
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Mức suy luận (Effort)
-                  </label>
-                  <select
-                    value={unifiedSlot.reasoningEffort}
-                    onChange={(e) =>
-                      updateSlotField('statistics_studio', {
-                        reasoningEffort: e.target.value as AIReasoningEffort,
-                      })
-                    }
-                    className="w-full px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800"
-                  >
-                    <option value="low">Low (Phản hồi nhanh)</option>
-                    <option value="medium">Medium (Cân bằng)</option>
-                    <option value="high">High (Phân tích sâu)</option>
-                  </select>
-                </div>
-
-                {/* Max Tokens */}
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Max Output Tokens
-                  </label>
-                  <select
-                    value={unifiedSlot.maxTokens}
-                    onChange={(e) =>
-                      updateSlotField('statistics_studio', {
-                        maxTokens: Number(e.target.value),
-                      })
-                    }
-                    className="w-full px-2.5 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-white text-slate-800"
-                  >
-                    <option value={2048}>2,048 tokens (Ngắn gọn)</option>
-                    <option value={4096}>4,096 tokens (Chuẩn)</option>
-                    <option value={8192}>8,192 tokens (Báo cáo dài)</option>
-                    <option value={16384}>16,384 tokens (Toàn diện)</option>
-                  </select>
-                </div>
-              </div>
+              )}
             </div>
           );
-        })()}
+        })}
+      </div>
+
+      {/* 4. Optional Advanced Per-Slot Routing (Collapsible) */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
+        <button
+          type="button"
+          onClick={() => setShowSlotRouting((prev) => !prev)}
+          className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-slate-50/80 transition-colors cursor-pointer"
+        >
+          <div className="flex items-center gap-2.5">
+            <Sliders className="h-4 w-4 text-teal-700" />
+            <div>
+              <span className="text-xs font-bold text-slate-800">
+                Phân bổ mô hình chuyên biệt cho từng vị trí trợ lý AI (Tùy chọn nâng cao)
+              </span>
+              <span className="block text-[11px] text-slate-500">
+                Mặc định tất cả vị trí sẽ dùng mô hình gắn nhãn ★ Mặc định chính. Mở mục này nếu muốn
+                gán riêng từng vị trí.
+              </span>
+            </div>
+          </div>
+          {showSlotRouting ? (
+            <ChevronUp className="h-4 w-4 text-slate-400" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-slate-400" />
+          )}
+        </button>
+
+        {showSlotRouting && (
+          <div className="p-5 pt-2 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50/40">
+            {SLOT_ORDER.map((slotId) => {
+              const slot = systemConfig.slots[slotId];
+              const activeCards = declaredModels.filter((m) => m.active);
+              return (
+                <div
+                  key={slotId}
+                  className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-2.5"
+                >
+                  <div>
+                    <div className="text-xs font-bold text-slate-800">{slot.label}</div>
+                    <div className="text-[11px] text-slate-500">{slot.locationHint}</div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                        Mô hình sử dụng
+                      </label>
+                      <select
+                        value={`${slot.provider}__${slot.modelId}`}
+                        onChange={(e) => {
+                          const [pid, mid] = e.target.value.split('__') as [
+                            AIProviderId,
+                            string,
+                          ];
+                          if (pid && mid) {
+                            handleSlotChange(slotId, { provider: pid, modelId: mid });
+                          }
+                        }}
+                        className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800"
+                      >
+                        {activeCards.map((c) => (
+                          <option key={c.id} value={`${c.provider}__${c.modelId}`}>
+                            {PROVIDER_META[c.provider].label} — {c.modelName} ({c.modelId})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">
+                        Mức độ suy luận (Effort)
+                      </label>
+                      <select
+                        value={slot.reasoningEffort}
+                        onChange={(e) =>
+                          handleSlotChange(slotId, {
+                            reasoningEffort: e.target.value as AIReasoningEffort,
+                          })
+                        }
+                        className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800"
+                      >
+                        <option value="low">Low (Phản hồi nhanh)</option>
+                        <option value="medium">Medium (Cân bằng chuẩn)</option>
+                        <option value="high">High (Phân tích chuyên sâu)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

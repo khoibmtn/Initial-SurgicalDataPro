@@ -119,16 +119,16 @@ const savePersistedChatSession = (
 
 const SUGGESTED_PROMPTS: Record<AISlotId, string[]> = {
   daily_storage: [
-    'Tìm kiếm BN có mã hoặc họ tên trong kỳ đang mở',
+    'Trong danh sách đang mở, những ai phải chấm ngoài giờ, từ giờ nào đến giờ nào?',
+    'Kiểm tra trùng lịch nhân viên, thiếu mã máy và chưa có giúp việc trong kỳ',
     'Nhân viên nào tham gia nhiều ca mổ nhất trong kỳ này?',
     'Bao nhiêu ca sử dụng gói DV yêu cầu sản khoa?',
-    'Tháng này nhân viên trực bao nhiêu buổi (tính cả ngày thường & ngày nghỉ)?',
   ],
   monthly_storage: [
+    'Trong danh sách tháng này, những ai phải chấm ngoài giờ, tổng số giờ của từng người?',
     'Thống kê khối lượng ca mổ của từng bác sĩ theo 6 vị trí (PT chính, PT phụ, BS GM...)',
-    'Bao nhiêu ca sử dụng gói DV yêu cầu sản khoa và tổng doanh thu gói?',
+    'Bao nhiêu ca sử dụng gói DV yêu cầu sản khoa và thanh toán thù lao gói theo nhân viên?',
     'Tháng này mỗi nhân viên trực 24h bao nhiêu buổi?',
-    'Tìm kiếm các ca phẫu thuật nội soi tiêu hóa trong tháng',
   ],
   statistics_studio: [
     'Phân tích so sánh phẫu thuật chấn thương chỉnh hình 9 tháng đầu năm 2026 so với 2025',
@@ -570,7 +570,8 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       const effProvider = getEffectiveProviderConfig(
         activeSlotConfig.provider,
         systemConfig || undefined,
-        personalOverride
+        personalOverride,
+        activeSlotConfig.modelId
       );
 
       let assistantText = '';

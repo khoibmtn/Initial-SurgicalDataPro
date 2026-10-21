@@ -1158,6 +1158,11 @@ const InnerApp: React.FC = () => {
                   auditLogCount={allAuditLogs.length}
                   onOpenStaging={currentReport.result?.validRecords?.length ? handleOpenStaging : undefined}
                   stagingIssueCount={currentStagingIssuesCount}
+                  onOpenAIAssistant={(isAdmin || can('use_ai_assistant') || !isAuthenticated) ? () => {
+                    setIsAIDrawerDefaultExpanded(false);
+                    setIsAIStorageDrawerOpen(true);
+                    setIsAIStorageMinimized(false);
+                  } : undefined}
                 />
 
                 {/* ── Stat Cards (HospitalStat-VT style) ── */}
@@ -1257,11 +1262,11 @@ const InnerApp: React.FC = () => {
           <div style={{ display: activeTab === 'statistics' ? 'block' : 'none' }} className="w-full h-full flex-1">
             <ErrorBoundary fallbackTitle="Không thể tải tab Thống kê">
               <StatisticsTab
-                onNavigateToAIConfig={(isAdmin || can('config_ai_settings')) ? () => {
+                onNavigateToAIConfig={() => {
                   setConfigInitialSubTab('ai');
                   setActiveTab('config');
-                } : undefined}
-                onOpenAIAssistant={(isAdmin || can('use_ai_assistant')) ? () => {
+                }}
+                onOpenAIAssistant={(isAdmin || can('use_ai_assistant') || !isAuthenticated) ? () => {
                   setIsAIDrawerDefaultExpanded(true);
                   setIsAIStorageDrawerOpen(true);
                   setIsAIStorageMinimized(false);
@@ -1298,7 +1303,7 @@ const InnerApp: React.FC = () => {
         )}
 
 
-        {(isAdmin || can('use_ai_assistant')) && (() => {
+        {(isAdmin || can('use_ai_assistant') || !isAuthenticated) && (() => {
           const dailyOpenedRecs =
             dailyStorageState.result?.validRecords ||
             dailyUploadState.result?.validRecords ||
@@ -1368,12 +1373,12 @@ const InnerApp: React.FC = () => {
                 setIsAIStorageMinimized(false);
               }}
               slotId="statistics_studio"
-              onOpenAIConfigTab={(isAdmin || can('config_ai_settings')) ? () => {
+              onOpenAIConfigTab={() => {
                 setIsAIStorageDrawerOpen(false);
                 setIsAIStorageMinimized(false);
                 setConfigInitialSubTab('ai');
                 setActiveTab('config');
-              } : undefined}
+              }}
               onRequestLoadData={activeTab === 'daily' || activeTab === 'monthly' ? handleGetReport : undefined}
               isLoadingExternalData={currentReport.isProcessing}
               dataContext={{

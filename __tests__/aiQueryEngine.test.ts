@@ -5,6 +5,8 @@ import {
   executeStaffWorkloadTool,
   executeServicePackageAnalysisTool,
   executeDutyScheduleAnalysisTool,
+  executeOvertimeAnalysisTool,
+  executeConflictAndQualityTool,
   executeMultiDimensionalPivotTool,
   runRelationalQueryPipeline,
   type AIDataContextInput,
@@ -18,6 +20,7 @@ import {
   loadPersonalAIOverride,
   updatePersonalSlotOverride,
   clearAIStorageCache,
+  maskApiKeyPreview,
 } from '../services/ai/aiConfigService';
 import type { SurgeryRecord, DutyScheduleDateConfig } from '../types';
 import type { ServicePackageAssignment, ServicePackageDefinition } from '../types/servicePackage';
@@ -38,6 +41,12 @@ vi.mock('../services/dutyScheduleService', () => ({
     const d = new Date(`${dateKey}T00:00:00`);
     const day = d.getDay();
     return day === 0 || day === 6;
+  },
+  formatDateKey: (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   },
 }));
 
@@ -351,6 +360,59 @@ describe('AI Relational Query Engine', () => {
     expect(out.dataSourceCitation).toContain('so sánh với từ 01/01/2025 đến 30/09/2025');
     expect(out.contextDataForLLM).toContain('Nguồn số liệu sử dụng:');
   });
+
+  it('calculates overtime accurately and excludes on-call staff when asked "những ai phải chấm ngoài giờ?"', async () => {
+    const overtimeSurgery: SurgeryRecord = {
+      ...sampleSurgeries[0],
+      patientId: 'BN_OT_01',
+      patientName: 'Phạm Văn Đêm',
+      ngayBD: '2026-06-15 18:00',
+      ngayKT: '2026-06-15 19:30',
+      timeMinutes: 90,
+      tenKT: 'Phẫu thuật nội soi khâu lỗ thủng dạ dày',
+      loaiPTTT: 'P1',
+      // BS. Nguyễn Minh Khoa & BS. Lê Văn Tâm are in sampleDutySchedules['2026-06-15'].onCallStaff
+      // BS. Trần Thanh Hải & ĐD. Vũ Thị Mai are NOT in onCallStaff -> must clock overtime!
+      ptChinh: 'BS. Nguyễn Minh Khoa',
+      ptPhu: 'BS. Trần Thanh Hải',
+      bsGM: 'BS. Lê Văn Tâm',
+      ktvGM: 'KTV. Hoàng Hoa',
+      tdc: 'ĐD. Vũ Thị Mai',
+      gv: 'ĐD. Phạm Lan',
+      start: undefined, // Test automatic Date hydration from ngayBD/ngayKT strings!
+      end: undefined,
+    };
+
+    const dailyCtx: AIDataContextInput = {
+      ...baseContext,
+      contextPage: 'daily_storage',
+      currentRecords: [overtimeSurgery],
+      dailyOpenedRecords: [overtimeSurgery], // Same record in both currentRecords & dailyOpenedRecords to test deduplication!
+    };
+
+    const out = await runRelationalQueryPipeline(
+      'Trong danh sách các ca mổ ngày 15/06/2026, những ai phải chấm ngoài giờ, từ giờ nào đến giờ nào?',
+      dailyCtx
+    );
+
+    // Must deduplicate so scopedRecordCount is 1 (not 2)
+    expect(out.scopedRecordCount).toBe(1);
+    expect(out.executedTools.some((t) => t.toolName === 'analyze_overtime_records')).toBe(true);
+    expect(out.contextDataForLLM).toContain('BS. Trần Thanh Hải');
+    expect(out.contextDataForLLM).toContain('ĐD. Vũ Thị Mai');
+    expect(out.contextDataForLLM).toContain('18:00');
+    expect(out.contextDataForLLM).toContain('19:30');
+    expect(out.contextDataForLLM).toContain('90 phút');
+  });
+
+  it('detects and reports staff conflicts and missing machines via executeConflictAndQualityTool', async () => {
+    const out = await runRelationalQueryPipeline(
+      'Kiểm tra trùng lịch nhân viên và thiếu mã máy trong kỳ',
+      baseContext
+    );
+    expect(out.executedTools.some((t) => t.toolName === 'analyze_conflicts_and_quality')).toBe(true);
+    expect(out.contextDataForLLM).toContain('Kết quả Kiểm định Xung đột');
+  });
 });
 
 describe('AI Configuration Service', () => {
@@ -358,7 +420,7 @@ describe('AI Configuration Service', () => {
     clearAIStorageCache();
   });
 
-  it('provides default configuration with 4 providers and 4 slots', () => {
+  it('provides default configuration with 4 providers, 4 slots, and MCQ-style declaredModels', () => {
     const cfg = normalizeAISystemConfig(DEFAULT_AI_SYSTEM_CONFIG);
     expect(Object.keys(cfg.providers)).toEqual(['gemini', 'openai', 'anthropic', 'deepseek']);
     expect(cfg.providers.gemini.baseUrl).toContain('generativelanguage.googleapis.com');
@@ -371,6 +433,10 @@ describe('AI Configuration Service', () => {
       'statistics_studio',
       'conflict_insight',
     ]);
+    expect(cfg.declaredModels).toBeDefined();
+    expect(cfg.declaredModels!.length).toBeGreaterThanOrEqual(1);
+    expect(cfg.declaredModels![0].isDefault).toBe(true);
+    expect(maskApiKeyPreview('AIzaSyD123456789zII')).toBe('AIzaSy••••zII');
   });
 
   it('applies personal override and slot override cleanly', () => {

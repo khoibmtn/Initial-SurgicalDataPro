@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2, Lock, Unlock, History } from 'lucide-react';
+import { Printer, Download, FileText, FileSpreadsheet, CreditCard, Save, Loader2, Lock, Unlock, History, Bot } from 'lucide-react';
 import { Tooltip } from '../common/Tooltip';
 
 export interface ReportActionBarProps {
@@ -25,6 +25,7 @@ export interface ReportActionBarProps {
   onOpenStaging?: () => void;
   stagingIssueCount?: number;
   paymentSubTab?: 'pttt' | 'package';
+  onOpenAIAssistant?: () => void;
 }
 
 export const ReportActionBar: React.FC<ReportActionBarProps> = ({
@@ -47,6 +48,7 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
   onOpenStaging,
   paymentSubTab,
   stagingIssueCount,
+  onOpenAIAssistant,
 }) => {
   const [isPrintDropdownOpen, setIsPrintDropdownOpen] = useState(false);
   const [isExcelDropdownOpen, setIsExcelDropdownOpen] = useState(false);
@@ -77,6 +79,19 @@ export const ReportActionBar: React.FC<ReportActionBarProps> = ({
 
       {/* Action buttons (right) */}
       <div className="flex items-center gap-2 shrink-0">
+        {onOpenAIAssistant && (
+          <Tooltip content="Mở Trợ lý AI Phân tích dữ liệu báo cáo đang mở (DS Phẫu thuật, Ngoài giờ, Lịch trực, Trùng NV/Máy, Thanh toán...)" position="bottom">
+            <button
+              type="button"
+              onClick={onOpenAIAssistant}
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg text-[11px] transition-colors shadow-sm cursor-pointer"
+            >
+              <Bot className="h-3.5 w-3.5 text-sky-400" />
+              <span>Trợ lý AI</span>
+            </button>
+          </Tooltip>
+        )}
+
         {/* Print Dropdown */}
         <div className="relative" ref={printDropdownRef}>
           <Tooltip content="In báo cáo danh sách PT, bảng thanh toán hoặc giấy báo ngoài giờ (chọn định dạng A4 dọc/ngang)" position="bottom">

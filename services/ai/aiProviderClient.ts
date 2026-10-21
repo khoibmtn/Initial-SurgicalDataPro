@@ -397,22 +397,24 @@ export async function testProviderConnection(
       modelId: targetModel,
       temperature: 0,
       reasoningEffort: 'low',
-      maxTokens: 64,
+      maxTokens: 32,
       messages: [
         {
           role: 'user',
-          content: 'Trả lời ngắn gọn đúng cụm từ: "Kết nối AI thành công".',
+          content: 'Trả lời ngắn gọn đúng 1 từ: "OK"',
         },
       ],
     });
+
+    const cleanReply = (response.text || 'OK').replace(/^["']|["']$/g, '').trim().slice(0, 60) || 'OK';
 
     return {
       success: true,
       provider: providerConfig.provider,
       modelId: targetModel,
       latencyMs: response.latencyMs,
-      message: `Kết nối thành công tới ${providerConfig.name} (${targetModel}) trong ${response.latencyMs}ms.`,
-      replyPreview: response.text.slice(0, 120),
+      message: `Kết nối thành công! AI phản hồi: "${cleanReply}"`,
+      replyPreview: cleanReply,
     };
   } catch (error: any) {
     return {
@@ -423,4 +425,105 @@ export async function testProviderConnection(
       message: error?.message || 'Lỗi kết nối không xác định.',
     };
   }
+}
+
+export interface AIFetchedModelItem {
+  id: string;
+  name: string;
+  description?: string;
+  supportsVision?: boolean;
+}
+
+/**
+ * Tải danh sách model khả dụng trực tiếp từ API của nhà cung cấp (nút "☁️ Tải danh sách model từ API")
+ */
+export async function fetchModelsFromProviderAPI(
+  provider: AIProviderId,
+  apiKey: string,
+  baseUrl: string,
+  defaultBaseUrl: string
+): Promise<AIFetchedModelItem[]> {
+  const trimmedKey = (apiKey || '').trim();
+  if (!trimmedKey) {
+    throw new Error('Vui lòng nhập API Key trước khi tải danh sách model từ API.');
+  }
+
+  const endpointBase = cleanBaseUrl(baseUrl, defaultBaseUrl);
+
+  if (provider === 'gemini') {
+    const res = await fetch(`${endpointBase}/models?key=${encodeURIComponent(trimmedKey)}`);
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Không thể tải danh sách model Gemini (${res.status}): ${txt.slice(0, 150)}`);
+    }
+    const data = await res.json();
+    const rawModels: Array<any> = Array.isArray(data?.models) ? data.models : [];
+    return rawModels
+      .filter((m) => {
+        const methods: string[] = Array.isArray(m?.supportedGenerationMethods)
+          ? m.supportedGenerationMethods
+          : [];
+        return methods.includes('generateContent');
+      })
+      .map((m) => {
+        const id = String(m.name || '').replace(/^models\//, '');
+        return {
+          id,
+          name: m.displayName || id,
+          description: m.description || 'Đa phương thức mạnh mẽ (Vision + Text)',
+          supportsVision: true,
+        };
+      })
+      .filter((m) => Boolean(m.id));
+  }
+
+  if (provider === 'anthropic') {
+    const res = await fetch(`${endpointBase}/models`, {
+      method: 'GET',
+      headers: {
+        'x-api-key': trimmedKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Không thể tải danh sách model Anthropic (${res.status}): ${txt.slice(0, 150)}`);
+    }
+    const data = await res.json();
+    const rawModels: Array<any> = Array.isArray(data?.data) ? data.data : [];
+    return rawModels
+      .map((m) => ({
+        id: String(m.id || ''),
+        name: m.display_name || String(m.id || ''),
+        description: 'Đa phương thức mạnh mẽ (Vision + Text)',
+        supportsVision: true,
+      }))
+      .filter((m) => Boolean(m.id));
+  }
+
+  // OpenAI & DeepSeek (OpenAI-compatible /models)
+  const res = await fetch(`${endpointBase}/models`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${trimmedKey}`,
+    },
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Không thể tải danh sách model (${res.status}): ${txt.slice(0, 150)}`);
+  }
+  const data = await res.json();
+  const rawModels: Array<any> = Array.isArray(data?.data) ? data.data : [];
+  return rawModels
+    .map((m) => {
+      const id = String(m.id || '');
+      return {
+        id,
+        name: id,
+        description: 'Mô hình tải từ API',
+        supportsVision: !id.includes('reasoner'),
+      };
+    })
+    .filter((m) => Boolean(m.id));
 }

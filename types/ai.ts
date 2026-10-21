@@ -53,9 +53,33 @@ export interface AISlotConfig {
   topP?: number;
 }
 
+/**
+ * Hồ sơ khai báo từng mô hình AI (theo giao diện chuẩn ứng dụng MCQ)
+ */
+export interface AIDeclaredModelProfile {
+  id: string;
+  provider: AIProviderId;
+  modelId: string;
+  modelName: string;
+  apiKey: string;
+  baseUrl: string;
+  temperature: number;
+  maxTokens: number;
+  reasoningEffort?: AIReasoningEffort;
+  supportsVision: boolean;
+  active: boolean;
+  isDefault: boolean;
+  lastTestedAt?: number;
+  lastTestStatus?: 'success' | 'error' | 'untested';
+  lastTestMessage?: string;
+  lastTestReply?: string;
+  lastTestLatencyMs?: number;
+}
+
 export interface AISystemConfig {
   providers: Record<AIProviderId, AIProviderConfig>;
   slots: Record<AISlotId, AISlotConfig>;
+  declaredModels?: AIDeclaredModelProfile[];
   updatedAt: number;
   updatedBy?: string;
 }
