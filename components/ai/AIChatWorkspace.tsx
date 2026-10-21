@@ -22,6 +22,8 @@ import {
   Zap,
   Brain,
   ChevronDown,
+  Link2,
+  X,
 } from 'lucide-react';
 import {
   AIArtifact,
@@ -45,6 +47,7 @@ import { generateAICompletion } from '../../services/ai/aiProviderClient';
 import { buildAISystemPrompt } from '../../services/ai/aiSemanticSchema';
 import {
   AIDataContextInput,
+  AIConversationTurnScope,
   runRelationalQueryPipeline,
   getRecordIsoDate,
   getAllRecordsFromContext,
@@ -59,6 +62,10 @@ import {
   recordRLCDUserFeedback,
 } from '../../services/ai/jevSystemOneEngine';
 import {
+  DshSessionWorkingMemory,
+  loadDshWorkingMemory,
+  updateDshWorkingMemory,
+  clearDshWorkingMemory,
   applyDshSpillPolicy,
   compactSessionHistoryForDeepSeek,
   buildDeepSeekHarnessMessages,
@@ -463,7 +470,11 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
   >('fast_system1');
   const [feedbackNote, setFeedbackNote] = useState('');
   const [isJevMenuOpen, setIsJevMenuOpen] = useState(false);
+  const [dshMemory, setDshMemory] = useState<DshSessionWorkingMemory>(() =>
+    loadDshWorkingMemory(slotId)
+  );
   const activeLoadedSlotRef = useRef<AISlotId>(slotId);
+  const lastTurnScopeRef = useRef<AIConversationTurnScope | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -533,14 +544,25 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       } else {
         next.splice(idx, 1);
       }
+      if (next.length === 0) {
+        lastTurnScopeRef.current = null;
+        setDshMemory(clearDshWorkingMemory(slotId));
+      }
       return next;
     });
+  };
+
+  const handleUnpinContextAnchor = () => {
+    lastTurnScopeRef.current = null;
+    setDshMemory(clearDshWorkingMemory(slotId));
   };
 
   const handleClearAllHistory = () => {
     setMessages([]);
     setSelectedArtifactId(null);
     setFeedbackEditingMsgId(null);
+    lastTurnScopeRef.current = null;
+    setDshMemory(clearDshWorkingMemory(slotId));
     try {
       localStorage.removeItem(getChatHistoryStorageKey(slotId));
     } catch {}
@@ -552,6 +574,8 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       const saved = loadPersistedChatSession(slotId);
       setMessages(saved.messages);
       setSelectedArtifactId(saved.selectedArtifactId);
+      setDshMemory(loadDshWorkingMemory(slotId));
+      lastTurnScopeRef.current = null;
       activeLoadedSlotRef.current = slotId;
     }
   }, [slotId]);
@@ -667,7 +691,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
 
     const recentUserPrompts = messages
       .filter((m) => m.role === 'user')
-      .slice(-3)
+      .slice(-5)
       .map((m) => m.content);
 
     if (!options?.skipUserBubble) {
@@ -684,10 +708,12 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
     const startTick = performance.now();
 
     try {
-      // 1. Run Relational Query Pipeline with Jev System One (TypeSafe AI) Classifier
+      // 1. Run Relational Query Pipeline with Jev System One (TypeSafe AI) Classifier & Multi-Turn Scope + DSH Working Memory
       const queryOutput = await runRelationalQueryPipeline(prompt, dataContext, {
         overrideIntent: options?.overrideIntent,
         recentUserPrompts,
+        previousTurnScope: lastTurnScopeRef.current,
+        workingMemory: dshMemory,
       });
 
       // If data source is ambiguous & no local data is opened on the active tab, ask user to clarify immediately (0ms)
@@ -709,6 +735,22 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
         setMessages((prev) => [...prev, clarifyMsg]);
         return;
       }
+
+      if (queryOutput.turnScope) {
+        lastTurnScopeRef.current = queryOutput.turnScope;
+      }
+
+      const focusedSummaryText =
+        queryOutput.focusedFastSummary || queryOutput.contextDataForLLM;
+
+      // @deepseek-ai/dsh-session & @deepseek-ai/dsh-memory:
+      // Cập nhật Sổ cái sự kiện & Bộ nhớ làm việc (Working Memory) ngay sau mỗi lượt truy vấn
+      const updatedDshMemory = updateDshWorkingMemory(dshMemory, slotId, {
+        userPrompt: prompt,
+        turnScope: queryOutput.turnScope,
+        focusedSummaryText,
+      });
+      setDshMemory(updatedDshMemory);
 
       const generatedArtifacts = [...queryOutput.artifacts];
 
@@ -736,9 +778,6 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       let assistantText = '';
       let latencyMs = Math.round(performance.now() - startTick);
       let modeUsed: 'fast_system1' | 'deep_system2' = effectiveMode;
-
-      const focusedSummaryText =
-        queryOutput.focusedFastSummary || queryOutput.contextDataForLLM;
 
       if (effectiveMode === 'fast_system1') {
         // Jev System One Instant Fast-Path (< 80ms): Deliver 100% accurate focused structured answer immediately!
@@ -768,14 +807,20 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           dataContext.chapters
         );
 
+        const prevConversationHint =
+          recentUserPrompts.length > 0
+            ? ` Câu hỏi hiện tại đang tiếp nối mạch hội thoại với câu hỏi trước ("${recentUserPrompts[recentUserPrompts.length - 1]}").`
+            : '';
+
         const dynamicTurnContextPrompt = `[CẬP NHẬT NGỮ CẢNH LƯỢT HỎI (dsh in-history)]: Nguồn dữ liệu đã truy xuất: "${
           queryOutput.dataSourceCitation || dataContext.periodLabel
         }" (${queryOutput.scopedRecordCount || 0} bản ghi ca PTTT, phạm vi ngày: ${
           queryOutput.scopedDateRange || 'Đang mở'
-        }).`;
+        }).${prevConversationHint}`;
 
         // @deepseek-ai/dsh-compaction & @deepseek-ai/dsh-spill:
-        const compactedHistory = compactSessionHistoryForDeepSeek(messages, 4, 700);
+        // Giữ 6 lượt gần nhất + tạo Summary Node cho các lượt cũ hơn + giữ tối đa 12 dòng bảng của câu trả lời sát nhất
+        const compactedHistory = compactSessionHistoryForDeepSeek(messages, 6, 900, 12);
         const spilled = applyDshSpillPolicy(queryOutput.contextDataForLLM, 2800);
         const harnessMessages = buildDeepSeekHarnessMessages({
           staticSystemPrompt: staticSysPrompt,
@@ -784,6 +829,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           userQuestion: prompt,
           spilledToolContext: spilled.inlineText,
           dataSourceCitation: queryOutput.dataSourceCitation || dataContext.periodLabel,
+          workingMemory: updatedDshMemory,
         });
 
         try {
@@ -1341,34 +1387,58 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                             ))}
                           </div>
                         ) : (
-                          msg.artifacts.map((art) => (
-                            <div key={art.id} className="space-y-2.5">
-                              {/* KPI Cards */}
-                              {art.kpiCards && art.kpiCards.length > 0 && (
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                  {art.kpiCards.map((k, kIdx) => (
-                                    <div
-                                      key={kIdx}
-                                      className="p-2.5 rounded-lg bg-slate-50 border border-slate-200"
-                                    >
-                                      <div className="text-[10px] text-slate-500 font-medium">
-                                        {k.label}
+                          msg.artifacts.map((art) => {
+                            const hasInlineMarkdownTable = /\|\s*:?-+:?\s*\|/.test(
+                              msg.content || ''
+                            );
+                            return (
+                              <div key={art.id} className="space-y-2.5">
+                                {/* KPI Cards */}
+                                {art.kpiCards && art.kpiCards.length > 0 && (
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {art.kpiCards.map((k, kIdx) => (
+                                      <div
+                                        key={kIdx}
+                                        className="p-2.5 rounded-lg bg-slate-50 border border-slate-200"
+                                      >
+                                        <div className="text-[10px] text-slate-500 font-medium">
+                                          {k.label}
+                                        </div>
+                                        <div className="text-sm font-bold text-slate-900 mt-0.5">
+                                          {k.value}
+                                        </div>
                                       </div>
-                                      <div className="text-sm font-bold text-slate-900 mt-0.5">
-                                        {k.value}
+                                    ))}
+                                  </div>
+                                )}
+                                {art.chartConfig && (
+                                  <AIInteractiveChartArtifact artifact={art} height={260} />
+                                )}
+                                {art.tableConfig &&
+                                  (hasInlineMarkdownTable && !art.chartConfig ? (
+                                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
+                                      <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
+                                        <Table2 className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                                        <span>
+                                          {art.title} ({art.tableConfig.rows.length} dòng)
+                                        </span>
                                       </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => exportArtifactToExcel(art)}
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                                        title="Xuất danh sách ra file Excel (.xlsx)"
+                                      >
+                                        <FileSpreadsheet className="h-3.5 w-3.5" />
+                                        <span>Xuất Excel (.xlsx)</span>
+                                      </button>
                                     </div>
+                                  ) : (
+                                    <AIDataTableArtifact artifact={art} compact />
                                   ))}
-                                </div>
-                              )}
-                              {art.chartConfig && (
-                                <AIInteractiveChartArtifact artifact={art} height={260} />
-                              )}
-                              {art.tableConfig && (
-                                <AIDataTableArtifact artifact={art} compact />
-                              )}
-                            </div>
-                          ))
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     )}
@@ -1553,6 +1623,42 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             )}
             <div ref={chatEndRef} />
           </div>
+
+          {/* DeepSeek Harness Working Memory Context Anchor Bar (@deepseek-ai/dsh-memory) */}
+          {dshMemory.anchoredTimeScope && messages.length > 0 && (
+            <div
+              data-testid="dsh-context-anchor-bar"
+              className="px-3 py-1.5 bg-sky-50/90 border-t border-sky-200/80 flex items-center justify-between gap-2 text-[11px] text-sky-900 shrink-0"
+            >
+              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                <Link2 className="h-3.5 w-3.5 text-sky-600 shrink-0" />
+                <span className="font-semibold text-sky-800 shrink-0">Đang neo ngữ cảnh:</span>
+                <span className="truncate font-medium text-slate-800">
+                  {dshMemory.anchoredTimeScope.dataSourceCitation} (
+                  {dshMemory.anchoredTimeScope.recordCount} ca)
+                </span>
+                {dshMemory.activeEntities.lastLoaiPTTTFilter && (
+                  <span className="px-1.5 py-0.2 rounded bg-sky-100 border border-sky-300 text-sky-900 font-bold text-[10px] shrink-0">
+                    Lọc: {dshMemory.activeEntities.lastLoaiPTTTFilter}
+                  </span>
+                )}
+                {dshMemory.activeEntities.targetStaffNames.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-emerald-100 border border-emerald-300 text-emerald-900 font-semibold text-[10px] truncate max-w-[160px]">
+                    NV: {dshMemory.activeEntities.targetStaffNames.join(', ')}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleUnpinContextAnchor}
+                className="px-2 py-0.5 rounded-md bg-white hover:bg-rose-50 text-slate-600 hover:text-rose-700 border border-slate-200 hover:border-rose-200 text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                title="Bỏ neo ngữ cảnh hiện tại để chuyển sang chủ đề/kỳ dữ liệu mới mà không cần xóa lịch sử chat"
+              >
+                <X className="h-2.5 w-2.5" />
+                <span>Bỏ neo</span>
+              </button>
+            </div>
+          )}
 
           {/* Input Box */}
           <form

@@ -32,6 +32,7 @@ import {
   buildJevSystemOneDirectiveForLLM,
   AI_INTENT_METADATA,
 } from './jevSystemOneEngine';
+import type { DshSessionWorkingMemory } from './deepseekHarnessEngine';
 import { reportService } from '../reportService';
 import { dutyScheduleService, isWeekend } from '../dutyScheduleService';
 import { calculateOvertimeRows } from '../overtimeCalculationService';
@@ -67,6 +68,25 @@ export interface AIDataContextInput {
   allowRemoteFirestoreFetch?: boolean;
 }
 
+export interface AIConversationTurnScope {
+  prompt: string;
+  scopedRecords?: Array<SurgeryRecord | PersistedSurgeryRecord>;
+  unfilteredScopedRecords?: Array<SurgeryRecord | PersistedSurgeryRecord>;
+  dataSourceCitation?: string;
+  baseDataSourceCitation?: string;
+  scopedDateRange?: string;
+  months?: number[];
+  years?: number[];
+  specificDates?: string[];
+  dateRange?: { from: string; to: string; label?: string };
+  isDutyShift24h?: boolean;
+  explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db' | null;
+  targetStaffNames?: string[];
+  patientDigest?: string[];
+  primaryIntent?: AIQueryIntent;
+  isSurgeryListQuery?: boolean;
+}
+
 export interface AIQueryExecutionOutput {
   executedTools: AIChatToolExecutionLog[];
   contextDataForLLM: string;
@@ -76,6 +96,7 @@ export interface AIQueryExecutionOutput {
   scopedRecordCount?: number;
   scopedDateRange?: string;
   dataSourceCitation?: string;
+  turnScope?: AIConversationTurnScope;
   needsClarification?: boolean;
   clarificationMessage?: string;
   clarificationOptions?: AIClarificationOption[];
@@ -167,16 +188,15 @@ export function ensureHydratedSurgeryRecord(
   rec: SurgeryRecord | PersistedSurgeryRecord
 ): SurgeryRecord {
   const start =
-    rec.start instanceof Date && !isNaN(rec.start.getTime())
-      ? rec.start
-      : parseFlexibleDateTime(rec.ngayBD) || parseFlexibleDateTime(rec.ngayCD);
+    parseFlexibleDateTime(rec.ngayBD) ||
+    (rec.start instanceof Date && !isNaN(rec.start.getTime()) ? rec.start : undefined) ||
+    parseFlexibleDateTime(rec.ngayCD);
   const end =
-    rec.end instanceof Date && !isNaN(rec.end.getTime())
-      ? rec.end
-      : parseFlexibleDateTime(rec.ngayKT) ||
-        (start && typeof rec.timeMinutes === 'number' && rec.timeMinutes > 0
-          ? new Date(start.getTime() + rec.timeMinutes * 60000)
-          : start);
+    parseFlexibleDateTime(rec.ngayKT) ||
+    (rec.end instanceof Date && !isNaN(rec.end.getTime()) ? rec.end : undefined) ||
+    (start && typeof rec.timeMinutes === 'number' && rec.timeMinutes > 0
+      ? new Date(start.getTime() + rec.timeMinutes * 60000)
+      : start);
 
   let timeMinutes = rec.timeMinutes;
   if ((!timeMinutes || timeMinutes <= 0) && start && end) {
@@ -295,6 +315,102 @@ export function getLastDayOfMonthDMY(year: number, month: number): string {
 }
 
 /**
+ * Xác định mùa làm việc (Mùa Hè / Mùa Đông) theo đúng logic `determineSeason` trong `hooks/useStorageQuery.ts`
+ */
+export function determineWorkingSeason(
+  checkDate: Date,
+  workingHours?: AppConfig['workingHours']
+): 'summer' | 'winter' {
+  const checkMonth = checkDate.getMonth() + 1;
+  const checkDay = checkDate.getDate();
+
+  const summerDateFrom = workingHours?.summer?.dateFrom || '16/04';
+  const summerDateTo = workingHours?.summer?.dateTo || '15/10';
+  const [summerFromDay, summerFromMonth] = summerDateFrom.split('/').map(Number);
+  const [summerToDay, summerToMonth] = summerDateTo.split('/').map(Number);
+
+  const summerCrossYear =
+    summerFromMonth > summerToMonth ||
+    (summerFromMonth === summerToMonth && summerFromDay > summerToDay);
+
+  if (!summerCrossYear) {
+    if (checkMonth < summerFromMonth || checkMonth > summerToMonth) return 'winter';
+    if (checkMonth === summerFromMonth && checkDay < summerFromDay) return 'winter';
+    if (checkMonth === summerToMonth && checkDay > summerToDay) return 'winter';
+    return 'summer';
+  } else {
+    if (checkMonth < summerToMonth || (checkMonth === summerToMonth && checkDay <= summerToDay)) {
+      return 'summer';
+    }
+    if (checkMonth > summerFromMonth || (checkMonth === summerFromMonth && checkDay >= summerFromDay)) {
+      return 'summer';
+    }
+    return 'winter';
+  }
+}
+
+/**
+ * Tính chính xác khung thời gian 24h của một "Tua trực" (Báo cáo hàng ngày -> Nút "Lấy dữ liệu trực"):
+ * - Bắt đầu: `morningFrom` (07:00 Mùa Hè hoặc 07:30 Mùa Đông) của ngày bắt đầu `firstDateStr`
+ * - Kết thúc: `nextMorningFrom - 1 phút` (06:59 Mùa Hè hoặc 07:29 Mùa Đông) sáng ngày kế tiếp sau `lastDateStr`
+ */
+export function compute24hDutyShiftWindow(
+  firstDateStr: string,
+  lastDateStr: string,
+  workingHours?: AppConfig['workingHours']
+): {
+  dateFromStr: string;
+  timeFrom: string;
+  dateToStr: string;
+  timeTo: string;
+  isoFrom: string;
+  isoTo: string;
+  shiftStartMs: number;
+  shiftEndMs: number;
+  displayRange: string;
+} {
+  const [y1, m1, d1] = firstDateStr.split('-').map(Number);
+  const [y2, m2, d2] = lastDateStr.split('-').map(Number);
+  const dateFrom = new Date(y1, m1 - 1, d1, 12, 0, 0);
+  const dateTo = new Date(y2, m2 - 1, d2 + 1, 12, 0, 0);
+  const dateToStr = `${dateTo.getFullYear()}-${String(dateTo.getMonth() + 1).padStart(2, '0')}-${String(dateTo.getDate()).padStart(2, '0')}`;
+
+  const seasonFrom = determineWorkingSeason(dateFrom, workingHours);
+  const seasonTo = determineWorkingSeason(dateTo, workingHours);
+
+  const summerMorningFrom = workingHours?.summer?.morningFrom || '07:00';
+  const winterMorningFrom = workingHours?.winter?.morningFrom || '07:30';
+
+  const morningFrom = seasonFrom === 'summer' ? summerMorningFrom : winterMorningFrom;
+  const nextMorningFrom = seasonTo === 'summer' ? summerMorningFrom : winterMorningFrom;
+
+  const [hours, minutes] = nextMorningFrom.split(':').map(Number);
+  let toMinutes = minutes - 1;
+  let toHours = hours;
+  if (toMinutes < 0) {
+    toMinutes = 59;
+    toHours = hours - 1;
+    if (toHours < 0) toHours = 23;
+  }
+  const timeTo = `${String(toHours).padStart(2, '0')}:${String(toMinutes).padStart(2, '0')}`;
+
+  const startObj = new Date(`${firstDateStr}T${morningFrom}:00.000+07:00`);
+  const endObj = new Date(`${dateToStr}T${timeTo}:59.999+07:00`);
+
+  return {
+    dateFromStr: firstDateStr,
+    timeFrom: morningFrom,
+    dateToStr,
+    timeTo,
+    isoFrom: startObj.toISOString(),
+    isoTo: endObj.toISOString(),
+    shiftStartMs: startObj.getTime(),
+    shiftEndMs: endObj.getTime(),
+    displayRange: `Từ ngày ${formatIsoToDMY(firstDateStr)} ${morningFrom} đến ngày ${formatIsoToDMY(dateToStr)} ${timeTo}`,
+  };
+}
+
+/**
  * Tự động bóc tách ngày cụ thể / tháng / khoảng tháng / quý / năm và nguồn báo cáo trong câu truy vấn tiếng Việt
  */
 export function extractTimeConstraintsFromPrompt(
@@ -308,6 +424,7 @@ export function extractTimeConstraintsFromPrompt(
   explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db';
   hasExplicitTimeOrSource: boolean;
   seasonFilter?: 'Mùa Hè' | 'Mùa Đông' | 'both';
+  isDutyShift24h?: boolean;
 } {
   const noTone = removeVietnameseTones(prompt);
   const now = new Date();
@@ -319,6 +436,7 @@ export function extractTimeConstraintsFromPrompt(
   const years = new Set<number>();
   const specificDates = new Set<string>();
   let dateRange: { from: string; to: string } | undefined;
+  const isDutyShift24h = /\b(tua truc|ca truc|trong truc|kip truc)\b/.test(noTone);
 
   // 0. Match explicit opened data references
   let explicitSource:
@@ -367,7 +485,7 @@ export function extractTimeConstraintsFromPrompt(
     }
   }
 
-  // 0b. Match specific dates DD/MM/YYYY or DD-MM-YYYY (only if not already captured as a dateRange)
+  // 0b. Match specific dates DD/MM/YYYY or DD-MM-YYYY, or "ngày DD/MM" / "tua trực DD/MM" (defaulting year to defaultYear)
   let mMatch: RegExpExecArray | null;
   if (!dateRange) {
     const dmyFullRegex = /\b(\d{1,2})[/-](\d{1,2})[/-](202\d)\b/g;
@@ -379,9 +497,22 @@ export function extractTimeConstraintsFromPrompt(
         specificDates.add(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
       }
     }
+
+    if (specificDates.size === 0) {
+      const dmShortRegex = /\b(?:ngay|tua truc|ca truc|hom)\s*(\d{1,2})[/-](\d{1,2})(?![/-]\d)/g;
+      while ((mMatch = dmShortRegex.exec(noTone)) !== null) {
+        const d = parseInt(mMatch[1], 10);
+        const m = parseInt(mMatch[2], 10);
+        if (d >= 1 && d <= 31 && m >= 1 && m <= 12) {
+          specificDates.add(
+            `${defaultYear}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+          );
+        }
+      }
+    }
   }
 
-  // Relative dates: "hôm nay", "hôm qua"
+  // Relative dates: "hôm nay", "hôm qua", "hôm kia"
   if (/\bhom nay\b/.test(noTone) && !/\b(tu dau|den hom nay|toi hom nay)\b/.test(noTone)) {
     specificDates.add(todayIso);
   }
@@ -389,6 +520,12 @@ export function extractTimeConstraintsFromPrompt(
     const yest = new Date(Date.now() - 86400000);
     specificDates.add(
       `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`
+    );
+  }
+  if (/\bhom kia\b/.test(noTone)) {
+    const twoDaysAgo = new Date(Date.now() - 2 * 86400000);
+    specificDates.add(
+      `${twoDaysAgo.getFullYear()}-${String(twoDaysAgo.getMonth() + 1).padStart(2, '0')}-${String(twoDaysAgo.getDate()).padStart(2, '0')}`
     );
   }
 
@@ -566,6 +703,7 @@ export function extractTimeConstraintsFromPrompt(
     explicitSource,
     hasExplicitTimeOrSource,
     seasonFilter,
+    isDutyShift24h,
   };
 }
 
@@ -626,6 +764,25 @@ async function fetchDeduplicatedYearRecordsFromFirestore(
 }
 
 /**
+ * Kiểm tra một bản ghi có nằm trong khung giờ Tua trực 24h `[shiftStartMs, shiftEndMs]` hay không
+ */
+function isRecordWithin24hShiftWindow(
+  rec: SurgeryRecord | PersistedSurgeryRecord,
+  shiftStartMs: number,
+  shiftEndMs: number,
+  shiftDateIso: string
+): boolean {
+  const hydrated = ensureHydratedSurgeryRecord(rec);
+  const raw = String(rec.ngayBD || rec.ngayCD || '').trim();
+  const hasExplicitClockTime = /\d{1,2}:\d{2}/.test(raw) || Boolean(rec.start instanceof Date);
+  if (hasExplicitClockTime && hydrated.start && !isNaN(hydrated.start.getTime())) {
+    const ms = hydrated.start.getTime();
+    return ms >= shiftStartMs && ms <= shiftEndMs;
+  }
+  return getRecordIsoDate(rec) === shiftDateIso;
+}
+
+/**
  * Hybrid Fetcher: Đảm bảo có đủ bản ghi ca mổ cho ngày/tháng/năm/khoảng ngày/nguồn mà người dùng hỏi
  */
 async function ensureSurgeryRecordsForQuery(
@@ -635,7 +792,8 @@ async function ensureSurgeryRecordsForQuery(
   logs: AIChatToolExecutionLog[],
   specificDates: string[] = [],
   explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db',
-  dateRange?: { from: string; to: string }
+  dateRange?: { from: string; to: string },
+  isDutyShift24h = false
 ): Promise<{
   records: Array<SurgeryRecord | PersistedSurgeryRecord>;
   dataSourceCitation: string;
@@ -690,13 +848,70 @@ async function ensureSurgeryRecordsForQuery(
     };
   }
 
-  // 3. Specific Dates (e.g., "20/10/2026", "hôm nay", "hôm qua")
+  // 3. Specific Dates (e.g., "20/10/2026", "hôm nay", "hôm qua", "tua trực ngày hôm qua")
   if (specificDates.length > 0 && !dateRange) {
     const firstDate = specificDates[0];
     const lastDate = specificDates[specificDates.length - 1];
 
-    // If Daily Report is open on screen and its date range matches the queried date, use the deduplicated opened daily report
-    // (preserving 24h shift surgeries that cross midnight 00:00 -> 07:30)
+    // 3A. Nếu người dùng hỏi theo "Tua trực / Ca trực" (hoặc đang ở Báo cáo hàng ngày truy vấn tua trực):
+    // Áp dụng đúng chuẩn nghiệp vụ phần mềm (`handleAutoFill24hShift` trong `useStorageQuery.ts`):
+    // Từ `morningFrom` (07:00 Mùa Hè / 07:30 Mùa Đông) của `firstDate` đến `nextMorningFrom - 1 phút` (06:59 / 07:29) sáng hôm sau!
+    if (isDutyShift24h) {
+      const shiftWindow = compute24hDutyShiftWindow(firstDate, lastDate, ctx.config?.workingHours);
+
+      const openedDaily = deduplicateSurgeryRecords(ctx.dailyOpenedRecords || []);
+      if (
+        openedDaily.length > 0 &&
+        ctx.dailyOpenedCitation &&
+        ctx.dailyOpenedCitation.includes(formatIsoToDMY(firstDate)) &&
+        ctx.dailyOpenedCitation.includes(shiftWindow.timeFrom)
+      ) {
+        return {
+          records: openedDaily,
+          dataSourceCitation: `Số liệu Tua trực 24h ngày ${formatIsoToDMY(firstDate)} (${shiftWindow.displayRange} — ${openedDaily.length.toLocaleString('vi-VN')} ca PTTT)`,
+        };
+      }
+
+      const combinedPool = deduplicateSurgeryRecords([
+        ...(ctx.dailyOpenedRecords || []),
+        ...baseRecords,
+        ...(ctx.monthlyOpenedRecords || []),
+      ]);
+      let matchedShift = combinedPool.filter((r) =>
+        isRecordWithin24hShiftWindow(r, shiftWindow.shiftStartMs, shiftWindow.shiftEndMs, firstDate)
+      );
+
+      if (ctx.allowRemoteFirestoreFetch !== false) {
+        try {
+          const fetched = await reportService.getReports(
+            shiftWindow.isoFrom,
+            shiftWindow.isoTo,
+            'DAILY'
+          );
+          const fetchedFiltered = fetched.filter((r) =>
+            isRecordWithin24hShiftWindow(r, shiftWindow.shiftStartMs, shiftWindow.shiftEndMs, firstDate)
+          );
+          if (fetchedFiltered.length > 0 || matchedShift.length === 0) {
+            matchedShift = deduplicateSurgeryRecords([...fetchedFiltered, ...matchedShift]);
+          }
+          logs.push({
+            toolName: 'firestore_expand_duty_shift_24h',
+            summary: `Đã truy vấn Tua trực 24h (${shiftWindow.displayRange}): ${matchedShift.length.toLocaleString('vi-VN')} ca PTTT`,
+            recordCount: matchedShift.length,
+            expandedFirestoreFetch: true,
+          });
+        } catch (e) {
+          console.warn('[aiQueryEngine] 24h Duty Shift fetch warning:', e);
+        }
+      }
+
+      return {
+        records: matchedShift,
+        dataSourceCitation: `Số liệu Tua trực 24h ngày ${formatIsoToDMY(firstDate)} (${shiftWindow.displayRange} — ${matchedShift.length.toLocaleString('vi-VN')} ca PTTT)`,
+      };
+    }
+
+    // 3B. Truy vấn theo Ngày lịch thông thường (00:00 -> 23:59)
     const openedDaily = deduplicateSurgeryRecords(ctx.dailyOpenedRecords || []);
     if (openedDaily.length > 0) {
       const openedDates = Array.from(new Set(openedDaily.map((r) => getRecordIsoDate(r)).filter(Boolean))).sort();
@@ -934,7 +1149,19 @@ export function executePatientSearchTool(
   const nameMatch = queryText.match(/(?:bệnh\s*nhân|bn|họ\s*tên)\s+([A-ZÀ-Ỹa-zà-ỹ\s]{3,35})/i);
   const targetName = nameMatch ? removeVietnameseTones(nameMatch[1]) : '';
 
-  const matched = records.filter((r) => {
+  // Check ordinal reference in follow-up conversation: "ca thứ 2", "ca số 3", "bệnh nhân thứ 1", "ca đầu tiên", "ca cuối cùng"
+  const ordMatch = noTone.match(/\b(?:ca|benh nhan|bn|stt|dong)\s+(?:thu|so)\s+(\d{1,3})\b/);
+  let ordinalIndex = ordMatch ? parseInt(ordMatch[1], 10) - 1 : -1;
+  if (ordinalIndex < 0 && /\b(?:ca|benh nhan)\s+dau\s+tien\b/.test(noTone)) {
+    ordinalIndex = 0;
+  } else if (ordinalIndex < 0 && /\b(?:ca|benh nhan)\s+cuoi\s+cung\b/.test(noTone) && records.length > 0) {
+    ordinalIndex = records.length - 1;
+  }
+
+  const matched = records.filter((r, idx) => {
+    if (ordinalIndex >= 0 && idx === ordinalIndex) {
+      return true;
+    }
     const pid = (r.patientId || '').toLowerCase();
     const pname = removeVietnameseTones(r.patientName || '');
     const bhyt = (r.bhyt || '').toLowerCase();
@@ -944,10 +1171,13 @@ export function executePatientSearchTool(
     if (targetName && targetName.length >= 3 && pname.includes(targetName)) {
       return true;
     }
+    if (pname.length >= 5 && noTone.includes(pname)) {
+      return true;
+    }
     return false;
   });
 
-  if (matched.length === 0 && !targetCode && !targetName) {
+  if (matched.length === 0 && !targetCode && !targetName && ordinalIndex < 0) {
     return { matchedRecords: [], summaryText: '' };
   }
 
@@ -1042,6 +1272,137 @@ ${rows
     summaryText,
     artifact,
   };
+}
+
+// ─── 1B. SURGERY LIST REPORT TOOL (BÁO CÁO DANH SÁCH PHẪU THUẬT / CA MỔ TRONG TUA TRỰC / NGÀY) ──
+
+function formatShortShiftDateTime(
+  raw: string | undefined,
+  dateObj: Date | undefined
+): string {
+  if (dateObj && !isNaN(dateObj.getTime())) {
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const hh = String(dateObj.getHours()).padStart(2, '0');
+    const mm = String(dateObj.getMinutes()).padStart(2, '0');
+    return `${d}/${m} ${hh}:${mm}`;
+  }
+  const str = (raw || '').trim();
+  const isoMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2}:\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]} ${isoMatch[4]}`;
+  }
+  const dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/\d{4}\s+(\d{1,2}:\d{2})/);
+  if (dmyMatch) {
+    return `${dmyMatch[1].padStart(2, '0')}/${dmyMatch[2].padStart(2, '0')} ${dmyMatch[3]}`;
+  }
+  return str || '—';
+}
+
+export function executeSurgeryListReportTool(
+  records: Array<SurgeryRecord | PersistedSurgeryRecord>,
+  dataSourceCitation?: string
+): {
+  summaryText: string;
+  artifact?: AIArtifact;
+} {
+  const hydrated = records
+    .map((r) => ensureHydratedSurgeryRecord(r))
+    .sort((a, b) => {
+      const ta = a.start && !isNaN(a.start.getTime()) ? a.start.getTime() : 0;
+      const tb = b.start && !isNaN(b.start.getTime()) ? b.start.getTime() : 0;
+      return ta - tb;
+    });
+
+  if (hydrated.length === 0) {
+    return {
+      summaryText: `Không có ca phẫu thuật / thủ thuật nào trong khoảng thời gian truy vấn này.`,
+    };
+  }
+
+  let ptCount = 0;
+  let ttCount = 0;
+  const loaiMap = new Map<string, number>();
+
+  const rows = hydrated.map((r, idx) => {
+    const loai = (r.loaiPTTT || 'Khác').toUpperCase().trim();
+    if (loai.startsWith('P')) ptCount++;
+    else if (loai.startsWith('T')) ttCount++;
+    loaiMap.set(loai, (loaiMap.get(loai) || 0) + 1);
+
+    const startShort = formatShortShiftDateTime(r.ngayBD, r.start);
+    const endShort = formatShortShiftDateTime(r.ngayKT, r.end);
+    const endTimeOnly =
+      endShort.length >= 5 && startShort.substring(0, 5) === endShort.substring(0, 5)
+        ? endShort.substring(6)
+        : endShort;
+    const gmStaff = [r.bsGM, r.ktvGM].map((s) => (s || '').trim()).filter(Boolean).join(', ');
+
+    return {
+      stt: idx + 1,
+      patientId: r.patientId || '—',
+      patientName: r.patientName || '—',
+      timeWindow: `${startShort} → ${endTimeOnly}`,
+      ngayBD: startShort,
+      ngayKT: endShort,
+      tenKT: r.tenKT || '—',
+      loaiPTTT: loai,
+      ptChinh: r.ptChinh || '—',
+      ptPhu: r.ptPhu || '—',
+      gayMe: gmStaff || '—',
+      tdc: r.tdc || '—',
+      gv: r.gv || '—',
+    };
+  });
+
+  const loaiSummary = Array.from(loaiMap.entries())
+    .map(([k, v]) => `${k}: **${v}** ca`)
+    .join(', ');
+
+  const mdTableHeader = [
+    '| STT | Mã BN | Họ tên BN | Thời gian (BĐ → KT) | Tên kỹ thuật PTTT | Loại | PT chính | Gây mê |',
+    '| :---: | :--- | :--- | :---: | :--- | :---: | :--- | :--- |',
+  ];
+  const mdTableBody = rows.slice(0, 60).map(
+    (r) =>
+      `| ${r.stt} | \`${r.patientId}\` | **${r.patientName}** | ${r.timeWindow} | ${r.tenKT} | **${r.loaiPTTT}** | ${r.ptChinh} | ${r.gayMe} |`
+  );
+  const moreNote =
+    rows.length > 60
+      ? `\n*(Hiển thị 60/${rows.length} ca đầu tiên; bấm **Xuất Excel** bên dưới để tải đầy đủ ${rows.length} ca)*`
+      : '';
+
+  const summaryText = `- **Tổng hợp danh sách**: **${hydrated.length} ca PTTT** (gồm **${ptCount} ca Phẫu thuật**, **${ttCount} ca Thủ thuật** — Phân loại: ${loaiSummary}).\n\n${[
+    ...mdTableHeader,
+    ...mdTableBody,
+  ].join('\n')}${moreNote}`;
+
+  const artifact: AIArtifact = {
+    id: `surgery_list_report_${Date.now()}`,
+    type: 'table',
+    title: `Danh sách Phẫu thuật / Thủ thuật (${hydrated.length} ca)`,
+    subtitle: dataSourceCitation || `Tổng số: ${ptCount} ca Phẫu thuật, ${ttCount} ca Thủ thuật`,
+    tableConfig: {
+      columns: [
+        { key: 'stt', label: 'STT', align: 'center', format: 'number' },
+        { key: 'patientId', label: 'Mã BN', align: 'left' },
+        { key: 'patientName', label: 'Họ tên BN', align: 'left' },
+        { key: 'timeWindow', label: 'Thời gian (BĐ → KT)', align: 'center' },
+        { key: 'tenKT', label: 'Tên kỹ thuật PTTT', align: 'left' },
+        { key: 'loaiPTTT', label: 'Loại', align: 'center' },
+        { key: 'ptChinh', label: 'PT chính', align: 'left' },
+        { key: 'ptPhu', label: 'PT phụ', align: 'left' },
+        { key: 'gayMe', label: 'BS/KTV Gây mê', align: 'left' },
+        { key: 'tdc', label: 'TDC', align: 'left' },
+        { key: 'gv', label: 'Giúp việc', align: 'left' },
+      ],
+      rows,
+    },
+    rawRecords: rows,
+    createdAt: Date.now(),
+  };
+
+  return { summaryText, artifact };
 }
 
 // ─── 2. DUTY SCHEDULE & ON-CALL ANALYSIS TOOL ────────────────────────────────
@@ -1182,7 +1543,11 @@ export async function executeDutyScheduleAnalysisTool(
   }
 
   const periodTitle =
-    targetMonths.length > 0
+    specificDates.length === 1
+      ? `Ngày ${formatIsoToDMY(specificDates[0])}`
+      : specificDates.length > 1
+      ? `Từ ${formatIsoToDMY(specificDates[0])} đến ${formatIsoToDMY(specificDates[specificDates.length - 1])}`
+      : targetMonths.length > 0
       ? `Tháng ${targetMonths.join(', ')}/${targetYear}`
       : ctx.periodLabel || `Năm ${targetYear}`;
 
@@ -1197,32 +1562,38 @@ export async function executeDutyScheduleAnalysisTool(
       .join(', '),
   }));
 
+  const isMultiDaySchedule = filteredDates.length > 2;
+
   const artifact: AIArtifact = {
     id: `duty_schedule_${Date.now()}`,
-    type: 'composite',
+    type: isMultiDaySchedule ? 'composite' : 'table',
     title: `Thống kê Lịch trực 24h — ${periodTitle}`,
     subtitle: `Tổng hợp trên ${filteredDates.length} ngày lịch trực (${rows.length} nhân viên tham gia trực)`,
-    kpiCards: [
-      { label: 'Kỳ thống kê trực', value: periodTitle, tone: 'blue' },
-      { label: 'Số nhân sự có lịch trực', value: rows.filter((r) => r.totalShifts > 0).length, tone: 'emerald' },
-      {
-        label: 'Tổng lượt trực nhân viên',
-        value: rows.reduce((s, r) => s + r.totalShifts, 0),
-        tone: 'amber',
-      },
-    ],
-    chartConfig: {
-      chartType: 'bar',
-      xAxisKey: 'staffName',
-      xAxisLabel: 'Nhân viên y tế',
-      enableBrush: rows.length > 8,
-      stacked: true,
-      series: [
-        { key: 'weekdayShifts', name: 'Trực ngày thường (buổi)', color: '#0284c7', type: 'bar' },
-        { key: 'holidayShifts', name: 'Trực T7/CN/Lễ (buổi)', color: '#f59e0b', type: 'bar' },
-      ],
-      data: tableRows.slice(0, 30),
-    },
+    kpiCards: isMultiDaySchedule
+      ? [
+          { label: 'Kỳ thống kê trực', value: periodTitle, tone: 'blue' },
+          { label: 'Số nhân sự có lịch trực', value: rows.filter((r) => r.totalShifts > 0).length, tone: 'emerald' },
+          {
+            label: 'Tổng lượt trực nhân viên',
+            value: rows.reduce((s, r) => s + r.totalShifts, 0),
+            tone: 'amber',
+          },
+        ]
+      : undefined,
+    chartConfig: isMultiDaySchedule
+      ? {
+          chartType: 'bar',
+          xAxisKey: 'staffName',
+          xAxisLabel: 'Nhân viên y tế',
+          enableBrush: rows.length > 8,
+          stacked: true,
+          series: [
+            { key: 'weekdayShifts', name: 'Trực ngày thường (buổi)', color: '#0284c7', type: 'bar' },
+            { key: 'holidayShifts', name: 'Trực T7/CN/Lễ (buổi)', color: '#f59e0b', type: 'bar' },
+          ],
+          data: tableRows.slice(0, 30),
+        }
+      : undefined,
     tableConfig: {
       columns: [
         { key: 'stt', label: 'STT', align: 'center', format: 'number' },
@@ -1248,16 +1619,17 @@ export async function executeDutyScheduleAnalysisTool(
                 ? cfg.onCallStaff.join(', ')
                 : 'Chưa nhập danh sách trực';
             const isHol = cfg?.isHoliday !== undefined ? cfg.isHoliday : isWeekend(d);
-            return `  + Ngày **${formatIsoToDMY(d)}** (${isHol ? 'Ngày nghỉ/T7/CN' : 'Ngày thường'}): ${staffListStr}`;
+            return `  + Ngày **${formatIsoToDMY(d)}** (${isHol ? 'Ngày nghỉ/T7/CN' : 'Ngày thường'}): **${staffListStr}**`;
           })
           .join('\n')
       : '';
 
   const summaryText = `### Kết quả truy vấn Lịch trực 24h (${periodTitle}):
-- Số ngày kiểm tra trong kỳ: **${filteredDates.length}** ngày.
-${dailyBreakdownLines ? `- Danh sách nhân viên trực theo ngày:\n${dailyBreakdownLines}\n` : ''}${
+${dailyBreakdownLines ? `- Danh sách nhân viên trực:\n${dailyBreakdownLines}\n` : ''}${
     tableRows.length === 0
       ? '- Chưa có dữ liệu phân công lịch trực 24h nào được lưu trong kỳ này.'
+      : filteredDates.length <= 1 && targetStaffNames.length === 0
+      ? ''
       : tableRows
           .slice(0, 20)
           .map(
@@ -1265,7 +1637,7 @@ ${dailyBreakdownLines ? `- Danh sách nhân viên trực theo ngày:\n${dailyBre
               `- Nhân viên **${r.staffName}**: Tổng cộng **${r.totalShifts} buổi trực** (gồm **${r.weekdayShifts}** buổi ngày thường và **${r.holidayShifts}** buổi Thứ 7/CN/Lễ). Ngày trực: ${r.datesList || 'Không có'}.`
           )
           .join('\n')
-  }`;
+  }`.trim();
 
   void queryText;
   return { summaryText, artifact };
@@ -2863,12 +3235,36 @@ ${
 
   const byLoai: Record<string, number> = {};
   LOAI_PTTT_ORDER.forEach((l) => (byLoai[l] = 0));
+  const specNameMap = new Map<string, string>();
+  allSpecs.forEach((sp) => specNameMap.set(sp.code, sp.name));
+  const bySpecialtyMap = new Map<string, { name: string; count: number }>();
+
   matchedRecords.forEach((r) => {
     const l = (r.loaiPTTT || 'TKPL').trim();
-    byLoai[l] = Math.round(((byLoai[l] || 0) + getRecQty(r)) * 100) / 100;
+    const qty = getRecQty(r);
+    byLoai[l] = Math.round(((byLoai[l] || 0) + qty) * 100) / 100;
+    const specCode = classifySpecialty(r.tenKT || '', r.ptChinh, staffList, overrides);
+    const specName = specNameMap.get(specCode) || specCode || 'Khác';
+    const curSpec = bySpecialtyMap.get(specCode) || { name: specName, count: 0 };
+    curSpec.count = Math.round((curSpec.count + qty) * 100) / 100;
+    bySpecialtyMap.set(specCode, curSpec);
   });
 
+  const specialtyBreakdownText =
+    !targetSpecialtyCode && bySpecialtyMap.size > 0
+      ? `\n- **Cơ cấu theo Chuyên khoa**: ${Array.from(bySpecialtyMap.values())
+          .filter((s) => s.count > 0)
+          .sort((a, b) => b.count - a.count)
+          .map((s) => `${s.name}: **${s.count}** ca`)
+          .join(', ')}.`
+      : '';
+
   const artifacts: AIArtifact[] = [];
+  const asksExplicitChart =
+    /\b(bieu do|do thi|chart|ve bieu do|truc quan|xu huong|diễn biến|dien bien|theo thang)\b/.test(
+      noTone
+    );
+  const isMultiMonth = monthRows.length > 1;
 
   if (asksSeason) {
     // Explicit Season Analysis Artifact
@@ -2913,8 +3309,8 @@ ${
       rawRecords: monthRows,
       createdAt: Date.now(),
     });
-  } else {
-    // Standard Monthly Trend Artifact (NO Season clutter)
+  } else if (isMultiMonth || asksExplicitChart) {
+    // Multi-month Trend Artifact (only when spanning >1 month or user explicitly asked for chart/monthly trend)
     artifacts.push({
       id: `trend_monthly_${Date.now()}`,
       type: 'composite',
@@ -2974,27 +3370,31 @@ ${
   if (asksSurgeon && surgeonRows.length > 0) {
     artifacts.push({
       id: `pivot_surgeon_${Date.now() + 1}`,
-      type: 'composite',
+      type: asksExplicitChart ? 'composite' : 'table',
       title: `Thống kê theo Phẫu thuật viên chính — ${customLabel}`,
       subtitle: `${surgeonRows.length} bác sĩ tham gia thực hiện`,
-      chartConfig: {
-        chartType: 'bar',
-        xAxisKey: 'surgeon',
-        xAxisLabel: 'Phẫu thuật viên chính',
-        enableBrush: surgeonRows.length > 8,
-        stacked: false,
-        series: asksSeason
-          ? [
-              { key: 'summerCases', name: 'Mùa Hè (ca)', color: '#f59e0b', type: 'bar' },
-              { key: 'winterCases', name: 'Mùa Đông (ca)', color: '#0284c7', type: 'bar' },
-              { key: 'totalCases', name: 'Tổng số ca', color: '#0d9488', type: 'line' },
-            ]
-          : [
-              { key: 'totalCases', name: 'Tổng số ca', color: '#0284c7', type: 'bar' },
-              { key: 'equivalentCases', name: 'SL Quy đổi', color: '#10b981', type: 'bar' },
-            ],
-        data: surgeonRows.slice(0, 25),
-      },
+      ...(asksExplicitChart
+        ? {
+            chartConfig: {
+              chartType: 'bar' as const,
+              xAxisKey: 'surgeon',
+              xAxisLabel: 'Phẫu thuật viên chính',
+              enableBrush: surgeonRows.length > 8,
+              stacked: false,
+              series: asksSeason
+                ? [
+                    { key: 'summerCases', name: 'Mùa Hè (ca)', color: '#f59e0b', type: 'bar' as const },
+                    { key: 'winterCases', name: 'Mùa Đông (ca)', color: '#0284c7', type: 'bar' as const },
+                    { key: 'totalCases', name: 'Tổng số ca', color: '#0d9488', type: 'line' as const },
+                  ]
+                : [
+                    { key: 'totalCases', name: 'Tổng số ca', color: '#0284c7', type: 'bar' as const },
+                    { key: 'equivalentCases', name: 'SL Quy đổi', color: '#10b981', type: 'bar' as const },
+                  ],
+              data: surgeonRows.slice(0, 25),
+            },
+          }
+        : {}),
       tableConfig: {
         columns: [
           { key: 'stt', label: 'STT', align: 'center', format: 'number' },
@@ -3019,20 +3419,24 @@ ${
   } else if (procedureRows.length > 0) {
     artifacts.push({
       id: `top_procedures_${Date.now() + 1}`,
-      type: 'composite',
+      type: asksExplicitChart ? 'composite' : 'table',
       title: `Cơ cấu Chi tiết Kỹ thuật PTTT — ${customLabel}`,
       subtitle: `${procedureRows.length} kỹ thuật phát sinh trong kỳ`,
-      chartConfig: {
-        chartType: 'bar',
-        xAxisKey: 'tenKT',
-        xAxisLabel: 'Tên kỹ thuật PTTT',
-        enableBrush: procedureRows.length > 8,
-        stacked: false,
-        series: [
-          { key: 'equivalentCases', name: 'Số lượng quy đổi', color: '#0284c7', type: 'bar' },
-        ],
-        data: procedureRows.slice(0, 20),
-      },
+      ...(asksExplicitChart
+        ? {
+            chartConfig: {
+              chartType: 'bar' as const,
+              xAxisKey: 'tenKT',
+              xAxisLabel: 'Tên kỹ thuật PTTT',
+              enableBrush: procedureRows.length > 8,
+              stacked: false,
+              series: [
+                { key: 'equivalentCases', name: 'Số lượng quy đổi', color: '#0284c7', type: 'bar' as const },
+              ],
+              data: procedureRows.slice(0, 20),
+            },
+          }
+        : {}),
       tableConfig: {
         columns: [
           { key: 'stt', label: 'STT', align: 'center', format: 'number' },
@@ -3054,6 +3458,16 @@ ${
     ? `\n- **Phân tích theo Mùa làm việc**:\n  + **Mùa Hè (01/05 – 30/09)**: **${totalSummerCases} ca** (${matchedRecords.length > 0 ? ((totalSummerCases / matchedRecords.length) * 100).toFixed(1) : 0}%)\n  + **Mùa Đông (01/10 – 30/04)**: **${totalWinterCases} ca** (${matchedRecords.length > 0 ? ((totalWinterCases / matchedRecords.length) * 100).toFixed(1) : 0}%)`
     : '';
 
+  const monthlyTrendSection = isMultiMonth
+    ? `\n- **Diễn biến theo Tháng**:\n${monthRows
+        .slice(0, 15)
+        .map(
+          (m) =>
+            `  + Tháng **${m.monthKey}**: **${m.equivalentCases} ca quy đổi** (${m.totalCases} lượt hồ sơ, Doanh thu: ${m.revenue.toLocaleString('vi-VN')}đ)`
+        )
+        .join('\n')}`
+    : '';
+
   const surgeonSummarySection = asksSurgeon
     ? `\n- **Thống kê theo Bác sĩ (PTV chính)**:\n${surgeonRows
         .slice(0, 15)
@@ -3064,29 +3478,30 @@ ${
         .join('\n')}`
     : '';
 
+  const revSummarySuffix =
+    totalRevenue > 0
+      ? ` — Tổng doanh thu viện phí: **${totalRevenue.toLocaleString('vi-VN')} VNĐ**`
+      : '';
+
   const summaryText = `### Kết quả Phân tích Thống kê (${customLabel}):
-- **Tổng số lượng PTTT**: **${totalEquivalentCases.toLocaleString('vi-VN')} ca quy đổi** (${matchedRecords.length.toLocaleString('vi-VN')} lượt hồ sơ ca mổ) — Tổng doanh thu viện phí: **${totalRevenue.toLocaleString('vi-VN')} VNĐ**.${seasonSummarySection}
+- **Tổng số lượng PTTT**: **${totalEquivalentCases.toLocaleString('vi-VN')} ca quy đổi** (${matchedRecords.length.toLocaleString('vi-VN')} lượt hồ sơ ca mổ)${revSummarySuffix}.${seasonSummarySection}
 - **Cơ cấu Phân loại PTTT**: ${
     Object.entries(byLoai)
       .filter(([, count]) => count > 0)
       .map(([k, v]) => `${k}: **${v}** ca`)
       .join(', ') || 'Không có'
-  }.
-- **Diễn biến theo Tháng**:
-${monthRows
-  .slice(0, 15)
-  .map(
-    (m) =>
-      `  + Tháng **${m.monthKey}**: **${m.equivalentCases} ca quy đổi** (${m.totalCases} lượt hồ sơ, Doanh thu: ${m.revenue.toLocaleString('vi-VN')}đ)`
-  )
-  .join('\n')}
-- **Top Kỹ thuật PTTT chiếm tỷ trọng cao nhất**:
+  }.${specialtyBreakdownText}${monthlyTrendSection}
+- **Cơ cấu Kỹ thuật PTTT**:
 ${procedureRows
-  .slice(0, 15)
-  .map(
-    (p) =>
-      `  + **${p.tenKT}** (${p.maTuongDuong} - Loại ${p.loaiPTTT}): **${p.equivalentCases} ca quy đổi** (${p.totalCases} lượt hồ sơ, Doanh thu: ${p.revenue.toLocaleString('vi-VN')}đ)`
-  )
+  .slice(0, 10)
+  .map((p) => {
+    const codeTag =
+      p.maTuongDuong && p.maTuongDuong !== '—'
+        ? `${p.maTuongDuong} - Loại ${p.loaiPTTT}`
+        : `Loại ${p.loaiPTTT}`;
+    const revTag = p.revenue > 0 ? `, Doanh thu: ${p.revenue.toLocaleString('vi-VN')}đ` : '';
+    return `  + **${p.tenKT}** (${codeTag}): **${p.equivalentCases} ca quy đổi** (${p.totalCases} lượt hồ sơ${revTag})`;
+  })
   .join('\n')}${surgeonSummarySection}`;
 
   return { summaryText, artifacts };
@@ -3102,7 +3517,12 @@ ${procedureRows
 export async function runRelationalQueryPipeline(
   prompt: string,
   ctx: AIDataContextInput,
-  options?: { overrideIntent?: AIQueryIntent; recentUserPrompts?: string[] }
+  options?: {
+    overrideIntent?: AIQueryIntent;
+    recentUserPrompts?: string[];
+    previousTurnScope?: AIConversationTurnScope | null;
+    workingMemory?: DshSessionWorkingMemory | null;
+  }
 ): Promise<AIQueryExecutionOutput> {
   const executedTools: AIChatToolExecutionLog[] = [];
   const artifacts: AIArtifact[] = [];
@@ -3110,21 +3530,121 @@ export async function runRelationalQueryPipeline(
   const focusedSections: string[] = [];
 
   const noTone = removeVietnameseTones(prompt);
-  const {
-    months,
-    years,
-    specificDates,
-    dateRange,
-    explicitSource,
-    hasExplicitTimeOrSource,
-  } = extractTimeConstraintsFromPrompt(prompt);
-  const targetStaffNames = extractTargetStaffNames(prompt, ctx.config);
+  const rawTC = extractTimeConstraintsFromPrompt(prompt);
+  let months = rawTC.months;
+  let years = rawTC.years;
+  let specificDates = rawTC.specificDates;
+  let dateRange = rawTC.dateRange;
+  let isDutyShift24h = rawTC.isDutyShift24h;
+  let explicitSource = rawTC.explicitSource;
+  let hasExplicitTimeOrSource = rawTC.hasExplicitTimeOrSource;
+
+  let targetStaffNames = extractTargetStaffNames(prompt, ctx.config);
+
+  const prevScope = options?.previousTurnScope;
+  const memAnchor = options?.workingMemory?.anchoredTimeScope;
+  const recentPrompts = (options?.recentUserPrompts || []).filter(
+    (p) => p && p.trim() !== prompt.trim()
+  );
+  const hasConversationHistory =
+    Boolean(prevScope) || Boolean(memAnchor) || recentPrompts.length > 0;
+  const isEllipticalFollowUp =
+    /\b(con|the con|vay con|thi sao|nhu the nao|sao)\b/.test(noTone) &&
+    prompt.trim().split(/\s+/).length <= 12;
+
+  let inheritedTimeFromPrevTurn = false;
+  let reusePrevScopedRecords = false;
+
+  // ── MULTI-TURN CONVERSATIONAL CONTEXT & COREFERENCE RESOLUTION (@deepseek-ai/dsh-memory) ──
+  if (!rawTC.hasExplicitTimeOrSource && hasConversationHistory) {
+    // Câu hỏi tiếp theo không nêu thời gian mới (VD: "phân tích cơ cấu phẫu thuật trong danh sách đó", "chi tiết các ca P1 trong đó", "ai phải chấm ngoài giờ?")
+    if (prevScope) {
+      months = prevScope.months || [];
+      years = prevScope.years || [];
+      specificDates = prevScope.specificDates || [];
+      dateRange = prevScope.dateRange;
+      isDutyShift24h = Boolean(prevScope.isDutyShift24h);
+      explicitSource = prevScope.explicitSource ?? null;
+      hasExplicitTimeOrSource = true;
+      inheritedTimeFromPrevTurn = true;
+      if (
+        (prevScope.unfilteredScopedRecords && prevScope.unfilteredScopedRecords.length > 0) ||
+        (prevScope.scopedRecords && prevScope.scopedRecords.length > 0)
+      ) {
+        reusePrevScopedRecords = true;
+      }
+    } else if (memAnchor) {
+      months = memAnchor.months || [];
+      years = memAnchor.years || [];
+      specificDates = memAnchor.specificDates || [];
+      dateRange = memAnchor.dateRange;
+      isDutyShift24h = Boolean(memAnchor.isDutyShift24h);
+      explicitSource = memAnchor.explicitSource ?? undefined;
+      hasExplicitTimeOrSource = true;
+      inheritedTimeFromPrevTurn = true;
+    } else {
+      for (let i = recentPrompts.length - 1; i >= 0; i--) {
+        const prevTC = extractTimeConstraintsFromPrompt(recentPrompts[i]);
+        if (prevTC.hasExplicitTimeOrSource) {
+          months = prevTC.months;
+          years = prevTC.years;
+          specificDates = prevTC.specificDates;
+          dateRange = prevTC.dateRange;
+          isDutyShift24h = prevTC.isDutyShift24h;
+          explicitSource = prevTC.explicitSource;
+          hasExplicitTimeOrSource = true;
+          inheritedTimeFromPrevTurn = true;
+          break;
+        }
+      }
+      if (!hasExplicitTimeOrSource && recentPrompts.length > 0) {
+        hasExplicitTimeOrSource = true;
+        inheritedTimeFromPrevTurn = true;
+      }
+    }
+  } else if (rawTC.hasExplicitTimeOrSource && hasConversationHistory && isEllipticalFollowUp) {
+    // Câu hỏi đổi ngày/tháng ngắn gọn (VD: "còn ngày 19/10 thì sao?") sau khi hỏi về tua trực ở câu trước
+    if (!isDutyShift24h && specificDates.length > 0) {
+      if (prevScope?.isDutyShift24h || memAnchor?.isDutyShift24h) {
+        isDutyShift24h = true;
+      } else if (recentPrompts.length > 0) {
+        const lastTC = extractTimeConstraintsFromPrompt(recentPrompts[recentPrompts.length - 1]);
+        if (lastTC.isDutyShift24h) isDutyShift24h = true;
+      }
+    }
+  }
+
+  // Kế thừa nhân sự đang hỏi nếu câu hiện tại dùng đại từ ("bác sĩ đó", "nhân viên đó") hoặc hỏi nối tiếp
+  if (targetStaffNames.length === 0 && hasConversationHistory) {
+    const referencesPrevStaff =
+      /\b(bac si do|bs do|nhan vien do|nguoi do|ptv do|kip do|anh ay|chi ay|bac si nay|nhan vien nay)\b/.test(
+        noTone
+      ) || isEllipticalFollowUp;
+    if (referencesPrevStaff) {
+      if (prevScope?.targetStaffNames && prevScope.targetStaffNames.length > 0) {
+        targetStaffNames = prevScope.targetStaffNames;
+      } else if (
+        options?.workingMemory?.activeEntities?.targetStaffNames &&
+        options.workingMemory.activeEntities.targetStaffNames.length > 0
+      ) {
+        targetStaffNames = options.workingMemory.activeEntities.targetStaffNames;
+      } else {
+        for (let i = recentPrompts.length - 1; i >= 0; i--) {
+          const prevStaff = extractTargetStaffNames(recentPrompts[i], ctx.config);
+          if (prevStaff.length > 0) {
+            targetStaffNames = prevStaff;
+            break;
+          }
+        }
+      }
+    }
+  }
 
   const baseRecords = getAllRecordsFromContext(ctx);
 
   // 0. Jev System One (TypeSafe AI) Single-Pass Typed Decision & Calibration
   const rawSystemOneEval = evaluateWithJevSystemOne(prompt, {
-    hasLoadedRecords: baseRecords.length > 0,
+    hasLoadedRecords: baseRecords.length > 0 || reusePrevScopedRecords,
     hasExplicitTimeOrSource,
     recentUserPrompts: options?.recentUserPrompts,
   });
@@ -3151,8 +3671,8 @@ export async function runRelationalQueryPipeline(
     }ms)`,
   });
 
-  // Clarification Gate: If current active screen has NO opened data AND prompt does NOT specify any time period or data source
-  if (baseRecords.length === 0 && !hasExplicitTimeOrSource) {
+  // Clarification Gate: ONLY when screen has NO opened data AND prompt has NO time/source AND conversation has NO prior context
+  if (baseRecords.length === 0 && !hasExplicitTimeOrSource && !reusePrevScopedRecords) {
     const now = new Date();
     const curYear = now.getFullYear();
     const curMonth = now.getMonth() + 1;
@@ -3210,16 +3730,76 @@ export async function runRelationalQueryPipeline(
     };
   }
 
-  // 1. Ensure surgery records for requested period & resolve exact citation
-  const { records: scopedRecords, dataSourceCitation } = await ensureSurgeryRecordsForQuery(
-    ctx,
-    months,
-    years,
-    executedTools,
-    specificDates,
-    explicitSource,
-    dateRange
+  // 1. Ensure surgery records for requested period (or reuse previous turn's unfilteredScopedRecords on anaphoric follow-ups!)
+  let unfilteredScopedRecords: Array<SurgeryRecord | PersistedSurgeryRecord> = [];
+  let baseDataSourceCitation = '';
+
+  if (reusePrevScopedRecords && prevScope) {
+    unfilteredScopedRecords =
+      prevScope.unfilteredScopedRecords && prevScope.unfilteredScopedRecords.length > 0
+        ? prevScope.unfilteredScopedRecords
+        : prevScope.scopedRecords || [];
+    baseDataSourceCitation = (
+      prevScope.baseDataSourceCitation ||
+      prevScope.dataSourceCitation ||
+      ctx.periodLabel
+    ).replace(/\s*\(tiếp nối ngữ cảnh câu trước\)$/i, '');
+    executedTools.push({
+      toolName: 'dsh_memory_context_resolver',
+      summary: `Kế thừa ngữ cảnh bộ nhớ phiên (@deepseek-ai/dsh-memory): ${baseDataSourceCitation}`,
+      recordCount: unfilteredScopedRecords.length,
+    });
+  } else {
+    const ensured = await ensureSurgeryRecordsForQuery(
+      ctx,
+      months,
+      years,
+      executedTools,
+      specificDates,
+      explicitSource,
+      dateRange,
+      isDutyShift24h
+    );
+    unfilteredScopedRecords = ensured.records;
+    baseDataSourceCitation = ensured.dataSourceCitation.replace(
+      /\s*\(tiếp nối ngữ cảnh câu trước\)$/i,
+      ''
+    );
+  }
+
+  let scopedRecords = unfilteredScopedRecords;
+  let dataSourceCitation = inheritedTimeFromPrevTurn
+    ? `${baseDataSourceCitation} (tiếp nối ngữ cảnh câu trước)`
+    : baseDataSourceCitation;
+
+  // 1B. Sub-scope filtering when user narrows down the conversation's dataset by Loại PTTT (VD: "chi tiết 2 ca P1 đó", "còn các ca P2 thì sao?")
+  const loaiSubMatch = noTone.match(
+    /\b(?:loai|nhom|cac ca|nhung ca|\d+\s+ca)\s+(pdb|pđb|p1|p2|p3|tdb|tđb|t1|t2|t3|thu thuat)\b/
   );
+  const matchedSubLoaiRaw = loaiSubMatch ? loaiSubMatch[1].toUpperCase() : '';
+  let hasSubFilter = false;
+  if (matchedSubLoaiRaw && unfilteredScopedRecords.length > 0) {
+    const normTargetLoai =
+      matchedSubLoaiRaw === 'PDB'
+        ? 'PĐB'
+        : matchedSubLoaiRaw === 'TDB'
+        ? 'TĐB'
+        : matchedSubLoaiRaw === 'THU THUAT'
+        ? 'THU_THUAT'
+        : matchedSubLoaiRaw;
+    const subFiltered = unfilteredScopedRecords.filter((r) => {
+      const rl = (r.loaiPTTT || '').toUpperCase().trim();
+      if (normTargetLoai === 'THU_THUAT') return rl.startsWith('T');
+      if (normTargetLoai === 'PĐB') return rl === 'PĐB' || rl === 'PDB';
+      if (normTargetLoai === 'TĐB') return rl === 'TĐB' || rl === 'TDB';
+      return rl === normTargetLoai;
+    });
+    scopedRecords = subFiltered;
+    hasSubFilter = true;
+    dataSourceCitation = `${baseDataSourceCitation} — Lọc riêng ${
+      normTargetLoai === 'THU_THUAT' ? 'Thủ thuật' : `Loại ${normTargetLoai}`
+    } (${scopedRecords.length} ca PTTT, tiếp nối ngữ cảnh câu trước)`;
+  }
 
   const scopedDates = scopedRecords
     .map((r) => getRecordIsoDate(r))
@@ -3239,6 +3819,12 @@ export async function runRelationalQueryPipeline(
   const primaryIntent = systemOneEval.intentChoice.selected;
   const secondarySet = new Set(systemOneEval.secondaryIntents);
 
+  // Loại bỏ các cụm đại từ chỉ định ("trong danh sách đó", "ở danh sách trên"...) khi xét từ khóa "danh sách"
+  const noToneWithoutAnaphora = noTone.replace(
+    /\b(trong|o|cua|tu)?\s*(danh sach|bang|so lieu|ket qua|cac ca|nhung ca)\s*(do|tren|nay|vua roi)\b/g,
+    ' '
+  );
+
   // 2. Detect intents guided by Jev System One Choice<AIQueryIntent>
   const isOvertimeQuery =
     primaryIntent === 'overtime_audit' ||
@@ -3252,11 +3838,61 @@ export async function runRelationalQueryPipeline(
       noTone
     );
 
+  // Phân biệt câu hỏi yêu cầu "Phân tích cơ cấu / Thống kê / Tỷ lệ / So sánh" với câu hỏi yêu cầu "Báo cáo danh sách ca mổ"
+  const asksStructureOrStatsAnalysis =
+    /\b(phan tich|co cau|ty le|thong ke|so sanh|bieu do|doanh thu|tong tien|xu huong|theo chuyen khoa|theo loai)\b/.test(
+      noToneWithoutAnaphora
+    );
+
+  // Kiểm tra câu hỏi có nhắc tới số thứ tự ca ("ca thứ 2", "ca đầu tiên") hoặc họ tên bệnh nhân có thực trong tập dữ liệu đang xét
+  const mentionsOrdinalOrPatientInScope =
+    /\b(?:ca|benh nhan|bn|stt|dong)\s+(?:thu|so)\s+\d{1,3}\b/.test(noTone) ||
+    /\b(?:ca|benh nhan)\s+(?:dau tien|cuoi cung)\b/.test(noTone) ||
+    scopedRecords.some((r) => {
+      const pname = removeVietnameseTones(r.patientName || '');
+      return pname.length >= 5 && noTone.includes(pname);
+    });
+
+  const prevWasSurgeryList =
+    Boolean(prevScope?.isSurgeryListQuery) ||
+    Boolean(options?.workingMemory?.activeEntities?.lastWasSurgeryList) ||
+    (recentPrompts.length > 0 &&
+      /\b(danh sach phau thuat|danh sach ca mo|danh sach pttt|danh sach benh nhan phau thuat|danh sach benh nhan mo|bao cao danh sach|bao cao phau thuat|bao cao ca mo|liet ke.*phau thuat|liet ke.*ca mo)\b/.test(
+        removeVietnameseTones(recentPrompts[recentPrompts.length - 1])
+      ));
+
+  const isSurgeryListQuery =
+    !isOvertimeQuery &&
+    !isConflictOrQualityQuery &&
+    !asksStructureOrStatsAnalysis &&
+    !mentionsOrdinalOrPatientInScope &&
+    (/\b(danh sach phau thuat|danh sach ca mo|danh sach pttt|danh sach benh nhan phau thuat|danh sach benh nhan mo|danh sach bn phau thuat|danh sach bn mo|bao cao danh sach|bao cao phau thuat|bao cao ca mo|liet ke.*phau thuat|liet ke.*ca mo|cac ca mo|cac ca phau thuat|mo nhung ca nao|nhung ca mo nao)\b/.test(
+      noToneWithoutAnaphora
+    ) ||
+      (rawTC.isDutyShift24h &&
+        /\b(phau thuat|ca mo|pttt|mo)\b/.test(noToneWithoutAnaphora) &&
+        !/\b(lich truc|ai truc|nhan vien truc|phan cong truc|so buoi truc)\b/.test(
+          noToneWithoutAnaphora
+        )) ||
+      (hasSubFilter && !isOvertimeQuery && !isConflictOrQualityQuery) ||
+      (isEllipticalFollowUp && prevWasSurgeryList));
+
+  const asksExplicitDutyRoster =
+    /\b(lich truc|ai truc|nhan vien truc|phan cong truc|truc bao nhieu|so buoi truc|buoi truc|danh sach truc|ngay nghi|ngay le)\b/.test(
+      noToneWithoutAnaphora
+    ) ||
+    (!isSurgeryListQuery &&
+      !asksStructureOrStatsAnalysis &&
+      /\b(truc|tua truc)\b/.test(noToneWithoutAnaphora) &&
+      !/\b(phau thuat|ca mo|pttt|danh sach|bao cao)\b/.test(noToneWithoutAnaphora));
+
   const isDutyQuery =
-    primaryIntent === 'duty_schedule' ||
-    (!isOvertimeQuery &&
-      (secondarySet.has('duty_schedule') ||
-        /\b(truc|lich truc|buoi truc|tua truc|ngay nghi|ngay le)\b/.test(noTone)));
+    !isOvertimeQuery &&
+    !isSurgeryListQuery &&
+    !asksStructureOrStatsAnalysis &&
+    (primaryIntent === 'duty_schedule' ||
+      secondarySet.has('duty_schedule') ||
+      asksExplicitDutyRoster);
 
   const isPackageQuery =
     primaryIntent === 'service_package' ||
@@ -3264,15 +3900,21 @@ export async function runRelationalQueryPipeline(
     /\b(goi dv|goi dich vu|yeu cau|chon bac si|chon bs|goi san)\b/.test(noTone);
 
   const isPatientQuery =
-    primaryIntent === 'patient_lookup' ||
-    /\b(ma bn|ma benh nhan|tim bn|tim kiem bn|tim benh nhan|ho so bn|the bhyt)\b/.test(noTone) ||
-    /\b(\d{6,12})\b/.test(noTone);
+    !isSurgeryListQuery &&
+    !asksStructureOrStatsAnalysis &&
+    (mentionsOrdinalOrPatientInScope ||
+      primaryIntent === 'patient_lookup' ||
+      /\b(ma bn|ma benh nhan|tim bn|tim kiem bn|tim benh nhan|ho so bn|the bhyt)\b/.test(noTone) ||
+      /\b(\d{6,12})\b/.test(noTone));
 
   const isStaffQuery =
     primaryIntent === 'staff_workload' ||
-    (targetStaffNames.length > 0 && !isOvertimeQuery && !isDutyQuery) ||
+    (targetStaffNames.length > 0 && !isOvertimeQuery && !isDutyQuery && !isSurgeryListQuery) ||
     (!isOvertimeQuery &&
       !isConflictOrQualityQuery &&
+      !isSurgeryListQuery &&
+      !asksStructureOrStatsAnalysis &&
+      !mentionsOrdinalOrPatientInScope &&
       /\b(nhan vien|bac si|ptv|kip mo|phu cap|ai mo|ai tham gia)\b/.test(
         noTone
       ));
@@ -3280,19 +3922,34 @@ export async function runRelationalQueryPipeline(
   const hasSpecificOperationalTool =
     isOvertimeQuery ||
     isConflictOrQualityQuery ||
+    isSurgeryListQuery ||
     isDutyQuery ||
     isPackageQuery ||
     isPatientQuery ||
     isStaffQuery;
 
   const isPivotOrTrendQuery =
-    primaryIntent === 'specialty_yoy' ||
-    primaryIntent === 'or_utilization' ||
-    primaryIntent === 'general_summary' ||
-    /\b(bieu do|so sanh|cung ky|cac thang|mua he|mua dong|mua khac nhau|noi soi|tieu hoa|xu huong|theo thang|theo mua)\b/.test(
-      noTone
-    ) ||
-    !hasSpecificOperationalTool;
+    !isSurgeryListQuery &&
+    (asksStructureOrStatsAnalysis ||
+      primaryIntent === 'specialty_yoy' ||
+      primaryIntent === 'or_utilization' ||
+      /\b(bieu do|so sanh|cung ky|cac thang|mua he|mua dong|mua khac nhau|noi soi|tieu hoa|xu huong|theo thang|theo mua)\b/.test(
+        noTone
+      ) ||
+      !hasSpecificOperationalTool);
+
+  // Execute Surgery List Report if triggered ("báo cáo danh sách phẫu thuật...", "danh sách bệnh nhân phẫu thuật...")
+  if (isSurgeryListQuery) {
+    const listRes = executeSurgeryListReportTool(scopedRecords, dataSourceCitation);
+    sections.push(listRes.summaryText);
+    focusedSections.push(listRes.summaryText);
+    if (listRes.artifact) artifacts.push(listRes.artifact);
+    executedTools.push({
+      toolName: 'report_surgery_list',
+      summary: `Báo cáo danh sách chi tiết ${scopedRecords.length} ca PTTT (${dataSourceCitation})`,
+      recordCount: scopedRecords.length,
+    });
+  }
 
   // Execute Overtime Analysis if triggered (Tab "Ngoài giờ")
   if (isOvertimeQuery) {
@@ -3402,6 +4059,32 @@ export async function runRelationalQueryPipeline(
     }
   }
 
+  const patientDigest = unfilteredScopedRecords.slice(0, 30).map((r, idx) => {
+    const loai = (r.loaiPTTT || 'PTTT').trim();
+    const kt = (r.tenKT || '').trim();
+    const ptv = (r.ptChinh || '—').trim();
+    return `#${idx + 1} [${r.patientId || '—'}] ${r.patientName || '—'} (${loai} - ${kt} - PTV: ${ptv})`;
+  });
+
+  const turnScope: AIConversationTurnScope = {
+    prompt,
+    scopedRecords,
+    unfilteredScopedRecords,
+    dataSourceCitation,
+    baseDataSourceCitation,
+    scopedDateRange,
+    months,
+    years,
+    specificDates,
+    dateRange,
+    isDutyShift24h,
+    explicitSource,
+    targetStaffNames,
+    patientDigest,
+    primaryIntent,
+    isSurgeryListQuery,
+  };
+
   return {
     executedTools,
     contextDataForLLM: sections.join('\n\n---\n\n'),
@@ -3411,5 +4094,6 @@ export async function runRelationalQueryPipeline(
     scopedRecordCount: scopedRecords.length,
     scopedDateRange,
     dataSourceCitation,
+    turnScope,
   };
 }

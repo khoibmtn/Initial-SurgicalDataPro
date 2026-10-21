@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   extractTimeConstraintsFromPrompt,
+  compute24hDutyShiftWindow,
+  executeSurgeryListReportTool,
   executePatientSearchTool,
   executeStaffWorkloadTool,
   executeServicePackageAnalysisTool,
@@ -28,6 +30,9 @@ import {
   clearLocalRLCDMemory,
 } from '../services/ai/jevSystemOneEngine';
 import {
+  createEmptyDshWorkingMemory,
+  updateDshWorkingMemory,
+  buildDshWorkingMemoryPromptBlock,
   applyDshSpillPolicy,
   compactSessionHistoryForDeepSeek,
   buildDeepSeekHarnessMessages,
@@ -655,5 +660,253 @@ describe('Jev System One Decision Engine & RLCD Reinforcement Learning', () => {
     );
     expect(guarded.guardTriggered).toBe(true);
     expect(guarded.finalContent).toContain('Báo cáo chính xác từ 25 ca PTTT');
+  });
+
+  it('resolves "báo cáo danh sách phẫu thuật trong tua trực ngày hôm qua" using official 24h duty shift window (07:00/07:30 -> 06:59/07:29 next morning) and outputs concise surgery list without unrelated duty schedule or charts', async () => {
+    // 1. Verify Winter (20/10/2026: 07:30 -> 21/10/2026 07:29) and Summer (15/06/2026: 07:00 -> 16/06/2026 06:59) 24h duty shift windows
+    const winterShift = compute24hDutyShiftWindow('2026-10-20', '2026-10-20', DEFAULT_CONFIG.workingHours);
+    expect(`${winterShift.dateFromStr} ${winterShift.timeFrom}`).toBe('2026-10-20 07:30');
+    expect(`${winterShift.dateToStr} ${winterShift.timeTo}`).toBe('2026-10-21 07:29');
+
+    const summerShift = compute24hDutyShiftWindow('2026-06-15', '2026-06-15', DEFAULT_CONFIG.workingHours);
+    expect(`${summerShift.dateFromStr} ${summerShift.timeFrom}`).toBe('2026-06-15 07:00');
+    expect(`${summerShift.dateToStr} ${summerShift.timeTo}`).toBe('2026-06-16 06:59');
+
+    // 2. Verify prompt extraction & Jev System One intent classification
+    const prompt = 'báo cáo danh sách phẫu thuật trong tua trực ngày hôm qua';
+    const tc = extractTimeConstraintsFromPrompt(prompt);
+    expect(tc.isDutyShift24h).toBe(true);
+    expect(tc.specificDates.length).toBe(1);
+    const yesterdayIso = tc.specificDates[0];
+
+    const evalRes = evaluateWithJevSystemOne(prompt, { hasLoadedRecords: true });
+    expect(evalRes.intentChoice.selected).toBe('general_summary');
+    expect(evalRes.recommendedMode).toBe('fast_system1');
+
+    // 3. Verify 24h shift filtering includes overnight surgery at 02:15 next morning and excludes 06:15 before shift start
+    const shiftWin = compute24hDutyShiftWindow(yesterdayIso, yesterdayIso, DEFAULT_CONFIG.workingHours);
+    const nextDayIso = shiftWin.dateToStr;
+
+    vi.mocked(reportService.getReports).mockImplementation(async (_from, _to, type) => {
+      if (type === 'DAILY') {
+        return [
+          {
+            ...sampleSurgeries[0],
+            patientId: 'BN_BEFORE_SHIFT',
+            patientName: 'Trần Trước Ca Trực',
+            ngayBD: `${yesterdayIso} 06:10`,
+            ngayKT: `${yesterdayIso} 06:50`,
+            tenKT: 'Phẫu thuật trước giờ giao ban (thuộc tua trực hôm kia)',
+            loaiPTTT: 'P2',
+          },
+          {
+            ...sampleSurgeries[0],
+            patientId: 'BN_IN_SHIFT_1',
+            patientName: 'Nguyễn Ca Trực Tối',
+            ngayBD: `${yesterdayIso} 21:30`,
+            ngayKT: `${yesterdayIso} 22:45`,
+            tenKT: 'Phẫu thuật nội soi cắt ruột thừa viêm',
+            loaiPTTT: 'P2',
+            ptChinh: 'BS. Nguyễn Minh Khoa',
+            bsGM: 'BS. Lê Văn Tâm',
+          },
+          {
+            ...sampleSurgeries[1],
+            patientId: 'BN_IN_SHIFT_2_OVERNIGHT',
+            patientName: 'Lê Ca Trực Rạng Sáng',
+            ngayBD: `${nextDayIso} 02:15`,
+            ngayKT: `${nextDayIso} 03:20`,
+            tenKT: 'Phẫu thuật lấy thai cấp cứu',
+            loaiPTTT: 'P1',
+            ptChinh: 'BS. Trần Thị Lan',
+            bsGM: 'BS. Lê Văn Tâm',
+          },
+        ] as any;
+      }
+      return [];
+    });
+
+    const out = await runRelationalQueryPipeline(prompt, {
+      ...baseContext,
+      contextPage: 'daily_storage',
+      currentRecords: [],
+      allowRemoteFirestoreFetch: true,
+    });
+
+    // Must include only the 2 surgeries inside the 24h shift window (21:30 yesterday & 02:15 next morning)
+    expect(out.scopedRecordCount).toBe(2);
+    expect(out.dataSourceCitation).toContain('Tua trực 24h ngày');
+    expect(out.executedTools.map((t) => t.toolName)).toContain('report_surgery_list');
+    // Must NOT run unrelated duty schedule roster or multi-dimensional pivot
+    expect(out.executedTools.map((t) => t.toolName)).not.toContain('analyze_duty_schedule');
+    expect(out.executedTools.map((t) => t.toolName)).not.toContain('multi_dimensional_pivot');
+    // Must have 1 table artifact with NO chartConfig
+    expect(out.artifacts.length).toBe(1);
+    expect(out.artifacts[0].type).toBe('table');
+    expect(out.artifacts[0].chartConfig).toBeUndefined();
+    expect(out.focusedFastSummary).toContain('Nguyễn Ca Trực Tối');
+    expect(out.focusedFastSummary).toContain('Lê Ca Trực Rạng Sáng');
+    expect(out.focusedFastSummary).not.toContain('Trần Trước Ca Trực');
+  });
+
+  it('maintains multi-turn conversational context across follow-up questions ("danh sách bệnh nhân phẫu thuật trong ngày hôm qua" -> "phân tích cơ cấu phẫu thuật trong danh sách đó") even when screen has no opened records', async () => {
+    const turn1Prompt = 'danh sách bệnh nhân phẫu thuật trong ngày hôm qua';
+    const tc1 = extractTimeConstraintsFromPrompt(turn1Prompt);
+    const yesterdayIso = tc1.specificDates[0];
+
+    vi.mocked(reportService.getReports).mockImplementation(async (_from, _to, type) => {
+      if (type === 'DAILY') {
+        return [
+          {
+            ...sampleSurgeries[0],
+            patientId: '2600166934',
+            patientName: 'ĐỖ THỊ TRANG',
+            ngayBD: `${yesterdayIso} 08:00`,
+            ngayKT: `${yesterdayIso} 10:00`,
+            tenKT: 'Phẫu thuật nội soi u nang buồng trứng',
+            loaiPTTT: 'P1',
+            ptChinh: 'BS. Trần Thị Lan',
+          },
+          {
+            ...sampleSurgeries[1],
+            patientId: '2600166582',
+            patientName: 'ĐỖ THỊ PHƯỚC',
+            ngayBD: `${yesterdayIso} 10:15`,
+            ngayKT: `${yesterdayIso} 11:15`,
+            tenKT: 'Phẫu thuật mộng thịt ghép kết mạc tự thân',
+            loaiPTTT: 'P2',
+            ptChinh: 'BS. Nguyễn Minh Khoa',
+          },
+        ] as any;
+      }
+      return [];
+    });
+
+    const emptyStudioCtx: AIDataContextInput = {
+      ...baseContext,
+      contextPage: 'statistics_studio',
+      currentRecords: [], // No data opened on screen!
+      allowRemoteFirestoreFetch: true,
+    };
+
+    // Turn 1: Ask for surgery patient list yesterday
+    const turn1Out = await runRelationalQueryPipeline(turn1Prompt, emptyStudioCtx);
+    expect(turn1Out.needsClarification).toBeFalsy();
+    expect(turn1Out.scopedRecordCount).toBe(2);
+    expect(turn1Out.executedTools.map((t) => t.toolName)).toContain('report_surgery_list');
+    expect(turn1Out.focusedFastSummary).toContain('ĐỖ THỊ TRANG');
+    expect(turn1Out.turnScope).toBeDefined();
+
+    // Turn 2: Follow-up question "phân tích cơ cấu phẫu thuật trong danh sách đó" without repeating the date
+    const turn2Prompt = 'phân tích cơ cấu phẫu thuật trong danh sách đó';
+    const turn2Out = await runRelationalQueryPipeline(turn2Prompt, emptyStudioCtx, {
+      recentUserPrompts: [turn1Prompt],
+      previousTurnScope: turn1Out.turnScope,
+    });
+
+    // Must NOT ask for clarification; must inherit the 2 records from Turn 1 and analyze structure!
+    expect(turn2Out.needsClarification).toBeFalsy();
+    expect(turn2Out.scopedRecordCount).toBe(2);
+    expect(turn2Out.dataSourceCitation).toContain('tiếp nối ngữ cảnh câu trước');
+    expect(turn2Out.executedTools.map((t) => t.toolName)).toContain('multi_dimensional_pivot');
+    expect(turn2Out.executedTools.map((t) => t.toolName)).not.toContain('report_surgery_list');
+    expect(turn2Out.focusedFastSummary).toContain('Cơ cấu Phân loại PTTT');
+    expect(turn2Out.focusedFastSummary).toContain('P1: **1** ca');
+    expect(turn2Out.focusedFastSummary).toContain('P2: **1** ca');
+
+    // Update DeepSeek Harness Working Memory across Turn 1 and Turn 2
+    let dshMem = createEmptyDshWorkingMemory('statistics_studio');
+    dshMem = updateDshWorkingMemory(dshMem, 'statistics_studio', {
+      userPrompt: turn1Prompt,
+      turnScope: turn1Out.turnScope,
+      focusedSummaryText: turn1Out.focusedFastSummary,
+    });
+    dshMem = updateDshWorkingMemory(dshMem, 'statistics_studio', {
+      userPrompt: turn2Prompt,
+      turnScope: turn2Out.turnScope,
+      focusedSummaryText: turn2Out.focusedFastSummary,
+    });
+    expect(dshMem.anchoredTimeScope?.recordCount).toBe(2);
+    expect(dshMem.activeEntities.patientDigest.length).toBe(2);
+    expect(dshMem.turnLedger.length).toBe(2);
+
+    // Turn 3: Sub-scope filtering ("chi tiết các ca P1 trong đó")
+    const turn3Prompt = 'chi tiết các ca P1 trong đó';
+    const turn3Out = await runRelationalQueryPipeline(turn3Prompt, emptyStudioCtx, {
+      recentUserPrompts: [turn1Prompt, turn2Prompt],
+      previousTurnScope: turn2Out.turnScope,
+      workingMemory: dshMem,
+    });
+    expect(turn3Out.scopedRecordCount).toBe(1);
+    expect(turn3Out.focusedFastSummary).toContain('ĐỖ THỊ TRANG');
+    expect(turn3Out.focusedFastSummary).not.toContain('ĐỖ THỊ PHƯỚC');
+
+    // Turn 4: Sibling sub-scope follow-up ("còn các ca P2 thì sao?")
+    // Must restore from unfilteredScopedRecords (parent scope of 2 records) instead of getting stuck in Turn 3's P1 subset!
+    const turn4Prompt = 'còn các ca P2 thì sao?';
+    const turn4Out = await runRelationalQueryPipeline(turn4Prompt, emptyStudioCtx, {
+      recentUserPrompts: [turn1Prompt, turn2Prompt, turn3Prompt],
+      previousTurnScope: turn3Out.turnScope,
+      workingMemory: dshMem,
+    });
+    expect(turn4Out.scopedRecordCount).toBe(1);
+    expect(turn4Out.focusedFastSummary).toContain('ĐỖ THỊ PHƯỚC');
+    expect(turn4Out.focusedFastSummary).not.toContain('ĐỖ THỊ TRANG');
+
+    // Turn 5: Ordinal row lookup ("ca thứ 1 do ai mổ chính?") & Cross-reload Working Memory recovery (when previousTurnScope is null)
+    const turn5Prompt = 'ca thứ 1 trong danh sách đó do ai mổ chính?';
+    const turn5Out = await runRelationalQueryPipeline(turn5Prompt, emptyStudioCtx, {
+      recentUserPrompts: [turn1Prompt, turn2Prompt],
+      previousTurnScope: null, // Simulate page reload where in-memory ref is wiped!
+      workingMemory: dshMem,   // Recovered from localStorage DshSessionWorkingMemory!
+    });
+    expect(turn5Out.needsClarification).toBeFalsy();
+    expect(turn5Out.scopedRecordCount).toBe(2);
+    expect(turn5Out.focusedFastSummary).toContain('ĐỖ THỊ TRANG');
+    expect(turn5Out.focusedFastSummary).toContain('BS. Trần Thị Lan');
+  });
+
+  it('builds Two-Tier Rolling Compaction with [DSH_COMPACTION_SUMMARY_NODE] and injects DSH Working Memory block in-history', () => {
+    const longHistory = [
+      { id: 'u1', role: 'user' as const, content: 'Danh sách phẫu thuật ngày hôm qua', timestamp: 1000 },
+      { id: 'a1', role: 'assistant' as const, content: '📋 **DANH SÁCH PHẪU THUẬT (2 ca)**\n| STT | Họ tên |\n| --- | --- |\n| 1 | ĐỖ THỊ TRANG |\n| 2 | ĐỖ THỊ PHƯỚC |', timestamp: 2000 },
+      { id: 'u2', role: 'user' as const, content: 'Phân tích cơ cấu phẫu thuật trong đó', timestamp: 3000 },
+      { id: 'a2', role: 'assistant' as const, content: '📊 **Cơ cấu Phân loại PTTT**: P1: 1 ca, P2: 1 ca', timestamp: 4000 },
+      { id: 'u3', role: 'user' as const, content: 'Chi tiết các ca P1 trong danh sách đó', timestamp: 5000 },
+      { id: 'a3', role: 'assistant' as const, content: '📋 **DANH SÁCH CA P1 (1 ca)**\n| STT | Họ tên | PT Chính |\n| --- | --- | --- |\n| 1 | ĐỖ THỊ TRANG | BS. Trần Thị Lan |', timestamp: 6000 },
+    ];
+
+    // Keep maxMessages = 4 (2 recent turns: u2/a2, u3/a3), so u1/a1 get compacted into a [DSH_COMPACTION_SUMMARY_NODE] pair,
+    // and preserve up to 12 table rows in the most recent assistant message (a3)
+    const compacted = compactSessionHistoryForDeepSeek(longHistory, 4, 900, 12);
+    expect(compacted.length).toBe(6); // 2 summary node msgs + 4 recent msgs
+    expect(compacted[0].content).toContain('[DSH_COMPACTION_SUMMARY_NODE');
+    expect(compacted[0].content).toContain('ĐỖ THỊ TRANG');
+    // Most recent assistant turn (compacted[5]) preserves its markdown table rows when maxTableRowsInRecentTurn = 12
+    expect(compacted[5].content).toContain('| 1 | ĐỖ THỊ TRANG | BS. Trần Thị Lan |');
+
+    let mem = createEmptyDshWorkingMemory('daily_storage');
+    mem.anchoredTimeScope = {
+      dataSourceCitation: 'Tua trực 24h ngày 20/10/2026',
+      scopedDateRange: '2026-10-20 -> 2026-10-20',
+      recordCount: 2,
+      timeConstraints: {
+        years: [2026],
+        months: [{ year: 2026, month: 10 }],
+        specificDates: ['2026-10-20'],
+        seasonHint: null,
+        isCurrentMonthToDate: false,
+        isDutyShift24h: true,
+        isYtdComparison: false,
+        isFullYear: false,
+      },
+      updatedAt: Date.now(),
+    };
+    mem.activeEntities.patientDigest = ['#1: ĐỖ THỊ TRANG (P1, PT chính: BS. Trần Thị Lan)'];
+
+    const memBlock = buildDshWorkingMemoryPromptBlock(mem);
+    expect(memBlock).toContain('SỔ CÁI BỘ NHỚ LÀM VIỆC PHIÊN CHAT');
+    expect(memBlock).toContain('Tua trực 24h ngày 20/10/2026');
+    expect(memBlock).toContain('ĐỖ THỊ TRANG');
   });
 });

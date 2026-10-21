@@ -391,13 +391,28 @@ export function evaluateWithJevSystemOne(
     logits.conflict_quality += 3.7;
   }
 
-  // --- Duty Schedule (Lịch trực 24h) ---
-  if (/(lich truc|tua truc|ca truc|truc 24h|buoi truc|ngay truc|ai truc|truc ngay|truc bao nhieu)/i.test(noAccent)) {
-    // Nếu câu hỏi hỏi về chấm ngoài giờ thì ưu tiên overtime_audit hơn duty_schedule
+  // Kiểm tra câu hỏi đang hỏi về Danh sách / Báo cáo / Số lượng Phẫu thuật - Thủ thuật (khác với hỏi Lịch phân công nhân viên trực)
+  const asksSurgeryListOrSummary =
+    /(danh sach phau thuat|danh sach ca mo|danh sach pttt|danh sach benh nhan phau thuat|danh sach benh nhan mo|danh sach bn phau thuat|danh sach bn mo|bao cao danh sach|bao cao phau thuat|bao cao ca mo|liet ke.*phau thuat|liet ke.*ca mo|cac ca mo|mo nhung ca nao|nhung ca mo nao|mo bao nhieu ca|co bao nhieu ca|bao nhieu ca mo|so luong ca|co cau|loai phau thuat|loai pttt)/i.test(
+      noAccent
+    );
+  const asksExplicitDutyRoster =
+    /(lich truc|ai truc|nhan vien truc|phan cong truc|truc bao nhieu|so buoi truc|buoi truc|danh sach truc|ngay truc)/i.test(
+      noAccent
+    );
+
+  // --- Duty Schedule (Lịch trực 24h của nhân viên) ---
+  if (
+    asksExplicitDutyRoster ||
+    (/(tua truc|ca truc|truc 24h|truc ngay)/i.test(noAccent) &&
+      !asksSurgeryListOrSummary &&
+      logits.overtime_audit < 1.0 &&
+      logits.conflict_quality < 1.0)
+  ) {
     if (logits.overtime_audit > 1.0) {
-      logits.duty_schedule += 1.2;
+      logits.duty_schedule += 1.0;
     } else {
-      logits.duty_schedule += 3.6;
+      logits.duty_schedule += 3.8;
     }
   }
 
@@ -411,9 +426,16 @@ export function evaluateWithJevSystemOne(
     logits.staff_workload += 2.6;
   }
 
-  // --- Patient / Surgery Lookup (Tra cứu bệnh nhân / ca mổ) ---
-  if (/(benh nhan|ma bn|ho ten|the bhyt|tim ca|liet ke cac ca|danh sach ca)/i.test(noAccent) || /\b\d{8,10}\b/.test(noAccent)) {
-    logits.patient_lookup += 2.6;
+  // --- Patient / Surgery Lookup (Tra cứu bệnh nhân cụ thể theo mã BN / họ tên / BHYT) ---
+  const hasExplicitPatientLookup =
+    /(ma bn|ma benh nhan|the bhyt|tim bn|tim kiem bn|tim benh nhan|ho so bn)/i.test(noAccent) ||
+    /\b\d{6,12}\b/.test(noAccent) ||
+    (/\bbenh nhan\b/i.test(noAccent) &&
+      !asksSurgeryListOrSummary &&
+      logits.overtime_audit < 1.0 &&
+      logits.conflict_quality < 1.0);
+  if (hasExplicitPatientLookup) {
+    logits.patient_lookup += 3.4;
   }
 
   // --- Specialty & YoY Comparison (Chuyên khoa, cùng kỳ, mùa, tháng) ---
@@ -426,9 +448,16 @@ export function evaluateWithJevSystemOne(
     logits.or_utilization += 3.4;
   }
 
-  // --- General Summary (Tổng số ca, cơ cấu loại phẫu thuật, doanh thu, báo cáo chung) ---
-  if (/(tong quan|tom tat|bao cao chung|tong so ca|co bao nhieu ca|mo bao nhieu ca|bao nhieu ca|so luong ca|co cau|loai phau thuat|loai pttt|phan loai pttt|doanh thu|vien phi|thanh tien|tinh hinh phau thuat)/i.test(noAccent)) {
-    logits.general_summary += 3.5;
+  // --- General Summary & Surgery List Report (Báo cáo danh sách phẫu thuật, tổng số ca, cơ cấu loại PTTT) ---
+  if (
+    logits.overtime_audit < 1.0 &&
+    logits.conflict_quality < 1.0 &&
+    (asksSurgeryListOrSummary ||
+      /(tong quan|tom tat|bao cao chung|tong so ca|doanh thu|vien phi|thanh tien|tinh hinh phau thuat)/i.test(
+        noAccent
+      ))
+  ) {
+    logits.general_summary += 4.2;
   }
 
   // Kế thừa ý định từ câu hỏi liền trước trong hội thoại nếu câu hiện tại chỉ bổ sung thời gian/nguồn (VD: "ngày 20/10/2026")
@@ -520,7 +549,7 @@ export function evaluateWithJevSystemOne(
   const deepReasoningKeywords = /(tai sao|nguyen nhan|phan tich sau|nhan xet|danh gia|de xuat|giai phap|so sanh chi tiet|xu huong)/i.test(
     noAccent
   );
-  const directLookupKeywords = /(nhung ai|ai phai|tu gio nao|den gio nao|liet ke|ca nao|bao nhieu ca|danh sach|kiem tra|co trung)/i.test(
+  const directLookupKeywords = /(nhung ai|ai phai|tu gio nao|den gio nao|liet ke|ca nao|bao nhieu ca|danh sach|kiem tra|co trung|co cau|phan loai|thong ke|tong so|bao cao)/i.test(
     noAccent
   );
 
@@ -544,7 +573,9 @@ export function evaluateWithJevSystemOne(
   );
 
   const hasSufficientContext =
-    Boolean(options?.hasLoadedRecords) || Boolean(options?.hasExplicitTimeOrSource);
+    Boolean(options?.hasLoadedRecords) ||
+    Boolean(options?.hasExplicitTimeOrSource) ||
+    Boolean(options?.recentUserPrompts && options.recentUserPrompts.length > 0);
 
   const matchesLearnedProb = bestExemplar ? Number(bestSimilarity.toFixed(2)) : 0;
 
