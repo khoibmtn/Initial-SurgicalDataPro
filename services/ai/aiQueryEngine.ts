@@ -108,31 +108,25 @@ export function splitStaffNames(rawField: string | undefined | null): string[] {
 }
 
 export function getRecordIsoDate(rec: SurgeryRecord | PersistedSurgeryRecord): string {
+  const raw = rec.ngayBD || rec.ngayCD || '';
+  if (raw) {
+    // Check ISO YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+      return raw.substring(0, 10);
+    }
+    // Check DD/MM/YYYY
+    const dmyMatch = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch;
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+  }
   const startObj = (rec as SurgeryRecord).start;
   if (startObj instanceof Date && !isNaN(startObj.getTime())) {
     const y = startObj.getFullYear();
     const m = String(startObj.getMonth() + 1).padStart(2, '0');
     const d = String(startObj.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
-  }
-  const raw = rec.ngayBD || rec.ngayCD || '';
-  if (!raw) return '';
-  // Check ISO YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
-    }
-    return raw.substring(0, 10);
-  }
-  // Check DD/MM/YYYY
-  const dmyMatch = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (dmyMatch) {
-    const [, d, m, y] = dmyMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
   return '';
 }
@@ -310,15 +304,21 @@ export function extractTimeConstraintsFromPrompt(
   months: number[];
   years: number[];
   specificDates: string[];
+  dateRange?: { from: string; to: string };
   explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db';
   hasExplicitTimeOrSource: boolean;
   seasonFilter?: 'Mùa Hè' | 'Mùa Đông' | 'both';
 } {
   const noTone = removeVietnameseTones(prompt);
+  const now = new Date();
+  const curMonth = now.getMonth() + 1;
+  const curDay = now.getDate();
+  const todayIso = `${defaultYear}-${String(curMonth).padStart(2, '0')}-${String(curDay).padStart(2, '0')}`;
 
   const months = new Set<number>();
   const years = new Set<number>();
   const specificDates = new Set<string>();
+  let dateRange: { from: string; to: string } | undefined;
 
   // 0. Match explicit opened data references
   let explicitSource:
@@ -341,30 +341,107 @@ export function extractTimeConstraintsFromPrompt(
     explicitSource = 'monthly_db';
   }
 
-  // 0b. Match specific dates DD/MM/YYYY or DD-MM-YYYY
-  const dmyFullRegex = /\b(\d{1,2})[/-](\d{1,2})[/-](202\d)\b/g;
+  // 0a. Match explicit date range: "từ (ngày) DD/MM(/YYYY) đến (ngày) DD/MM(/YYYY)"
+  const explicitRangeMatch = noTone.match(
+    /\btu\s*(?:ngay\s*)?(\d{1,2})[/-](\d{1,2})(?:[/-](202\d))?\s*(?:den|toi|-|–)\s*(?:ngay\s*)?(\d{1,2})[/-](\d{1,2})(?:[/-](202\d))?\b/i
+  );
+  if (explicitRangeMatch) {
+    const d1 = parseInt(explicitRangeMatch[1], 10);
+    const m1 = parseInt(explicitRangeMatch[2], 10);
+    const y1 = explicitRangeMatch[3] ? parseInt(explicitRangeMatch[3], 10) : defaultYear;
+    const d2 = parseInt(explicitRangeMatch[4], 10);
+    const m2 = parseInt(explicitRangeMatch[5], 10);
+    const y2 = explicitRangeMatch[6] ? parseInt(explicitRangeMatch[6], 10) : y1;
+    if (d1 >= 1 && d1 <= 31 && m1 >= 1 && m1 <= 12 && d2 >= 1 && d2 <= 31 && m2 >= 1 && m2 <= 12) {
+      const fromIso = `${y1}-${String(m1).padStart(2, '0')}-${String(d1).padStart(2, '0')}`;
+      const toIso = `${y2}-${String(m2).padStart(2, '0')}-${String(d2).padStart(2, '0')}`;
+      dateRange = fromIso <= toIso ? { from: fromIso, to: toIso } : { from: toIso, to: fromIso };
+      years.add(y1);
+      years.add(y2);
+      if (y1 === y2 && m1 <= m2) {
+        for (let m = m1; m <= m2; m++) months.add(m);
+      } else {
+        months.add(m1);
+        months.add(m2);
+      }
+    }
+  }
+
+  // 0b. Match specific dates DD/MM/YYYY or DD-MM-YYYY (only if not already captured as a dateRange)
   let mMatch: RegExpExecArray | null;
-  while ((mMatch = dmyFullRegex.exec(noTone)) !== null) {
-    const d = parseInt(mMatch[1], 10);
-    const m = parseInt(mMatch[2], 10);
-    const y = parseInt(mMatch[3], 10);
-    if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y >= 2020 && y <= 2035) {
-      specificDates.add(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  if (!dateRange) {
+    const dmyFullRegex = /\b(\d{1,2})[/-](\d{1,2})[/-](202\d)\b/g;
+    while ((mMatch = dmyFullRegex.exec(noTone)) !== null) {
+      const d = parseInt(mMatch[1], 10);
+      const m = parseInt(mMatch[2], 10);
+      const y = parseInt(mMatch[3], 10);
+      if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y >= 2020 && y <= 2035) {
+        specificDates.add(`${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+      }
     }
   }
 
   // Relative dates: "hôm nay", "hôm qua"
-  if (/\bhom nay\b/.test(noTone)) {
-    const now = new Date();
-    specificDates.add(
-      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-    );
+  if (/\bhom nay\b/.test(noTone) && !/\b(tu dau|den hom nay|toi hom nay)\b/.test(noTone)) {
+    specificDates.add(todayIso);
   }
   if (/\bhom qua\b/.test(noTone)) {
     const yest = new Date(Date.now() - 86400000);
     specificDates.add(
       `${yest.getFullYear()}-${String(yest.getMonth() + 1).padStart(2, '0')}-${String(yest.getDate()).padStart(2, '0')}`
     );
+  }
+
+  // Relative month-to-date & relative month phrases:
+  // "từ đầu tháng tới giờ", "từ đầu tháng đến nay", "đầu tháng tới giờ", "đầu tháng đến nay", "từ đầu tháng"
+  if (/\b(tu dau thang|dau thang toi gio|dau thang den nay|dau thang den gio|dau thang toi nay)\b/.test(noTone)) {
+    months.add(curMonth);
+    years.add(defaultYear);
+    dateRange = {
+      from: `${defaultYear}-${String(curMonth).padStart(2, '0')}-01`,
+      to: todayIso,
+    };
+  } else if (/\b(thang nay|trong thang nay)\b/.test(noTone)) {
+    months.add(curMonth);
+    years.add(defaultYear);
+  } else if (/\b(thang truoc|thang vua roi|thang qua)\b/.test(noTone)) {
+    const prevM = curMonth === 1 ? 12 : curMonth - 1;
+    const prevY = curMonth === 1 ? defaultYear - 1 : defaultYear;
+    months.add(prevM);
+    years.add(prevY);
+  }
+
+  // Relative year-to-date phrases: "từ đầu năm tới giờ", "từ đầu năm đến nay", "đầu năm tới giờ"
+  if (/\b(tu dau nam|dau nam toi gio|dau nam den nay|dau nam den gio|dau nam toi nay)\b/.test(noTone)) {
+    for (let m = 1; m <= curMonth; m++) months.add(m);
+    years.add(defaultYear);
+    dateRange = {
+      from: `${defaultYear}-01-01`,
+      to: todayIso,
+    };
+  }
+
+  // Relative week / last 7 days phrases: "tuần này", "từ đầu tuần", "7 ngày qua"
+  if (/\b(tuan nay|tu dau tuan|7 ngay qua|7 ngay gan day)\b/.test(noTone)) {
+    const startDt = new Date(now);
+    if (/\b(7 ngay qua|7 ngay gan day)\b/.test(noTone)) {
+      startDt.setDate(startDt.getDate() - 6);
+    } else {
+      const dow = startDt.getDay();
+      const diffToMonday = dow === 0 ? 6 : dow - 1;
+      startDt.setDate(startDt.getDate() - diffToMonday);
+    }
+    const sy = startDt.getFullYear();
+    const sm = startDt.getMonth() + 1;
+    const sd = startDt.getDate();
+    dateRange = {
+      from: `${sy}-${String(sm).padStart(2, '0')}-${String(sd).padStart(2, '0')}`,
+      to: todayIso,
+    };
+    months.add(sm);
+    months.add(curMonth);
+    years.add(sy);
+    years.add(defaultYear);
   }
 
   // 1. Match "N tháng đầu (năm)" e.g. "9 tháng đầu năm 2026", "6 tháng đầu"
@@ -477,6 +554,7 @@ export function extractTimeConstraintsFromPrompt(
     months.size > 0 ||
     years.size > 0 ||
     specificDates.size > 0 ||
+    Boolean(dateRange) ||
     Boolean(explicitSource) ||
     Boolean(seasonFilter);
 
@@ -484,6 +562,7 @@ export function extractTimeConstraintsFromPrompt(
     months: Array.from(months).sort((a, b) => a - b),
     years: Array.from(years).sort((a, b) => a - b),
     specificDates: Array.from(specificDates).sort(),
+    dateRange,
     explicitSource,
     hasExplicitTimeOrSource,
     seasonFilter,
@@ -491,7 +570,7 @@ export function extractTimeConstraintsFromPrompt(
 }
 
 /**
- * Tải và khử trùng lặp dữ liệu cả năm từ Firestore (ưu tiên MONTHLY cho từng tháng, fallback DAILY giống StatisticsTab)
+ * Tải và khử trùng lặp dữ liệu cả năm từ Firestore (ưu tiên MONTHLY kết hợp bổ sung DAILY cho các ngày mới trong tháng)
  */
 async function fetchDeduplicatedYearRecordsFromFirestore(
   year: number
@@ -533,10 +612,12 @@ async function fetchDeduplicatedYearRecordsFromFirestore(
   for (let m = 1; m <= 12; m++) {
     const mRecs = monthlyByMonth.get(m) || [];
     const dRecs = dailyByMonth.get(m) || [];
-    if (mRecs.length > 0) {
-      combined.push(...mRecs);
+    if (mRecs.length > 0 && dRecs.length > 0) {
+      combined.push(...deduplicateSurgeryRecords([...mRecs, ...dRecs]));
+    } else if (mRecs.length > 0) {
+      combined.push(...deduplicateSurgeryRecords(mRecs));
     } else if (dRecs.length > 0) {
-      combined.push(...dRecs);
+      combined.push(...deduplicateSurgeryRecords(dRecs));
     }
   }
 
@@ -545,7 +626,7 @@ async function fetchDeduplicatedYearRecordsFromFirestore(
 }
 
 /**
- * Hybrid Fetcher: Đảm bảo có đủ bản ghi ca mổ cho ngày/tháng/năm/nguồn mà người dùng hỏi
+ * Hybrid Fetcher: Đảm bảo có đủ bản ghi ca mổ cho ngày/tháng/năm/khoảng ngày/nguồn mà người dùng hỏi
  */
 async function ensureSurgeryRecordsForQuery(
   ctx: AIDataContextInput,
@@ -553,7 +634,8 @@ async function ensureSurgeryRecordsForQuery(
   years: number[],
   logs: AIChatToolExecutionLog[],
   specificDates: string[] = [],
-  explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db'
+  explicitSource?: 'daily_opened' | 'monthly_opened' | 'current_opened' | 'daily_db' | 'monthly_db',
+  dateRange?: { from: string; to: string }
 ): Promise<{
   records: Array<SurgeryRecord | PersistedSurgeryRecord>;
   dataSourceCitation: string;
@@ -567,6 +649,7 @@ async function ensureSurgeryRecordsForQuery(
       months.length === 0 &&
       years.length === 0 &&
       specificDates.length === 0 &&
+      !dateRange &&
       (ctx.dailyOpenedRecords?.length ?? 0) > 0)
   ) {
     const recs = deduplicateSurgeryRecords(ctx.dailyOpenedRecords || []);
@@ -590,6 +673,7 @@ async function ensureSurgeryRecordsForQuery(
       months.length === 0 &&
       years.length === 0 &&
       specificDates.length === 0 &&
+      !dateRange &&
       (ctx.monthlyOpenedRecords?.length ?? 0) > 0)
   ) {
     const recs = deduplicateSurgeryRecords(ctx.monthlyOpenedRecords || []);
@@ -607,7 +691,7 @@ async function ensureSurgeryRecordsForQuery(
   }
 
   // 3. Specific Dates (e.g., "20/10/2026", "hôm nay", "hôm qua")
-  if (specificDates.length > 0) {
+  if (specificDates.length > 0 && !dateRange) {
     const firstDate = specificDates[0];
     const lastDate = specificDates[specificDates.length - 1];
 
@@ -660,8 +744,8 @@ async function ensureSurgeryRecordsForQuery(
     };
   }
 
-  // 4. When no specific month/year is requested, use the currently opened screen records
-  if (months.length === 0 && years.length === 0) {
+  // 4. When no specific month/year/dateRange is requested, use the currently opened screen records
+  if (months.length === 0 && years.length === 0 && !dateRange) {
     const dedupedBase = deduplicateSurgeryRecords(baseRecords);
     const dates = dedupedBase.map((r) => getRecordIsoDate(r)).filter(Boolean).sort();
     const fallbackRange =
@@ -683,16 +767,32 @@ async function ensureSurgeryRecordsForQuery(
   // Collect records per year-month without duplicates
   const yearMonthMap = new Map<string, Array<SurgeryRecord | PersistedSurgeryRecord>>();
 
-  // 1. From baseRecords (already loaded in context)
-  baseRecords.forEach((r) => {
-    const iso = getRecordIsoDate(r);
-    if (iso.length >= 7) {
-      const ym = iso.substring(0, 7);
-      const list = yearMonthMap.get(ym) || [];
-      list.push(r);
-      yearMonthMap.set(ym, list);
-    }
-  });
+  // 1. From baseRecords (ONLY treat baseRecords as full-month cache when NOT on single-day daily_storage!)
+  const isSingleDayContext = ctx.contextPage === 'daily_storage';
+  if (!isSingleDayContext) {
+    baseRecords.forEach((r) => {
+      const iso = getRecordIsoDate(r);
+      if (iso.length >= 7) {
+        const ym = iso.substring(0, 7);
+        const list = yearMonthMap.get(ym) || [];
+        list.push(r);
+        yearMonthMap.set(ym, list);
+      }
+    });
+  }
+
+  // Also include monthlyOpenedRecords if available
+  if (ctx.monthlyOpenedRecords && ctx.monthlyOpenedRecords.length > 0) {
+    ctx.monthlyOpenedRecords.forEach((r) => {
+      const iso = getRecordIsoDate(r);
+      if (iso.length >= 7) {
+        const ym = iso.substring(0, 7);
+        const list = yearMonthMap.get(ym) || [];
+        list.push(r);
+        yearMonthMap.set(ym, list);
+      }
+    });
+  }
 
   // 2. From yearlyCacheData if available
   if (ctx.yearlyCacheData) {
@@ -715,17 +815,17 @@ async function ensureSurgeryRecordsForQuery(
     }
   }
 
-  // 3. Remote Firestore fetch for any requested year that is not yet in yearMonthMap
+  // 3. Remote Firestore fetch for any requested year that is not yet fully in yearMonthMap
   if (ctx.allowRemoteFirestoreFetch !== false) {
     for (const y of targetYears) {
-      const hasAnyMonthInYear = targetMonths.some((m) =>
+      const hasAllRequestedMonthsInYear = targetMonths.every((m) =>
         yearMonthMap.has(`${y}-${String(m).padStart(2, '0')}`)
       );
       const isCachedInYearly =
         ctx.yearlyCacheData &&
         (ctx.yearlyCacheData.primaryYear === y || ctx.yearlyCacheData.compareYear === y);
 
-      if (!hasAnyMonthInYear && !isCachedInYearly) {
+      if (!hasAllRequestedMonthsInYear && !isCachedInYearly) {
         try {
           const yearRecords = await fetchDeduplicatedYearRecordsFromFirestore(y);
           let addedForYear = 0;
@@ -752,14 +852,36 @@ async function ensureSurgeryRecordsForQuery(
     }
   }
 
-  // Flatten and filter strictly to requested targetYears & targetMonths
-  const result: Array<SurgeryRecord | PersistedSurgeryRecord> = [];
+  // Merge in baseRecords & dailyOpenedRecords (e.g. if user is on daily_storage and also has unsaved/current day records) and deduplicate
+  if (isSingleDayContext || (ctx.dailyOpenedRecords && ctx.dailyOpenedRecords.length > 0)) {
+    const extraDaily = [...baseRecords, ...(ctx.dailyOpenedRecords || [])];
+    extraDaily.forEach((r) => {
+      const iso = getRecordIsoDate(r);
+      if (iso.length >= 7) {
+        const ym = iso.substring(0, 7);
+        const list = yearMonthMap.get(ym) || [];
+        list.push(r);
+        yearMonthMap.set(ym, list);
+      }
+    });
+  }
+
+  // Flatten, deduplicate, and filter strictly to requested targetYears, targetMonths & optional dateRange
+  const rawResult: Array<SurgeryRecord | PersistedSurgeryRecord> = [];
   for (const [ym, recs] of yearMonthMap.entries()) {
     const rYear = parseInt(ym.substring(0, 4), 10);
     const rMonth = parseInt(ym.substring(5, 7), 10);
     if (years.length > 0 && !years.includes(rYear)) continue;
     if (months.length > 0 && !months.includes(rMonth)) continue;
-    result.push(...recs);
+    rawResult.push(...recs);
+  }
+
+  let result = deduplicateSurgeryRecords(rawResult);
+  if (dateRange) {
+    result = result.filter((r) => {
+      const iso = getRecordIsoDate(r);
+      return iso >= dateRange.from && iso <= dateRange.to;
+    });
   }
 
   // Format explicit dataSourceCitation for the queried period
@@ -768,7 +890,9 @@ async function ensureSurgeryRecordsForQuery(
   const padM = (m: number) => String(m).padStart(2, '0');
   let dataSourceCitation = '';
 
-  if (targetYears.length >= 2) {
+  if (dateRange) {
+    dataSourceCitation = `Số liệu CSDL Lưu trữ (Báo cáo tháng & hàng ngày) từ ngày ${formatIsoToDMY(dateRange.from)} đến ngày ${formatIsoToDMY(dateRange.to)} (${result.length.toLocaleString('vi-VN')} ca PTTT)`;
+  } else if (targetYears.length >= 2) {
     const sortedDesc = [...targetYears].sort((a, b) => b - a);
     const yCurr = sortedDesc[0];
     const yPrev = sortedDesc[1];
@@ -2978,7 +3102,7 @@ ${procedureRows
 export async function runRelationalQueryPipeline(
   prompt: string,
   ctx: AIDataContextInput,
-  options?: { overrideIntent?: AIQueryIntent }
+  options?: { overrideIntent?: AIQueryIntent; recentUserPrompts?: string[] }
 ): Promise<AIQueryExecutionOutput> {
   const executedTools: AIChatToolExecutionLog[] = [];
   const artifacts: AIArtifact[] = [];
@@ -2990,6 +3114,7 @@ export async function runRelationalQueryPipeline(
     months,
     years,
     specificDates,
+    dateRange,
     explicitSource,
     hasExplicitTimeOrSource,
   } = extractTimeConstraintsFromPrompt(prompt);
@@ -3001,6 +3126,7 @@ export async function runRelationalQueryPipeline(
   const rawSystemOneEval = evaluateWithJevSystemOne(prompt, {
     hasLoadedRecords: baseRecords.length > 0,
     hasExplicitTimeOrSource,
+    recentUserPrompts: options?.recentUserPrompts,
   });
 
   const systemOneEval: JevSystemOneEvaluation = options?.overrideIntent
@@ -3091,7 +3217,8 @@ export async function runRelationalQueryPipeline(
     years,
     executedTools,
     specificDates,
-    explicitSource
+    explicitSource,
+    dateRange
   );
 
   const scopedDates = scopedRecords
@@ -3146,7 +3273,7 @@ export async function runRelationalQueryPipeline(
     (targetStaffNames.length > 0 && !isOvertimeQuery && !isDutyQuery) ||
     (!isOvertimeQuery &&
       !isConflictOrQualityQuery &&
-      /\b(nhan vien|bac si|ptv|kip mo|lam bao nhieu ca|mo bao nhieu ca|phu cap|ai mo|ai tham gia)\b/.test(
+      /\b(nhan vien|bac si|ptv|kip mo|phu cap|ai mo|ai tham gia)\b/.test(
         noTone
       ));
 

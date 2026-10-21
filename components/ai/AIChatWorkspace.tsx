@@ -21,6 +21,7 @@ import {
   ThumbsDown,
   Zap,
   Brain,
+  ChevronDown,
 } from 'lucide-react';
 import {
   AIArtifact,
@@ -57,6 +58,12 @@ import {
   subscribeToRLCDMemory,
   recordRLCDUserFeedback,
 } from '../../services/ai/jevSystemOneEngine';
+import {
+  applyDshSpillPolicy,
+  compactSessionHistoryForDeepSeek,
+  buildDeepSeekHarnessMessages,
+  applyDshOutputGuard,
+} from '../../services/ai/deepseekHarnessEngine';
 import {
   exportArtifactToExcel,
   parseCustomArtifactsFromLLMText,
@@ -455,9 +462,12 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
     'fast_system1' | 'deep_system2'
   >('fast_system1');
   const [feedbackNote, setFeedbackNote] = useState('');
+  const [isJevMenuOpen, setIsJevMenuOpen] = useState(false);
   const activeLoadedSlotRef = useRef<AISlotId>(slotId);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const jevMenuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -467,9 +477,20 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (jevMenuRef.current && !jevMenuRef.current.contains(e.target as Node)) {
+        setIsJevMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const handleExecutionModeChange = (mode: AIExecutionMode) => {
     setExecutionMode(mode);
     savePreferredExecutionMode(mode);
+    setIsJevMenuOpen(false);
   };
 
   const formatChatTimestamp = (ts?: number): string => {
@@ -567,9 +588,21 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
     };
   }, [slotId]);
 
+  // Khi người dùng gửi câu hỏi hoặc khi có câu trả lời mới:
+  // Cuộn khung chat sao cho câu hỏi vừa hỏi nằm ở đỉnh panel, ngay bên dưới là phần đầu câu trả lời
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isGenerating]);
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const rafId = requestAnimationFrame(() => {
+      const userBubbles = container.querySelectorAll('[data-user-message="true"]');
+      if (userBubbles.length > 0) {
+        const lastUserEl = userBubbles[userBubbles.length - 1] as HTMLElement;
+        const targetTop = Math.max(0, lastUserEl.offsetTop - 12);
+        container.scrollTo({ top: targetTop, behavior: 'smooth' });
+      }
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [messages.length, isGenerating]);
 
   // Collect all artifacts generated in the session
   const allArtifacts = React.useMemo(() => {
@@ -632,6 +665,11 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       setInputPrompt('');
     }
 
+    const recentUserPrompts = messages
+      .filter((m) => m.role === 'user')
+      .slice(-3)
+      .map((m) => m.content);
+
     if (!options?.skipUserBubble) {
       const userMsg: AIChatMessage = {
         id: `user_${Date.now()}`,
@@ -649,6 +687,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       // 1. Run Relational Query Pipeline with Jev System One (TypeSafe AI) Classifier
       const queryOutput = await runRelationalQueryPipeline(prompt, dataContext, {
         overrideIntent: options?.overrideIntent,
+        recentUserPrompts,
       });
 
       // If data source is ambiguous & no local data is opened on the active tab, ask user to clarify immediately (0ms)
@@ -661,7 +700,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             'Vui lòng chọn rõ nguồn dữ liệu hoặc khoảng thời gian cần truy vấn:',
           timestamp: Date.now(),
           sourcePrompt: prompt,
-          modelId: 'Jev System One — Định tuyến Nguồn Dữ liệu',
+          modelId: activeSlotConfig.modelId,
           latencyMs: Math.round(performance.now() - startTick),
           clarificationOptions: queryOutput.clarificationOptions,
           systemOneEval: queryOutput.systemOneEval,
@@ -707,24 +746,15 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
         latencyMs = Math.max(8, Math.round(performance.now() - startTick));
         modeUsed = 'fast_system1';
       } else if (effProvider.apiKey && effProvider.apiKey.trim()) {
-        const allRecords = getAllRecordsFromContext(dataContext);
-        const dates = allRecords
-          .map((r) => getRecordIsoDate(r))
-          .filter(Boolean)
-          .sort();
-        const loadedDateRange =
-          dates.length > 0 ? `${dates[0]} → ${dates[dates.length - 1]}` : 'Chưa nạp';
-
-        const sysPrompt = buildAISystemPrompt(
+        // @deepseek-ai/dsh-llm-deepseek (`systemPromptUpdate: 'in-history'`):
+        // Giữ `staticSysPrompt` cố định theo cấu hình bệnh viện để DeepSeek đạt 100% Prefix Cache hit
+        const staticSysPrompt = buildAISystemPrompt(
           {
             contextPage: dataContext.contextPage,
-            periodLabel: dataContext.periodLabel,
-            dataSourceCitation: queryOutput.dataSourceCitation,
-            loadedRecordCount: Math.max(allRecords.length, queryOutput.scopedRecordCount || 0),
-            loadedDateRange:
-              queryOutput.scopedDateRange && queryOutput.scopedDateRange !== 'Chưa có bản ghi'
-                ? queryOutput.scopedDateRange
-                : loadedDateRange,
+            periodLabel: 'Toàn viện',
+            dataSourceCitation: 'Theo kết quả truy vấn từng lượt (in-history)',
+            loadedRecordCount: 0,
+            loadedDateRange: 'Theo kỳ truy vấn',
             loadedPackageAssignmentsCount: dataContext.packageAssignments.length,
             loadedDutyScheduleDaysCount: Object.keys(dataContext.dutySchedules || {}).length,
             staffCount: (dataContext.config.staffList || []).length,
@@ -738,10 +768,23 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           dataContext.chapters
         );
 
-        const recentHistory = messages.slice(-6).map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
+        const dynamicTurnContextPrompt = `[CẬP NHẬT NGỮ CẢNH LƯỢT HỎI (dsh in-history)]: Nguồn dữ liệu đã truy xuất: "${
+          queryOutput.dataSourceCitation || dataContext.periodLabel
+        }" (${queryOutput.scopedRecordCount || 0} bản ghi ca PTTT, phạm vi ngày: ${
+          queryOutput.scopedDateRange || 'Đang mở'
+        }).`;
+
+        // @deepseek-ai/dsh-compaction & @deepseek-ai/dsh-spill:
+        const compactedHistory = compactSessionHistoryForDeepSeek(messages, 4, 700);
+        const spilled = applyDshSpillPolicy(queryOutput.contextDataForLLM, 2800);
+        const harnessMessages = buildDeepSeekHarnessMessages({
+          staticSystemPrompt: staticSysPrompt,
+          dynamicTurnContextPrompt,
+          compactedHistory,
+          userQuestion: prompt,
+          spilledToolContext: spilled.inlineText,
+          dataSourceCitation: queryOutput.dataSourceCitation || dataContext.periodLabel,
+        });
 
         try {
           const llmResponse = await generateAICompletion({
@@ -750,18 +793,17 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
             temperature: activeSlotConfig.temperature,
             reasoningEffort: activeSlotConfig.reasoningEffort,
             maxTokens: activeSlotConfig.maxTokens,
-            messages: [
-              { role: 'system', content: sysPrompt },
-              ...recentHistory,
-              {
-                role: 'user',
-                content: `CÂU HỎI CỦA NGƯỜI DÙNG:\n"${prompt}"\n\n=== KẾT QUẢ TRUY VẤN DỮ LIỆU ĐÃ THỰC THI CHÍNH XÁC 100% TỪ CƠ SỞ DỮ LIỆU ===\n${queryOutput.contextDataForLLM}\n\nHãy trả lời trực tiếp, chính xác và đúng trọng tâm câu hỏi trên dựa hoàn toàn vào số liệu truy vấn ở trên. BẮT BUỘC nêu rõ nguồn dữ liệu ("${queryOutput.dataSourceCitation || dataContext.periodLabel}") ở đầu câu trả lời. LƯU Ý QUAN TRỌNG: Không tự ý đưa phân tích theo Mùa (Mùa Hè/Mùa Đông) hay theo Phẫu thuật viên chính / Bác sĩ vào câu trả lời nếu người dùng không yêu cầu trong câu hỏi.`,
-              },
-            ],
+            messages: harnessMessages,
           });
 
           const parsed = parseCustomArtifactsFromLLMText(llmResponse.text);
-          assistantText = parsed.cleanText;
+          // @deepseek-ai/dsh-guard: Chống ảo giác báo "thiếu dữ liệu" khi đã có kết quả tính toán
+          const guarded = applyDshOutputGuard(
+            parsed.cleanText,
+            focusedSummaryText,
+            queryOutput.scopedRecordCount || 0
+          );
+          assistantText = guarded.finalContent;
           if (parsed.customArtifacts.length > 0) {
             generatedArtifacts.push(...parsed.customArtifacts);
             setSelectedArtifactId(
@@ -786,10 +828,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
         timestamp: Date.now(),
         sourcePrompt: prompt,
         provider: activeSlotConfig.provider,
-        modelId:
-          modeUsed === 'fast_system1'
-            ? `⚡ Jev System One (${activeSlotConfig.modelId})`
-            : activeSlotConfig.modelId,
+        modelId: activeSlotConfig.modelId,
         reasoningEffort: activeSlotConfig.reasoningEffort,
         temperature: activeSlotConfig.temperature,
         latencyMs,
@@ -905,139 +944,184 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
       }`}
     >
       {/* Top Workspace Header */}
-      <div className="px-3.5 py-2.5 bg-white border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="p-1.5 rounded-lg bg-sky-600 text-white shrink-0">
-            <Bot className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-xs font-bold text-slate-900 truncate">
-                Trợ lý AI Phân tích Số liệu Phẫu thuật
-              </h3>
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
-                  allRecordsCount > 0
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-sky-50 text-sky-700 border-sky-200'
-                }`}
-              >
-                <Database className="h-2.5 w-2.5" />
-                {allRecordsCount > 0
-                  ? `Đang mở: ${allRecordsCount.toLocaleString('vi-VN')} ca PTTT`
-                  : 'Truy vấn tự động theo câu hỏi'}
-              </span>
-              {rlcdMemory.totalFeedbackCount > 0 && (
-                <span
-                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1"
-                  title="Số lượt phản hồi RLCD đã được AI học tăng cường toàn viện"
-                >
-                  <Zap className="h-2.5 w-2.5 text-amber-600" />
-                  RLCD: {rlcdMemory.totalFeedbackCount} mẫu học
-                </span>
-              )}
+      <div className="px-3 py-2 bg-white border-b border-slate-200 flex flex-col gap-1.5 shrink-0">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="p-1.5 rounded-lg bg-sky-600 text-white shrink-0">
+              <Bot className="h-3.5 w-3.5" />
             </div>
-            <p className="text-[11px] text-slate-500 truncate">
-              Ngữ cảnh màn hình: <b>{dataContext.activeSourceCitation || dataContext.periodLabel}</b> • Gói DV (
-              {dataContext.packageAssignments.length}) • Lịch trực (
-              {Object.keys(dataContext.dutySchedules || {}).length} ngày)
-            </p>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 className="text-xs font-bold text-slate-900 truncate">
+                  Trợ lý AI Phân tích Số liệu
+                </h3>
+                <span
+                  className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border flex items-center gap-1 shrink-0 ${
+                    allRecordsCount > 0
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-sky-50 text-sky-700 border-sky-200'
+                  }`}
+                >
+                  <Database className="h-2.5 w-2.5" />
+                  {allRecordsCount > 0
+                    ? `${allRecordsCount.toLocaleString('vi-VN')} ca`
+                    : 'Auto DB'}
+                </span>
+                {rlcdMemory.totalFeedbackCount > 0 && (
+                  <span
+                    className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-0.5 shrink-0"
+                    title="Số lượt phản hồi RLCD đã được AI học tăng cường toàn viện"
+                  >
+                    <Zap className="h-2.5 w-2.5 text-amber-600" />
+                    RLCD ({rlcdMemory.totalFeedbackCount})
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-500 truncate">
+                Ngữ cảnh: <b>{dataContext.activeSourceCitation || dataContext.periodLabel}</b>
+              </p>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap shrink-0">
-          {/* Jev System One / System 2 Execution Mode Switcher */}
-          <div
-            className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5"
-            title="Chế độ vận hành Jev System One (TypeSafe AI): Auto (tự động chọn Nhanh hoặc Sâu theo độ tin cậy) | Nhanh (trả kết quả tức thì ~50ms) | Sâu (luôn gọi LLM phân tích)"
-          >
-            {(
-              [
-                {
-                  id: 'auto' as AIExecutionMode,
-                  label: 'Auto',
-                  title: 'Tự động: Jev System One đánh giá độ tin cậy, trả lời tức thì nếu câu hỏi tra cứu rõ ràng hoặc gọi System 2 (LLM) nếu cần phân tích sâu',
-                },
-                {
-                  id: 'fast_system1' as AIExecutionMode,
-                  label: '⚡ Nhanh',
-                  title: 'System 1 Fast-Path: Trả kết quả bảng & số liệu trọng tâm tức thì (~50ms) không cần chờ LLM',
-                },
-                {
-                  id: 'deep_system2' as AIExecutionMode,
-                  label: '🧠 Sâu',
-                  title: 'System 1 + System 2 (LLM): Định tuyến trọng tâm bằng System 1 sau đó gọi LLM viết bình luận chi tiết',
-                },
-              ]
-            ).map((m) => (
+        {/* Compact Control Bar: 1-Button Jev Mode Dropdown + Model Selector + Clear + Studio */}
+        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            {/* Single Jev Mode Dropdown Button */}
+            <div className="relative" ref={jevMenuRef}>
               <button
-                key={m.id}
                 type="button"
-                onClick={() => handleExecutionModeChange(m.id)}
-                title={m.title}
-                className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer ${
-                  executionMode === m.id
-                    ? 'bg-white text-sky-700 shadow-2xs border border-sky-200/80'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                onClick={() => setIsJevMenuOpen((prev) => !prev)}
+                className="px-2 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-700 flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                title="Chọn chế độ Jev System One (Auto / Trả lời nhanh / Phân tích sâu)"
               >
-                {m.label}
+                {executionMode === 'deep_system2' ? (
+                  <Brain className="h-3 w-3 text-sky-600 shrink-0" />
+                ) : (
+                  <Zap
+                    className={`h-3 w-3 shrink-0 ${
+                      executionMode === 'fast_system1' ? 'text-emerald-600' : 'text-amber-500'
+                    }`}
+                  />
+                )}
+                <span>
+                  Jev:{' '}
+                  {executionMode === 'auto'
+                    ? 'Auto'
+                    : executionMode === 'fast_system1'
+                    ? 'Nhanh'
+                    : 'Sâu'}
+                </span>
+                <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
               </button>
-            ))}
+
+              {isJevMenuOpen && (
+                <div className="absolute left-0 top-full mt-1 w-64 bg-white rounded-xl border border-slate-200 shadow-lg z-50 p-1.5 space-y-1">
+                  <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Chế độ Jev System One & DeepSeek Harness
+                  </div>
+                  {(
+                    [
+                      {
+                        id: 'auto' as AIExecutionMode,
+                        label: '⚡ Jev: Auto (Khuyên dùng)',
+                        desc: 'Tự động trả lời nhanh hoặc gọi LLM theo độ tin cậy',
+                      },
+                      {
+                        id: 'fast_system1' as AIExecutionMode,
+                        label: '⚡ Jev: Trả lời nhanh',
+                        desc: 'Trả kết quả bảng & số liệu tức thì (~50ms)',
+                      },
+                      {
+                        id: 'deep_system2' as AIExecutionMode,
+                        label: '🧠 Jev: Phân tích sâu (LLM)',
+                        desc: 'Luôn gọi DeepSeek / LLM phân tích chuyên sâu',
+                      },
+                    ]
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => {
+                        handleExecutionModeChange(m.id);
+                        setIsJevMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors flex items-start justify-between gap-2 cursor-pointer ${
+                        executionMode === m.id
+                          ? 'bg-sky-50 text-sky-800 font-semibold border border-sky-200/80'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate">{m.label}</div>
+                        <div className="text-[10px] text-slate-500 font-normal leading-tight mt-0.5">
+                          {m.desc}
+                        </div>
+                      </div>
+                      {executionMode === m.id && (
+                        <Check className="h-3.5 w-3.5 text-sky-600 shrink-0 mt-0.5" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {systemConfig && (
+              <AIModelQuickSelector
+                slotId={slotId}
+                activeSlotConfig={activeSlotConfig}
+                systemConfig={systemConfig}
+                personalOverride={personalOverride}
+                onSlotConfigChange={setActiveSlotConfig}
+                onOpenAIConfigTab={onOpenAIConfigTab}
+              />
+            )}
           </div>
 
-          {systemConfig && (
-            <AIModelQuickSelector
-              slotId={slotId}
-              activeSlotConfig={activeSlotConfig}
-              systemConfig={systemConfig}
-              personalOverride={personalOverride}
-              onSlotConfigChange={setActiveSlotConfig}
-              onOpenAIConfigTab={onOpenAIConfigTab}
-            />
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              disabled={messages.length === 0}
+              onClick={handleClearAllHistory}
+              className={`px-2 py-1 rounded-lg border text-[11px] font-semibold flex items-center gap-1 transition-colors ${
+                messages.length > 0
+                  ? 'border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 cursor-pointer'
+                  : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+              }`}
+              title="Xóa toàn bộ lịch sử trò chuyện"
+            >
+              <Trash2 className="h-3 w-3" />
+              <span>Xóa{messages.length > 0 ? ` (${messages.length})` : ''}</span>
+            </button>
 
-          <button
-            type="button"
-            disabled={messages.length === 0}
-            onClick={handleClearAllHistory}
-            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-              messages.length > 0
-                ? 'border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 cursor-pointer'
-                : 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
-            }`}
-            title="Xóa toàn bộ lịch sử trò chuyện"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span>Xóa lịch sử{messages.length > 0 ? ` (${messages.length})` : ''}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleToggleStudio}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors cursor-pointer ${
-              isExpandedStudio
-                ? 'bg-slate-900 text-white border-slate-900'
-                : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
-            }`}
-            title={
-              isExpandedStudio
-                ? 'Thu gọn chế độ Studio 2 cột'
-                : 'Mở rộng (Expand) sang chế độ AI Analytics Studio (Hỏi đáp + Khung Biểu đồ & Bảng tương tác)'
-            }
-          >
-            {isExpandedStudio ? (
-              <>
-                <Minimize2 className="h-3.5 w-3.5" />
-                <span>Thu gọn</span>
-              </>
-            ) : (
-              <>
-                <Maximize2 className="h-3.5 w-3.5" />
-                <span>Expand Studio</span>
-              </>
-            )}
-          </button>
+            <button
+              type="button"
+              onClick={handleToggleStudio}
+              className={`px-2 py-1 rounded-lg text-[11px] font-semibold border flex items-center gap-1 transition-colors cursor-pointer ${
+                isExpandedStudio
+                  ? 'bg-slate-900 text-white border-slate-900'
+                  : 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100'
+              }`}
+              title={
+                isExpandedStudio
+                  ? 'Thu gọn chế độ Studio 2 cột'
+                  : 'Mở rộng sang chế độ AI Analytics Studio (Hỏi đáp + Biểu đồ & Bảng tương tác)'
+              }
+            >
+              {isExpandedStudio ? (
+                <>
+                  <Minimize2 className="h-3 w-3" />
+                  <span>Thu gọn</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="h-3 w-3" />
+                  <span>Studio</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1052,14 +1136,17 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
           } h-full`}
         >
           {/* Messages Scroll Area */}
-          <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
+          <div
+            ref={messagesContainerRef}
+            className="flex-1 overflow-y-auto p-3.5 pb-16 space-y-3.5 relative"
+          >
             {messages.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3 shadow-2xs">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2 text-sky-700 font-bold text-xs">
                     <Sparkles className="h-4 w-4 shrink-0" />
                     <span>
-                      Trợ lý AI Phân tích Số liệu Phẫu thuật — Tích hợp Jev System One (TypeSafe AI)
+                      Trợ lý AI Phân tích Số liệu Phẫu thuật — Jev System One & DeepSeek Harness
                     </span>
                   </div>
                   <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-semibold">
@@ -1067,7 +1154,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 leading-relaxed">
-                  Mỗi câu hỏi đều được mô hình <b>Jev System One</b> đánh giá định kiểu song song (<i>Choice • Noul • Score</i>) trong vài mili-giây để nhận diện chính xác trọng tâm nghiệp vụ (Ngoài giờ, Lịch trực 24h, Trùng NV/Máy, Gói DVYC, So sánh Chuyên khoa YoY...) và tự học tăng cường từ phản hồi 👍/👎 của bạn.
+                  Tích hợp <b>Jev System One</b> định tuyến câu hỏi tức thì và <b>DeepSeek Harness (dsh)</b> tối ưu Prefix Cache, tự động truy xuất toàn bộ dữ liệu tháng/năm từ Firestore và kiểm soát chất lượng số liệu.
                 </p>
 
                 <div className="space-y-1.5 pt-1">
@@ -1096,6 +1183,7 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
               messages.map((msg) => (
                 <div
                   key={msg.id}
+                  data-user-message={msg.role === 'user' ? 'true' : undefined}
                   className={`flex flex-col ${
                     msg.role === 'user' ? 'items-end' : 'items-start'
                   }`}
@@ -1163,95 +1251,35 @@ export const AIChatWorkspace: React.FC<AIChatWorkspaceProps> = ({
                       </div>
                     )}
 
-                    {/* ASSISTANT MESSAGE HEADER */}
+                    {/* ASSISTANT MESSAGE HEADER (Concise Jev Badge Only) */}
                     {msg.role === 'assistant' && (
                       <div className="flex items-center justify-between gap-2 pb-1.5 mb-2 border-b border-slate-100 text-[10px] text-slate-400 flex-wrap">
                         <div className="flex items-center gap-1.5 font-semibold text-sky-700 flex-wrap">
-                          <Bot className="h-3 w-3" />
-                          <span>{msg.modelId || activeSlotConfig.modelId}</span>
-                          {msg.executionModeUsed === 'fast_system1' ? (
-                            <span className="px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded font-bold">
-                              ⚡ System 1 Fast-Path
+                          <Zap className="h-3 w-3 text-amber-500 shrink-0" />
+                          <span>
+                            Jev:{' '}
+                            {msg.executionModeUsed === 'fast_system1'
+                              ? 'Trả lời nhanh'
+                              : 'Phân tích sâu'}
+                            {msg.systemOneEval
+                              ? `, tin cậy ${msg.systemOneEval.scores.calibrationConfidence.score}%`
+                              : ''}
+                          </span>
+                          {msg.systemOneEval?.nouls.matchesLearnedPattern.value && (
+                            <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 font-bold">
+                              ★ Đã học RLCD
                             </span>
-                          ) : (
-                            msg.reasoningEffort && (
-                              <span className="px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
-                                Effort: {msg.reasoningEffort}
-                              </span>
-                            )
                           )}
                         </div>
-                        <div className="flex items-center gap-2.5">
-                          <span className="flex items-center gap-1 text-slate-400" title="Thời gian trả lời">
+                        <div className="flex items-center gap-2 text-slate-400">
+                          <span className="truncate max-w-[130px] font-medium text-slate-500">
+                            {msg.modelId || activeSlotConfig.modelId}
+                          </span>
+                          <span className="flex items-center gap-1" title="Thời gian trả lời">
                             <Clock className="h-2.5 w-2.5" />
                             <span>{formatChatTimestamp(msg.timestamp)}</span>
                           </span>
-                          {msg.latencyMs !== undefined && (
-                            <span className="px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 font-semibold">
-                              {msg.latencyMs}ms
-                            </span>
-                          )}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Jev System One (TypeSafe AI) Evaluation Strip */}
-                    {msg.role === 'assistant' && msg.systemOneEval && (
-                      <div className="mb-2.5 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200/90 text-[11px] space-y-1">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                            <Zap className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                            <span>Jev System One:</span>
-                            <span className="px-2 py-0.5 rounded bg-sky-100 text-sky-800 font-bold">
-                              {msg.systemOneEval.intentChoice.label}
-                            </span>
-                            <span className="text-[10px] text-slate-500 font-semibold">
-                              (P={(msg.systemOneEval.intentChoice.calibratedProbability * 100).toFixed(0)}%)
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                msg.systemOneEval.scores.calibrationConfidence.score >= 85
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}
-                            >
-                              {msg.systemOneEval.scores.calibrationConfidence.label}
-                            </span>
-                            {msg.systemOneEval.nouls.matchesLearnedPattern.value && (
-                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold">
-                                ★ Đã học RLCD
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Explicit Data Source Citation Badge */}
-                    {msg.role === 'assistant' && msg.dataSourceCitation && (
-                      <div className="mb-2.5 px-3 py-1.5 rounded-lg bg-sky-50 border border-sky-200/90 text-[11px] text-sky-900 flex items-start gap-1.5">
-                        <Database className="h-3.5 w-3.5 text-sky-600 shrink-0 mt-0.5" />
-                        <div className="leading-snug">
-                          <span className="font-bold text-sky-950">Nguồn số liệu: </span>
-                          <span className="font-medium">{msg.dataSourceCitation}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Tool Execution Badges */}
-                    {msg.toolLogs && msg.toolLogs.length > 0 && (
-                      <div className="mb-2.5 space-y-1">
-                        {msg.toolLogs.map((log, lIdx) => (
-                          <div
-                            key={lIdx}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-50/80 border border-emerald-200/80 text-[11px] text-emerald-800 flex items-center gap-1.5"
-                          >
-                            <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
-                            <span className="truncate">{log.summary}</span>
-                          </div>
-                        ))}
                       </div>
                     )}
 

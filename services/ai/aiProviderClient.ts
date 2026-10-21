@@ -10,6 +10,10 @@ import {
   AIProviderId,
   AIReasoningEffort,
 } from '../../types/ai';
+import {
+  executeWithDshRetry,
+  stripDeepSeekThinkingBlocks,
+} from './deepseekHarnessEngine';
 
 export interface AIMessageInput {
   role: 'system' | 'user' | 'assistant';
@@ -35,6 +39,7 @@ export interface AICompletionResponse {
     promptTokens?: number;
     completionTokens?: number;
     totalTokens?: number;
+    promptCacheHitTokens?: number;
   };
 }
 
@@ -190,6 +195,12 @@ async function callOpenAICompatibleAPI(req: AICompletionRequest): Promise<AIComp
   }
 
   const baseUrl = cleanBaseUrl(providerConfig.baseUrl, providerConfig.defaultBaseUrl);
+
+  // Hỗ trợ cả cổng Messages protocol của DeepSeek Harness (https://api.deepseek.com/anthropic)
+  if (providerConfig.provider === 'deepseek' && baseUrl.endsWith('/anthropic')) {
+    return callAnthropicAPI(req);
+  }
+
   const endpoint = `${baseUrl}/chat/completions`;
   const isOSeries = providerConfig.provider === 'openai' && isOpenAIReasoningModel(modelId);
   const isDeepSeekReasoner = providerConfig.provider === 'deepseek' && modelId.includes('reasoner');
@@ -236,10 +247,15 @@ async function callOpenAICompatibleAPI(req: AICompletionRequest): Promise<AIComp
 
   const data = await res.json();
   const choice = data?.choices?.[0]?.message;
-  const contentText = (choice?.content || '').trim();
+  const rawContent = (choice?.content || '').trim();
+  const contentText = stripDeepSeekThinkingBlocks(rawContent);
+
+  if (!contentText) {
+    throw new Error('EMPTY_RESPONSE: Mô hình trả về phản hồi rỗng');
+  }
 
   return {
-    text: contentText || 'Không có phản hồi từ mô hình.',
+    text: contentText,
     provider: providerConfig.provider,
     modelId,
     latencyMs: Math.round(performance.now() - startTime),
@@ -247,23 +263,24 @@ async function callOpenAICompatibleAPI(req: AICompletionRequest): Promise<AIComp
       promptTokens: data?.usage?.prompt_tokens,
       completionTokens: data?.usage?.completion_tokens,
       totalTokens: data?.usage?.total_tokens,
+      promptCacheHitTokens: data?.usage?.prompt_cache_hit_tokens,
     },
   };
 }
 
 /**
- * Call Anthropic Claude Messages API
+ * Call Anthropic Claude Messages API (and DeepSeek /anthropic Messages endpoint)
  */
 async function callAnthropicAPI(req: AICompletionRequest): Promise<AICompletionResponse> {
   const startTime = performance.now();
   const { providerConfig, modelId, messages, temperature = 0.2, reasoningEffort = 'medium', maxTokens = 4096, signal } = req;
   const apiKey = (providerConfig.apiKey || '').trim();
   if (!apiKey) {
-    throw new Error('Chưa cấu hình API Key cho Anthropic Claude.');
+    throw new Error(`Chưa cấu hình API Key cho ${providerConfig.name}.`);
   }
 
   const baseUrl = cleanBaseUrl(providerConfig.baseUrl, providerConfig.defaultBaseUrl);
-  const endpoint = `${baseUrl}/messages`;
+  const endpoint = baseUrl.endsWith('/v1') ? `${baseUrl}/messages` : `${baseUrl}/v1/messages`;
 
   const systemPrompt = messages
     .filter((m) => m.role === 'system')
@@ -292,8 +309,6 @@ async function callAnthropicAPI(req: AICompletionRequest): Promise<AICompletionR
     payload.system = systemPrompt;
   }
 
-  // Note: For extended thinking on Claude 3.7 / 4 when high effort is requested,
-  // standard temperature is fastest and avoids token budget conflicts unless needed.
   void reasoningEffort;
 
   const res = await fetch(endpoint, {
@@ -301,6 +316,7 @@ async function callAnthropicAPI(req: AICompletionRequest): Promise<AICompletionR
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': apiKey,
+      Authorization: `Bearer ${apiKey}`,
       'anthropic-version': '2023-06-01',
       'anthropic-dangerous-direct-browser-access': 'true',
     },
@@ -317,20 +333,26 @@ async function callAnthropicAPI(req: AICompletionRequest): Promise<AICompletionR
     } catch {
       // ignore
     }
-    throw new Error(`Anthropic API lỗi (${res.status}): ${detail}`);
+    throw new Error(`${providerConfig.name} API lỗi (${res.status}): ${detail}`);
   }
 
   const data = await res.json();
   const blocks: Array<{ type: string; text?: string }> = Array.isArray(data?.content) ? data.content : [];
-  const text = blocks
-    .filter((b) => b.type === 'text' && typeof b.text === 'string')
-    .map((b) => b.text)
-    .join('\n')
-    .trim();
+  const text = stripDeepSeekThinkingBlocks(
+    blocks
+      .filter((b) => b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text)
+      .join('\n')
+      .trim()
+  );
+
+  if (!text) {
+    throw new Error('EMPTY_RESPONSE: Mô hình trả về phản hồi rỗng');
+  }
 
   return {
-    text: text || 'Không có phản hồi từ mô hình.',
-    provider: 'anthropic',
+    text,
+    provider: providerConfig.provider,
     modelId,
     latencyMs: Math.round(performance.now() - startTime),
     usage: {
@@ -343,18 +365,25 @@ async function callAnthropicAPI(req: AICompletionRequest): Promise<AICompletionR
 
 /**
  * Unified entry point to generate completion from any configured provider
+ * Tích hợp `@deepseek-ai/dsh-llm-retry` (Bounded Exponential Backoff + Jitter)
  */
 export async function generateAICompletion(req: AICompletionRequest): Promise<AICompletionResponse> {
-  switch (req.providerConfig.provider) {
-    case 'gemini':
-      return callGeminiAPI(req);
-    case 'anthropic':
-      return callAnthropicAPI(req);
-    case 'openai':
-    case 'deepseek':
-    default:
-      return callOpenAICompatibleAPI(req);
-  }
+  return executeWithDshRetry(
+    async () => {
+      switch (req.providerConfig.provider) {
+        case 'gemini':
+          return callGeminiAPI(req);
+        case 'anthropic':
+          return callAnthropicAPI(req);
+        case 'openai':
+        case 'deepseek':
+        default:
+          return callOpenAICompatibleAPI(req);
+      }
+    },
+    undefined,
+    req.signal
+  );
 }
 
 /**

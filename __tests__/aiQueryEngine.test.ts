@@ -27,6 +27,13 @@ import {
   recordRLCDUserFeedback,
   clearLocalRLCDMemory,
 } from '../services/ai/jevSystemOneEngine';
+import {
+  applyDshSpillPolicy,
+  compactSessionHistoryForDeepSeek,
+  buildDeepSeekHarnessMessages,
+  applyDshOutputGuard,
+} from '../services/ai/deepseekHarnessEngine';
+import { reportService } from '../services/reportService';
 import type { SurgeryRecord, DutyScheduleDateConfig } from '../types';
 import type { ServicePackageAssignment, ServicePackageDefinition } from '../types/servicePackage';
 import { DEFAULT_CONFIG } from '../contexts/ConfigContext';
@@ -544,5 +551,109 @@ describe('Jev System One Decision Engine & RLCD Reinforcement Learning', () => {
     expect(learnedEval.intentChoice.selected).toBe('conflict_quality');
     expect(learnedEval.matchedExemplarId).toBeDefined();
     expect(learnedEval.nouls.matchesLearnedPattern.value).toBe(true);
+  });
+
+  it('parses "từ đầu tháng tới giờ mổ bao nhiêu ca? Cơ cấu loại phẫu thuật thế nào?" and fetches full month from Firestore even on daily_storage', async () => {
+    const prompt = 'từ đầu tháng tới giờ mổ bao nhiêu ca? Cơ cấu loại phẫu thuật thế nào?';
+    const now = new Date();
+    const curMonth = now.getMonth() + 1;
+    const curYear = now.getFullYear();
+
+    const tc = extractTimeConstraintsFromPrompt(prompt);
+    expect(tc.months).toContain(curMonth);
+    expect(tc.years).toContain(curYear);
+    expect(tc.dateRange).toBeDefined();
+    expect(tc.dateRange?.from).toBe(
+      `${curYear}-${String(curMonth).padStart(2, '0')}-01`
+    );
+
+    const evalRes = evaluateWithJevSystemOne(prompt, { hasLoadedRecords: true });
+    expect(evalRes.intentChoice.selected).toBe('general_summary');
+    expect(evalRes.scores.calibrationConfidence.score).toBeGreaterThanOrEqual(85);
+
+    // Mock Firestore reports returning earlier days in the current month (reportService.getReports returns PersistedSurgeryRecord[])
+    vi.mocked(reportService.getReports).mockImplementation(async (_from, _to, type) => {
+      if (type === 'DAILY') {
+        return [
+          {
+            ...sampleSurgeries[0],
+            patientId: 'BN_DAY05_A',
+            ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-05 08:30`,
+            loaiPTTT: 'PĐB',
+          },
+          {
+            ...sampleSurgeries[1],
+            patientId: 'BN_DAY05_B',
+            ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-05 10:30`,
+            loaiPTTT: 'P1',
+          },
+        ] as any;
+      }
+      return [];
+    });
+
+    const dailyScreenRecord: SurgeryRecord = {
+      ...sampleSurgeries[2],
+      patientId: 'BN_DAY19_SCREEN',
+      ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-19 09:00`,
+      loaiPTTT: 'P2',
+    };
+
+    const dailyCtx: AIDataContextInput = {
+      ...baseContext,
+      contextPage: 'daily_storage',
+      currentRecords: [dailyScreenRecord],
+      allowRemoteFirestoreFetch: true,
+    };
+
+    const out = await runRelationalQueryPipeline(prompt, dailyCtx);
+    expect(out.needsClarification).toBeFalsy();
+    // Should include both the 2 Firestore records from day 05 AND the 1 screen record from day 19 = 3 records
+    expect(out.focusedFastSummary).toContain('3 ca');
+  });
+
+  it('applies DeepSeek Harness (dsh) spill, compaction, prefix-cache message builder, and output guard', () => {
+    const spillRes = applyDshSpillPolicy('Dữ liệu ngắn gọn 100 ca', 2800);
+    expect(spillRes.spilled).toBe(false);
+
+    const compacted = compactSessionHistoryForDeepSeek([
+      {
+        id: 'u1',
+        role: 'user',
+        content: 'Tháng này mổ bao nhiêu ca?',
+        timestamp: Date.now() - 2000,
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content:
+          '<think>Suy nghĩ nội bộ dài...</think>\nTổng số ca: 120 ca.\n| Loại | Số ca |\n| --- | --- |\n| P1 | 50 |\n| P2 | 70 |\n| P3 | 0 |\n| PĐB | 0 |',
+        timestamp: Date.now() - 1000,
+      },
+    ]);
+    expect(compacted[1].content).not.toContain('<think>');
+    expect(compacted[1].content).not.toContain('| P1 | 50 |');
+    expect(compacted[1].content).toContain('Tổng số ca: 120 ca.');
+
+    const dshMsgs = buildDeepSeekHarnessMessages({
+      staticSystemPrompt: 'SYSTEM_STATIC_SCHEMA',
+      dynamicTurnContextPrompt: 'DYNAMIC_TURN_DATA',
+      compactedHistory: compacted,
+      userQuestion: 'Cơ cấu loại phẫu thuật?',
+      spilledToolContext: 'Tổng số 120 ca',
+      dataSourceCitation: 'Tháng 10/2026',
+    });
+    // First message is byte-for-byte static system prompt for 100% DeepSeek Prefix Cache hit
+    expect(dshMsgs[0].role).toBe('system');
+    expect(dshMsgs[0].content).toBe('SYSTEM_STATIC_SCHEMA');
+
+    // Guard catches false "missing ngayBD/ngayKT" hallucination when records exist
+    const guarded = applyDshOutputGuard(
+      'Dữ liệu hiện tại không chứa các trường dữ liệu bắt buộc ngayBD, ngayKT nên chưa thể xác định danh sách nhân sự chấm ngoài giờ.',
+      'Báo cáo chính xác từ 25 ca PTTT.',
+      25
+    );
+    expect(guarded.guardTriggered).toBe(true);
+    expect(guarded.finalContent).toContain('Báo cáo chính xác từ 25 ca PTTT');
   });
 });

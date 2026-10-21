@@ -123,15 +123,12 @@ export const AIModelQuickSelector: React.FC<AIModelQuickSelectorProps> = ({
           if (!open) updatePopoverPosition();
           setOpen((prev) => !prev);
         }}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs transition-colors cursor-pointer"
-        title="Đổi mô hình AI, mức độ suy luận (Effort) và Temperature"
+        className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 shadow-2xs transition-colors cursor-pointer shrink-0"
+        title={`Mô hình: ${currentModelMeta ? currentModelMeta.name : activeSlotConfig.modelId} (${effortBadgeLabel}) — Bấm để đổi mô hình AI`}
       >
-        <Bot className="h-3.5 w-3.5 text-sky-600 shrink-0" />
-        <span className="truncate max-w-[155px]">
+        <Bot className="h-3 w-3 text-sky-600 shrink-0" />
+        <span className="truncate max-w-[130px]">
           {currentModelMeta ? currentModelMeta.name : activeSlotConfig.modelId}
-        </span>
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-medium hidden sm:inline">
-          {effortBadgeLabel}
         </span>
         <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
       </button>

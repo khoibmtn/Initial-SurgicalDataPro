@@ -355,6 +355,7 @@ export function evaluateWithJevSystemOne(
     hasLoadedRecords?: boolean;
     hasExplicitTimeOrSource?: boolean;
     rlcdMemory?: AIRLCDMemoryState;
+    recentUserPrompts?: string[];
   }
 ): JevSystemOneEvaluation {
   const startPerf = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -378,20 +379,20 @@ export function evaluateWithJevSystemOne(
 
   // 2. Luật đặc trưng ngữ nghĩa Y khoa (Domain Structural Features)
   // --- Overtime Audit (Ngoài giờ) ---
-  if (/(ngoai gio|cham ngoai gio|lam them gio|tang cuong|lo gio|kip mo phien|qua gio|sau gio|gio nghi trua)/i.test(noAccent)) {
+  if (/(ngoai gio|cham ngoai gio|lam them gio|tang ca|tang cuong|lo gio|kip mo phien|qua gio|sau gio|gio nghi trua|cham cong ngoai gio)/i.test(noAccent)) {
     logits.overtime_audit += 3.8;
   }
-  if (/(tu gio nao|den gio nao|khung gio nao|nhung ai phai cham)/i.test(noAccent)) {
+  if (/(tu gio nao|den gio nao|khung gio nao|nhung ai phai cham|ai cham ngoai gio)/i.test(noAccent)) {
     logits.overtime_audit += 2.2;
   }
 
   // --- Conflict & Quality Check (Trùng NV, Trùng máy, Thiếu máy, Phụ cấp) ---
-  if (/(trung nv|trung nhan vien|trung kip|trung may|thieu may|thieu ma may|chua gan gv|chua gv|giup viec|loi thoi gian|loi tg|dinh muc thoi gian|duoi 100|tt <100|phu cap pttt|thanh toan pttt)/i.test(noAccent)) {
+  if (/(trung nv|trung nhan vien|trung kip|trung may|thieu may|thieu ma may|chua gan gv|chua gv|giup viec|loi thoi gian|loi tg|dinh muc thoi gian|duoi 100|tt <100|phu cap pttt|thanh toan pttt|trung lich|xung dot)/i.test(noAccent)) {
     logits.conflict_quality += 3.7;
   }
 
   // --- Duty Schedule (Lịch trực 24h) ---
-  if (/(lich truc|tua truc|ca truc|truc 24h|buoi truc|ngay truc|ai truc|truc ngay)/i.test(noAccent)) {
+  if (/(lich truc|tua truc|ca truc|truc 24h|buoi truc|ngay truc|ai truc|truc ngay|truc bao nhieu)/i.test(noAccent)) {
     // Nếu câu hỏi hỏi về chấm ngoài giờ thì ưu tiên overtime_audit hơn duty_schedule
     if (logits.overtime_audit > 1.0) {
       logits.duty_schedule += 1.2;
@@ -406,8 +407,8 @@ export function evaluateWithJevSystemOne(
   }
 
   // --- Staff Workload (Khối lượng công việc nhân sự) ---
-  if (/(bac si|bs |ptv|kip mo|phau thuat vien|gay me|dung cu|nhan vien|ai mo nhieu| đứng mổ|dung mo|pt chinh|pt phu)/i.test(noAccent)) {
-    logits.staff_workload += 2.4;
+  if (/(bac si|bs |ptv|kip mo|phau thuat vien|gay me|dung cu|nhan vien|ai mo nhieu|dung mo|pt chinh|pt phu)/i.test(noAccent)) {
+    logits.staff_workload += 2.6;
   }
 
   // --- Patient / Surgery Lookup (Tra cứu bệnh nhân / ca mổ) ---
@@ -416,18 +417,34 @@ export function evaluateWithJevSystemOne(
   }
 
   // --- Specialty & YoY Comparison (Chuyên khoa, cùng kỳ, mùa, tháng) ---
-  if (/(chuyen khoa|so voi|cung ky|nam truoc|yoy|tang giam|xu huong|theo thang|theo mua|mua he|mua dong|noi soi|ctch|tieu hoa|san khoa|iet nieu|tai mui hong|mat|rhm)/i.test(noAccent)) {
-    logits.specialty_yoy += 2.9;
+  if (/(chuyen khoa|so voi|cung ky|nam truoc|yoy|tang giam|xu huong|theo thang|theo mua|mua he|mua dong|noi soi|ctch|tieu hoa|san khoa|tiet nieu|tai mui hong|mat|rhm)/i.test(noAccent)) {
+    logits.specialty_yoy += 3.2;
   }
 
   // --- OR Utilization (Công suất phòng mổ / giờ cao điểm) ---
   if (/(cong suat|phong mo|gio cao diem|mat do|thoi luong trung binh|hieu suat)/i.test(noAccent)) {
-    logits.or_utilization += 3.1;
+    logits.or_utilization += 3.4;
   }
 
-  // --- General Summary ---
-  if (/(tong quan|tom tat|bao cao chung|tong so ca|co bao nhieu ca)/i.test(noAccent)) {
-    logits.general_summary += 2.1;
+  // --- General Summary (Tổng số ca, cơ cấu loại phẫu thuật, doanh thu, báo cáo chung) ---
+  if (/(tong quan|tom tat|bao cao chung|tong so ca|co bao nhieu ca|mo bao nhieu ca|bao nhieu ca|so luong ca|co cau|loai phau thuat|loai pttt|phan loai pttt|doanh thu|vien phi|thanh tien|tinh hinh phau thuat)/i.test(noAccent)) {
+    logits.general_summary += 3.5;
+  }
+
+  // Kế thừa ý định từ câu hỏi liền trước trong hội thoại nếu câu hiện tại chỉ bổ sung thời gian/nguồn (VD: "ngày 20/10/2026")
+  const maxRuleLogit = Math.max(...Object.values(logits));
+  if (maxRuleLogit < 0 && options?.recentUserPrompts && options.recentUserPrompts.length > 0) {
+    const prevPrompt = options.recentUserPrompts[options.recentUserPrompts.length - 1];
+    if (prevPrompt && prevPrompt.trim() !== prompt.trim()) {
+      const prevEval = evaluateWithJevSystemOne(prevPrompt, {
+        hasLoadedRecords: options.hasLoadedRecords,
+        hasExplicitTimeOrSource: true,
+        rlcdMemory: memory,
+      });
+      if (prevEval.scores.calibrationConfidence.score >= 70) {
+        logits[prevEval.intentChoice.selected] += 3.4;
+      }
+    }
   }
 
   // 3. Áp dụng Trọng số Từ khóa Học tăng cường RLCD (Token Intent Weights)

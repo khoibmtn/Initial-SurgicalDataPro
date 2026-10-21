@@ -188,12 +188,21 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<AIProviderId, AIProviderConfig> = 
   deepseek: {
     provider: 'deepseek',
     name: 'DeepSeek',
-    badgeText: 'DeepSeek-V3 / R1',
+    badgeText: 'DeepSeek V4.1 Flash / V3 / R1',
     apiKey: '',
     baseUrl: 'https://api.deepseek.com/v1',
     defaultBaseUrl: 'https://api.deepseek.com/v1',
     enabled: true,
     models: [
+      {
+        id: 'deepseek-flash',
+        name: 'DeepSeek V4.1 Flash (deepseek-flash)',
+        provider: 'deepseek',
+        description: 'Mô hình mặc định của DeepSeek Harness (1M context, hỗ trợ Prefix Cache in-history & Vision)',
+        supportsReasoning: true,
+        supportsTools: true,
+        enabled: true,
+      },
       {
         id: 'deepseek-chat',
         name: 'DeepSeek-V3 (deepseek-chat)',
@@ -210,6 +219,15 @@ export const DEFAULT_PROVIDER_CONFIGS: Record<AIProviderId, AIProviderConfig> = 
         description: 'Mô hình suy luận chuỗi tư duy (Chain-of-Thought) chuyên sâu',
         supportsReasoning: true,
         supportsTools: false,
+        enabled: true,
+      },
+      {
+        id: 'deepseek-v4-pro',
+        name: 'DeepSeek V4 Pro (deepseek-v4-pro)',
+        provider: 'deepseek',
+        description: 'Mô hình DeepSeek V4 Pro phân tích chuyên sâu 1M context window',
+        supportsReasoning: true,
+        supportsTools: true,
         enabled: true,
       },
     ],
