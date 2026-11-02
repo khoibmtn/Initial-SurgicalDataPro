@@ -1519,7 +1519,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                <span>Chi tiết</span>
+                <span>Tách chi tiết giá</span>
               </button>
 
               {/* Full/Short money toggle */}
@@ -2379,7 +2379,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
                 >
                   <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                  <span>Chi tiết</span>
+                  <span>Tách chi tiết giá</span>
                 </button>
 
                 {/* Full/Short money toggle */}
