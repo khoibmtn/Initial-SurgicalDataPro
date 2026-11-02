@@ -854,6 +854,20 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     return `${amount.toLocaleString('vi-VN')} ₫`;
   };
 
+  const fmtMoneyWithCount = (amount: number | null | undefined, count: number | null | undefined) => {
+    const moneyStr = fmtMoney(amount);
+    const fullStr = fmtFullMoney(amount);
+    const hasCount = count !== null && count !== undefined && count > 0;
+    const countFormatted = hasCount ? count.toLocaleString('vi-VN') : '';
+    const titleStr = hasCount ? `${fullStr} (${countFormatted} ca)` : fullStr;
+    return (
+      <span title={titleStr} className="whitespace-nowrap">
+        {moneyStr}
+        {hasCount && <span className="font-normal text-gray-500 ml-0.5">({countFormatted})</span>}
+      </span>
+    );
+  };
+
   const fmtMoneyDiffCell = (diff: number | null) => {
     if (diff === null) return '—';
     const sign = diff > 0 ? '+' : '';
@@ -2015,7 +2029,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
                             {metricMode === 'revenue' ? (
                               rowMetrics.isValid ? (
-                                <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
+                                fmtMoneyWithCount(rowMetrics.cur, r.currentCount)
                               ) : (
                                 <span className="text-gray-400 font-normal">—</span>
                               )
@@ -2028,7 +2042,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                             {metricMode === 'revenue' ? (
                               rowMetrics.isValid ? (
-                                <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
+                                fmtMoneyWithCount(rowMetrics.prev, r.prevCount)
                               ) : (
                                 <span className="text-gray-400 font-normal">—</span>
                               )
@@ -2064,7 +2078,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             {periodMeta?.hasSamePeriodData
                               ? (metricMode === 'revenue' ? (
                                   rowMetrics.isValid ? (
-                                    <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
+                                    fmtMoneyWithCount(rowMetrics.same, r.samePeriodCount)
                                   ) : (
                                     <span className="text-gray-400 font-normal">—</span>
                                   )
@@ -2149,14 +2163,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               <td className="px-2 py-1 text-center font-semibold text-gray-800 bg-blue-50/30 border-r border-gray-200">
                                 {metricMode === 'revenue' ? (
                                   subMetrics.isValid ? (
-                                    <span title={fmtFullMoney(subMetrics.cur)}>{fmtMoney(subMetrics.cur)}</span>
+                                    fmtMoneyWithCount(subMetrics.cur, sub.currentCount)
                                   ) : '—'
                                 ) : subMetrics.cur}
                               </td>
                               <td className="px-2 py-1 text-center text-gray-600 border-r border-gray-200">
                                 {metricMode === 'revenue' ? (
                                   subMetrics.isValid ? (
-                                    <span title={fmtFullMoney(subMetrics.prev)}>{fmtMoney(subMetrics.prev)}</span>
+                                    fmtMoneyWithCount(subMetrics.prev, sub.prevCount)
                                   ) : '—'
                                 ) : subMetrics.prev}
                               </td>
@@ -2180,7 +2194,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                 {periodMeta?.hasSamePeriodData
                                   ? (metricMode === 'revenue' ? (
                                       subMetrics.isValid ? (
-                                        <span title={fmtFullMoney(subMetrics.same)}>{fmtMoney(subMetrics.same)}</span>
+                                        fmtMoneyWithCount(subMetrics.same, sub.samePeriodCount)
                                       ) : '—'
                                     ) : subMetrics.same)
                                   : '—'}
@@ -2226,14 +2240,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   </td>
                   <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
                     {metricMode === 'revenue' ? (
-                      <span title={fmtFullMoney(overallTotals.cur)}>{fmtMoney(overallTotals.cur)}</span>
+                      fmtMoneyWithCount(overallTotals.cur, overallKPIs.totalCurrent)
                     ) : (
                       overallTotals.cur.toLocaleString('vi-VN')
                     )}
                   </td>
                   <td className="px-2 py-2 text-center border-r border-gray-300">
                     {metricMode === 'revenue' ? (
-                      <span title={fmtFullMoney(overallTotals.prev)}>{fmtMoney(overallTotals.prev)}</span>
+                      fmtMoneyWithCount(overallTotals.prev, overallKPIs.totalPrev)
                     ) : (
                       overallTotals.prev.toLocaleString('vi-VN')
                     )}
@@ -2250,7 +2264,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   </td>
                   <td className="px-2 py-2 text-center border-r border-gray-300">
                     {periodMeta?.hasSamePeriodData
-                      ? (metricMode === 'revenue' ? <span title={fmtFullMoney(overallTotals.same)}>{fmtMoney(overallTotals.same)}</span> : (overallTotals.same || 0).toLocaleString('vi-VN'))
+                      ? (metricMode === 'revenue' ? fmtMoneyWithCount(overallTotals.same, overallKPIs.totalSamePeriod) : (overallTotals.same || 0).toLocaleString('vi-VN'))
                       : '—'}
                   </td>
                   {showDiff && (
@@ -2872,7 +2886,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
                               {metricMode === 'revenue' ? (
                                 rowMetrics.isValid ? (
-                                  <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
+                                  fmtMoneyWithCount(rowMetrics.cur, r.currentCount)
                                 ) : (
                                   <span className="text-gray-400 font-normal">—</span>
                                 )
@@ -2885,7 +2899,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                               {metricMode === 'revenue' ? (
                                 rowMetrics.isValid ? (
-                                  <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
+                                  fmtMoneyWithCount(rowMetrics.prev, r.prevCount)
                                 ) : (
                                   <span className="text-gray-400 font-normal">—</span>
                                 )
@@ -2921,7 +2935,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                               {periodMeta?.hasSamePeriodData
                                 ? (metricMode === 'revenue' ? (
                                     rowMetrics.isValid ? (
-                                      <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
+                                      fmtMoneyWithCount(rowMetrics.same, r.samePeriodCount)
                                     ) : (
                                       <span className="text-gray-400 font-normal">—</span>
                                     )
@@ -3003,14 +3017,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                 <td className="px-2 py-1 text-center font-semibold text-gray-800 bg-blue-50/30 border-r border-gray-200">
                                   {metricMode === 'revenue' ? (
                                     subMetrics.isValid ? (
-                                      <span title={fmtFullMoney(subMetrics.cur)}>{fmtMoney(subMetrics.cur)}</span>
+                                      fmtMoneyWithCount(subMetrics.cur, sub.currentCount)
                                     ) : '—'
                                   ) : subMetrics.cur}
                                 </td>
                                 <td className="px-2 py-1 text-center text-gray-600 border-r border-gray-200">
                                   {metricMode === 'revenue' ? (
                                     subMetrics.isValid ? (
-                                      <span title={fmtFullMoney(subMetrics.prev)}>{fmtMoney(subMetrics.prev)}</span>
+                                      fmtMoneyWithCount(subMetrics.prev, sub.prevCount)
                                     ) : '—'
                                   ) : subMetrics.prev}
                                 </td>
@@ -3034,7 +3048,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                   {periodMeta?.hasSamePeriodData
                                     ? (metricMode === 'revenue' ? (
                                         subMetrics.isValid ? (
-                                          <span title={fmtFullMoney(subMetrics.same)}>{fmtMoney(subMetrics.same)}</span>
+                                          fmtMoneyWithCount(subMetrics.same, sub.samePeriodCount)
                                         ) : '—'
                                       ) : subMetrics.same)
                                     : '—'}
@@ -3084,14 +3098,14 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         </td>
                         <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
                           {metricMode === 'revenue' ? (
-                            <span title={fmtFullMoney(gM.cur)}>{fmtMoney(gM.cur)}</span>
+                            fmtMoneyWithCount(gM.cur, filteredSingleGroup.totalCurrent)
                           ) : (
                             gM.cur.toLocaleString('vi-VN')
                           )}
                         </td>
                         <td className="px-2 py-2 text-center border-r border-gray-300">
                           {metricMode === 'revenue' ? (
-                            <span title={fmtFullMoney(gM.prev)}>{fmtMoney(gM.prev)}</span>
+                            fmtMoneyWithCount(gM.prev, filteredSingleGroup.totalPrev)
                           ) : (
                             gM.prev.toLocaleString('vi-VN')
                           )}
@@ -3108,7 +3122,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         </td>
                         <td className="px-2 py-2 text-center border-r border-gray-300">
                           {periodMeta?.hasSamePeriodData
-                            ? (metricMode === 'revenue' ? <span title={fmtFullMoney(gM.same)}>{fmtMoney(gM.same)}</span> : (gM.same || 0).toLocaleString('vi-VN'))
+                            ? (metricMode === 'revenue' ? fmtMoneyWithCount(gM.same, filteredSingleGroup.totalSamePeriod) : (gM.same || 0).toLocaleString('vi-VN'))
                             : '—'}
                         </td>
                         {showDiff && (
