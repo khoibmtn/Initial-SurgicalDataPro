@@ -962,7 +962,7 @@ export const PackageListView: React.FC<Props> = ({
     setIsDeleting(true);
     try {
       if (deleteTarget.type === 'assignment') {
-        await deleteAssignment(deleteTarget.id);
+        await deleteAssignment(deleteTarget.id, deleteTarget.compositeKey);
       } else {
         const nextDrafts = draftRecords.filter(d => {
           const dDate = getRecordDateString(d).substring(0, 10);

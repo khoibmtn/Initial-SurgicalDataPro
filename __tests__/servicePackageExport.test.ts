@@ -11,6 +11,8 @@ import {
   exportFormattedFullExcel,
   appendExtraRawSheetsToWorkbook,
 } from '../services/excelExportService';
+import { calculateOvertimeRows } from '../services/overtimeCalculationService';
+import { deduplicateAssignments } from '../services/servicePackageService';
 import { buildPackagePaymentPrintConfig } from '../hooks/usePrintController';
 import { getPositionShortLabel } from '../types/servicePackage';
 import type { SurgeryRecord } from '../types';
@@ -526,6 +528,89 @@ describe('Service Package Excel Export Service', () => {
       expect(printCfgFiltered.data).toHaveLength(1);
       expect(printCfgFiltered.data[0].staffName).toBe('Dương Đình Quang');
       expect(printCfgFiltered.dateRange).toContain('Chưa gán đợt: 1 ca');
+    });
+
+    it('should include winter lunch-break overtime between 12:00 and 12:30 (e.g. NGUYỄN VĂN BÉ 11:10 -> 12:10)', () => {
+      const records: SurgeryRecord[] = [
+        {
+          id: 'rec-be',
+          stt: 1,
+          patientId: '2600172563',
+          patientName: 'NGUYỄN VĂN BÉ',
+          gender: 'Nam',
+          yob: '1959',
+          tenKT: 'Cắt 1 thuỳ tuyến giáp trong bướu giáp nhân',
+          loaiPTTT: 'P2',
+          soLuong: 1,
+          ngayCD: '2026-10-29 10:00',
+          ngayBD: '2026-10-29 11:10',
+          ngayKT: '2026-10-29 12:10',
+          start: new Date(2026, 9, 29, 11, 10),
+          end: new Date(2026, 9, 29, 12, 10),
+          timeMinutes: 60,
+          ptChinh: 'Đào Văn Điệp',
+          ptPhu: 'Nguyễn Văn Huy',
+          bsGM: 'Đồng Thị Thu Huyền',
+          ktvGM: 'Vũ Văn Giáp',
+          tdc: 'Lại Thị Mùi',
+          gv: 'Nguyễn Thị Thơ',
+        } as SurgeryRecord,
+      ];
+
+      const dutySchedules = {
+        '2026-10-29': {
+          date: '2026-10-29',
+          isHoliday: false,
+          onCallStaff: ['Đồng Thị Thu Huyền', 'Lê Quốc Hưng', 'Phùng Thị Vi Xen'],
+        },
+      };
+
+      const rows = calculateOvertimeRows(records, dutySchedules);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].patientName).toBe('NGUYỄN VĂN BÉ');
+      expect(rows[0].timeFrom).toBe('12:00');
+      expect(rows[0].timeTo).toBe('12:10');
+      expect(rows[0].durationMinutes).toBe(10);
+      expect(rows[0].ghiChu).toBe('Kíp mổ phiên');
+      expect(rows[0].ptChinh).toBe('Đào Văn Điệp');
+      expect(rows[0].ptPhu).toBe('Nguyễn Văn Huy');
+      expect(rows[0].bsGM).toBe(''); // Đồng Thị Thu Huyền đang trực nên không tính ngoài giờ
+      expect(rows[0].ktvGM).toBe('Vũ Văn Giáp');
+      expect(rows[0].tdc).toBe('Lại Thị Mùi');
+    });
+
+    it('should deduplicate assignments by compositeKey keeping the newest updatedAt record', () => {
+      const raw: ServicePackageAssignment[] = [
+        {
+          id: 'doc-old',
+          patientId: '2600147800',
+          patientName: 'PHẠM VĂN ĂN',
+          ngayBD: '2026-10-01 13:40',
+          tenKT: 'Cắt u lành phần mềm đường kính dưới 10cm',
+          compositeKey: '2600147800_2026-10-01_cat_u_lanh',
+          packageId: 'pkg-ngoai',
+          packageName: 'DV chọn BSPT theo yêu cầu Ngoại',
+          staffAssignments: [],
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+        {
+          id: 'doc-new',
+          patientId: '2600147800',
+          patientName: 'PHẠM VĂN ĂN',
+          ngayBD: '2026-10-01 13:40',
+          tenKT: 'Cắt u lành phần mềm đường kính dưới 10cm',
+          compositeKey: '2600147800_2026-10-01_cat_u_lanh',
+          packageId: 'pkg-ngoai',
+          packageName: 'DV chọn BSPT theo yêu cầu Ngoại',
+          staffAssignments: [],
+          createdAt: 1000,
+          updatedAt: 2000,
+        },
+      ];
+      const deduped = deduplicateAssignments(raw);
+      expect(deduped).toHaveLength(1);
+      expect(deduped[0].id).toBe('doc-new');
     });
   });
 });

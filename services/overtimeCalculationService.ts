@@ -268,7 +268,7 @@ export function calculateOvertimeRows(
 
       // Xác định ngày của tua trực tương ứng
       const [startH, startM] = (schedule.morningFrom || '07:00').split(':').map(Number);
-      const morningStartMinutes = (startH || 7) * 60 + (startM || 0);
+      const morningStartMinutes = (Number.isFinite(startH) ? startH : 7) * 60 + (Number.isFinite(startM) ? startM : 0);
       const midMinutes = midPoint.getHours() * 60 + midPoint.getMinutes();
 
       let dutyDateKey = calendarDateKey;
@@ -302,10 +302,10 @@ export function calculateOvertimeRows(
         const [aFromH, aFromM] = (schedule.afternoonFrom || '13:30').split(':').map(Number);
         const [aToH, aToM] = (schedule.afternoonTo || '17:00').split(':').map(Number);
 
-        const morningFromMin = (mFromH || 7) * 60 + (mFromM || 0);
-        const morningToMin = (mToH || 11) * 60 + (mToM || 30);
-        const afternoonFromMin = (aFromH || 13) * 60 + (aFromM || 30);
-        const afternoonToMin = (aToH || 17) * 60 + (aToM || 0);
+        const morningFromMin = (Number.isFinite(mFromH) ? mFromH : 7) * 60 + (Number.isFinite(mFromM) ? mFromM : 0);
+        const morningToMin = (Number.isFinite(mToH) ? mToH : 11) * 60 + (Number.isFinite(mToM) ? mToM : 30);
+        const afternoonFromMin = (Number.isFinite(aFromH) ? aFromH : 13) * 60 + (Number.isFinite(aFromM) ? aFromM : 30);
+        const afternoonToMin = (Number.isFinite(aToH) ? aToH : 17) * 60 + (Number.isFinite(aToM) ? aToM : 0);
 
         const inMorning = midMinutes >= morningFromMin && midMinutes < morningToMin;
         const inAfternoon = midMinutes >= afternoonFromMin && midMinutes < afternoonToMin;
@@ -359,10 +359,10 @@ export function calculateOvertimeRows(
         // Ngược lại (bắt đầu trong khung giờ ngày từ sáng đến 17h) -> Kíp mổ phiên
         const rawStartSchedule = getScheduleForDate(rawStart, workingHours);
         const [rsMorningH, rsMorningM] = (rawStartSchedule.morningFrom || '07:00').split(':').map(Number);
-        const rawMorningFromMin = (rsMorningH || 7) * 60 + (rsMorningM || 0);
+        const rawMorningFromMin = (Number.isFinite(rsMorningH) ? rsMorningH : 7) * 60 + (Number.isFinite(rsMorningM) ? rsMorningM : 0);
 
         const [rsAfternoonH, rsAfternoonM] = (rawStartSchedule.afternoonTo || '17:00').split(':').map(Number);
-        const rawAfternoonToMin = (rsAfternoonH || 17) * 60 + (rsAfternoonM || 0);
+        const rawAfternoonToMin = (Number.isFinite(rsAfternoonH) ? rsAfternoonH : 17) * 60 + (Number.isFinite(rsAfternoonM) ? rsAfternoonM : 0);
 
         const rawStartMinutes = rawStart.getHours() * 60 + rawStart.getMinutes();
         const isNightOrEarlyMorning = rawStartMinutes >= rawAfternoonToMin || rawStartMinutes < rawMorningFromMin;

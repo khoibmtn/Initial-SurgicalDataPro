@@ -185,6 +185,25 @@ export async function deleteServicePackage(id: string): Promise<{ ok: boolean; r
 
 // ─── Service Package Assignments ─────────────────────────────────────────────
 
+/**
+ * Khử trùng lặp các bản ghi gán gói dịch vụ theo compositeKey (giữ lại bản ghi được cập nhật mới nhất).
+ * Tránh trường hợp 1 ca phẫu thuật bị lưu đúp nhiều document trên Firestore dẫn đến lệch số lượng
+ * giữa tab Gói DVYC (có seenKeys) và tab Thanh toán Gói dịch vụ / badge tổng số ca.
+ */
+export function deduplicateAssignments(items: ServicePackageAssignment[]): ServicePackageAssignment[] {
+  const byKey = new Map<string, ServicePackageAssignment>();
+  for (const item of items) {
+    const key =
+      item.compositeKey ||
+      buildCompositeKey(item.patientId || '', (item.ngayBD || '').substring(0, 10), item.tenKT || '');
+    const existing = byKey.get(key);
+    if (!existing || (item.updatedAt ?? item.createdAt ?? 0) >= (existing.updatedAt ?? existing.createdAt ?? 0)) {
+      byKey.set(key, { ...item, compositeKey: key });
+    }
+  }
+  return Array.from(byKey.values());
+}
+
 /** Subscribe to assignments for a date range (realtime) */
 export function subscribeToAssignments(
   dateFrom: string,
@@ -198,10 +217,12 @@ export function subscribeToAssignments(
       ...(d.data() as Omit<ServicePackageAssignment, 'id'>),
       id: d.id,
     }));
-    const filtered = all.filter(a => {
-      const d = (a.ngayBD || '').substring(0, 10);
-      return d >= dateFrom && d <= dateTo;
-    });
+    const filtered = deduplicateAssignments(
+      all.filter(a => {
+        const d = (a.ngayBD || '').substring(0, 10);
+        return d >= dateFrom && d <= dateTo;
+      })
+    );
     filtered.sort((a, b) => (a.ngayBD || '').localeCompare(b.ngayBD || ''));
     callback(filtered);
   }, (error) => {
@@ -216,10 +237,11 @@ export function subscribeToAllAssignments(
 ): Unsubscribe {
   const colRef = collection(firestore, ASSIGNMENTS_COL);
   return onSnapshot(colRef, (snapshot) => {
-    const items: ServicePackageAssignment[] = snapshot.docs.map((d) => ({
+    const rawItems: ServicePackageAssignment[] = snapshot.docs.map((d) => ({
       ...(d.data() as Omit<ServicePackageAssignment, 'id'>),
       id: d.id,
     }));
+    const items = deduplicateAssignments(rawItems);
     items.sort((a, b) => (a.ngayBD || '').localeCompare(b.ngayBD || ''));
     callback(items);
   }, (error) => {
@@ -231,15 +253,34 @@ export function subscribeToAllAssignments(
 /** Save (create or update) a package assignment */
 export async function saveAssignment(assignment: ServicePackageAssignment): Promise<string> {
   const now = Date.now();
-  const isNew = !assignment.id;
-  const ref = isNew
-    ? doc(collection(firestore, ASSIGNMENTS_COL))
-    : doc(firestore, ASSIGNMENTS_COL, assignment.id);
-  const id = ref.id;
-
   // Ensure compositeKey is set
   const compositeKey = assignment.compositeKey ||
     buildCompositeKey(assignment.patientId, assignment.ngayBD, assignment.tenKT);
+
+  // Kiểm tra các document đã tồn tại có cùng compositeKey để tránh tạo bản ghi trùng lặp
+  let targetId = assignment.id;
+  const duplicateIdsToDelete: string[] = [];
+  try {
+    const q = query(collection(firestore, ASSIGNMENTS_COL), where('compositeKey', '==', compositeKey));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      if (!targetId) {
+        targetId = snap.docs[0].id;
+      }
+      for (const d of snap.docs) {
+        if (d.id !== targetId) {
+          duplicateIdsToDelete.push(d.id);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Assignments] check existing compositeKey warning:', err);
+  }
+
+  const ref = targetId
+    ? doc(firestore, ASSIGNMENTS_COL, targetId)
+    : doc(collection(firestore, ASSIGNMENTS_COL));
+  const id = ref.id;
 
   await setDoc(ref, {
     ...assignment,
@@ -248,12 +289,28 @@ export async function saveAssignment(assignment: ServicePackageAssignment): Prom
     updatedAt: now,
     createdAt: assignment.createdAt || now,
   });
+
+  if (duplicateIdsToDelete.length > 0) {
+    await Promise.all(
+      duplicateIdsToDelete.map((dupId) => deleteDoc(doc(firestore, ASSIGNMENTS_COL, dupId)).catch(() => {}))
+    );
+  }
+
   return id;
 }
 
-/** Delete an assignment (gỡ gói khỏi BN) */
-export async function deleteAssignment(id: string): Promise<void> {
+/** Delete an assignment (gỡ gói khỏi BN, đồng thời xóa các bản ghi trùng compositeKey nếu có) */
+export async function deleteAssignment(id: string, compositeKey?: string): Promise<void> {
   await deleteDoc(doc(firestore, ASSIGNMENTS_COL, id));
+  if (compositeKey) {
+    try {
+      const q = query(collection(firestore, ASSIGNMENTS_COL), where('compositeKey', '==', compositeKey));
+      const snap = await getDocs(q);
+      await Promise.all(snap.docs.map((d) => deleteDoc(doc(firestore, ASSIGNMENTS_COL, d.id)).catch(() => {})));
+    } catch (err) {
+      console.warn('[Assignments] cleanup duplicate compositeKey on delete warning:', err);
+    }
+  }
 }
 
 /** Get assignments by date range (one-shot, for BC tháng import) */
@@ -267,10 +324,12 @@ export async function getAssignmentsByDateRange(
       ...(d.data() as Omit<ServicePackageAssignment, 'id'>),
       id: d.id,
     }));
-    return all.filter(a => {
-      const d = (a.ngayBD || '').substring(0, 10);
-      return d >= dateFrom && d <= dateTo;
-    }).sort((a, b) => (a.ngayBD || '').localeCompare(b.ngayBD || ''));
+    return deduplicateAssignments(
+      all.filter(a => {
+        const d = (a.ngayBD || '').substring(0, 10);
+        return d >= dateFrom && d <= dateTo;
+      })
+    ).sort((a, b) => (a.ngayBD || '').localeCompare(b.ngayBD || ''));
   } catch (error) {
     console.error('[Assignments] getByDateRange error:', error);
     return [];
