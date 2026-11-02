@@ -707,6 +707,11 @@ const InnerApp: React.FC = () => {
     currentUser: user,
     currentRole,
     currentPeriodKey,
+    packageAssignments,
+    packageDefinitions,
+    positionCatalog,
+    packageModuleConfig,
+    paymentLists: paymentListsCtx,
   });
 
   const {
@@ -735,6 +740,7 @@ const InnerApp: React.FC = () => {
     positionCatalog,
     packagePaymentMode,
     packageModuleConfig,
+    paymentLists: paymentListsCtx,
   });
 
   // Excel Processing Controller

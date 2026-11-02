@@ -13,7 +13,17 @@ import { ToastType } from '../components/common/ToastContainer';
 import { reportService } from '../services/reportService';
 import { dutyScheduleService } from '../services/dutyScheduleService';
 import { reprocessSurgicalRecords, recalculateResultFromRecords } from '../services/reprocess';
-import { exportFormattedFullExcel } from '../services/excelExportService';
+import {
+  exportFormattedFullExcel,
+  appendExtraRawSheetsToWorkbook,
+} from '../services/excelExportService';
+import type {
+  ServicePackageAssignment,
+  ServicePackageDefinition,
+  PositionCatalogItem,
+  ServicePackageModuleConfig,
+} from '../types/servicePackage';
+import type { PaymentListsContext } from './usePaymentLists';
 import type { AppUser, UserRole } from '../types/auth';
 import { logAuditEvent } from '../services/auditLogService';
 import { sendNotification } from '../services/notificationService';
@@ -35,6 +45,11 @@ export interface UseReportPersistenceOptions {
   currentUser?: AppUser | null;
   currentRole?: UserRole | 'guest';
   currentPeriodKey?: string;
+  packageAssignments?: ServicePackageAssignment[];
+  packageDefinitions?: ServicePackageDefinition[];
+  positionCatalog?: PositionCatalogItem[];
+  packageModuleConfig?: ServicePackageModuleConfig;
+  paymentLists?: PaymentListsContext;
 }
 
 export function useReportPersistence({
@@ -52,6 +67,11 @@ export function useReportPersistence({
   currentUser,
   currentRole,
   currentPeriodKey,
+  packageAssignments = [],
+  packageDefinitions = [],
+  positionCatalog = [],
+  packageModuleConfig,
+  paymentLists,
 }: UseReportPersistenceOptions) {
   const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<{
@@ -359,6 +379,42 @@ export function useReportPersistence({
     }
   }, [currentReport.dataSource, currentReport.result?.validRecords, activeTab, executeSave]);
 
+  // Helper: xác định danh sách gán gói dịch vụ đang áp dụng (theo bộ lọc đợt: 'all' | 'unpaid' | <listId> và từ khóa tìm kiếm)
+  const resolveEffectivePackageFilter = useCallback(
+    (baseDateRange: string): {
+      assignments: ServicePackageAssignment[];
+      subtitle: string;
+      searchTerm: string;
+    } => {
+      let assignments = packageAssignments;
+      let subtitle = baseDateRange;
+      let searchTerm = '';
+      try {
+        searchTerm = localStorage.getItem('package_payment_search') || '';
+        const selectedList = localStorage.getItem('payment_list_selected') || 'all';
+        if (paymentLists && selectedList === 'unpaid') {
+          assignments = packageAssignments.filter(
+            (a) => !paymentLists.membershipIndex.has((a.patientId || '').trim())
+          );
+          subtitle = baseDateRange
+            ? `${baseDateRange} (Chưa gán đợt: ${assignments.length} ca)`
+            : `Chưa gán đợt (${assignments.length} ca)`;
+        } else if (paymentLists && selectedList !== 'all') {
+          const list = paymentLists.lists.find((l) => l.id === selectedList);
+          if (list) {
+            const ids = new Set(list.items.map((i) => i.patientId.trim()));
+            assignments = paymentLists.allAssignments.filter((a) =>
+              ids.has((a.patientId || '').trim())
+            );
+            subtitle = `Đợt thanh toán: ${list.name} (${assignments.length} ca)`;
+          }
+        }
+      } catch {}
+      return { assignments, subtitle, searchTerm };
+    },
+    [paymentLists, packageAssignments]
+  );
+
   // ── DOWNLOAD HANDLING ──
   const executeDownload = useCallback(() => {
     if (!currentReport.result?.validRecords) {
@@ -369,16 +425,41 @@ export function useReportPersistence({
     try {
       addToast('Đang tạo file Excel...', 'success');
 
+      const dateRangeText = currentReport.result.dateRangeText || currentReport.queryDateRangeText || '';
       const freshResult = reprocessSurgicalRecords(
         currentReport.result.validRecords,
         config,
-        currentReport.result.dateRangeText || ''
+        dateRangeText
       );
 
       if (!freshResult.wb) {
         addToast('Lỗi khi tạo file Excel.', 'error');
         return;
       }
+
+      let includeGV = false;
+      try {
+        includeGV = localStorage.getItem('sdp_overtime_include_gv') === 'true';
+      } catch {}
+
+      const pkgFilter = resolveEffectivePackageFilter(dateRangeText);
+
+      appendExtraRawSheetsToWorkbook(
+        freshResult.wb,
+        currentReport.result.validRecords,
+        config,
+        dateRangeText,
+        {
+          dutySchedules,
+          packageAssignments: pkgFilter.assignments,
+          packageDefinitions,
+          positionCatalog,
+          packageModuleConfig,
+          packageSearchTerm: pkgFilter.searchTerm,
+          packageSubtitle: pkgFilter.subtitle,
+          includeGV,
+        }
+      );
 
       const filename = `Ket_qua_${currentType}_${new Date().toISOString().split('T')[0]}.xlsx`;
       XLSX.writeFile(freshResult.wb, filename);
@@ -387,7 +468,18 @@ export function useReportPersistence({
       console.error('Download failed:', e);
       addToast('Lỗi khi tải file: ' + e.message, 'error');
     }
-  }, [currentReport.result, config, currentType, addToast]);
+  }, [
+    currentReport.result,
+    currentReport.queryDateRangeText,
+    config,
+    currentType,
+    addToast,
+    dutySchedules,
+    resolveEffectivePackageFilter,
+    packageDefinitions,
+    positionCatalog,
+    packageModuleConfig,
+  ]);
 
   const handleDownload = useCallback(async () => {
     if (currentReport.dataSource === 'EXCEL' && currentReport.result?.validRecords) {
@@ -416,9 +508,9 @@ export function useReportPersistence({
         .filter((c) => visibleCols['list']?.[c.key] !== false)
         .map((c) => ({ key: c.key, label: c.label }));
 
+      const dateRangeText = freshResult.dateRangeText || currentReport.queryDateRangeText || '';
       let signatureDate: Date | undefined;
       if (activeTab === 'monthly') {
-        const dateRangeText = freshResult.dateRangeText || currentReport.queryDateRangeText || '';
         const endMatch = dateRangeText.match(/đến ngày (\d{2})\/(\d{2})\/(\d{4})/);
         if (endMatch) {
           const d = new Date(parseInt(endMatch[3]), parseInt(endMatch[2]) - 1, parseInt(endMatch[1]));
@@ -427,12 +519,29 @@ export function useReportPersistence({
         }
       }
 
+      let includeGV = false;
+      try {
+        includeGV = localStorage.getItem('sdp_overtime_include_gv') === 'true';
+      } catch {}
+
+      const pkgFilter = resolveEffectivePackageFilter(dateRangeText);
+
       await exportFormattedFullExcel(
         freshResult,
         config,
         exportCols,
         paymentDataPrepared || null,
-        signatureDate
+        signatureDate,
+        {
+          dutySchedules,
+          packageAssignments: pkgFilter.assignments,
+          packageDefinitions,
+          positionCatalog,
+          packageModuleConfig,
+          packageSearchTerm: pkgFilter.searchTerm,
+          packageSubtitle: pkgFilter.subtitle,
+          includeGV,
+        }
       );
 
       addToast('Đã tải xuống file Excel định dạng.', 'success');
@@ -449,6 +558,11 @@ export function useReportPersistence({
     activeTab,
     paymentDataPrepared,
     addToast,
+    dutySchedules,
+    resolveEffectivePackageFilter,
+    packageDefinitions,
+    positionCatalog,
+    packageModuleConfig,
   ]);
 
   const handleDownloadFormatted = useCallback(async () => {

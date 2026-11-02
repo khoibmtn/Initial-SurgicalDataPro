@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as XLSX from 'xlsx';
 import {
   buildDataSourceSubtitle,
   getAssignedOrSurgeryStaff,
@@ -6,6 +7,11 @@ import {
   buildPackageListWorkbook,
   ServicePackageExportItem,
 } from '../services/servicePackageExportService';
+import {
+  exportFormattedFullExcel,
+  appendExtraRawSheetsToWorkbook,
+} from '../services/excelExportService';
+import { buildPackagePaymentPrintConfig } from '../hooks/usePrintController';
 import { getPositionShortLabel } from '../types/servicePackage';
 import type { SurgeryRecord } from '../types';
 import type { ServicePackageAssignment, ServicePackageDefinition, PositionCatalogItem } from '../types/servicePackage';
@@ -270,6 +276,256 @@ describe('Service Package Excel Export Service', () => {
       const merges = (ws?.model as any)?.merges || [];
       const hasRow6Merge = merges.some((m: string) => m.includes('6'));
       expect(hasRow6Merge).toBe(false);
+    });
+  });
+
+  describe('exportFormattedFullExcel & appendExtraRawSheetsToWorkbook (Đầy đủ các sheet thanh toán gói DV, ngoài giờ, lịch trực)', () => {
+    const samplePackages: ServicePackageDefinition[] = [
+      {
+        id: 'pkg-ngoai',
+        name: 'DV chọn BSPT theo yêu cầu Ngoại',
+        shortName: 'Gói Ngoại',
+        positions: [
+          { positionKey: 'ptChinh', positionLabel: 'PTV chính', group: 'surgeons', amount: 600000 },
+          { positionKey: 'ptPhu', positionLabel: 'PTV phụ', group: 'surgeons', amount: 250000 },
+        ],
+        deduction: { type: 'percent', value: 2, note: 'Trừ 2% quỹ' },
+        active: true,
+        sortOrder: 1,
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+    ];
+
+    const sampleAssignments: ServicePackageAssignment[] = [
+      {
+        id: 'as-1',
+        compositeKey: '26001_2026-10-15_mo_ruot_thua',
+        patientId: '26001',
+        patientName: 'NGUYỄN VĂN A',
+        ngayBD: '2026-10-15 18:00',
+        tenKT: 'Mổ ruột thừa',
+        packageId: 'pkg-ngoai',
+        packageName: 'DV chọn BSPT theo yêu cầu Ngoại',
+        staffAssignments: [
+          { positionKey: 'ptChinh', positionLabel: 'PTV chính', group: 'surgeons', staffName: 'Đào Văn Điệp', amount: 600000 },
+          { positionKey: 'ptPhu', positionLabel: 'PTV phụ', group: 'surgeons', staffName: 'Dương Đình Quang', amount: 250000 },
+        ],
+        totalAmount: 850000,
+        assignedBy: 'admin',
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+    ];
+
+    const sampleRecords: SurgeryRecord[] = [
+      {
+        id: 'rec-1',
+        stt: 1,
+        patientId: '26001',
+        patientName: 'NGUYỄN VĂN A',
+        gender: 'Nam',
+        birthYear: '1990',
+        tenKT: 'Mổ ruột thừa',
+        loaiPTTT: 'P2',
+        soLuong: 1,
+        tyLe: 100,
+        ngayCD: '2026-10-15 17:30',
+        ngayBD: '2026-10-15 18:00',
+        ngayKT: '2026-10-15 19:30',
+        start: new Date(2026, 9, 15, 18, 0),
+        end: new Date(2026, 9, 15, 19, 30),
+        timeMinutes: 90,
+        ptChinh: 'Đào Văn Điệp',
+        ptPhu: 'Dương Đình Quang',
+        bsGM: 'Hoàng Thị Thu Huyền',
+        ktvGM: '',
+        tdc: '',
+        gv: '',
+        maMay: 'M01',
+      } as SurgeryRecord,
+    ];
+
+    const sampleConfig: any = {
+      hospitalName: 'Trung tâm Y tế Thủy Nguyên',
+      departments: ['Ngoại TH', 'GMHS'],
+      staffList: [
+        { id: '1', name: 'Đào Văn Điệp', department: 'Ngoại TH', position: 'BS PT', taxId: '1030177429' },
+        { id: '2', name: 'Dương Đình Quang', department: 'Ngoại TH', position: 'BS PT', taxId: '1030176409' },
+        { id: '3', name: 'Hoàng Thị Thu Huyền', department: 'GMHS', position: 'BS GMHS', taxId: '1030177434' },
+      ],
+      priceConfig: { P2: { Chính: 65000, Phụ: 50000, 'Giúp việc': 30000 } },
+    };
+
+    const sampleDutySchedules: any = {
+      '2026-10-15': {
+        date: '2026-10-15',
+        isHoliday: false,
+        onCallStaff: ['Hoàng Thị Thu Huyền'],
+      },
+    };
+
+    const samplePositionCatalog: PositionCatalogItem[] = [
+      { id: 'c1', key: 'ptChinh', label: 'PTV chính', group: 'surgeons', isSurgeryParticipant: true, sortOrder: 1, active: true, createdAt: 0, updatedAt: 0 },
+      { id: 'c2', key: 'ptPhu', label: 'PTV phụ', group: 'surgeons', isSurgeryParticipant: true, sortOrder: 2, active: true, createdAt: 0, updatedAt: 0 },
+    ];
+
+    it('should generate all required formatted sheets: DS Phẫu thuật, Bảng Thanh toán, TT Gói DV (Số lượng), TT Gói DV (Số tiền), Thống kê Ngoài giờ, Lịch trực', async () => {
+      const wb = await exportFormattedFullExcel(
+        {
+          validRecords: sampleRecords,
+          dateRangeText: 'Từ ngày 15/10/2026 00:00 đến ngày 16/10/2026 23:59',
+          stats: {} as any,
+        },
+        sampleConfig,
+        [
+          { key: 'stt', label: 'STT' },
+          { key: 'patientName', label: 'Họ tên BN' },
+          { key: 'tenKT', label: 'Tên PTTT' },
+        ],
+        {
+          enrichedRows: [
+            {
+              stt: 1,
+              department: 'Ngoại TH',
+              taxId: '1030177429',
+              name: 'Đào Văn Điệp',
+              values: { 'P2-Chính': 1 },
+              total_qty: 1,
+              total_amount_val: 65000,
+            } as any,
+          ],
+          groups: [{ name: 'P2', label: 'Phẫu thuật loại 2', subCols: ['Chính'] }],
+          cols: ['P2-Chính'],
+          footerTotals: { total_qty: 1, total_amount_val: 65000 },
+          columnTotals: { 'P2-Chính': 1 },
+        },
+        new Date(2026, 9, 17),
+        {
+          dutySchedules: sampleDutySchedules,
+          packageAssignments: sampleAssignments,
+          packageDefinitions: samplePackages,
+          positionCatalog: samplePositionCatalog,
+          includeGV: false,
+          saveFile: false,
+        },
+      );
+
+      const sheetNames = wb.worksheets.map((w) => w.name);
+      expect(sheetNames).toContain('DS Phẫu thuật');
+      expect(sheetNames).toContain('Bảng Thanh toán');
+      expect(sheetNames).toContain('TT Gói DV (Số lượng)');
+      expect(sheetNames).toContain('TT Gói DV (Số tiền)');
+      expect(sheetNames).toContain('Thống kê Ngoài giờ');
+      expect(sheetNames).toContain('Lịch trực');
+
+      // Kiểm tra dữ liệu sheet TT Gói DV (Số lượng)
+      const wsCount = wb.getWorksheet('TT Gói DV (Số lượng)')!;
+      expect(wsCount.getCell(4, 1).value).toBe('BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU (THEO SỐ LƯỢNG)');
+      // Row 10 là dòng nhân viên đầu tiên (Đào Văn Điệp)
+      expect(wsCount.getCell(10, 4).value).toBe('Đào Văn Điệp');
+      expect(wsCount.getCell(10, 5).value).toBe(1); // PTV chính = 1 ca
+      expect(wsCount.getCell(10, 7).value).toBe(1); // Tổng SL = 1
+      expect(wsCount.getCell(10, 8).value).toBe(588000); // Thành tiền sau trừ 2% của 600,000 = 588,000
+
+      // Kiểm tra dữ liệu sheet TT Gói DV (Số tiền)
+      const wsAmount = wb.getWorksheet('TT Gói DV (Số tiền)')!;
+      expect(wsAmount.getCell(4, 1).value).toBe('BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU (THEO SỐ TIỀN)');
+      expect(wsAmount.getCell(10, 4).value).toBe('Đào Văn Điệp');
+      expect(wsAmount.getCell(10, 5).value).toBe(588000); // Số tiền ở cột PTV chính
+
+      // Kiểm tra sheet Thống kê Ngoài giờ (Đào Văn Điệp & Dương Đình Quang không trực ngày 15/10 nên ca mổ 18:00-19:30 được tính ngoài giờ)
+      const wsOt = wb.getWorksheet('Thống kê Ngoài giờ')!;
+      expect(wsOt.getCell(4, 1).value).toBe('BẢNG THỐNG KÊ PHẪU THUẬT NGOÀI GIỜ HÀNH CHÍNH');
+      expect(wsOt.getCell(8, 3).value).toBe('NGUYỄN VĂN A');
+
+      // Kiểm tra sheet Lịch trực
+      const wsDuty = wb.getWorksheet('Lịch trực')!;
+      expect(wsDuty.getCell(4, 1).value).toBe('BẢNG PHÂN CÔNG LỊCH TRỰC 24H');
+      // Hoàng Thị Thu Huyền ở dòng thứ 3 (sau 2 BS Ngoại TH) có dấu 'X' vào ngày 15/10
+      expect(wsDuty.getCell(11, 3).value).toBe('Hoàng Thị Thu Huyền');
+      expect(wsDuty.getCell(11, 5).value).toBe(1); // Tổng buổi trực = 1
+      expect(wsDuty.getCell(11, 6).value).toBe('X'); // Cột ngày 15/10
+    });
+
+    it('should append TT_GOI_DV_SL, TT_GOI_DV_TIEN, THONG_KE_NGOAI_GIO, and LICH_TRUC to raw SheetJS workbook', () => {
+      const rawWb = XLSX.utils.book_new();
+      appendExtraRawSheetsToWorkbook(
+        rawWb,
+        sampleRecords,
+        sampleConfig,
+        'Từ ngày 15/10/2026 00:00 đến ngày 16/10/2026 23:59',
+        {
+          dutySchedules: sampleDutySchedules,
+          packageAssignments: sampleAssignments,
+          packageDefinitions: samplePackages,
+          positionCatalog: [],
+          includeGV: false,
+        },
+      );
+
+      expect(rawWb.SheetNames).toContain('TT_GOI_DV_SL');
+      expect(rawWb.SheetNames).toContain('TT_GOI_DV_TIEN');
+      expect(rawWb.SheetNames).toContain('THONG_KE_NGOAI_GIO');
+      expect(rawWb.SheetNames).toContain('LICH_TRUC');
+    });
+
+    it('should build package payment print config with all columns and col-numeric classes for both portrait and landscape', () => {
+      const printCfgCount = buildPackagePaymentPrintConfig({
+        assignments: sampleAssignments,
+        packages: samplePackages,
+        staffList: sampleConfig.staffList,
+        positionCatalog: samplePositionCatalog,
+        dateRangeText: 'Từ ngày 01/10/2026 00:00 đến ngày 31/10/2026 23:59',
+        orientation: 'portrait',
+        config: sampleConfig,
+        packagePaymentMode: 'count',
+        viewMode: 'detail',
+        hiddenCols: [],
+      });
+
+      expect(printCfgCount).toBeTruthy();
+      expect(printCfgCount.orientation).toBe('portrait');
+      // 4 cột đầu (#, Khoa, MST, Họ tên) + 2 vị trí (PTV chính, PTV phụ) + 2 cột cuối (Tổng SL, Thành tiền) = 8 cột
+      expect(printCfgCount.columns).toHaveLength(8);
+      expect(printCfgCount.columns[4].className).toContain('col-numeric');
+      expect(printCfgCount.data[0].staffName).toBe('Đào Văn Điệp');
+      expect(printCfgCount.data[0]['pkg-ngoai_ptChinh']).toBe(1);
+
+      const printCfgAmount = buildPackagePaymentPrintConfig({
+        assignments: sampleAssignments,
+        packages: samplePackages,
+        staffList: sampleConfig.staffList,
+        positionCatalog: samplePositionCatalog,
+        dateRangeText: 'Từ ngày 01/10/2026 00:00 đến ngày 31/10/2026 23:59',
+        orientation: 'landscape',
+        config: sampleConfig,
+        packagePaymentMode: 'amount',
+        viewMode: 'detail',
+        hiddenCols: [],
+      });
+
+      expect(printCfgAmount).toBeTruthy();
+      expect(printCfgAmount.orientation).toBe('landscape');
+      expect(printCfgAmount.data[0]['pkg-ngoai_ptChinh']).toBe((588000).toLocaleString('vi-VN'));
+
+      // Kiểm tra lọc theo từ khóa tìm kiếm (searchTerm) khi in & xuất Excel
+      const printCfgFiltered = buildPackagePaymentPrintConfig({
+        assignments: sampleAssignments,
+        packages: samplePackages,
+        staffList: sampleConfig.staffList,
+        positionCatalog: samplePositionCatalog,
+        dateRangeText: 'Từ ngày 01/10/2026 00:00 đến ngày 31/10/2026 23:59 (Chưa gán đợt: 1 ca)',
+        orientation: 'landscape',
+        config: sampleConfig,
+        packagePaymentMode: 'count',
+        viewMode: 'detail',
+        hiddenCols: [],
+        searchTerm: 'Dương Đình Quang',
+      });
+      expect(printCfgFiltered.data).toHaveLength(1);
+      expect(printCfgFiltered.data[0].staffName).toBe('Dương Đình Quang');
+      expect(printCfgFiltered.dateRange).toContain('Chưa gán đợt: 1 ca');
     });
   });
 });

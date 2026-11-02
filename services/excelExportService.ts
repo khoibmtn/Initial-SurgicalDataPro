@@ -1,8 +1,33 @@
 import ExcelJS from 'exceljs';
 import * as XLSX from 'xlsx';
-import { SurgeryRecord, ProcessingResult, LaborAllowanceItem, OvertimeRecordRow } from '../types';
+import {
+  SurgeryRecord,
+  ProcessingResult,
+  LaborAllowanceItem,
+  OvertimeRecordRow,
+  DutyScheduleDateConfig,
+  StaffMember,
+} from '../types';
 import { AppConfig } from '../contexts/ConfigContext';
 import { getAllowanceForRecord } from './laborConfigService';
+import {
+  ServicePackageAssignment,
+  ServicePackageDefinition,
+  PositionCatalogItem,
+  ServicePackageModuleConfig,
+  DEFAULT_MODULE_CONFIG,
+  calcNetPositionAmount,
+  formatDeductionValue,
+} from '../types/servicePackage';
+import { buildPackagePaymentRows, filterPackageRows, getUsedPackages } from './packagePaymentRows';
+import { calculateOvertimeRows, getScheduleForDate } from './overtimeCalculationService';
+import {
+  formatDateKey,
+  formatDisplayDate,
+  getDayOfWeekLabel,
+  getDutyDateKey,
+  isWeekend,
+} from './dutyScheduleService';
 
 // ──────────────────────────────────────────────────────────
 // Shared helpers
@@ -624,8 +649,655 @@ export async function exportPaymentExcel(
   }
 }
 
+export interface ExtraFullExcelExportData {
+  dutySchedules?: Record<string, DutyScheduleDateConfig>;
+  packageAssignments?: ServicePackageAssignment[];
+  packageDefinitions?: ServicePackageDefinition[];
+  positionCatalog?: PositionCatalogItem[];
+  packageModuleConfig?: ServicePackageModuleConfig;
+  packageSearchTerm?: string;
+  packageSubtitle?: string;
+  includeGV?: boolean;
+  /** Nếu false thì chỉ trả về workbook (phục vụ unit test), mặc định true sẽ tải file về máy */
+  saveFile?: boolean;
+}
+
+/**
+ * 2b) Xuất Bảng Thanh Toán Gói Dịch Vụ (Theo Số lượng hoặc Theo Số tiền)
+ */
+export async function exportPackagePaymentExcel(
+  assignments: ServicePackageAssignment[],
+  packages: ServicePackageDefinition[],
+  staffList: StaffMember[],
+  positionCatalog: PositionCatalogItem[],
+  departments: string[],
+  dateRange: string,
+  hospitalName: string,
+  mode: 'count' | 'amount',
+  existingWb?: ExcelJS.Workbook,
+  signatureDate?: Date,
+  packageModuleConfig?: ServicePackageModuleConfig,
+  searchTerm: string = '',
+): Promise<ExcelJS.Workbook> {
+  const wb = existingWb || new ExcelJS.Workbook();
+  const sheetName = mode === 'count' ? 'TT Gói DV (Số lượng)' : 'TT Gói DV (Số tiền)';
+  const ws = wb.addWorksheet(sheetName, {
+    pageSetup: {
+      orientation: 'landscape',
+      paperSize: 9, // A4
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    },
+  });
+
+  const usedPkgs = getUsedPackages(assignments, packages);
+  const activePkgs = (usedPkgs.length > 0 ? usedPkgs : packages).filter(
+    (p) => Array.isArray(p.positions) && p.positions.length > 0,
+  );
+  const allRows = buildPackagePaymentRows(assignments, packages, staffList, positionCatalog, departments);
+  const rows = filterPackageRows(allRows, searchTerm, packages);
+
+  const flatPositions: {
+    packageId: string;
+    packageName: string;
+    positionKey: string;
+    positionLabel: string;
+    amount: number;
+    netAmount: number;
+  }[] = [];
+
+  activePkgs.forEach((pkg) => {
+    pkg.positions.forEach((pos) => {
+      flatPositions.push({
+        packageId: pkg.id,
+        packageName: pkg.name,
+        positionKey: pos.positionKey,
+        positionLabel: pos.positionLabel,
+        amount: pos.amount,
+        netAmount: calcNetPositionAmount(pos.amount, pkg.deduction),
+      });
+    });
+  });
+
+  const fixedHeaders = ['STT', 'Khoa', 'Mã số thuế', 'Họ tên'];
+  const fixedColCount = fixedHeaders.length;
+  const totalCols = fixedColCount + flatPositions.length + 2; // + Tổng SL, Thành tiền
+
+  const baseTitle =
+    packageModuleConfig?.printTitle ||
+    DEFAULT_MODULE_CONFIG.printTitle ||
+    'BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU';
+  const title =
+    mode === 'count'
+      ? `${baseTitle.toUpperCase()} (THEO SỐ LƯỢNG)`
+      : `${baseTitle.toUpperCase()} (THEO SỐ TIỀN)`;
+
+  let row = addReportHeader(ws, title, dateRange, hospitalName, Math.max(totalCols, 6), 1);
+
+  // ── Two-level table header ──
+  const headerRow1 = row;
+  const headerRow2 = row + 1;
+
+  fixedHeaders.forEach((label, idx) => {
+    ws.mergeCells(headerRow1, idx + 1, headerRow2, idx + 1);
+    const cell = ws.getRow(headerRow1).getCell(idx + 1);
+    cell.value = label;
+    cell.font = { name: FONT_TIMES, size: 10, bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = thinBorder;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+    ws.getRow(headerRow2).getCell(idx + 1).border = thinBorder;
+  });
+
+  let colIdx = fixedColCount + 1;
+  activePkgs.forEach((pkg) => {
+    const startCol = colIdx;
+    const endCol = colIdx + pkg.positions.length - 1;
+
+    if (pkg.positions.length > 1) {
+      ws.mergeCells(headerRow1, startCol, headerRow1, endCol);
+    }
+    const groupCell = ws.getRow(headerRow1).getCell(startCol);
+    groupCell.value = pkg.name;
+    groupCell.font = { name: FONT_TIMES, size: 10, bold: true, color: { argb: 'FF115E59' } };
+    groupCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    groupCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4F1' } };
+
+    for (let c = startCol; c <= endCol; c++) {
+      ws.getRow(headerRow1).getCell(c).border = thinBorder;
+    }
+
+    pkg.positions.forEach((pos, sIdx) => {
+      const cell = ws.getRow(headerRow2).getCell(startCol + sIdx);
+      cell.value = pos.positionLabel;
+      cell.font = { name: FONT_TIMES, size: 9, bold: true };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = thinBorder;
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+    });
+
+    colIdx = endCol + 1;
+  });
+
+  const trailHeaders = ['Tổng SL', 'Thành tiền'];
+  trailHeaders.forEach((label, idx) => {
+    const c = colIdx + idx;
+    ws.mergeCells(headerRow1, c, headerRow2, c);
+    const cell = ws.getRow(headerRow1).getCell(c);
+    cell.value = label;
+    cell.font = { name: FONT_TIMES, size: 10, bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = thinBorder;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+    ws.getRow(headerRow2).getCell(c).border = thinBorder;
+  });
+
+  ws.getRow(headerRow1).height = 24;
+  ws.getRow(headerRow2).height = 22;
+  row = headerRow2 + 1;
+
+  // ── Unit price row (Đơn giá thực lĩnh) ──
+  const priceRow = ws.getRow(row);
+  for (let i = 1; i <= fixedColCount; i++) {
+    priceRow.getCell(i).border = thinBorder;
+  }
+  priceRow.getCell(4).value = 'Đơn giá thực lĩnh';
+  priceRow.getCell(4).font = { name: FONT_TIMES, size: 9, italic: true, bold: true };
+  priceRow.getCell(4).alignment = { horizontal: 'right', vertical: 'middle' };
+
+  flatPositions.forEach((fp, idx) => {
+    const cell = priceRow.getCell(fixedColCount + idx + 1);
+    cell.value = fp.netAmount > 0 ? fp.netAmount : '';
+    cell.font = { name: FONT_TIMES, size: 9, italic: true };
+    cell.alignment = { horizontal: 'right', vertical: 'middle' };
+    cell.border = thinBorder;
+    if (fp.netAmount > 0) {
+      cell.numFmt = '#,##0';
+    }
+  });
+  priceRow.getCell(fixedColCount + flatPositions.length + 1).border = thinBorder;
+  priceRow.getCell(fixedColCount + flatPositions.length + 2).border = thinBorder;
+  row++;
+
+  // ── Data rows ──
+  let prevDept = '';
+  rows.forEach((pRow, rIdx) => {
+    const dataRow = ws.getRow(row);
+    const currDept = pRow.isUnassigned ? '__UNASSIGNED__' : pRow.department || '';
+    const isNewDept = rIdx > 0 && currDept !== prevDept;
+    prevDept = currDept;
+
+    dataRow.getCell(1).value = rIdx + 1;
+    dataRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    dataRow.getCell(2).value = pRow.isUnassigned ? 'Chưa gán NV' : pRow.department || '';
+    dataRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+    dataRow.getCell(3).value = pRow.taxId || '';
+    dataRow.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+    dataRow.getCell(4).value = pRow.staffName;
+    dataRow.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    for (let i = 1; i <= fixedColCount; i++) {
+      dataRow.getCell(i).font = {
+        name: FONT_TIMES,
+        size: 10,
+        italic: pRow.isUnassigned,
+      };
+      dataRow.getCell(i).border = thinBorder;
+      if (pRow.isUnassigned) {
+        dataRow.getCell(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+      }
+    }
+
+    flatPositions.forEach((fp, idx) => {
+      const cellData = pRow.cells[fp.packageId]?.[fp.positionKey];
+      const val = cellData ? (mode === 'count' ? cellData.count : cellData.amount) : 0;
+      const cell = dataRow.getCell(fixedColCount + idx + 1);
+      cell.value = val > 0 ? val : '';
+      cell.font = { name: FONT_TIMES, size: 10 };
+      cell.alignment = {
+        horizontal: mode === 'count' ? 'center' : 'right',
+        vertical: 'middle',
+      };
+      cell.border = thinBorder;
+      if (mode === 'amount' && val > 0) {
+        cell.numFmt = '#,##0';
+      }
+      if (pRow.isUnassigned) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+      }
+    });
+
+    const tqtyCell = dataRow.getCell(fixedColCount + flatPositions.length + 1);
+    tqtyCell.value = pRow.totalCount;
+    tqtyCell.font = { name: FONT_TIMES, size: 10, bold: true };
+    tqtyCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    tqtyCell.border = thinBorder;
+
+    const tamtCell = dataRow.getCell(fixedColCount + flatPositions.length + 2);
+    tamtCell.value = pRow.total;
+    tamtCell.font = { name: FONT_TIMES, size: 10, bold: true };
+    tamtCell.alignment = { horizontal: 'right', vertical: 'middle' };
+    tamtCell.border = thinBorder;
+    tamtCell.numFmt = '#,##0';
+
+    if (isNewDept) {
+      for (let i = 1; i <= totalCols; i++) {
+        dataRow.getCell(i).border = {
+          ...thinBorder,
+          top: { style: 'medium' },
+        };
+      }
+    }
+
+    row++;
+  });
+
+  // ── Footer totals row ──
+  const footRow = ws.getRow(row);
+  for (let i = 1; i <= 3; i++) {
+    footRow.getCell(i).border = thinBorder;
+  }
+  footRow.getCell(4).value = 'TỔNG CỘNG';
+  footRow.getCell(4).font = { name: FONT_TIMES, size: 11, bold: true };
+  footRow.getCell(4).alignment = { horizontal: 'right', vertical: 'middle' };
+  footRow.getCell(4).border = thinBorder;
+
+  flatPositions.forEach((fp, idx) => {
+    const colSum = rows.reduce((sum, r) => {
+      const c = r.cells[fp.packageId]?.[fp.positionKey];
+      return sum + (c ? (mode === 'count' ? c.count : c.amount) : 0);
+    }, 0);
+    const cell = footRow.getCell(fixedColCount + idx + 1);
+    cell.value = colSum > 0 ? colSum : '';
+    cell.font = { name: FONT_TIMES, size: 10, bold: true };
+    cell.alignment = {
+      horizontal: mode === 'count' ? 'center' : 'right',
+      vertical: 'middle',
+    };
+    cell.border = thinBorder;
+    if (mode === 'amount' && colSum > 0) {
+      cell.numFmt = '#,##0';
+    }
+  });
+
+  const grandCount = rows.reduce((sum, r) => sum + r.totalCount, 0);
+  const grandTotal = rows.reduce((sum, r) => sum + r.total, 0);
+
+  const fTqtyCell = footRow.getCell(fixedColCount + flatPositions.length + 1);
+  fTqtyCell.value = grandCount;
+  fTqtyCell.font = { name: FONT_TIMES, size: 10, bold: true };
+  fTqtyCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  fTqtyCell.border = thinBorder;
+
+  const fTamtCell = footRow.getCell(fixedColCount + flatPositions.length + 2);
+  fTamtCell.value = grandTotal;
+  fTamtCell.font = { name: FONT_TIMES, size: 10, bold: true };
+  fTamtCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  fTamtCell.border = thinBorder;
+  fTamtCell.numFmt = '#,##0';
+  row++;
+
+  // ── Deduction notes (if any) ──
+  const deductionPkgs = activePkgs.filter((p) => p.deduction && p.deduction.value > 0);
+  deductionPkgs.forEach((p) => {
+    ws.mergeCells(row, 1, row, Math.max(totalCols, 6));
+    const noteCell = ws.getRow(row).getCell(1);
+    noteCell.value = `* ${p.shortName || p.name}: thực lĩnh đã trừ khấu trừ ${formatDeductionValue(p.deduction)}/vị trí${p.deduction?.note ? ` — ${p.deduction.note}` : ''}`;
+    noteCell.font = { name: FONT_TIMES, size: 9, italic: true };
+    noteCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    row++;
+  });
+
+  row++;
+  addSignatures(ws, row, Math.max(totalCols, 6), 'payment', signatureDate);
+
+  // Column widths
+  ws.getColumn(1).width = 5;  // STT
+  ws.getColumn(2).width = 12; // Khoa
+  ws.getColumn(3).width = 14; // MST
+  ws.getColumn(4).width = 22; // Họ tên
+  for (let i = 0; i < flatPositions.length; i++) {
+    ws.getColumn(fixedColCount + i + 1).width = mode === 'amount' ? 12 : 8;
+  }
+  ws.getColumn(fixedColCount + flatPositions.length + 1).width = 9;  // Tổng SL
+  ws.getColumn(fixedColCount + flatPositions.length + 2).width = 15; // Thành tiền
+
+  if (!existingWb) {
+    const suffix = mode === 'count' ? 'so_luong' : 'so_tien';
+    const filename = `Bang_thanh_toan_goi_dich_vu_${suffix}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    await saveWorkbook(wb, filename);
+  }
+  return wb;
+}
+
 // ──────────────────────────────────────────────────────────
-// 3) Combined Export — All sheets, DS PT + Bảng TT formatted
+// Helpers cho Sheet Lịch Trực
+// ──────────────────────────────────────────────────────────
+
+function parseDateRangeForDuty(text?: string): { startKey?: string; endKey?: string } {
+  if (!text) return {};
+  const dmyMatches = text.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g);
+  if (dmyMatches && dmyMatches.length >= 2) {
+    const [d1, m1, y1] = dmyMatches[0].split('/').map(Number);
+    const [d2, m2, y2] = dmyMatches[1].split('/').map(Number);
+    const startKey = `${y1}-${String(m1).padStart(2, '0')}-${String(d1).padStart(2, '0')}`;
+    const endKey = `${y2}-${String(m2).padStart(2, '0')}-${String(d2).padStart(2, '0')}`;
+    return { startKey, endKey };
+  }
+  const ymdMatches = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/g);
+  if (ymdMatches && ymdMatches.length >= 2) {
+    return { startKey: ymdMatches[0], endKey: ymdMatches[1] };
+  }
+  return {};
+}
+
+export function buildDutyScheduleExportModel(
+  records: SurgeryRecord[],
+  dutySchedules: Record<string, DutyScheduleDateConfig>,
+  config: AppConfig,
+  dateRange: string,
+) {
+  const { startKey: queryStartKey, endKey: queryEndKey } = parseDateRangeForDuty(dateRange);
+  let earliestDutyDateStr: string | null = queryStartKey || null;
+  let latestEndDate: Date | null = queryEndKey
+    ? new Date(
+        Number(queryEndKey.split('-')[0]),
+        Number(queryEndKey.split('-')[1]) - 1,
+        Number(queryEndKey.split('-')[2]),
+      )
+    : null;
+
+  (records || []).forEach((r) => {
+    const start = r.start || (r.ngayBD ? new Date(r.ngayBD) : null);
+    const end = r.end || (r.ngayKT ? new Date(r.ngayKT) : null);
+    if (start && !isNaN(start.getTime())) {
+      const schedule = getScheduleForDate(start, config?.workingHours);
+      const dutyDateKey = getDutyDateKey(start, schedule.morningFrom || '07:00');
+      if (!earliestDutyDateStr || dutyDateKey < earliestDutyDateStr) {
+        earliestDutyDateStr = dutyDateKey;
+      }
+    }
+    if (end && !isNaN(end.getTime())) {
+      if (!latestEndDate || end.getTime() > latestEndDate.getTime()) {
+        latestEndDate = end;
+      }
+    }
+  });
+
+  // Cũng xét cả các ngày có trong dutySchedules nếu chưa có trong khoảng ngày
+  Object.keys(dutySchedules || {}).forEach((dateKey) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+      if (!earliestDutyDateStr) earliestDutyDateStr = dateKey;
+      if (!latestEndDate) {
+        const [y, m, d] = dateKey.split('-').map(Number);
+        latestEndDate = new Date(y, m - 1, d);
+      }
+    }
+  });
+
+  const dutyDates: string[] = [];
+  if (earliestDutyDateStr) {
+    const latestEndDateKey = latestEndDate ? formatDateKey(latestEndDate) : earliestDutyDateStr;
+    const finalEndKey = latestEndDateKey >= earliestDutyDateStr ? latestEndDateKey : earliestDutyDateStr;
+    const [startYear, startMonth, startDay] = earliestDutyDateStr.split('-').map(Number);
+    const [endYear, endMonth, endDay] = finalEndKey.split('-').map(Number);
+    const cursor = new Date(startYear, startMonth - 1, startDay);
+    const stopDate = new Date(endYear, endMonth - 1, endDay);
+    while (cursor.getTime() <= stopDate.getTime()) {
+      dutyDates.push(formatDateKey(cursor));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+
+  // Trích xuất và sắp xếp danh sách nhân viên
+  const staffMap = new Map<
+    string,
+    { name: string; department: string; derivedPos: string; deptWeight: number }
+  >();
+  const configuredStaff = config?.staffList || [];
+  const deptOrderMap = new Map<string, number>();
+  (config?.departments || []).forEach((dept, idx) => deptOrderMap.set(dept, idx));
+
+  const addStaffName = (rawName: string, fallbackPos: string) => {
+    const trimmed = (rawName || '').toString().trim();
+    if (!trimmed || staffMap.has(trimmed)) return;
+    const cleanName = trimmed.toLowerCase();
+    const matched =
+      configuredStaff.find((s) => s.name === trimmed) ||
+      configuredStaff.find((s) => s.name.trim().toLowerCase() === cleanName);
+    const dept = matched?.department || 'Khác';
+    const pos = matched?.position || fallbackPos;
+    const deptWeight = deptOrderMap.get(dept) ?? 999;
+    staffMap.set(trimmed, {
+      name: trimmed,
+      department: dept,
+      derivedPos: pos,
+      deptWeight,
+    });
+  };
+
+  const roleFields: Array<keyof SurgeryRecord> = ['ptChinh', 'ptPhu', 'bsGM', 'ktvGM', 'tdc', 'gv'];
+  (records || []).forEach((r) => {
+    roleFields.forEach((rf) => {
+      const rawName = (r[rf] || '').toString().trim();
+      if (!rawName) return;
+      const defaultPos = rf === 'ptChinh' || rf === 'ptPhu' ? 'BS PT' : rf === 'bsGM' ? 'BS GMHS' : 'Phụ';
+      addStaffName(rawName, defaultPos);
+    });
+  });
+
+  // Bổ sung nhân viên có trong dutySchedules thuộc các ngày đang xét
+  dutyDates.forEach((dateKey) => {
+    const onCall = dutySchedules?.[dateKey]?.onCallStaff || [];
+    onCall.forEach((name) => addStaffName(name, 'BS PT'));
+  });
+
+  const staffList = Array.from(staffMap.values()).sort((a, b) => {
+    if (a.deptWeight !== b.deptWeight) return a.deptWeight - b.deptWeight;
+    if (a.department !== b.department) return (a.department || '').localeCompare(b.department || '', 'vi');
+    const posWeight: Record<string, number> = { 'BS PT': 1, 'BS GMHS': 2, 'Phụ': 3 };
+    const wA = posWeight[a.derivedPos] || 99;
+    const wB = posWeight[b.derivedPos] || 99;
+    if (wA !== wB) return wA - wB;
+    return a.name.localeCompare(b.name, 'vi');
+  });
+
+  return { dutyDates, staffList };
+}
+
+/**
+ * 2c) Xuất Bảng Phân Công Lịch Trực 24h sang file Excel
+ */
+export async function exportDutyScheduleToExcel(
+  records: SurgeryRecord[],
+  dutySchedules: Record<string, DutyScheduleDateConfig>,
+  config: AppConfig,
+  dateRange: string,
+  hospitalName: string = 'BỆNH VIỆN',
+  existingWb?: ExcelJS.Workbook,
+  signatureDate?: Date,
+): Promise<ExcelJS.Workbook> {
+  const wb = existingWb || new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Lịch trực', {
+    pageSetup: {
+      orientation: 'landscape',
+      paperSize: 9, // A4
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    },
+  });
+
+  const { dutyDates, staffList } = buildDutyScheduleExportModel(records, dutySchedules, config, dateRange);
+  const fixedHeaders = ['STT', 'Khoa/Phòng', 'Họ và tên nhân viên', 'Chức danh', 'Tổng buổi trực'];
+  const fixedColCount = fixedHeaders.length;
+  const totalCols = fixedColCount + dutyDates.length;
+
+  let row = addReportHeader(
+    ws,
+    'BẢNG PHÂN CÔNG LỊCH TRỰC 24H',
+    dateRange,
+    hospitalName,
+    Math.max(totalCols, 6),
+    1,
+  );
+
+  // Header Row 1: Fixed columns + Date columns
+  const headerRow1 = row;
+  const headerRow2 = row + 1;
+
+  fixedHeaders.forEach((label, idx) => {
+    ws.mergeCells(headerRow1, idx + 1, headerRow2, idx + 1);
+    const cell = ws.getRow(headerRow1).getCell(idx + 1);
+    cell.value = label;
+    cell.font = { name: FONT_TIMES, size: 10, bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = thinBorder;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+    ws.getRow(headerRow2).getCell(idx + 1).border = thinBorder;
+  });
+
+  dutyDates.forEach((dateKey, dIdx) => {
+    const colNum = fixedColCount + dIdx + 1;
+    const dayCfg = dutySchedules?.[dateKey];
+    const isHoliday = dayCfg ? dayCfg.isHoliday : isWeekend(dateKey);
+    const displayDate = formatDisplayDate(dateKey).substring(0, 5); // DD/MM
+    const dow = getDayOfWeekLabel(dateKey);
+
+    const c1 = ws.getRow(headerRow1).getCell(colNum);
+    c1.value = `${displayDate}\n(${dow})`;
+    c1.font = { name: FONT_TIMES, size: 9, bold: true };
+    c1.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c1.border = thinBorder;
+    c1.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isHoliday ? 'FFFEF3C7' : 'FFE8E8E8' },
+    };
+
+    const c2 = ws.getRow(headerRow2).getCell(colNum);
+    c2.value = isHoliday ? 'Nghỉ/Lễ' : 'Thường';
+    c2.font = { name: FONT_TIMES, size: 8, italic: true, bold: isHoliday };
+    c2.alignment = { horizontal: 'center', vertical: 'middle' };
+    c2.border = thinBorder;
+    c2.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: isHoliday ? 'FFFDE68A' : 'FFF5F5F5' },
+    };
+  });
+
+  ws.getRow(headerRow1).height = 26;
+  ws.getRow(headerRow2).height = 18;
+  row = headerRow2 + 1;
+
+  // Data rows
+  let prevDept = '';
+  staffList.forEach((staff, sIdx) => {
+    const dataRow = ws.getRow(row);
+    const isNewDept = sIdx > 0 && staff.department !== prevDept;
+    prevDept = staff.department;
+
+    let dutyCount = 0;
+    dutyDates.forEach((dateKey) => {
+      const onCall = dutySchedules?.[dateKey]?.onCallStaff || [];
+      if (onCall.includes(staff.name)) dutyCount++;
+    });
+
+    dataRow.getCell(1).value = sIdx + 1;
+    dataRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    dataRow.getCell(2).value = staff.department;
+    dataRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+    dataRow.getCell(3).value = staff.name;
+    dataRow.getCell(3).alignment = { horizontal: 'left', vertical: 'middle' };
+    dataRow.getCell(4).value = staff.derivedPos;
+    dataRow.getCell(4).alignment = { horizontal: 'center', vertical: 'middle' };
+    dataRow.getCell(5).value = dutyCount;
+    dataRow.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    for (let i = 1; i <= fixedColCount; i++) {
+      dataRow.getCell(i).font = { name: FONT_TIMES, size: 10, bold: i === 5 };
+      dataRow.getCell(i).border = thinBorder;
+    }
+
+    dutyDates.forEach((dateKey, dIdx) => {
+      const colNum = fixedColCount + dIdx + 1;
+      const onCall = dutySchedules?.[dateKey]?.onCallStaff || [];
+      const isOnCall = onCall.includes(staff.name);
+      const cell = dataRow.getCell(colNum);
+      cell.value = isOnCall ? 'X' : '';
+      cell.font = { name: FONT_TIMES, size: 10, bold: isOnCall, color: { argb: isOnCall ? 'FF1D4ED8' : 'FF000000' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = thinBorder;
+      if (isOnCall) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDBEAFE' } };
+      }
+    });
+
+    if (isNewDept) {
+      for (let i = 1; i <= totalCols; i++) {
+        dataRow.getCell(i).border = {
+          ...thinBorder,
+          top: { style: 'medium' },
+        };
+      }
+    }
+
+    row++;
+  });
+
+  // Footer row: Tổng số người trực mỗi ngày
+  const footRow = ws.getRow(row);
+  ws.mergeCells(row, 1, row, 4);
+  footRow.getCell(1).value = 'TỔNG SỐ NGƯỜI TRỰC';
+  footRow.getCell(1).font = { name: FONT_TIMES, size: 10, bold: true };
+  footRow.getCell(1).alignment = { horizontal: 'right', vertical: 'middle' };
+  for (let i = 1; i <= 4; i++) {
+    footRow.getCell(i).border = thinBorder;
+  }
+
+  let grandDutyCount = 0;
+  dutyDates.forEach((dateKey, dIdx) => {
+    const colNum = fixedColCount + dIdx + 1;
+    const onCall = dutySchedules?.[dateKey]?.onCallStaff || [];
+    const count = staffList.filter((s) => onCall.includes(s.name)).length;
+    grandDutyCount += count;
+    const cell = footRow.getCell(colNum);
+    cell.value = count > 0 ? count : '';
+    cell.font = { name: FONT_TIMES, size: 10, bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.border = thinBorder;
+  });
+
+  footRow.getCell(5).value = grandDutyCount;
+  footRow.getCell(5).font = { name: FONT_TIMES, size: 10, bold: true };
+  footRow.getCell(5).alignment = { horizontal: 'center', vertical: 'middle' };
+  footRow.getCell(5).border = thinBorder;
+  row += 2;
+
+  addSignatures(ws, row, Math.max(totalCols, 6), 'list', signatureDate);
+
+  ws.getColumn(1).width = 5;  // STT
+  ws.getColumn(2).width = 14; // Khoa
+  ws.getColumn(3).width = 22; // Họ tên
+  ws.getColumn(4).width = 11; // Chức danh
+  ws.getColumn(5).width = 12; // Tổng buổi trực
+  for (let i = 0; i < dutyDates.length; i++) {
+    ws.getColumn(fixedColCount + i + 1).width = 7;
+  }
+
+  if (!existingWb) {
+    const filename = `Bang_lich_truc_${new Date().toISOString().split('T')[0]}.xlsx`;
+    await saveWorkbook(wb, filename);
+  }
+  return wb;
+}
+
+// ──────────────────────────────────────────────────────────
+// 3) Combined Export — All sheets formatted & raw
 // ──────────────────────────────────────────────────────────
 
 function copySheetJSToExcelJS(
@@ -648,6 +1320,155 @@ function copySheetJSToExcelJS(
   });
 }
 
+/**
+ * Bổ sung các sheet dữ liệu thô (Gói DV Số lượng, Gói DV Số tiền, Thống kê Ngoài giờ, Lịch trực)
+ * vào SheetJS Workbook khi người dùng tải file Excel "Không định dạng".
+ */
+export function appendExtraRawSheetsToWorkbook(
+  rawWb: XLSX.WorkBook,
+  records: SurgeryRecord[],
+  config: AppConfig,
+  dateRange: string,
+  extraData?: ExtraFullExcelExportData,
+) {
+  const assignments = extraData?.packageAssignments || [];
+  const packages = extraData?.packageDefinitions || [];
+  const staffList = config.staffList || [];
+  const positionCatalog = extraData?.positionCatalog || [];
+  const departments = config.departments || [];
+  const dutySchedules = extraData?.dutySchedules || {};
+  const includeGV = extraData?.includeGV ?? false;
+
+  // 1 & 2. Hai bảng thanh toán gói dịch vụ (Theo Số lượng & Theo Số tiền)
+  const usedPkgs = getUsedPackages(assignments, packages);
+  const activePkgs = (usedPkgs.length > 0 ? usedPkgs : packages).filter(
+    (p) => Array.isArray(p.positions) && p.positions.length > 0,
+  );
+  const allPkgRows = buildPackagePaymentRows(assignments, packages, staffList, positionCatalog, departments);
+  const pkgRows = filterPackageRows(allPkgRows, extraData?.packageSearchTerm || '', packages);
+
+  (['count', 'amount'] as const).forEach((mode) => {
+    const sheetName = mode === 'count' ? 'TT_GOI_DV_SL' : 'TT_GOI_DV_TIEN';
+    const header1: any[] = ['STT', 'Khoa', 'Mã số thuế', 'Họ tên'];
+    const header2: any[] = ['', '', '', ''];
+    const flatPos: { packageId: string; positionKey: string }[] = [];
+
+    activePkgs.forEach((pkg) => {
+      pkg.positions.forEach((pos, idx) => {
+        header1.push(idx === 0 ? pkg.name : '');
+        header2.push(pos.positionLabel);
+        flatPos.push({ packageId: pkg.id, positionKey: pos.positionKey });
+      });
+    });
+    header1.push('Tổng SL', 'Thành tiền');
+    header2.push('', '');
+
+    const aoa: any[][] = [header1, header2];
+    pkgRows.forEach((r, idx) => {
+      const rowArr: any[] = [
+        idx + 1,
+        r.isUnassigned ? 'Chưa gán NV' : r.department || '',
+        r.taxId || '',
+        r.staffName,
+      ];
+      flatPos.forEach((fp) => {
+        const c = r.cells[fp.packageId]?.[fp.positionKey];
+        const val = c ? (mode === 'count' ? c.count : c.amount) : 0;
+        rowArr.push(val > 0 ? val : '');
+      });
+      rowArr.push(r.totalCount, r.total);
+      aoa.push(rowArr);
+    });
+
+    const totalRow: any[] = ['', '', '', 'TỔNG CỘNG'];
+    flatPos.forEach((fp) => {
+      const sum = pkgRows.reduce((s, r) => {
+        const c = r.cells[fp.packageId]?.[fp.positionKey];
+        return s + (c ? (mode === 'count' ? c.count : c.amount) : 0);
+      }, 0);
+      totalRow.push(sum > 0 ? sum : '');
+    });
+    totalRow.push(
+      pkgRows.reduce((s, r) => s + r.totalCount, 0),
+      pkgRows.reduce((s, r) => s + r.total, 0),
+    );
+    aoa.push(totalRow);
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(rawWb, ws, sheetName);
+  });
+
+  // 3. Sheet Thống kê Ngoài giờ
+  const overtimeRows = calculateOvertimeRows(records, dutySchedules, config.workingHours, includeGV);
+  const otHeaders = [
+    'STT',
+    'Mã BN',
+    'Họ và tên người bệnh',
+    'Tên phẫu thuật, thủ thuật',
+    'Ngày BĐ',
+    'Ngày KT',
+    'PT chính',
+    'PT phụ',
+    'BS GM',
+    'KTV GM',
+    'TDC',
+    ...(includeGV ? ['GV'] : []),
+    'Ngoài giờ (từ)',
+    'Ngoài giờ (đến)',
+    'TS giờ',
+    'Kíp phẫu thuật',
+  ];
+  const otAoa: any[][] = [otHeaders];
+  overtimeRows.forEach((r, idx) => {
+    otAoa.push([
+      idx + 1,
+      r.patientId,
+      r.patientName,
+      r.tenKT,
+      r.ngayBD,
+      r.ngayKT,
+      r.ptChinh || '',
+      r.ptPhu || '',
+      r.bsGM || '',
+      r.ktvGM || '',
+      r.tdc || '',
+      ...(includeGV ? [r.gv || ''] : []),
+      r.timeFrom,
+      r.timeTo,
+      r.durationText,
+      r.ghiChu,
+    ]);
+  });
+  const wsOt = XLSX.utils.aoa_to_sheet(otAoa);
+  XLSX.utils.book_append_sheet(rawWb, wsOt, 'THONG_KE_NGOAI_GIO');
+
+  // 4. Sheet Lịch trực
+  const { dutyDates, staffList: dutyStaff } = buildDutyScheduleExportModel(
+    records,
+    dutySchedules,
+    config,
+    dateRange,
+  );
+  const dutyHeader = [
+    'STT',
+    'Khoa/Phòng',
+    'Họ và tên nhân viên',
+    'Chức danh',
+    'Tổng buổi trực',
+    ...dutyDates.map((d) => `${formatDisplayDate(d).substring(0, 5)} (${getDayOfWeekLabel(d)})`),
+  ];
+  const dutyAoa: any[][] = [dutyHeader];
+  dutyStaff.forEach((s, idx) => {
+    const marks = dutyDates.map((d) =>
+      (dutySchedules?.[d]?.onCallStaff || []).includes(s.name) ? 'X' : '',
+    );
+    const totalDuty = marks.filter((m) => m === 'X').length;
+    dutyAoa.push([idx + 1, s.department, s.name, s.derivedPos, totalDuty, ...marks]);
+  });
+  const wsDuty = XLSX.utils.aoa_to_sheet(dutyAoa);
+  XLSX.utils.book_append_sheet(rawWb, wsDuty, 'LICH_TRUC');
+}
+
 export async function exportFormattedFullExcel(
   rawResult: ProcessingResult,
   config: AppConfig,
@@ -660,7 +1481,8 @@ export async function exportFormattedFullExcel(
     columnTotals: Record<string, number>;
   } | null,
   signatureDate?: Date,
-) {
+  extraData?: ExtraFullExcelExportData,
+): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
   const records = rawResult.validRecords;
   const dateRange = rawResult.dateRangeText || '';
@@ -680,7 +1502,7 @@ export async function exportFormattedFullExcel(
     });
   }
 
-  // 3. Formatted Bảng Thanh toán sheet
+  // 3. Formatted Bảng Thanh toán Phụ cấp PTTT sheet
   if (paymentPrepared) {
     const { enrichedRows, groups, cols, footerTotals, columnTotals } = paymentPrepared;
     await exportPaymentExcel(
@@ -690,9 +1512,77 @@ export async function exportFormattedFullExcel(
     );
   }
 
+  // 4 & 5. Hai Bảng Thanh toán Gói dịch vụ (Theo Số lượng & Theo Số tiền)
+  const pkgAssignments = extraData?.packageAssignments || [];
+  const pkgDefinitions = extraData?.packageDefinitions || [];
+  const posCatalog = extraData?.positionCatalog || [];
+  const pkgModuleCfg = extraData?.packageModuleConfig;
+  const pkgSubtitle = extraData?.packageSubtitle || dateRange;
+  const pkgSearchTerm = extraData?.packageSearchTerm || '';
+  const staffList = config.staffList || [];
+  const departments = config.departments || [];
+
+  await exportPackagePaymentExcel(
+    pkgAssignments,
+    pkgDefinitions,
+    staffList,
+    posCatalog,
+    departments,
+    pkgSubtitle,
+    hospitalName,
+    'count',
+    wb,
+    signatureDate,
+    pkgModuleCfg,
+    pkgSearchTerm,
+  );
+
+  await exportPackagePaymentExcel(
+    pkgAssignments,
+    pkgDefinitions,
+    staffList,
+    posCatalog,
+    departments,
+    pkgSubtitle,
+    hospitalName,
+    'amount',
+    wb,
+    signatureDate,
+    pkgModuleCfg,
+    pkgSearchTerm,
+  );
+
+  // 6. Sheet Thống kê Ngoài giờ
+  const dutySchedules = extraData?.dutySchedules || {};
+  const includeGV = extraData?.includeGV ?? false;
+  const overtimeRows = calculateOvertimeRows(records, dutySchedules, config.workingHours, includeGV);
+  await exportOvertimeToExcel(
+    overtimeRows,
+    dateRange,
+    hospitalName,
+    includeGV,
+    wb,
+    signatureDate,
+    'Thống kê Ngoài giờ',
+  );
+
+  // 7. Sheet Lịch trực
+  await exportDutyScheduleToExcel(
+    records,
+    dutySchedules,
+    config,
+    dateRange,
+    hospitalName,
+    wb,
+    signatureDate,
+  );
+
   // Save combined workbook
-  const filename = `Ket_qua_dinh_dang_${new Date().toISOString().split('T')[0]}.xlsx`;
-  await saveWorkbook(wb, filename);
+  if (extraData?.saveFile !== false) {
+    const filename = `Ket_qua_dinh_dang_${new Date().toISOString().split('T')[0]}.xlsx`;
+    await saveWorkbook(wb, filename);
+  }
+  return wb;
 }
 
 /**
@@ -703,10 +1593,12 @@ export async function exportOvertimeToExcel(
   dateRange: string,
   hospitalName: string = 'BỆNH VIỆN',
   includeGV: boolean = false,
-  existingWb?: ExcelJS.Workbook
+  existingWb?: ExcelJS.Workbook,
+  signatureDate?: Date,
+  sheetName: string = 'Phẫu thuật Ngoài giờ',
 ) {
   const wb = existingWb || new ExcelJS.Workbook();
-  const ws = wb.addWorksheet('Phẫu thuật Ngoài giờ', {
+  const ws = wb.addWorksheet(sheetName, {
     pageSetup: {
       orientation: 'landscape',
       paperSize: 9, // A4
@@ -807,7 +1699,9 @@ export async function exportOvertimeToExcel(
   for (let c = 1; c <= totalCols; c++) {
     totalRow.getCell(c).border = thinBorder;
   }
-  row++;
+  row += 2;
+
+  addSignatures(ws, row, totalCols, 'list', signatureDate);
 
   if (!existingWb) {
     const filename = `Bang_thong_ke_ngoai_gio_${new Date().toISOString().split('T')[0]}.xlsx`;

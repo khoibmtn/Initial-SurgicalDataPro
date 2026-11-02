@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Hash, DollarSign } from 'lucide-react';
 import { DynamicTable, ColumnDef } from '../common/DynamicTable';
 import { PaymentTableView } from './PaymentTableView';
@@ -174,6 +174,11 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
 
   // Package payment view state (persisted)
   const [packageSearch, setPackageSearch] = useState('');
+  useEffect(() => {
+    try {
+      localStorage.setItem('package_payment_search', packageSearch);
+    } catch {}
+  }, [packageSearch]);
   const [packageView, setPackageView] = useState<PackageViewMode>(() => {
     try {
       return localStorage.getItem('package_payment_view') === 'summary' ? 'summary' : 'detail';
@@ -198,11 +203,10 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
     try { localStorage.setItem('package_payment_hidden_cols', JSON.stringify(cols)); } catch {}
   };
 
-  // Payment table list selection: 'all' (surgery list / report range) | <listId>
+  // Payment table list selection: 'all' (surgery list / report range) | 'unpaid' (Chưa gán đợt) | <listId>
   const [selectedList, setSelectedList] = useState<PaymentListSelection>(() => {
     try {
-      const v = localStorage.getItem('payment_list_selected') || 'all';
-      return v === 'unpaid' ? 'all' : v;
+      return localStorage.getItem('payment_list_selected') || 'all';
     } catch { return 'all'; }
   });
   const handleSelectList = (v: PaymentListSelection) => {
@@ -210,13 +214,35 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
     try { localStorage.setItem('payment_list_selected', v); } catch {}
   };
 
+  // Các ca đã gán gói DVYC trong kỳ nhưng chưa được gán vào đợt thanh toán nào
+  const unpaidPackageAssignments = useMemo(() => {
+    if (!paymentLists) return packageAssignments;
+    return packageAssignments.filter(
+      (a) => !paymentLists.membershipIndex.has((a.patientId || '').trim())
+    );
+  }, [paymentLists, packageAssignments]);
+
+  // Số lượng ca đã gán gói DVYC trong từng đợt thanh toán
+  const batchAssignedCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!paymentLists) return counts;
+    for (const l of paymentLists.lists) {
+      const ids = new Set(l.items.map((i) => i.patientId.trim()));
+      counts[l.id] = paymentLists.allAssignments.filter((a) =>
+        ids.has((a.patientId || '').trim())
+      ).length;
+    }
+    return counts;
+  }, [paymentLists]);
+
   const assignmentsForTable = useMemo(() => {
     if (!paymentLists || selectedList === 'all') return packageAssignments;
+    if (selectedList === 'unpaid') return unpaidPackageAssignments;
     const list = paymentLists.lists.find(l => l.id === selectedList);
     if (!list) return packageAssignments;
     const ids = new Set(list.items.map(i => i.patientId.trim()));
     return paymentLists.allAssignments.filter(a => ids.has((a.patientId || '').trim()));
-  }, [paymentLists, selectedList, packageAssignments]);
+  }, [paymentLists, selectedList, packageAssignments, unpaidPackageAssignments]);
 
   if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
 
@@ -477,6 +503,11 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
                     value={selectedList}
                     onChange={handleSelectList}
                     allLabel="Tất cả (theo DS phẫu thuật)"
+                    allCount={packageAssignments.length}
+                    allowUnpaid
+                    unpaidLabel="Chưa gán đợt"
+                    unpaidCount={unpaidPackageAssignments.length}
+                    listCounts={batchAssignedCounts}
                   />
                 )}
                 <PackagePaymentSearch value={packageSearch} onChange={setPackageSearch} />

@@ -8,6 +8,7 @@ interface ColumnDef<T> {
     render?: (item: T) => React.ReactNode;
     align?: 'left' | 'center' | 'right';
     width?: string;
+    className?: string;
 }
 
 interface DailyPrintStats {
@@ -60,35 +61,95 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
     signatureDate,
     overtimeGroupedData
 }) => {
-    // Auto-print when open
+    const portalRef = React.useRef<HTMLDivElement>(null);
+    const contentRef = React.useRef<HTMLDivElement>(null);
+    const tableRef = React.useRef<HTMLTableElement>(null);
+
+    const colCount = columns?.length || 0;
+    const isWideTable = type !== 'overtime' && colCount > 10;
+    const isUltraWideTable = type !== 'overtime' && colCount > 20;
+    // Khổ giấy khả dụng (mm) trừ lề an toàn để đo và tự động thu phóng vừa khít 100% chiều ngang trang A4
+    const targetPrintWidthMm =
+        orientation === 'landscape'
+            ? (isWideTable ? 281 : 275)
+            : (isWideTable ? 194 : 188);
+
+    // Auto-measure & fit to page width, then trigger print when open
     React.useEffect(() => {
-        if (isOpen) {
-            const timer = setTimeout(() => {
-                window.print();
-                onClose();
-            }, 500);
-            return () => clearTimeout(timer);
-        }
-    }, [isOpen, onClose]);
+        if (!isOpen) return;
+
+        const computeAndApplyFitZoom = () => {
+            const portalEl = portalRef.current;
+            const contentEl = contentRef.current;
+            const tableEl = tableRef.current;
+            if (!portalEl || !contentEl || !tableEl) return;
+
+            // Reset zoom to 1 first to measure natural layout width
+            contentEl.style.zoom = '1';
+            const availableWidth = portalEl.clientWidth;
+            const actualTableWidth = tableEl.scrollWidth;
+
+            if (availableWidth > 0 && actualTableWidth > availableWidth) {
+                const ratio = (availableWidth - 4) / actualTableWidth;
+                const clampedZoom = Math.max(0.32, Math.floor(ratio * 1000) / 1000);
+                contentEl.style.zoom = String(clampedZoom);
+            } else {
+                contentEl.style.zoom = '1';
+            }
+        };
+
+        const rafId = requestAnimationFrame(() => {
+            computeAndApplyFitZoom();
+        });
+
+        const timer = setTimeout(() => {
+            computeAndApplyFitZoom();
+            window.print();
+            onClose();
+        }, 450);
+
+        return () => {
+            cancelAnimationFrame(rafId);
+            clearTimeout(timer);
+        };
+    }, [isOpen, onClose, orientation, colCount, data]);
 
     if (!isOpen) return null;
 
     const d = signatureDate || new Date();
     const dateString = `Ngày ${d.getDate()} tháng ${d.getMonth() + 1} năm ${d.getFullYear()}`;
+    const pageMargin = isWideTable ? '0.6cm' : '1cm';
+    const baseCellPadding = isUltraWideTable ? '1px 1.5px' : isWideTable ? '1.5px 2.5px' : '2px 4px';
+    const baseTableFontSize = isUltraWideTable ? '8px' : isWideTable ? '9px' : '10px';
 
     // Content to render
     const printContent = (
-        <div className="print-portal font-[Times_New_Roman] text-black">
+        <div ref={portalRef} className="print-portal font-[Times_New_Roman] text-black">
             <style>{`
+        @media screen {
+          /* Render off-screen at exact A4 printable width so table scrollWidth can be measured accurately before window.print() */
+          .print-portal {
+            position: fixed;
+            top: 0;
+            left: -10000px;
+            width: ${targetPrintWidthMm}mm;
+            visibility: hidden;
+            pointer-events: none;
+            z-index: -1;
+            display: block;
+            background: white;
+          }
+        }
         @media print {
           /* Set page size based on provided orientation */
           @page { 
             size: A4 ${orientation}; 
-            margin: 1cm; 
+            margin: ${pageMargin}; 
           }
           body > *:not(.print-portal) { display: none !important; }
           .print-portal {
             display: block !important;
+            visibility: visible !important;
             position: absolute;
             top: 0;
             left: 0;
@@ -97,31 +158,34 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
             background: white;
             z-index: 9999;
           }
-          /* Ensure table fits page width */
-          table {
-            table-layout: auto;
-            width: 100% !important;
-            border-spacing: 0;
-            border-collapse: collapse;
-          }
-          td, th {
-            word-wrap: normal; /* Don't wrap unless forced */
-            overflow-wrap: normal;
-            padding: 2px 4px !important;
-          }
-          /* Specific widths for print - tightly fit content */
-          .col-stt { width: 25px; }
-          .col-dept { width: 1%; white-space: nowrap; }
-          .col-tax { width: 1%; white-space: nowrap; }
-          .col-name { white-space: nowrap; }
-          .col-total { width: 1%; white-space: nowrap; font-weight: bold; }
-          .col-numeric { width: 1%; white-space: nowrap; }
         }
-        /* Hide on screen */
-        .print-portal { display: none; }
+        /* Shared table layout rules for both off-screen measurement and print */
+        .print-portal table {
+          table-layout: auto;
+          width: 100% !important;
+          border-spacing: 0;
+          border-collapse: collapse;
+        }
+        .print-portal td, .print-portal th {
+          word-wrap: normal;
+          overflow-wrap: normal;
+          padding: ${baseCellPadding} !important;
+        }
+        .print-portal th {
+          white-space: normal;
+          word-break: break-word;
+          line-height: 1.15;
+        }
+        /* Specific widths for print - tightly fit content */
+        .print-portal .col-stt { width: 22px; }
+        .print-portal .col-dept { width: 1%; white-space: ${isUltraWideTable ? 'normal' : 'nowrap'}; }
+        .print-portal .col-tax { width: 1%; white-space: nowrap; }
+        .print-portal .col-name { white-space: ${isUltraWideTable ? 'normal' : 'nowrap'}; }
+        .print-portal .col-total { width: 1%; white-space: nowrap; font-weight: bold; }
+        .print-portal .col-numeric { width: 1%; white-space: nowrap; }
       `}</style>
 
-            <div className="print-content w-full h-full">
+            <div ref={contentRef} className="print-content w-full h-full">
                 {type === 'overtime' ? (
                     <div>
                         {/* OVERTIME REPORT HEADER */}
@@ -144,7 +208,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                         </div>
 
                         {/* TABLE */}
-                        <table className="w-full border-collapse border border-black text-[10px] font-[Times_New_Roman]">
+                        <table ref={tableRef} className="w-full border-collapse border border-black text-[10px] font-[Times_New_Roman]">
                             <thead>
                                 <tr className="bg-transparent">
                                     <th rowSpan={2} className="border border-black px-1 py-1 text-center font-bold w-[30px]">TT</th>
@@ -284,7 +348,7 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                         </div>
 
                         {/* TABLE */}
-                        <table className="w-full border-collapse border border-black text-[10px] font-[Times_New_Roman]">
+                        <table ref={tableRef} style={{ fontSize: baseTableFontSize }} className="w-full border-collapse border border-black font-[Times_New_Roman]">
                             {customThead ? customThead : (
                                 <thead>
                                     <tr className="bg-gray-100 print:bg-transparent">

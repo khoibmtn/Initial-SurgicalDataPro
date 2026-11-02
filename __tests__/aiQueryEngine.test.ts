@@ -583,13 +583,13 @@ describe('Jev System One Decision Engine & RLCD Reinforcement Learning', () => {
           {
             ...sampleSurgeries[0],
             patientId: 'BN_DAY05_A',
-            ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-05 08:30`,
+            ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-01 08:30`,
             loaiPTTT: 'PĐB',
           },
           {
             ...sampleSurgeries[1],
             patientId: 'BN_DAY05_B',
-            ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-05 10:30`,
+            ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-01 10:30`,
             loaiPTTT: 'P1',
           },
         ] as any;
@@ -600,7 +600,7 @@ describe('Jev System One Decision Engine & RLCD Reinforcement Learning', () => {
     const dailyScreenRecord: SurgeryRecord = {
       ...sampleSurgeries[2],
       patientId: 'BN_DAY19_SCREEN',
-      ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-19 09:00`,
+      ngayBD: `${curYear}-${String(curMonth).padStart(2, '0')}-01 09:00`,
       loaiPTTT: 'P2',
     };
 

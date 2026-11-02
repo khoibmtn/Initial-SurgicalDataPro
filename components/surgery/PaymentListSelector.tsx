@@ -8,28 +8,52 @@ interface Props {
   lists: PaymentList[];
   value: PaymentListSelection;
   onChange: (v: PaymentListSelection) => void;
-  /** Gói DV tab only: shows the "Chưa thanh toán" option */
+  /** Hiển thị thêm lựa chọn "Chưa gán đợt" */
   allowUnpaid?: boolean;
+  unpaidLabel?: string;
+  unpaidCount?: number;
+  allCount?: number;
+  listCounts?: Record<string, number>;
   /** Gói DV tab only: shows the manage-lists button */
   onManage?: () => void;
   allLabel?: string;
 }
 
 export const PaymentListSelector: React.FC<Props> = ({
-  lists, value, onChange, allowUnpaid, onManage, allLabel = 'Tất cả ca đã gán',
+  lists,
+  value,
+  onChange,
+  allowUnpaid,
+  unpaidLabel = 'Chưa gán đợt',
+  unpaidCount,
+  allCount,
+  listCounts,
+  onManage,
+  allLabel = 'Tất cả ca đã gán',
 }) => (
   <div className="flex items-center gap-1">
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
       aria-label="Chọn danh sách thanh toán"
-      className="h-8 max-w-[200px] rounded-lg border border-gray-200 bg-white px-2 text-xs font-semibold text-gray-700"
+      className="h-8 max-w-[270px] rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
     >
-      <option value="all">{allLabel}</option>
-      {lists.map(l => (
-        <option key={l.id} value={l.id}>{l.status === 'locked' ? '🔒 ' : ''}{l.name} ({l.items.length})</option>
-      ))}
-      {allowUnpaid && <option value="unpaid">Chưa thanh toán gói DV</option>}
+      <option value="all">
+        {allLabel}{allCount !== undefined ? ` (${allCount})` : ''}
+      </option>
+      {allowUnpaid && (
+        <option value="unpaid">
+          {unpaidLabel}{unpaidCount !== undefined ? ` (${unpaidCount})` : ''}
+        </option>
+      )}
+      {lists.map(l => {
+        const count = listCounts && listCounts[l.id] !== undefined ? listCounts[l.id] : l.items.length;
+        return (
+          <option key={l.id} value={l.id}>
+            {l.status === 'locked' ? '🔒 ' : ''}{l.name} ({count})
+          </option>
+        );
+      })}
     </select>
     {onManage && (
       <button

@@ -13,8 +13,15 @@ import {
   DEFAULT_MODULE_CONFIG,
   formatDeductionValue,
 } from '../types/servicePackage';
-import { buildPackagePaymentRows } from '../services/packagePaymentRows';
+import {
+  buildPackagePaymentRows,
+  filterPackageRows,
+  packageColumnKey,
+  PackageViewMode,
+  PaymentCell,
+} from '../services/packagePaymentRows';
 import { StaffMember } from '../types';
+import type { PaymentListsContext } from './usePaymentLists';
 
 export interface UsePrintControllerOptions {
   activeTab: TabKey;
@@ -36,6 +43,7 @@ export interface UsePrintControllerOptions {
   positionCatalog?: PositionCatalogItem[];
   packagePaymentMode?: 'count' | 'amount';
   packageModuleConfig?: ServicePackageModuleConfig;
+  paymentLists?: PaymentListsContext;
 }
 
 export function usePrintController({
@@ -57,6 +65,7 @@ export function usePrintController({
   positionCatalog,
   packagePaymentMode,
   packageModuleConfig,
+  paymentLists,
 }: UsePrintControllerOptions) {
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printConfig, setPrintConfig] = useState<any>(null);
@@ -79,17 +88,45 @@ export function usePrintController({
           currentMode = packagePaymentMode || 'count';
         }
 
+        // Resolve active payment filter ('all' | 'unpaid' | <listId>) & search term in Monthly Report -> Gói dịch vụ
+        let effectiveAssignments = packageAssignments;
+        const baseDateRange = currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '';
+        let effectiveDateRangeText = baseDateRange;
+        let searchTerm = '';
+        try {
+          searchTerm = localStorage.getItem('package_payment_search') || '';
+          const selectedList = localStorage.getItem('payment_list_selected') || 'all';
+          if (paymentLists && selectedList === 'unpaid') {
+            effectiveAssignments = packageAssignments.filter(
+              (a) => !paymentLists.membershipIndex.has((a.patientId || '').trim())
+            );
+            effectiveDateRangeText = baseDateRange
+              ? `${baseDateRange} (Chưa gán đợt: ${effectiveAssignments.length} ca)`
+              : `Chưa gán đợt (${effectiveAssignments.length} ca)`;
+          } else if (paymentLists && selectedList !== 'all') {
+            const list = paymentLists.lists.find((l) => l.id === selectedList);
+            if (list) {
+              const ids = new Set(list.items.map((i) => i.patientId.trim()));
+              effectiveAssignments = paymentLists.allAssignments.filter((a) =>
+                ids.has((a.patientId || '').trim())
+              );
+              effectiveDateRangeText = `Đợt thanh toán: ${list.name} (${effectiveAssignments.length} ca)`;
+            }
+          }
+        } catch {}
+
         // Build package payment print config directly
         const configObj = buildPackagePaymentPrintConfig({
-          assignments: packageAssignments,
+          assignments: effectiveAssignments,
           packages: packageDefinitions,
           staffList,
           positionCatalog,
-          dateRangeText: currentReport.result?.dateRangeText || currentReport.queryDateRangeText || '',
+          dateRangeText: effectiveDateRangeText,
           orientation,
           config,
           packagePaymentMode: currentMode,
           packageModuleConfig,
+          searchTerm,
         });
         if (configObj) {
           setPrintConfig(configObj);
@@ -143,6 +180,7 @@ export function usePrintController({
       positionCatalog,
       packagePaymentMode,
       packageModuleConfig,
+      paymentLists,
     ]
   );
 
@@ -189,6 +227,9 @@ export interface BuildPackagePaymentParams {
   config: any;
   packagePaymentMode?: 'count' | 'amount';
   packageModuleConfig?: ServicePackageModuleConfig;
+  viewMode?: PackageViewMode;
+  hiddenCols?: string[];
+  searchTerm?: string;
 }
 
 export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams): any | null {
@@ -208,9 +249,38 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
   }
   const isAmount = mode === 'amount';
 
-  // Build column structure: unique packages × positions
+  let viewMode: PackageViewMode = params.viewMode || 'detail';
+  try {
+    if (!params.viewMode) {
+      const savedView = localStorage.getItem('package_payment_view');
+      if (savedView === 'summary' || savedView === 'detail') {
+        viewMode = savedView;
+      }
+    }
+  } catch {}
+  const isSummary = viewMode === 'summary';
+
+  let hiddenCols: string[] = params.hiddenCols || [];
+  try {
+    if (!params.hiddenCols) {
+      const rawHidden = JSON.parse(localStorage.getItem('package_payment_hidden_cols') || '[]');
+      if (Array.isArray(rawHidden)) hiddenCols = rawHidden;
+    }
+  } catch {}
+  const isHidden = (key: string) => hiddenCols.includes(key);
+
+  let searchTerm = params.searchTerm ?? '';
+  try {
+    if (params.searchTerm === undefined) {
+      searchTerm = localStorage.getItem('package_payment_search') || '';
+    }
+  } catch {}
+
+  // Build column structure: unique packages × positions (filtered by hiddenCols)
   const usedPkgIds = new Set(assignments.map(a => a.packageId));
-  const pkgs = packages.filter(p => usedPkgIds.has(p.id));
+  const pkgs = packages
+    .filter(p => usedPkgIds.has(p.id))
+    .filter(p => !isHidden(packageColumnKey(p.id)));
   const columnStructure = pkgs.map(pkg => ({
     packageId: pkg.id,
     packageName: pkg.name,
@@ -221,37 +291,82 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
     })),
   }));
 
-  // Staff rows + "virtual staff" rows for positions not yet assigned to anyone
-  const rows = buildPackagePaymentRows(assignments, packages, staffList, params.positionCatalog || [], params.config?.departments || [])
-    .map((r, i) => ({ ...r, stt: i + 1 }));
+  // Staff rows + "virtual staff" rows for positions not yet assigned to anyone, filtered by searchTerm
+  const allRows = buildPackagePaymentRows(
+    assignments,
+    packages,
+    staffList,
+    params.positionCatalog || [],
+    params.config?.departments || []
+  );
+  const rows = filterPackageRows(allRows, searchTerm, packages).map((r, i) => ({ ...r, stt: i + 1 }));
 
-  const totalCols = columnStructure.reduce((s, c) => s + c.positions.length, 0);
+  const totalDynamicCols = isSummary
+    ? columnStructure.length
+    : columnStructure.reduce((s, c) => s + c.positions.length, 0);
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
   const grandCount = rows.reduce((s, r) => s + r.totalCount, 0);
 
   // Build flat columns for print
-  const columns = [
-    { key: 'stt', label: '#', align: 'center' as const, width: '30px' },
-    { key: 'department', label: 'Khoa', align: 'left' as const },
-    { key: 'taxId', label: 'MST', align: 'center' as const },
-    { key: 'staffName', label: 'Họ tên', align: 'left' as const },
+  const columns: {
+    key: string;
+    label: string;
+    align: 'left' | 'center' | 'right';
+    width?: string;
+    className?: string;
+  }[] = [
+    { key: 'stt', label: '#', align: 'center', width: '24px' },
   ];
+  if (!isHidden('department')) {
+    columns.push({ key: 'department', label: 'Khoa', align: 'left' });
+  }
+  if (!isHidden('taxId')) {
+    columns.push({ key: 'taxId', label: 'MST', align: 'center' });
+  }
+  if (!isHidden('staffName')) {
+    columns.push({ key: 'staffName', label: 'Họ tên', align: 'left' });
+  }
 
-  for (const pkg of columnStructure) {
-    for (const pos of pkg.positions) {
+  const fixedLeadingCount = columns.length;
+
+  if (isSummary) {
+    for (const pkg of columnStructure) {
       columns.push({
-        key: `${pkg.packageId}_${pos.positionKey}`,
-        label: pos.positionLabel,
-        align: isAmount ? ('right' as const) : ('center' as const),
-        width: undefined as any,
+        key: `pkg_${pkg.packageId}`,
+        label: pkg.packageName,
+        align: isAmount ? 'right' : 'center',
+        className: 'col-numeric',
       });
     }
+  } else {
+    for (const pkg of columnStructure) {
+      for (const pos of pkg.positions) {
+        columns.push({
+          key: `${pkg.packageId}_${pos.positionKey}`,
+          label: pos.positionLabel,
+          align: isAmount ? 'right' : 'center',
+          className: 'col-numeric',
+        });
+      }
+    }
   }
-  columns.push({ key: 'totalCount', label: 'Tổng SL', align: 'center' as const, width: undefined as any });
-  columns.push({ key: 'total', label: 'Thành tiền', align: 'right' as const, width: undefined as any });
+
+  if (!isHidden('totalCount')) {
+    columns.push({ key: 'totalCount', label: 'Tổng SL', align: 'center', className: 'col-numeric font-bold' });
+  }
+  if (!isHidden('total')) {
+    columns.push({ key: 'total', label: 'Thành tiền', align: 'right', className: 'col-total' });
+  }
+
+  const totalTableCols = columns.length;
 
   // Build data rows
-  const data = rows.map(r => {
+  let prevDept = '';
+  const data = rows.map((r, rIdx) => {
+    const currDept = r.isUnassigned ? '__UNASSIGNED__' : (r.department || '');
+    const isNewDept = rIdx > 0 && currDept !== prevDept;
+    prevDept = currDept;
+
     const row: Record<string, any> = {
       stt: r.stt,
       department: r.department,
@@ -259,75 +374,205 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
       staffName: r.staffName,
       totalCount: r.totalCount,
       total: r.total.toLocaleString('vi-VN'),
+      isNewDept,
     };
-    for (const pkg of columnStructure) {
-      for (const pos of pkg.positions) {
-        const cell = r.cells[pkg.packageId]?.[pos.positionKey];
-        if (isAmount) {
-          row[`${pkg.packageId}_${pos.positionKey}`] = (cell && cell.amount > 0) ? cell.amount.toLocaleString('vi-VN') : '';
-        } else {
-          row[`${pkg.packageId}_${pos.positionKey}`] = cell && cell.count > 0 ? cell.count : '';
+    if (isSummary) {
+      for (const pkg of columnStructure) {
+        const pkgCells = r.cells[pkg.packageId];
+        const sumVal = pkgCells
+          ? (Object.values(pkgCells) as PaymentCell[]).reduce(
+              (s, c) => s + (isAmount ? c.amount : c.count),
+              0
+            )
+          : 0;
+        row[`pkg_${pkg.packageId}`] =
+          sumVal > 0 ? (isAmount ? sumVal.toLocaleString('vi-VN') : sumVal) : '';
+      }
+    } else {
+      for (const pkg of columnStructure) {
+        for (const pos of pkg.positions) {
+          const cell = r.cells[pkg.packageId]?.[pos.positionKey];
+          if (isAmount) {
+            row[`${pkg.packageId}_${pos.positionKey}`] =
+              cell && cell.amount > 0 ? cell.amount.toLocaleString('vi-VN') : '';
+          } else {
+            row[`${pkg.packageId}_${pos.positionKey}`] =
+              cell && cell.count > 0 ? cell.count : '';
+          }
         }
       }
     }
     return row;
   });
 
-  // Custom thead with 2-tier header
+  const headerRowSpan = isSummary ? 1 : 2;
+  const fixedHeaderCells = [
+    React.createElement('th', {
+      key: 'stt',
+      rowSpan: headerRowSpan,
+      className: 'px-0.5 py-0.5 border border-black w-[24px] text-center font-bold text-[9px] align-middle',
+    }, '#'),
+    ...(!isHidden('department')
+      ? [
+          React.createElement('th', {
+            key: 'dept',
+            rowSpan: headerRowSpan,
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle',
+          }, 'Khoa'),
+        ]
+      : []),
+    ...(!isHidden('taxId')
+      ? [
+          React.createElement('th', {
+            key: 'tax',
+            rowSpan: headerRowSpan,
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle',
+          }, 'MST'),
+        ]
+      : []),
+    ...(!isHidden('staffName')
+      ? [
+          React.createElement('th', {
+            key: 'name',
+            rowSpan: headerRowSpan,
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[10px] align-middle',
+          }, 'Họ tên'),
+        ]
+      : []),
+  ];
+
+  const trailingHeaderCells = [
+    ...(!isHidden('totalCount')
+      ? [
+          React.createElement('th', {
+            key: 'tc',
+            rowSpan: headerRowSpan,
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle whitespace-normal leading-tight',
+          }, 'Tổng SL'),
+        ]
+      : []),
+    ...(!isHidden('total')
+      ? [
+          React.createElement('th', {
+            key: 'total',
+            rowSpan: headerRowSpan,
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle whitespace-normal leading-tight',
+          }, 'Thành tiền'),
+        ]
+      : []),
+  ];
+
+  // Custom thead with 2-tier header (or 1-tier in summary mode)
   const customThead = React.createElement('thead', {
     className: 'text-xs text-black border-b border-black',
   }, [
-    // Row 1: package names spanning positions
     React.createElement('tr', { key: 'h1', className: 'border-b border-black' }, [
-      React.createElement('th', { key: 'stt', rowSpan: 2, className: 'px-1 py-1 border border-black w-[30px] text-center font-bold text-[10px] align-middle' }, '#'),
-      React.createElement('th', { key: 'dept', rowSpan: 2, className: 'px-1 py-1 border border-black font-bold text-center text-[10px] align-middle' }, 'Khoa'),
-      React.createElement('th', { key: 'tax', rowSpan: 2, className: 'px-1 py-1 border border-black font-bold text-center text-[10px] align-middle' }, 'MST'),
-      React.createElement('th', { key: 'name', rowSpan: 2, className: 'px-1 py-1 border border-black font-bold text-center text-[11px] align-middle' }, 'Họ tên'),
+      ...fixedHeaderCells,
       ...columnStructure.map(pkg =>
         React.createElement('th', {
           key: pkg.packageId,
-          colSpan: pkg.positions.length,
-          className: 'px-1 py-1 border border-black font-bold text-center text-[9px] align-middle',
+          colSpan: isSummary ? 1 : pkg.positions.length,
+          className: 'px-0.5 py-0.5 border border-black font-bold text-center text-[8.5px] align-middle whitespace-normal break-words leading-tight',
         }, pkg.packageName)
       ),
-      React.createElement('th', { key: 'tc', rowSpan: 2, className: 'px-1 py-1 border border-black font-bold text-center text-[10px] align-middle' }, 'Tổng SL'),
-      React.createElement('th', { key: 'total', rowSpan: 2, className: 'px-1 py-1 border border-black font-bold text-center text-[10px] align-middle' }, 'Thành tiền'),
+      ...trailingHeaderCells,
     ]),
-    // Row 2: position labels
-    React.createElement('tr', { key: 'h2', className: 'border-b border-black' },
-      columnStructure.flatMap(pkg =>
-        pkg.positions.map(pos =>
-          React.createElement('th', {
-            key: `${pkg.packageId}_${pos.positionKey}`,
-            className: 'px-0.5 py-0.5 border border-black font-semibold text-center text-[8px]',
-          }, pos.positionLabel)
-        )
-      )
-    ),
+    ...(!isSummary
+      ? [
+          React.createElement('tr', { key: 'h2', className: 'border-b border-black' },
+            columnStructure.flatMap(pkg =>
+              pkg.positions.map(pos =>
+                React.createElement('th', {
+                  key: `${pkg.packageId}_${pos.positionKey}`,
+                  className: 'px-0.5 py-0.5 border border-black font-semibold text-center text-[7.5px] align-middle whitespace-normal break-words leading-tight',
+                }, pos.positionLabel)
+              )
+            )
+          ),
+        ]
+      : []),
   ]);
 
   // Footer row with totals
-  const totalFooterRow = React.createElement('tr', { key: 'totals', className: 'font-bold border-t-2 border-black' }, [
-    React.createElement('td', { key: 'span', colSpan: 4, className: 'px-1 py-1 border border-black text-center font-bold text-[10px]' }, 'TỔNG CỘNG'),
-    ...columnStructure.flatMap(pkg =>
-      pkg.positions.map(pos => {
-        if (isAmount) {
-          const colAmount = rows.reduce((s, r) => s + (r.cells[pkg.packageId]?.[pos.positionKey]?.amount || 0), 0);
-          return React.createElement('td', {
-            key: `${pkg.packageId}_${pos.positionKey}`,
-            className: 'px-0.5 py-1 border border-black text-right font-bold text-[9px]',
-          }, colAmount ? colAmount.toLocaleString('vi-VN') : '');
-        } else {
-          const colTotal = rows.reduce((s, r) => s + (r.cells[pkg.packageId]?.[pos.positionKey]?.count || 0), 0);
-          return React.createElement('td', {
-            key: `${pkg.packageId}_${pos.positionKey}`,
-            className: 'px-0.5 py-1 border border-black text-center font-bold text-[9px]',
-          }, colTotal || '');
-        }
+  const dynamicFooterCells = isSummary
+    ? columnStructure.map(pkg => {
+        const colSum = rows.reduce((s, r) => {
+          const pkgCells = r.cells[pkg.packageId];
+          if (!pkgCells) return s;
+          return (
+            s +
+            (Object.values(pkgCells) as PaymentCell[]).reduce(
+              (acc, c) => acc + (isAmount ? c.amount : c.count),
+              0
+            )
+          );
+        }, 0);
+        return React.createElement(
+          'td',
+          {
+            key: `pkg_${pkg.packageId}`,
+            className: `px-0.5 py-0.5 border border-black ${
+              isAmount ? 'text-right' : 'text-center'
+            } font-bold text-[8.5px] col-numeric`,
+          },
+          colSum ? (isAmount ? colSum.toLocaleString('vi-VN') : colSum) : ''
+        );
       })
-    ),
-    React.createElement('td', { key: 'tc', className: 'px-1 py-1 border border-black text-center font-bold text-[10px]' }, grandCount),
-    React.createElement('td', { key: 'total', className: 'px-1 py-1 border border-black text-right font-bold text-[10px]' }, grandTotal.toLocaleString('vi-VN')),
+    : columnStructure.flatMap(pkg =>
+        pkg.positions.map(pos => {
+          if (isAmount) {
+            const colAmount = rows.reduce(
+              (s, r) => s + (r.cells[pkg.packageId]?.[pos.positionKey]?.amount || 0),
+              0
+            );
+            return React.createElement(
+              'td',
+              {
+                key: `${pkg.packageId}_${pos.positionKey}`,
+                className: 'px-0.5 py-0.5 border border-black text-right font-bold text-[8px] col-numeric',
+              },
+              colAmount ? colAmount.toLocaleString('vi-VN') : ''
+            );
+          } else {
+            const colTotal = rows.reduce(
+              (s, r) => s + (r.cells[pkg.packageId]?.[pos.positionKey]?.count || 0),
+              0
+            );
+            return React.createElement(
+              'td',
+              {
+                key: `${pkg.packageId}_${pos.positionKey}`,
+                className: 'px-0.5 py-0.5 border border-black text-center font-bold text-[8.5px] col-numeric',
+              },
+              colTotal || ''
+            );
+          }
+        })
+      );
+
+  const totalFooterRow = React.createElement('tr', { key: 'totals', className: 'font-bold border-t-2 border-black' }, [
+    React.createElement('td', {
+      key: 'span',
+      colSpan: fixedLeadingCount,
+      className: 'px-1 py-0.5 border border-black text-center font-bold text-[9.5px]',
+    }, 'TỔNG CỘNG'),
+    ...dynamicFooterCells,
+    ...(!isHidden('totalCount')
+      ? [
+          React.createElement('td', {
+            key: 'tc',
+            className: 'px-0.5 py-0.5 border border-black text-center font-bold text-[9.5px] col-numeric',
+          }, grandCount),
+        ]
+      : []),
+    ...(!isHidden('total')
+      ? [
+          React.createElement('td', {
+            key: 'total',
+            className: 'px-0.5 py-0.5 border border-black text-right font-bold text-[9.5px] col-total',
+          }, grandTotal.toLocaleString('vi-VN')),
+        ]
+      : []),
   ]);
 
   const deductionPkgs = columnStructure
@@ -338,14 +583,22 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
     React.createElement('tr', { key: `ded-${p.id}` }, [
       React.createElement('td', {
         key: 'note',
-        colSpan: 4 + totalCols + 2,
-        className: 'px-1 py-0.5 border border-black text-left text-[9px] italic',
+        colSpan: Math.max(totalTableCols, 1),
+        className: 'px-1 py-0.5 border border-black text-left text-[8.5px] italic whitespace-normal',
       }, `${p.shortName || p.name}: thực lĩnh đã trừ khấu trừ ${formatDeductionValue(p.deduction)}/vị trí${p.deduction?.note ? ` — ${p.deduction.note}` : ''}`),
     ])
   );
 
   const extraFooterRow = React.createElement(React.Fragment, null, [totalFooterRow, ...deductionNoteRows]);
   const printTitle = params.packageModuleConfig?.printTitle || DEFAULT_MODULE_CONFIG.printTitle || 'BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU';
+
+  let signatureDate: Date | undefined;
+  const endMatch = (dateRangeText || '').match(/đến ngày (\d{2})\/(\d{2})\/(\d{4})/);
+  if (endMatch) {
+    const d = new Date(parseInt(endMatch[3]), parseInt(endMatch[2]) - 1, parseInt(endMatch[1]));
+    d.setDate(d.getDate() + 1);
+    signatureDate = d;
+  }
 
   return {
     type: 'payment',
@@ -357,10 +610,13 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
       label: c.label,
       align: c.align,
       width: c.width,
+      className: c.className,
       render: undefined,
     })),
     customThead,
     extraFooterRow,
     orientation,
+    signatureDate,
+    totalDynamicCols,
   };
 }
