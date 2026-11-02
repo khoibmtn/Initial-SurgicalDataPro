@@ -1086,8 +1086,8 @@ export async function exportPackagePaymentSummaryExcel(
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
   });
 
-  ws.getRow(headerRow1).height = 24;
-  ws.getRow(headerRow2).height = 22;
+  ws.getRow(headerRow1).height = 28;
+  ws.getRow(headerRow2).height = 20;
   row = headerRow2 + 1;
 
   // ── Data rows ──
@@ -1105,7 +1105,7 @@ export async function exportPackagePaymentSummaryExcel(
     dataRow.getCell(3).value = pRow.taxId || '';
     dataRow.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
     dataRow.getCell(4).value = pRow.staffName;
-    dataRow.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+    dataRow.getCell(4).alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
 
     for (let i = 1; i <= fixedColCount; i++) {
       dataRow.getCell(i).font = {
@@ -1248,17 +1248,43 @@ export async function exportPackagePaymentSummaryExcel(
   row++;
   addSignatures(ws, row, Math.max(totalCols, 6), 'payment', signatureDate);
 
-  // Column widths
-  ws.getColumn(1).width = 5;  // STT
-  ws.getColumn(2).width = 12; // Khoa
-  ws.getColumn(3).width = 14; // MST
-  ws.getColumn(4).width = 22; // Họ tên
-  for (let i = 0; i < activePkgs.length; i++) {
-    ws.getColumn(fixedColCount + i * 2 + 1).width = 9;  // Số lượng
-    ws.getColumn(fixedColCount + i * 2 + 2).width = 14; // Thành tiền
-  }
-  ws.getColumn(totalStartCol).width = 10; // Tổng SL
-  ws.getColumn(totalEndCol).width = 15;   // Tổng tiền
+  // Column widths — căn chỉnh nhỏ gọn, vừa khít nội dung từng cột (cột Số lượng giữ độ rộng vừa phải = 8.5)
+  const maxDeptLen = rows.reduce((max, r) => {
+    const txt = r.isUnassigned ? 'Chưa gán NV' : r.department || '';
+    return Math.max(max, txt.length);
+  }, 4);
+  const maxStaffNameLen = rows.reduce((max, r) => {
+    if (r.isUnassigned) return max; // các dòng Chưa gán NV dài tự động xuống dòng (wrapText)
+    return Math.max(max, (r.staffName || '').length);
+  }, 14);
+
+  ws.getColumn(1).width = 4.2; // STT
+  ws.getColumn(2).width = Math.min(11, Math.max(8.5, maxDeptLen * 0.95 + 1)); // Khoa
+  ws.getColumn(3).width = 11;  // Mã số thuế (vừa khít 10 chữ số)
+  ws.getColumn(4).width = Math.min(19, Math.max(16, maxStaffNameLen * 0.9 + 1.5)); // Họ tên
+
+  activePkgs.forEach((pkg, i) => {
+    let maxAmtVal = 0;
+    let pkgAmtSum = 0;
+    rows.forEach((r) => {
+      const pkgCells = r.cells[pkg.id] || {};
+      let rowAmt = 0;
+      Object.values(pkgCells).forEach((c) => {
+        rowAmt += c.amount || 0;
+      });
+      if (rowAmt > maxAmtVal) maxAmtVal = rowAmt;
+      pkgAmtSum += rowAmt;
+    });
+    const largestPkgAmt = Math.max(maxAmtVal, pkgAmtSum);
+    const formattedLen = largestPkgAmt > 0 ? largestPkgAmt.toLocaleString('en-US').length : 0;
+
+    ws.getColumn(fixedColCount + i * 2 + 1).width = 8.5; // Số lượng (không quá nhỏ, hiển thị trọn chữ "Số lượng")
+    ws.getColumn(fixedColCount + i * 2 + 2).width = Math.min(12.5, Math.max(10.2, formattedLen * 0.95 + 1.2)); // Thành tiền vừa khít con số
+  });
+
+  const grandTotalLen = grandTotal > 0 ? grandTotal.toLocaleString('en-US').length : 0;
+  ws.getColumn(totalStartCol).width = 8.5; // Tổng cộng - Số lượng
+  ws.getColumn(totalEndCol).width = Math.min(13, Math.max(10.8, grandTotalLen * 0.95 + 1.5)); // Tổng cộng - Tổng tiền
 
   if (!existingWb) {
     const filename = `Bang_thanh_toan_goi_dich_vu_rut_gon_${new Date().toISOString().split('T')[0]}.xlsx`;
