@@ -972,6 +972,301 @@ export async function exportPackagePaymentExcel(
   return wb;
 }
 
+/**
+ * 2b-summary) Xuất Bảng Thanh Toán Gói Dịch Vụ Rút Gọn (mỗi gói DV chỉ gồm 2 cột: Số lượng & Thành tiền,
+ * cột Tổng cộng gồm 2 cột: Số lượng & Tổng tiền)
+ */
+export async function exportPackagePaymentSummaryExcel(
+  assignments: ServicePackageAssignment[],
+  packages: ServicePackageDefinition[],
+  staffList: StaffMember[],
+  positionCatalog: PositionCatalogItem[],
+  departments: string[],
+  dateRange: string,
+  hospitalName: string = 'BỆNH VIỆN',
+  existingWb?: ExcelJS.Workbook,
+  signatureDate?: Date,
+  packageModuleConfig?: ServicePackageModuleConfig,
+  searchTerm: string = '',
+): Promise<ExcelJS.Workbook> {
+  const wb = existingWb || new ExcelJS.Workbook();
+  const sheetName = 'TT Gói DV (Rút gọn)';
+  const ws = wb.addWorksheet(sheetName, {
+    pageSetup: {
+      orientation: 'landscape',
+      paperSize: 9, // A4
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+    },
+  });
+
+  const usedPkgs = getUsedPackages(assignments, packages);
+  const activePkgs = (usedPkgs.length > 0 ? usedPkgs : packages).filter(
+    (p) => Array.isArray(p.positions) && p.positions.length > 0,
+  );
+  const allRows = buildPackagePaymentRows(assignments, packages, staffList, positionCatalog, departments);
+  const rows = filterPackageRows(allRows, searchTerm, packages);
+
+  const fixedHeaders = ['STT', 'Khoa', 'Mã số thuế', 'Họ tên'];
+  const fixedColCount = fixedHeaders.length;
+  // Mỗi gói DV có 2 cột (Số lượng, Thành tiền) + 2 cột Tổng (Số lượng, Tổng tiền)
+  const totalCols = fixedColCount + activePkgs.length * 2 + 2;
+
+  const baseTitle =
+    packageModuleConfig?.printTitle ||
+    DEFAULT_MODULE_CONFIG.printTitle ||
+    'BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU';
+  const title = `${baseTitle.toUpperCase()} (RÚT GỌN)`;
+
+  let row = addReportHeader(ws, title, dateRange, hospitalName, Math.max(totalCols, 6), 1);
+
+  // ── Two-level table header ──
+  const headerRow1 = row;
+  const headerRow2 = row + 1;
+
+  fixedHeaders.forEach((label, idx) => {
+    ws.mergeCells(headerRow1, idx + 1, headerRow2, idx + 1);
+    const cell = ws.getRow(headerRow1).getCell(idx + 1);
+    cell.value = label;
+    cell.font = { name: FONT_TIMES, size: 10, bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = thinBorder;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+    ws.getRow(headerRow2).getCell(idx + 1).border = thinBorder;
+  });
+
+  let colIdx = fixedColCount + 1;
+  activePkgs.forEach((pkg) => {
+    const startCol = colIdx;
+    const endCol = colIdx + 1;
+
+    ws.mergeCells(headerRow1, startCol, headerRow1, endCol);
+    const groupCell = ws.getRow(headerRow1).getCell(startCol);
+    groupCell.value = pkg.name;
+    groupCell.font = { name: FONT_TIMES, size: 10, bold: true, color: { argb: 'FF115E59' } };
+    groupCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    groupCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE6F4F1' } };
+
+    ws.getRow(headerRow1).getCell(startCol).border = thinBorder;
+    ws.getRow(headerRow1).getCell(endCol).border = thinBorder;
+
+    const subLabels = ['Số lượng', 'Thành tiền'];
+    subLabels.forEach((lbl, sIdx) => {
+      const cell = ws.getRow(headerRow2).getCell(startCol + sIdx);
+      cell.value = lbl;
+      cell.font = { name: FONT_TIMES, size: 9, bold: true };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = thinBorder;
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+    });
+
+    colIdx += 2;
+  });
+
+  // Cột Tổng cộng (2 cột: Số lượng, Tổng tiền)
+  const totalStartCol = colIdx;
+  const totalEndCol = colIdx + 1;
+  ws.mergeCells(headerRow1, totalStartCol, headerRow1, totalEndCol);
+  const totalGroupCell = ws.getRow(headerRow1).getCell(totalStartCol);
+  totalGroupCell.value = 'Tổng cộng';
+  totalGroupCell.font = { name: FONT_TIMES, size: 10, bold: true };
+  totalGroupCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  totalGroupCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+  ws.getRow(headerRow1).getCell(totalStartCol).border = thinBorder;
+  ws.getRow(headerRow1).getCell(totalEndCol).border = thinBorder;
+
+  ['Số lượng', 'Tổng tiền'].forEach((lbl, idx) => {
+    const cell = ws.getRow(headerRow2).getCell(totalStartCol + idx);
+    cell.value = lbl;
+    cell.font = { name: FONT_TIMES, size: 9, bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.border = thinBorder;
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
+  });
+
+  ws.getRow(headerRow1).height = 24;
+  ws.getRow(headerRow2).height = 22;
+  row = headerRow2 + 1;
+
+  // ── Data rows ──
+  let prevDept = '';
+  rows.forEach((pRow, rIdx) => {
+    const dataRow = ws.getRow(row);
+    const currDept = pRow.isUnassigned ? '__UNASSIGNED__' : pRow.department || '';
+    const isNewDept = rIdx > 0 && currDept !== prevDept;
+    prevDept = currDept;
+
+    dataRow.getCell(1).value = rIdx + 1;
+    dataRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    dataRow.getCell(2).value = pRow.isUnassigned ? 'Chưa gán NV' : pRow.department || '';
+    dataRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+    dataRow.getCell(3).value = pRow.taxId || '';
+    dataRow.getCell(3).alignment = { horizontal: 'center', vertical: 'middle' };
+    dataRow.getCell(4).value = pRow.staffName;
+    dataRow.getCell(4).alignment = { horizontal: 'left', vertical: 'middle' };
+
+    for (let i = 1; i <= fixedColCount; i++) {
+      dataRow.getCell(i).font = {
+        name: FONT_TIMES,
+        size: 10,
+        italic: pRow.isUnassigned,
+      };
+      dataRow.getCell(i).border = thinBorder;
+      if (pRow.isUnassigned) {
+        dataRow.getCell(i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+      }
+    }
+
+    activePkgs.forEach((pkg, pIdx) => {
+      const pkgCells = pRow.cells[pkg.id] || {};
+      let pkgCount = 0;
+      let pkgAmount = 0;
+      Object.values(pkgCells).forEach((c) => {
+        pkgCount += c.count || 0;
+        pkgAmount += c.amount || 0;
+      });
+
+      const countCol = fixedColCount + pIdx * 2 + 1;
+      const amtCol = fixedColCount + pIdx * 2 + 2;
+
+      const countCell = dataRow.getCell(countCol);
+      countCell.value = pkgCount > 0 ? pkgCount : '';
+      countCell.font = { name: FONT_TIMES, size: 10 };
+      countCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      countCell.border = thinBorder;
+
+      const amtCell = dataRow.getCell(amtCol);
+      amtCell.value = pkgAmount > 0 ? pkgAmount : '';
+      amtCell.font = { name: FONT_TIMES, size: 10 };
+      amtCell.alignment = { horizontal: 'right', vertical: 'middle' };
+      amtCell.border = thinBorder;
+      if (pkgAmount > 0) {
+        amtCell.numFmt = '#,##0';
+      }
+
+      if (pRow.isUnassigned) {
+        countCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+        amtCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFBEB' } };
+      }
+    });
+
+    const tqtyCell = dataRow.getCell(totalStartCol);
+    tqtyCell.value = pRow.totalCount;
+    tqtyCell.font = { name: FONT_TIMES, size: 10, bold: true };
+    tqtyCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    tqtyCell.border = thinBorder;
+
+    const tamtCell = dataRow.getCell(totalEndCol);
+    tamtCell.value = pRow.total;
+    tamtCell.font = { name: FONT_TIMES, size: 10, bold: true };
+    tamtCell.alignment = { horizontal: 'right', vertical: 'middle' };
+    tamtCell.border = thinBorder;
+    tamtCell.numFmt = '#,##0';
+
+    if (isNewDept) {
+      for (let i = 1; i <= totalCols; i++) {
+        dataRow.getCell(i).border = {
+          ...thinBorder,
+          top: { style: 'medium' },
+        };
+      }
+    }
+
+    row++;
+  });
+
+  // ── Footer totals row ──
+  const footRow = ws.getRow(row);
+  for (let i = 1; i <= 3; i++) {
+    footRow.getCell(i).border = thinBorder;
+  }
+  footRow.getCell(4).value = 'TỔNG CỘNG';
+  footRow.getCell(4).font = { name: FONT_TIMES, size: 11, bold: true };
+  footRow.getCell(4).alignment = { horizontal: 'right', vertical: 'middle' };
+  footRow.getCell(4).border = thinBorder;
+
+  activePkgs.forEach((pkg, pIdx) => {
+    let pkgCountSum = 0;
+    let pkgAmtSum = 0;
+    rows.forEach((r) => {
+      const pkgCells = r.cells[pkg.id] || {};
+      Object.values(pkgCells).forEach((c) => {
+        pkgCountSum += c.count || 0;
+        pkgAmtSum += c.amount || 0;
+      });
+    });
+
+    const countCol = fixedColCount + pIdx * 2 + 1;
+    const amtCol = fixedColCount + pIdx * 2 + 2;
+
+    const fCountCell = footRow.getCell(countCol);
+    fCountCell.value = pkgCountSum > 0 ? pkgCountSum : '';
+    fCountCell.font = { name: FONT_TIMES, size: 10, bold: true };
+    fCountCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    fCountCell.border = thinBorder;
+
+    const fAmtCell = footRow.getCell(amtCol);
+    fAmtCell.value = pkgAmtSum > 0 ? pkgAmtSum : '';
+    fAmtCell.font = { name: FONT_TIMES, size: 10, bold: true };
+    fAmtCell.alignment = { horizontal: 'right', vertical: 'middle' };
+    fAmtCell.border = thinBorder;
+    if (pkgAmtSum > 0) {
+      fAmtCell.numFmt = '#,##0';
+    }
+  });
+
+  const grandCount = rows.reduce((sum, r) => sum + r.totalCount, 0);
+  const grandTotal = rows.reduce((sum, r) => sum + r.total, 0);
+
+  const fTqtyCell = footRow.getCell(totalStartCol);
+  fTqtyCell.value = grandCount;
+  fTqtyCell.font = { name: FONT_TIMES, size: 10, bold: true };
+  fTqtyCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  fTqtyCell.border = thinBorder;
+
+  const fTamtCell = footRow.getCell(totalEndCol);
+  fTamtCell.value = grandTotal;
+  fTamtCell.font = { name: FONT_TIMES, size: 10, bold: true };
+  fTamtCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  fTamtCell.border = thinBorder;
+  fTamtCell.numFmt = '#,##0';
+  row++;
+
+  // ── Deduction notes (if any) ──
+  const deductionPkgs = activePkgs.filter((p) => p.deduction && p.deduction.value > 0);
+  deductionPkgs.forEach((p) => {
+    ws.mergeCells(row, 1, row, Math.max(totalCols, 6));
+    const noteCell = ws.getRow(row).getCell(1);
+    noteCell.value = `* ${p.shortName || p.name}: thực lĩnh đã trừ khấu trừ ${formatDeductionValue(p.deduction)}/vị trí${p.deduction?.note ? ` — ${p.deduction.note}` : ''}`;
+    noteCell.font = { name: FONT_TIMES, size: 9, italic: true };
+    noteCell.alignment = { horizontal: 'left', vertical: 'middle' };
+    row++;
+  });
+
+  row++;
+  addSignatures(ws, row, Math.max(totalCols, 6), 'payment', signatureDate);
+
+  // Column widths
+  ws.getColumn(1).width = 5;  // STT
+  ws.getColumn(2).width = 12; // Khoa
+  ws.getColumn(3).width = 14; // MST
+  ws.getColumn(4).width = 22; // Họ tên
+  for (let i = 0; i < activePkgs.length; i++) {
+    ws.getColumn(fixedColCount + i * 2 + 1).width = 9;  // Số lượng
+    ws.getColumn(fixedColCount + i * 2 + 2).width = 14; // Thành tiền
+  }
+  ws.getColumn(totalStartCol).width = 10; // Tổng SL
+  ws.getColumn(totalEndCol).width = 15;   // Tổng tiền
+
+  if (!existingWb) {
+    const filename = `Bang_thanh_toan_goi_dich_vu_rut_gon_${new Date().toISOString().split('T')[0]}.xlsx`;
+    await saveWorkbook(wb, filename);
+  }
+  return wb;
+}
+
 // ──────────────────────────────────────────────────────────
 // Helpers cho Sheet Lịch Trực
 // ──────────────────────────────────────────────────────────
@@ -1398,6 +1693,62 @@ export function appendExtraRawSheetsToWorkbook(
     XLSX.utils.book_append_sheet(rawWb, ws, sheetName);
   });
 
+  // 2b. Sheet Thanh toán Gói dịch vụ Rút gọn (TT_GOI_DV_RUT_GON)
+  {
+    const sumHeader1: any[] = ['STT', 'Khoa', 'Mã số thuế', 'Họ tên'];
+    const sumHeader2: any[] = ['', '', '', ''];
+    activePkgs.forEach((pkg) => {
+      sumHeader1.push(pkg.name, '');
+      sumHeader2.push('Số lượng', 'Thành tiền');
+    });
+    sumHeader1.push('Tổng cộng', '');
+    sumHeader2.push('Số lượng', 'Tổng tiền');
+
+    const sumAoa: any[][] = [sumHeader1, sumHeader2];
+    pkgRows.forEach((r, idx) => {
+      const rowArr: any[] = [
+        idx + 1,
+        r.isUnassigned ? 'Chưa gán NV' : r.department || '',
+        r.taxId || '',
+        r.staffName,
+      ];
+      activePkgs.forEach((pkg) => {
+        const pkgCells = r.cells[pkg.id] || {};
+        let pkgCount = 0;
+        let pkgAmt = 0;
+        Object.values(pkgCells).forEach((c) => {
+          pkgCount += c.count || 0;
+          pkgAmt += c.amount || 0;
+        });
+        rowArr.push(pkgCount > 0 ? pkgCount : '', pkgAmt > 0 ? pkgAmt : '');
+      });
+      rowArr.push(r.totalCount, r.total);
+      sumAoa.push(rowArr);
+    });
+
+    const sumTotalRow: any[] = ['', '', '', 'TỔNG CỘNG'];
+    activePkgs.forEach((pkg) => {
+      let pkgCountSum = 0;
+      let pkgAmtSum = 0;
+      pkgRows.forEach((r) => {
+        const pkgCells = r.cells[pkg.id] || {};
+        Object.values(pkgCells).forEach((c) => {
+          pkgCountSum += c.count || 0;
+          pkgAmtSum += c.amount || 0;
+        });
+      });
+      sumTotalRow.push(pkgCountSum > 0 ? pkgCountSum : '', pkgAmtSum > 0 ? pkgAmtSum : '');
+    });
+    sumTotalRow.push(
+      pkgRows.reduce((s, r) => s + r.totalCount, 0),
+      pkgRows.reduce((s, r) => s + r.total, 0),
+    );
+    sumAoa.push(sumTotalRow);
+
+    const wsSum = XLSX.utils.aoa_to_sheet(sumAoa);
+    XLSX.utils.book_append_sheet(rawWb, wsSum, 'TT_GOI_DV_RUT_GON');
+  }
+
   // 3. Sheet Thống kê Ngoài giờ
   const overtimeRows = calculateOvertimeRows(records, dutySchedules, config.workingHours, includeGV);
   const otHeaders = [
@@ -1546,6 +1897,20 @@ export async function exportFormattedFullExcel(
     pkgSubtitle,
     hospitalName,
     'amount',
+    wb,
+    signatureDate,
+    pkgModuleCfg,
+    pkgSearchTerm,
+  );
+
+  await exportPackagePaymentSummaryExcel(
+    pkgAssignments,
+    pkgDefinitions,
+    staffList,
+    posCatalog,
+    departments,
+    pkgSubtitle,
+    hospitalName,
     wb,
     signatureDate,
     pkgModuleCfg,

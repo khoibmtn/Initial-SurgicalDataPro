@@ -32,9 +32,10 @@ interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialView?: ViewMode;
+  standalone?: boolean;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, initialView = 'login' }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, initialView = 'login', standalone = false }) => {
   const { login, loginNickname } = useAuth();
 
   const [viewMode, setViewMode] = useState<ViewMode>(initialView);
@@ -120,7 +121,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, initial
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 animate-fade-in">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in ${
+        standalone
+          ? 'bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 overflow-y-auto'
+          : 'bg-black/40 backdrop-blur-xs'
+      }`}
+    >
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden animate-scale-up">
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between bg-gray-50/80">
@@ -130,19 +137,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, initial
             </div>
             <div>
               <h3 className="text-sm font-bold text-gray-900">
-                {viewMode === 'login' ? 'Đăng nhập' : 'Đăng ký tài khoản'}
+                {viewMode === 'login' ? 'Đăng nhập hệ thống' : 'Đăng ký tài khoản'}
               </h3>
               <p className="text-[11px] text-gray-500">
-                {viewMode === 'login' ? 'Quản lý PTTT' : 'Tạo tài khoản nhân viên mới'}
+                {viewMode === 'login' ? 'Hệ thống Quản lý Phẫu thuật Thủ thuật' : 'Tạo tài khoản nhân viên mới'}
               </p>
             </div>
           </div>
-          <button
-            onClick={() => { resetForm(); onClose(); }}
-            className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {!standalone && (
+            <button
+              onClick={() => { resetForm(); onClose(); }}
+              className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Body */}
@@ -257,34 +266,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, initial
                 >
                   Chưa có tài khoản? <span className="font-bold">Đăng ký</span>
                 </button>
-              </div>
-
-              {/* Note: Đăng nhập không cần tài khoản (Khách) */}
-              <div className="pt-2 border-t border-gray-100">
-                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 text-left flex items-start gap-2.5">
-                  <div className="p-1 bg-slate-200/80 text-slate-700 rounded-md shrink-0 mt-0.5">
-                    <Info className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1 flex-wrap">
-                      <span className="text-xs font-bold text-gray-800">Đăng nhập không cần tài khoản</span>
-                      <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">
-                        Chế độ Khách
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-gray-500 leading-snug mt-1">
-                      Chế độ Khách cho phép bạn xem giao diện hoặc xử lý file tạm thời. Để lưu trữ dữ liệu, đối soát và dùng đầy đủ tính năng hệ thống, vui lòng đăng nhập hoặc tạo tài khoản mới.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => { resetForm(); onClose(); }}
-                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
-                    >
-                      <span>Tiếp tục trải nghiệm (Khách)</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           ) : (

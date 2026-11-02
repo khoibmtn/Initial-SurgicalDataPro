@@ -99,7 +99,7 @@ import { AIStorageDrawer } from './components/ai/AIStorageDrawer';
 
 const InnerApp: React.FC = () => {
   const { config, updateConfig } = useConfig();
-  const { user, isAdmin, isHead, currentRole, can, isAuthenticated } = useAuth();
+  const { user, isAdmin, isHead, currentRole, can, isAuthenticated, isLoading: isAuthLoading, isPendingApproval } = useAuth();
 
   const [activeTab, setActiveTab] = useState<TabKey>(() => {
     if (typeof window !== 'undefined') {
@@ -888,6 +888,38 @@ const InnerApp: React.FC = () => {
   const { cmdPaletteOpen, setCmdPaletteOpen, commandItems } = useAppCommandPalette({
     setActiveTab,
   });
+
+  if (isAuthLoading) {
+    return (
+      <div className="h-screen w-screen bg-slate-900 flex items-center justify-center font-inter">
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 border-3 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm font-medium text-slate-300">Đang kiểm tra tài khoản đăng nhập...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="h-screen w-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-gray-900 font-inter flex items-center justify-center overflow-y-auto p-4">
+        {hasNewVersion && <VersionUpdateBanner onReload={reloadPage} />}
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
+        {isPendingApproval ? (
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden">
+            <AuthGuardView featureName="Hệ thống Quản lý PTTT" />
+          </div>
+        ) : (
+          <LoginModal
+            isOpen={true}
+            standalone={true}
+            onClose={() => {}}
+            initialView={loginModalView}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-gray-50 text-gray-900 font-inter flex overflow-hidden">

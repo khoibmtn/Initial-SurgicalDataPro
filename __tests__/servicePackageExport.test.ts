@@ -418,8 +418,26 @@ describe('Service Package Excel Export Service', () => {
       expect(sheetNames).toContain('Bảng Thanh toán');
       expect(sheetNames).toContain('TT Gói DV (Số lượng)');
       expect(sheetNames).toContain('TT Gói DV (Số tiền)');
+      expect(sheetNames).toContain('TT Gói DV (Rút gọn)');
       expect(sheetNames).toContain('Thống kê Ngoài giờ');
       expect(sheetNames).toContain('Lịch trực');
+
+      // Kiểm tra dữ liệu sheet TT Gói DV (Rút gọn)
+      const wsSummary = wb.getWorksheet('TT Gói DV (Rút gọn)')!;
+      expect(wsSummary.getCell(4, 1).value).toBe('BẢNG THANH TOÁN DỊCH VỤ THEO YÊU CẦU (RÚT GỌN)');
+      // Row 7: Header nhóm gói DV (cột 5-6) và Tổng cộng (cột 7-8)
+      expect(wsSummary.getCell(7, 5).value).toBe('DV chọn BSPT theo yêu cầu Ngoại');
+      expect(wsSummary.getCell(8, 5).value).toBe('Số lượng');
+      expect(wsSummary.getCell(8, 6).value).toBe('Thành tiền');
+      expect(wsSummary.getCell(7, 7).value).toBe('Tổng cộng');
+      expect(wsSummary.getCell(8, 7).value).toBe('Số lượng');
+      expect(wsSummary.getCell(8, 8).value).toBe('Tổng tiền');
+      // Row 9 là dòng nhân viên đầu tiên (Đào Văn Điệp) trong bảng Rút gọn
+      expect(wsSummary.getCell(9, 4).value).toBe('Đào Văn Điệp');
+      expect(wsSummary.getCell(9, 5).value).toBe(1);      // Số lượng của gói
+      expect(wsSummary.getCell(9, 6).value).toBe(588000); // Thành tiền của gói
+      expect(wsSummary.getCell(9, 7).value).toBe(1);      // Tổng SL
+      expect(wsSummary.getCell(9, 8).value).toBe(588000); // Tổng tiền
 
       // Kiểm tra dữ liệu sheet TT Gói DV (Số lượng)
       const wsCount = wb.getWorksheet('TT Gói DV (Số lượng)')!;
@@ -468,6 +486,7 @@ describe('Service Package Excel Export Service', () => {
 
       expect(rawWb.SheetNames).toContain('TT_GOI_DV_SL');
       expect(rawWb.SheetNames).toContain('TT_GOI_DV_TIEN');
+      expect(rawWb.SheetNames).toContain('TT_GOI_DV_RUT_GON');
       expect(rawWb.SheetNames).toContain('THONG_KE_NGOAI_GIO');
       expect(rawWb.SheetNames).toContain('LICH_TRUC');
     });
