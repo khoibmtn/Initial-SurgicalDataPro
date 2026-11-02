@@ -60,6 +60,7 @@ const STORAGE_SORT_DIR_KEY = 'sdp_comparison_sort_dir';
 const STORAGE_SHOW_DIFF_KEY = 'sdp_comparison_show_diff';
 const STORAGE_SHOW_MTD_KEY = 'sdp_comparison_show_mtd';
 const STORAGE_SHOW_DETAIL_KEY = 'sdp_comparison_show_detail';
+const STORAGE_SHOW_NOTE_KEY = 'sdp_comparison_show_note';
 
 function getRowMetricDisplay(
   r: ComparisonRow | ComparisonPriceSubRow,
@@ -274,6 +275,18 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
       setCollapsedRows(new Set());
     }
     localStorage.setItem(STORAGE_SHOW_DETAIL_KEY, String(next));
+  };
+
+  // Option: Show Note (Ghi chú) column - Default TRUE
+  const [showNote, setShowNote] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_SHOW_NOTE_KEY);
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  const toggleShowNote = () => {
+    const next = !showNote;
+    setShowNote(next);
+    localStorage.setItem(STORAGE_SHOW_NOTE_KEY, String(next));
   };
 
   const toggleRowExpand = (rowKey: string) => {
@@ -1507,21 +1520,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <span>$ chênh</span>
               </button>
 
-              {/* Toggle Show Price Breakdown Detail */}
-              <button
-                type="button"
-                onClick={toggleShowDetail}
-                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
-                  showDetail
-                    ? 'bg-white text-indigo-800 border-indigo-300 shadow-xs'
-                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
-                }`}
-                title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
-              >
-                <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                <span>Tách chi tiết giá</span>
-              </button>
-
               {/* Full/Short money toggle */}
               {metricMode === 'revenue' && (
                 <button
@@ -1538,6 +1536,36 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <span>$ rút gọn</span>
                 </button>
               )}
+
+              {/* Toggle Show Price Breakdown Detail */}
+              <button
+                type="button"
+                onClick={toggleShowDetail}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                  showDetail
+                    ? 'bg-white text-indigo-800 border-indigo-300 shadow-xs'
+                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                }`}
+                title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>Tách chi tiết giá</span>
+              </button>
+
+              {/* Toggle Show Note (Ghi chú) */}
+              <button
+                type="button"
+                onClick={toggleShowNote}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                  showNote
+                    ? 'bg-white text-teal-800 border-teal-300 shadow-xs'
+                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                }`}
+                title={showNote ? 'Đang hiện cột Ghi chú. Bấm để ẩn.' : 'Đang ẩn cột Ghi chú. Bấm để hiện.'}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${showNote ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>Ghi chú</span>
+              </button>
             </div>
 
             <div className="flex-1 text-right italic">
@@ -1814,7 +1842,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   {/* Nhận định */}
                   <th
                     onClick={() => handleSortClick('status')}
-                    className="px-2 py-2 w-28 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                    className={`px-2 py-2 w-28 ${showNote ? 'border-r border-blue-800' : ''} cursor-pointer hover:bg-blue-900/80 transition-colors group/th`}
                     title="Nhấn để sắp xếp theo nhận định cảnh báo / tích cực"
                   >
                     <div className="flex items-center justify-center">
@@ -1824,14 +1852,16 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   </th>
 
                   {/* Ghi chú */}
-                  <th className="px-3 py-2 text-left min-w-[150px]">Ghi chú</th>
+                  {showNote && (
+                    <th className="px-3 py-2 text-left min-w-[240px]">Ghi chú</th>
+                  )}
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-gray-200">
                 {paginatedAllRows.length === 0 ? (
                   <tr>
-                    <td colSpan={(showDiff ? 11 : 9) + (showMaTuongDuong ? 1 : 0)} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                    <td colSpan={(showDiff ? 10 : 8) + (showMaTuongDuong ? 1 : 0) + (showNote ? 1 : 0)} className="px-3 py-8 text-center text-gray-400 italic text-xs">
                       Không tìm thấy ca phẫu thuật nào phù hợp
                     </td>
                   </tr>
@@ -2021,7 +2051,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           </td>
 
                           {/* Nhận định */}
-                          <td className="px-2 py-1 text-center border-r border-gray-200">
+                          <td className={`px-2 py-1 text-center ${showNote ? 'border-r border-gray-200' : ''}`}>
                             {isAlert && (
                               <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
                                 CẢNH BÁO
@@ -2038,14 +2068,16 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           </td>
 
                           {/* Ghi chú */}
-                          <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                            {r.note}
-                            {metricMode === 'revenue' && !rowMetrics.isValid && (
-                              <span className="text-amber-700 font-normal not-italic ml-1">
-                                {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
-                              </span>
-                            )}
-                          </td>
+                          {showNote && (
+                            <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
+                              {r.note}
+                              {metricMode === 'revenue' && !rowMetrics.isValid && (
+                                <span className="text-amber-700 font-normal not-italic ml-1">
+                                  {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                                </span>
+                              )}
+                            </td>
+                          )}
                         </tr>
 
                         {/* Các dòng con theo từng mức giá khi bật chế độ Chi tiết */}
@@ -2127,8 +2159,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                   subMetrics.isValid ? fmtPctStr(subMetrics.samePct) : '—'
                                 ) : '—'}
                               </td>
-                              <td className="px-2 py-1 text-center border-r border-gray-200 text-gray-300">—</td>
-                              <td className="px-3 py-1 text-gray-400 text-[10.5px]" />
+                              <td className={`px-2 py-1 text-center ${showNote ? 'border-r border-gray-200' : ''} text-gray-300`}>—</td>
+                              {showNote && (
+                                <td className="px-3 py-1 text-gray-400 text-[10.5px]" />
+                              )}
                             </tr>
                           );
                         })}
@@ -2185,10 +2219,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   }`}>
                     {periodMeta?.hasSamePeriodData ? fmtPctStr(overallTotals.samePct) : '—'}
                   </td>
-                  <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
-                  <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
-                    Cảnh báo: {overallKPIs.totalAlerts} | Tích cực: {overallKPIs.totalPositives}
-                  </td>
+                  <td className={`px-2 py-2 text-center ${showNote ? 'border-r border-gray-300' : ''} text-gray-400 font-medium`}>—</td>
+                  {showNote && (
+                    <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
+                      Cảnh báo: {overallKPIs.totalAlerts} | Tích cực: {overallKPIs.totalPositives}
+                    </td>
+                  )}
                 </tr>
               </tfoot>
             </table>
@@ -2367,21 +2403,6 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   <span>$ chênh</span>
                 </button>
 
-                {/* Toggle Show Price Breakdown Detail */}
-                <button
-                  type="button"
-                  onClick={toggleShowDetail}
-                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
-                    showDetail
-                      ? 'bg-white text-indigo-800 border-indigo-300 shadow-xs'
-                      : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
-                  }`}
-                  title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
-                >
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                  <span>Tách chi tiết giá</span>
-                </button>
-
                 {/* Full/Short money toggle */}
                 {metricMode === 'revenue' && (
                   <button
@@ -2398,6 +2419,36 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     <span>$ rút gọn</span>
                   </button>
                 )}
+
+                {/* Toggle Show Price Breakdown Detail */}
+                <button
+                  type="button"
+                  onClick={toggleShowDetail}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                    showDetail
+                      ? 'bg-white text-indigo-800 border-indigo-300 shadow-xs'
+                      : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                  }`}
+                  title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                  <span>Tách chi tiết giá</span>
+                </button>
+
+                {/* Toggle Show Note (Ghi chú) */}
+                <button
+                  type="button"
+                  onClick={toggleShowNote}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                    showNote
+                      ? 'bg-white text-teal-800 border-teal-300 shadow-xs'
+                      : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                  }`}
+                  title={showNote ? 'Đang hiện cột Ghi chú. Bấm để ẩn.' : 'Đang ẩn cột Ghi chú. Bấm để hiện.'}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${showNote ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                  <span>Ghi chú</span>
+                </button>
               </div>
 
               <div className="flex-1 text-right italic">
@@ -2655,7 +2706,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
                     <th
                       onClick={() => handleSortClick('status')}
-                      className="px-2 py-2 w-28 border-r border-blue-800 cursor-pointer hover:bg-blue-900/80 transition-colors group/th"
+                      className={`px-2 py-2 w-28 ${showNote ? 'border-r border-blue-800' : ''} cursor-pointer hover:bg-blue-900/80 transition-colors group/th`}
                       title="Nhấn để sắp xếp theo nhận định"
                     >
                       <div className="flex items-center justify-center">
@@ -2664,14 +2715,16 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       </div>
                     </th>
 
-                    <th className="px-3 py-2 text-left min-w-[160px]">Ghi chú</th>
+                    {showNote && (
+                      <th className="px-3 py-2 text-left min-w-[240px]">Ghi chú</th>
+                    )}
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-gray-200">
                   {filteredSingleGroup.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={(showDiff ? 10 : 8) + (showMaTuongDuong ? 1 : 0)} className="px-3 py-8 text-center text-gray-400 italic text-xs">
+                      <td colSpan={(showDiff ? 9 : 7) + (showMaTuongDuong ? 1 : 0) + (showNote ? 1 : 0)} className="px-3 py-8 text-center text-gray-400 italic text-xs">
                         {filteredSingleGroup.specialty.isCustom
                           ? 'Chưa có kỹ thuật nào được chuyển vào nhóm tùy chỉnh này'
                           : 'Không có ca phẫu thuật nào trong chuyên khoa này'}
@@ -2853,7 +2906,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             </td>
 
                             {/* Nhận định */}
-                            <td className="px-2 py-1 text-center border-r border-gray-200">
+                            <td className={`px-2 py-1 text-center ${showNote ? 'border-r border-gray-200' : ''}`}>
                               {isAlert && (
                                 <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
                                   CẢNH BÁO
@@ -2870,14 +2923,16 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             </td>
 
                             {/* Ghi chú */}
-                            <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                              {r.note}
-                              {metricMode === 'revenue' && !rowMetrics.isValid && (
-                                <span className="text-amber-700 font-normal not-italic ml-1">
-                                  {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
-                                </span>
-                              )}
-                            </td>
+                            {showNote && (
+                              <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
+                                {r.note}
+                                {metricMode === 'revenue' && !rowMetrics.isValid && (
+                                  <span className="text-amber-700 font-normal not-italic ml-1">
+                                    {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                                  </span>
+                                )}
+                              </td>
+                            )}
                           </tr>
 
                           {/* Các dòng con theo từng mức giá khi bật chế độ Chi tiết */}
@@ -2958,8 +3013,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                                     subMetrics.isValid ? fmtPctStr(subMetrics.samePct) : '—'
                                   ) : '—'}
                                 </td>
-                                <td className="px-2 py-1 text-center border-r border-gray-200 text-gray-300">—</td>
-                                <td className="px-3 py-1 text-gray-400 text-[10.5px]" />
+                                <td className={`px-2 py-1 text-center ${showNote ? 'border-r border-gray-200' : ''} text-gray-300`}>—</td>
+                                {showNote && (
+                                  <td className="px-3 py-1 text-gray-400 text-[10.5px]" />
+                                )}
                               </tr>
                             );
                           })}
@@ -3020,10 +3077,12 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         }`}>
                           {periodMeta?.hasSamePeriodData ? fmtPctStr(gM.samePct) : '—'}
                         </td>
-                        <td className="px-2 py-2 text-center border-r border-gray-300 text-gray-400 font-medium">—</td>
-                        <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
-                          Cảnh báo: {filteredSingleGroup.alertCount} | Tích cực: {filteredSingleGroup.positiveCount}
-                        </td>
+                        <td className={`px-2 py-2 text-center ${showNote ? 'border-r border-gray-300' : ''} text-gray-400 font-medium`}>—</td>
+                        {showNote && (
+                          <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
+                            Cảnh báo: {filteredSingleGroup.alertCount} | Tích cực: {filteredSingleGroup.positiveCount}
+                          </td>
+                        )}
                       </tr>
                     );
                   })()}

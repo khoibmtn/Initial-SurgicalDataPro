@@ -1195,6 +1195,63 @@ export async function getSpecialtyComparisonData(
       statusLabel = 'TÍCH CỰC';
     }
 
+    // Phân tích nhân tố Số lượng & Đơn giá so với cùng kỳ cho cột Ghi chú ở dòng tổng hợp
+    if (!note && hasSamePeriodData && cur > 0) {
+      if (same === 0 && prev > 0) {
+        note = `Mới phát sinh so cùng kỳ (${defs.meta.samePeriodLabel})`;
+      } else if (same > 0 && curRev > 0 && sameRev > 0) {
+        const p0 = sameRev / same;
+        const p1 = curRev / cur;
+        const qtyDiff = cur - same;
+        const priceDiff = p1 - p0;
+
+        const qtyRevEffect = Math.round(qtyDiff * p0);
+        const priceRevEffect = Math.round(curRev - sameRev) - qtyRevEffect;
+
+        const totalRevPctRounded = Number((((curRev - sameRev) / sameRev) * 100).toFixed(1));
+        const hasPriceChange = Math.abs(priceDiff) >= 1 && Math.abs(priceRevEffect) >= 1;
+
+        let qtyPctRounded = 0;
+        let pricePctRounded = 0;
+        if (hasPriceChange) {
+          if (qtyDiff === 0) {
+            qtyPctRounded = 0;
+            pricePctRounded = totalRevPctRounded;
+          } else {
+            qtyPctRounded = Number(((qtyRevEffect / sameRev) * 100).toFixed(1));
+            pricePctRounded = Number((totalRevPctRounded - qtyPctRounded).toFixed(1));
+          }
+        } else {
+          qtyPctRounded = totalRevPctRounded;
+          pricePctRounded = 0;
+        }
+
+        const fmtSignedMoney = (val: number) => {
+          const rounded = Math.round(val);
+          const sign = rounded > 0 ? '+' : (rounded < 0 ? '-' : '');
+          return `${sign}${Math.abs(rounded).toLocaleString('vi-VN')} ₫`;
+        };
+        const fmtSignedPct = (val: number) => {
+          const sign = val > 0 ? '+' : '';
+          return `${sign}${val.toFixed(1)}%`;
+        };
+
+        const absQty = Number(Math.abs(qtyDiff).toFixed(2));
+        const qtyArrow = qtyDiff > 0 ? '↑ ' : (qtyDiff < 0 ? '↓ ' : '');
+        const qtyPart = `${qtyArrow}${absQty} ca: ${fmtSignedMoney(qtyRevEffect)} (${fmtSignedPct(qtyPctRounded)})`;
+
+        if (hasPriceChange) {
+          const rawPricePct = ((p1 - p0) / p0) * 100;
+          const absPricePct = Number(Math.abs(rawPricePct).toFixed(1));
+          const priceArrow = priceDiff > 0 ? '↑' : '↓';
+          const pricePart = `${priceArrow} giá (${absPricePct}%): ${fmtSignedMoney(priceRevEffect)} (${fmtSignedPct(pricePctRounded)})`;
+          note = `${qtyPart}; ${pricePart}`;
+        } else {
+          note = qtyPart;
+        }
+      }
+    }
+
     const specMeta = allSpecialties.find(s => s.code === item.specialty) || {
       code: item.specialty,
       name: item.specialty,
