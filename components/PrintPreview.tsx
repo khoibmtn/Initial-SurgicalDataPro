@@ -173,16 +173,17 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
         }
         .print-portal th {
           white-space: normal;
-          word-break: break-word;
+          word-break: normal;
+          overflow-wrap: normal;
           line-height: 1.15;
         }
-        /* Specific widths for print - tightly fit content */
-        .print-portal .col-stt { width: 22px; }
-        .print-portal .col-dept { width: 1%; white-space: ${isUltraWideTable ? 'normal' : 'nowrap'}; }
+        /* Specific widths for print - tightly fit metadata columns while distributing data columns evenly */
+        .print-portal .col-stt { width: 22px; white-space: nowrap; }
+        .print-portal .col-dept { width: 1%; white-space: nowrap; }
         .print-portal .col-tax { width: 1%; white-space: nowrap; }
-        .print-portal .col-name { white-space: ${isUltraWideTable ? 'normal' : 'nowrap'}; }
+        .print-portal .col-name { width: 1%; white-space: nowrap; }
         .print-portal .col-total { width: 1%; white-space: nowrap; font-weight: bold; }
-        .print-portal .col-numeric { width: 1%; white-space: nowrap; }
+        .print-portal .col-numeric { white-space: nowrap; }
       `}</style>
 
             <div ref={contentRef} className="print-content w-full h-full">
@@ -381,8 +382,8 @@ export const PrintPreview: React.FC<PrintPreviewProps> = ({
                                                 if (col.key === 'department') extraClass = "col-dept";
                                                 if (col.key === 'taxId') extraClass = "col-tax";
                                                 if (col.key === 'name' || col.key === 'staffName') extraClass = "col-name";
-                                                if (col.key === 'total_amount' || col.key === 'total') extraClass = "col-total";
-                                                if (col.key === 'total_qty' || col.key === 'totalCount' || col.key.startsWith('val_')) extraClass = "col-numeric";
+                                                if (col.key === 'total_amount' || col.key === 'total' || col.key === 'totalCount') extraClass = "col-total";
+                                                if (col.key === 'total_qty' || col.key.startsWith('val_')) extraClass = "col-numeric";
 
                                                 return (
                                                     <td key={col.key} className={`border border-black ${col.align === 'center' ? 'text-center' : col.align === 'right' ? 'text-right' : 'text-left'} ${col.className || ''} ${deptBorderClass} ${extraClass}`}>

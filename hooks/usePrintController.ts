@@ -352,7 +352,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
   }
 
   if (!isHidden('totalCount')) {
-    columns.push({ key: 'totalCount', label: 'Tổng SL', align: 'center', className: 'col-numeric font-bold' });
+    columns.push({ key: 'totalCount', label: 'Tổng SL', align: 'center', className: 'col-total font-bold' });
   }
   if (!isHidden('total')) {
     columns.push({ key: 'total', label: 'Thành tiền', align: 'right', className: 'col-total' });
@@ -410,14 +410,14 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
     React.createElement('th', {
       key: 'stt',
       rowSpan: headerRowSpan,
-      className: 'px-0.5 py-0.5 border border-black w-[24px] text-center font-bold text-[9px] align-middle',
+      className: 'px-0.5 py-0.5 border border-black w-[22px] text-center font-bold text-[9px] align-middle col-stt',
     }, '#'),
     ...(!isHidden('department')
       ? [
           React.createElement('th', {
             key: 'dept',
             rowSpan: headerRowSpan,
-            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle',
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle col-dept',
           }, 'Khoa'),
         ]
       : []),
@@ -426,7 +426,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
           React.createElement('th', {
             key: 'tax',
             rowSpan: headerRowSpan,
-            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle',
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle col-tax',
           }, 'MST'),
         ]
       : []),
@@ -435,7 +435,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
           React.createElement('th', {
             key: 'name',
             rowSpan: headerRowSpan,
-            className: 'px-1 py-0.5 border border-black font-bold text-center text-[10px] align-middle',
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[10px] align-middle col-name',
           }, 'Họ tên'),
         ]
       : []),
@@ -447,7 +447,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
           React.createElement('th', {
             key: 'tc',
             rowSpan: headerRowSpan,
-            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle whitespace-normal leading-tight',
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle whitespace-nowrap leading-tight col-total',
           }, 'Tổng SL'),
         ]
       : []),
@@ -456,7 +456,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
           React.createElement('th', {
             key: 'total',
             rowSpan: headerRowSpan,
-            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle whitespace-normal leading-tight',
+            className: 'px-1 py-0.5 border border-black font-bold text-center text-[9px] align-middle whitespace-nowrap leading-tight col-total',
           }, 'Thành tiền'),
         ]
       : []),
@@ -472,7 +472,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
         React.createElement('th', {
           key: pkg.packageId,
           colSpan: isSummary ? 1 : pkg.positions.length,
-          className: 'px-0.5 py-0.5 border border-black font-bold text-center text-[8.5px] align-middle whitespace-normal break-words leading-tight',
+          className: 'px-0.5 py-0.5 border border-black font-bold text-center text-[8.5px] align-middle whitespace-normal break-normal leading-tight',
         }, pkg.packageName)
       ),
       ...trailingHeaderCells,
@@ -484,7 +484,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
               pkg.positions.map(pos =>
                 React.createElement('th', {
                   key: `${pkg.packageId}_${pos.positionKey}`,
-                  className: 'px-0.5 py-0.5 border border-black font-semibold text-center text-[7.5px] align-middle whitespace-normal break-words leading-tight',
+                  className: 'px-0.5 py-0.5 border border-black font-semibold text-center text-[7.5px] align-middle whitespace-normal break-normal leading-tight',
                 }, pos.positionLabel)
               )
             )
@@ -561,7 +561,7 @@ export function buildPackagePaymentPrintConfig(params: BuildPackagePaymentParams
       ? [
           React.createElement('td', {
             key: 'tc',
-            className: 'px-0.5 py-0.5 border border-black text-center font-bold text-[9.5px] col-numeric',
+            className: 'px-0.5 py-0.5 border border-black text-center font-bold text-[9.5px] col-total',
           }, grandCount),
         ]
       : []),

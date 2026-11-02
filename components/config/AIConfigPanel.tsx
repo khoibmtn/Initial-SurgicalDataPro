@@ -40,6 +40,8 @@ import {
   fetchModelsFromProviderAPI,
   testProviderConnection,
 } from '../../services/ai/aiProviderClient';
+import { useAuth } from '../../contexts/AuthContext';
+import { AuthGuardView } from '../auth/AuthGuardView';
 
 interface AIConfigPanelProps {
   currentUserEmail?: string;
@@ -100,9 +102,11 @@ const SLOT_ORDER: AISlotId[] = [
 
 export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({
   currentUserEmail,
-  isAdmin = true,
+  isAdmin: propIsAdmin,
 }) => {
-  void isAdmin;
+  const auth = useAuth();
+  const hasAdminAccess = auth.isAuthenticated && (propIsAdmin !== undefined ? propIsAdmin && auth.isAdmin : auth.isAdmin);
+  const effectiveUserEmail = currentUserEmail || auth.user?.email || auth.user?.username || undefined;
   const [systemConfig, setSystemConfig] = useState<AISystemConfig>(() =>
     loadCachedAISystemConfig()
   );
@@ -234,6 +238,10 @@ export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({
     nextSlots = systemConfig.slots,
     toastText?: string
   ) => {
+    if (!hasAdminAccess) {
+      showToast('Chỉ tài khoản Quản trị viên (Admin) mới được phép cấu hình AI.');
+      return;
+    }
     // Ensure at least one default if non-empty
     const cloned = nextDeclared.map((m) => ({ ...m }));
     if (cloned.length > 0 && !cloned.some((m) => m.isDefault)) {
@@ -263,11 +271,11 @@ export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({
       slots: nextSlots,
       declaredModels: cloned,
       updatedAt: Date.now(),
-      updatedBy: currentUserEmail,
+      updatedBy: effectiveUserEmail,
     };
 
     setSystemConfig(nextConfig);
-    await saveAISystemConfig(nextConfig, currentUserEmail);
+    await saveAISystemConfig(nextConfig, effectiveUserEmail);
     if (toastText) showToast(toastText);
   };
 
@@ -553,6 +561,15 @@ export const AIConfigPanel: React.FC<AIConfigPanelProps> = ({
   };
 
   const providerSelectModels = getModelsForProviderSelect(formProvider);
+
+  if (!hasAdminAccess) {
+    return (
+      <AuthGuardView
+        featureName="Cấu hình AI Hệ thống"
+        description="Chỉ tài khoản Quản trị viên (Admin) mới được phép xem và cấu hình các mô hình AI, API Key của hệ thống."
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">

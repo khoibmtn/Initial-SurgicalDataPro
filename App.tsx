@@ -718,8 +718,10 @@ const InnerApp: React.FC = () => {
     isPrintOpen,
     setIsPrintOpen,
     printConfig,
+    setPrintConfig,
     overtimePrintHandlerRef,
     printOrientation,
+    setPrintOrientation,
     handlePrintClick,
   } = usePrintController({
     activeTab,
@@ -1379,12 +1381,16 @@ const InnerApp: React.FC = () => {
                 setIsAIStorageMinimized(false);
               }}
               slotId="statistics_studio"
-              onOpenAIConfigTab={() => {
-                setIsAIStorageDrawerOpen(false);
-                setIsAIStorageMinimized(false);
-                setConfigInitialSubTab('ai');
-                setActiveTab('config');
-              }}
+              onOpenAIConfigTab={
+                isAuthenticated && isAdmin
+                  ? () => {
+                      setIsAIStorageDrawerOpen(false);
+                      setIsAIStorageMinimized(false);
+                      setConfigInitialSubTab('ai');
+                      setActiveTab('config');
+                    }
+                  : undefined
+              }
               onRequestLoadData={activeTab === 'daily' || activeTab === 'monthly' ? handleGetReport : undefined}
               isLoadingExternalData={currentReport.isProcessing}
               dataContext={{

@@ -60,7 +60,7 @@
     },
     "app_config": {
       ".read": true,
-      ".write": true
+      ".write": "auth != null"
     },
     "ai_rlcd_memory": {
       ".read": true,

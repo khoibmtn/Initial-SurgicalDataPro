@@ -73,6 +73,7 @@ import {
   moveItem,
 } from '../../services/paymentListService';
 import { reconcileItems, canLock } from '../../services/paymentListReconcile';
+import { formatReportMonthYearLabel } from './PaymentListSelector';
 import { PaymentList } from '../../types/paymentList';
 import { PackageAssignmentModal } from './PackageAssignmentModal';
 import { PaymentListsContext, LookupRecord } from '../../hooks/usePaymentLists';
@@ -422,12 +423,17 @@ export const PackageListView: React.FC<Props> = ({
     return `${y} - ${l.name} (${l.items.length} ca)`;
   }, []);
 
+  const allDvycMonthLabel = useMemo(
+    () => formatReportMonthYearLabel(paymentLists?.periodKey, paymentLists?.dateFrom, dateRangeText),
+    [paymentLists?.periodKey, paymentLists?.dateFrom, dateRangeText]
+  );
+
   const selectedLabel = useMemo(() => {
     if (listFilter === 'all' || !currentList) {
-      return 'Tất cả DVYC trong DS PT';
+      return allDvycMonthLabel;
     }
     return getBatchFormattedName(currentList);
-  }, [listFilter, currentList, getBatchFormattedName]);
+  }, [listFilter, currentList, getBatchFormattedName, allDvycMonthLabel]);
 
   const candidateLists = useMemo(() => {
     if (!paymentLists) return [];
@@ -1285,7 +1291,7 @@ export const PackageListView: React.FC<Props> = ({
                     >
                       <div className="flex items-center gap-2">
                         <FolderKanban className="h-4 w-4 text-teal-600" />
-                        <span>Tất cả DVYC trong DS PT</span>
+                        <span>{allDvycMonthLabel}</span>
                       </div>
                       {listFilter === 'all' && <Check className="h-3.5 w-3.5 text-teal-600 shrink-0" />}
                     </button>

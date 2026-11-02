@@ -56,7 +56,7 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
 
     const canManageAdmin = can('manage_admin_settings');
     const canConfigServicePackage = isAdmin || can('config_service_package');
-    const canConfigAI = true;
+    const canConfigAI = isAuthenticated && isAdmin;
 
     useEffect(() => {
         if (!canManageAdmin && staffSubTab === 'admin') {
@@ -69,6 +69,12 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
             setActiveSubTab('norms');
         }
     }, [canConfigServicePackage, activeSubTab]);
+
+    useEffect(() => {
+        if (!canConfigAI && activeSubTab === 'ai') {
+            setActiveSubTab((isHead || isDeputyHead) && !isAdmin ? 'users' : 'norms');
+        }
+    }, [canConfigAI, activeSubTab, isHead, isDeputyHead, isAdmin]);
 
     // --- Timeline-based labor config ---
     const [laborConfigs, setLaborConfigs] = useState<LaborConfigVersion[]>([]);
@@ -95,22 +101,13 @@ export const ConfigurationTab: React.FC<ConfigurationTabProps> = ({
     useEffect(() => { if (!isAuthenticated) return; const unsub = subscribeToProfiles(setProfiles); return unsub; }, [isAuthenticated]);
     useEffect(() => { if (!isAuthenticated) return; const unsub = subscribeToCostItems(setCostItems); return unsub; }, [isAuthenticated]);
 
-    if (!isAuthenticated && activeSubTab !== 'ai') {
+    if (!isAuthenticated) {
         return (
             <div className="flex flex-col flex-1 min-h-0 font-inter text-sm">
-                <ContextToolbar title="Cấu hình hệ thống">
-                  <TabLine
-                    value={activeSubTab}
-                    onChange={(v) => setActiveSubTab(v as any)}
-                    options={[
-                      { value: 'norms', label: 'Định mức & Phụ cấp', icon: ClipboardList },
-                      { value: 'ai', label: 'Cấu hình AI', icon: Bot },
-                    ]}
-                  />
-                </ContextToolbar>
+                <ContextToolbar title="Cấu hình hệ thống" />
                 <AuthGuardView
                     featureName="Phân hệ Cấu hình hệ thống"
-                    description="Cấu hình định mức, danh mục kỹ thuật, danh sách nhân sự và phân quyền thuộc dữ liệu lưu trữ. Vui lòng đăng nhập với tài khoản có thẩm quyền để xem và chỉnh sửa (hoặc chuyển sang tab Cấu hình AI để khai báo mô hình AI)."
+                    description="Cấu hình định mức, danh mục kỹ thuật, danh sách nhân sự, phân quyền và cấu hình AI thuộc dữ liệu quản trị. Vui lòng đăng nhập với tài khoản có thẩm quyền để xem và chỉnh sửa."
                 />
             </div>
         );

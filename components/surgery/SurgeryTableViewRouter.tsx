@@ -21,7 +21,7 @@ import {
 import { getTimeRuleForRecord } from '../../services/laborConfigService';
 import { ServicePackageAssignment, ServicePackageDefinition, PositionCatalogItem, getRecordDateString } from '../../types/servicePackage';
 import { PaymentListsContext } from '../../hooks/usePaymentLists';
-import { PaymentListSelector, PaymentListSelection } from './PaymentListSelector';
+import { PaymentListSelector, PaymentListSelection, formatReportMonthYearLabel } from './PaymentListSelector';
 import { useAuth } from '../../contexts/AuthContext';
 
 export interface SurgeryTableViewRouterProps {
@@ -502,7 +502,11 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
                     lists={paymentLists.lists}
                     value={selectedList}
                     onChange={handleSelectList}
-                    allLabel="Tất cả (theo DS phẫu thuật)"
+                    allLabel={formatReportMonthYearLabel(
+                      paymentLists.periodKey,
+                      paymentLists.dateFrom,
+                      currentReport.queryDateRangeText || currentReport.result?.dateRangeText
+                    )}
                     allCount={packageAssignments.length}
                     allowUnpaid
                     unpaidLabel="Chưa gán đợt"
