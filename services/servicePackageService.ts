@@ -185,6 +185,8 @@ export async function deleteServicePackage(id: string): Promise<{ ok: boolean; r
 
 // ─── Service Package Assignments ─────────────────────────────────────────────
 
+const cleanedDuplicateDocIds = new Set<string>();
+
 /**
  * Khử trùng lặp các bản ghi gán gói dịch vụ theo compositeKey (giữ lại bản ghi được cập nhật mới nhất).
  * Tránh trường hợp 1 ca phẫu thuật bị lưu đúp nhiều document trên Firestore dẫn đến lệch số lượng
@@ -194,14 +196,58 @@ export function deduplicateAssignments(items: ServicePackageAssignment[]): Servi
   const byKey = new Map<string, ServicePackageAssignment>();
   for (const item of items) {
     const key =
-      item.compositeKey ||
-      buildCompositeKey(item.patientId || '', (item.ngayBD || '').substring(0, 10), item.tenKT || '');
+      buildCompositeKey(item.patientId || '', item.ngayBD || '', item.tenKT || '') ||
+      item.compositeKey;
     const existing = byKey.get(key);
     if (!existing || (item.updatedAt ?? item.createdAt ?? 0) >= (existing.updatedAt ?? existing.createdAt ?? 0)) {
       byKey.set(key, { ...item, compositeKey: key });
     }
   }
   return Array.from(byKey.values());
+}
+
+/**
+ * Tự động dọn dẹp các bản ghi gán gói dịch vụ bị lưu trùng lặp trên Firestore (giữ lại bản mới nhất).
+ */
+function cleanupDuplicateAssignmentsInBackground(items: ServicePackageAssignment[]): void {
+  const byKey = new Map<string, ServicePackageAssignment[]>();
+  for (const item of items) {
+    if (!item.id) continue;
+    const key =
+      buildCompositeKey(item.patientId || '', item.ngayBD || '', item.tenKT || '') ||
+      item.compositeKey;
+    if (!key) continue;
+    const arr = byKey.get(key) || [];
+    arr.push(item);
+    byKey.set(key, arr);
+  }
+
+  for (const [, group] of byKey.entries()) {
+    if (group.length <= 1) continue;
+    // Sắp xếp giảm dần theo thời gian cập nhật để giữ lại bản ghi mới nhất
+    const sorted = [...group].sort(
+      (a, b) => (b.updatedAt ?? b.createdAt ?? 0) - (a.updatedAt ?? a.createdAt ?? 0)
+    );
+    const duplicatesToRemove = sorted.slice(1);
+    for (const dup of duplicatesToRemove) {
+      if (dup.id && !cleanedDuplicateDocIds.has(dup.id)) {
+        cleanedDuplicateDocIds.add(dup.id);
+        deleteDoc(doc(firestore, ASSIGNMENTS_COL, dup.id)).catch((err) => {
+          cleanedDuplicateDocIds.delete(dup.id);
+          console.warn('[Assignments] Auto-cleanup duplicate assignment warning:', err);
+        });
+      }
+    }
+  }
+}
+
+/** Tạo ID document xác định (deterministic) từ compositeKey để chặn tuyệt đối việc tạo trùng document trên Firestore */
+export function toDeterministicAssignmentDocId(compositeKey: string): string {
+  return (compositeKey || '')
+    .normalize('NFC')
+    .trim()
+    .replace(/[\/\\.#$\[\]\s]+/g, '_')
+    .slice(0, 220);
 }
 
 /** Subscribe to assignments for a date range (realtime) */
@@ -217,12 +263,12 @@ export function subscribeToAssignments(
       ...(d.data() as Omit<ServicePackageAssignment, 'id'>),
       id: d.id,
     }));
-    const filtered = deduplicateAssignments(
-      all.filter(a => {
-        const d = (a.ngayBD || '').substring(0, 10);
-        return d >= dateFrom && d <= dateTo;
-      })
-    );
+    const inRange = all.filter(a => {
+      const d = (a.ngayBD || '').substring(0, 10);
+      return d >= dateFrom && d <= dateTo;
+    });
+    cleanupDuplicateAssignmentsInBackground(inRange);
+    const filtered = deduplicateAssignments(inRange);
     filtered.sort((a, b) => (a.ngayBD || '').localeCompare(b.ngayBD || ''));
     callback(filtered);
   }, (error) => {
@@ -241,6 +287,7 @@ export function subscribeToAllAssignments(
       ...(d.data() as Omit<ServicePackageAssignment, 'id'>),
       id: d.id,
     }));
+    cleanupDuplicateAssignmentsInBackground(rawItems);
     const items = deduplicateAssignments(rawItems);
     items.sort((a, b) => (a.ngayBD || '').localeCompare(b.ngayBD || ''));
     callback(items);
@@ -253,23 +300,44 @@ export function subscribeToAllAssignments(
 /** Save (create or update) a package assignment */
 export async function saveAssignment(assignment: ServicePackageAssignment): Promise<string> {
   const now = Date.now();
-  // Ensure compositeKey is set
-  const compositeKey = assignment.compositeKey ||
-    buildCompositeKey(assignment.patientId, assignment.ngayBD, assignment.tenKT);
+  // Ensure compositeKey is set and normalized
+  const compositeKey =
+    buildCompositeKey(assignment.patientId, assignment.ngayBD, assignment.tenKT) ||
+    assignment.compositeKey;
 
-  // Kiểm tra các document đã tồn tại có cùng compositeKey để tránh tạo bản ghi trùng lặp
+  // Kiểm tra các document đã tồn tại có cùng compositeKey hoặc cùng bệnh nhân + ca mổ để tránh tạo bản ghi trùng lặp
   let targetId = assignment.id;
   const duplicateIdsToDelete: string[] = [];
   try {
-    const q = query(collection(firestore, ASSIGNMENTS_COL), where('compositeKey', '==', compositeKey));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      if (!targetId) {
-        targetId = snap.docs[0].id;
-      }
+    const cleanPid = (assignment.patientId || '').trim();
+    const queries = [
+      getDocs(query(collection(firestore, ASSIGNMENTS_COL), where('compositeKey', '==', compositeKey))),
+      ...(cleanPid
+        ? [getDocs(query(collection(firestore, ASSIGNMENTS_COL), where('patientId', '==', cleanPid)))]
+        : []),
+    ];
+    const snaps = await Promise.all(queries);
+    const matchedDocs = new Map<string, any>();
+    for (const snap of snaps) {
       for (const d of snap.docs) {
-        if (d.id !== targetId) {
-          duplicateIdsToDelete.push(d.id);
+        const data = d.data() as ServicePackageAssignment;
+        const docKey =
+          buildCompositeKey(data.patientId || '', data.ngayBD || '', data.tenKT || '') ||
+          data.compositeKey;
+        if (docKey === compositeKey || data.compositeKey === compositeKey) {
+          matchedDocs.set(d.id, d);
+        }
+      }
+    }
+
+    if (matchedDocs.size > 0) {
+      const matchedIds = Array.from(matchedDocs.keys());
+      if (!targetId || !matchedDocs.has(targetId)) {
+        targetId = matchedIds[0];
+      }
+      for (const docId of matchedIds) {
+        if (docId !== targetId) {
+          duplicateIdsToDelete.push(docId);
         }
       }
     }
@@ -277,8 +345,11 @@ export async function saveAssignment(assignment: ServicePackageAssignment): Prom
     console.warn('[Assignments] check existing compositeKey warning:', err);
   }
 
+  const deterministicId = toDeterministicAssignmentDocId(compositeKey);
   const ref = targetId
     ? doc(firestore, ASSIGNMENTS_COL, targetId)
+    : deterministicId
+    ? doc(firestore, ASSIGNMENTS_COL, deterministicId)
     : doc(collection(firestore, ASSIGNMENTS_COL));
   const id = ref.id;
 

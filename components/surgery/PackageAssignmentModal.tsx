@@ -293,6 +293,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
   const [selectedPkgId, setSelectedPkgId] = useState<string>('');
   const [staffMap, setStaffMap] = useState<Record<string, string>>({}); // positionKey → staffName
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   // Auto-fill runs once per (package, record) so cleared cells are not refilled
   const autoFillDoneRef = useRef<string>('');
@@ -416,7 +417,8 @@ export const PackageAssignmentModal: React.FC<Props> = ({
   };
 
   const handleSave = async () => {
-    if (!selectedPkg || !records.length) return;
+    if (!selectedPkg || !records.length || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const rec = records[0];
@@ -500,6 +502,7 @@ export const PackageAssignmentModal: React.FC<Props> = ({
       onSaved?.(assignment);
       onClose();
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

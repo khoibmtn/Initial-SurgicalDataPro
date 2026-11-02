@@ -87,6 +87,7 @@ import {
   DEFAULT_MODULE_CONFIG,
   getRecordDateString,
   buildCompositeKey,
+  findMatchingAssignmentForRecord,
   clearPackageDrafts,
   LS_DRAFT_KEY,
 } from './types/servicePackage';
@@ -786,18 +787,63 @@ const InnerApp: React.FC = () => {
   const handleAssignPackage = useCallback((selectedRecords?: SurgeryRecord[]) => {
     if (selectedRecords && selectedRecords.length > 0) {
       try {
-        const stored = localStorage.getItem(LS_DRAFT_KEY);
-        const existing: SurgeryRecord[] = stored ? JSON.parse(stored) : [];
-        const map = new Map<string, SurgeryRecord>();
+        const knownAssignments =
+          paymentListData.allAssignments.length > 0
+            ? paymentListData.allAssignments
+            : packageAssignments;
+
+        const alreadyAssigned: SurgeryRecord[] = [];
+        const unassignedRecords: SurgeryRecord[] = [];
+        const seenSelectedKeys = new Set<string>();
+
         const getDraftKey = (r: SurgeryRecord) => {
-          const dDate = getRecordDateString(r).substring(0, 10);
+          const dDate = getRecordDateString(r) || String(r.ngayBD || '');
           return buildCompositeKey(r.patientId || '', dDate, r.tenKT || '');
         };
-        existing.forEach(r => {
-          map.set(getDraftKey(r), r);
+
+        for (const r of selectedRecords) {
+          const key = getDraftKey(r);
+          if (seenSelectedKeys.has(key)) continue;
+          seenSelectedKeys.add(key);
+
+          const existingAssign = findMatchingAssignmentForRecord(r, knownAssignments);
+          if (existingAssign) {
+            alreadyAssigned.push(r);
+          } else {
+            unassignedRecords.push(r);
+          }
+        }
+
+        if (unassignedRecords.length === 0 && alreadyAssigned.length > 0) {
+          const previewNames = alreadyAssigned
+            .slice(0, 2)
+            .map((r) => r.patientName || r.patientId)
+            .join(', ');
+          const moreText = alreadyAssigned.length > 2 ? ` (+${alreadyAssigned.length - 2} ca)` : '';
+          addToast(
+            `Ca phẫu thuật đã chọn (${previewNames}${moreText}) đã được gán gói dịch vụ trước đó — không thêm trùng!`,
+            'error'
+          );
+          setActiveTable('packages');
+          return;
+        }
+
+        const stored = localStorage.getItem(LS_DRAFT_KEY);
+        const existingDrafts: SurgeryRecord[] = stored ? JSON.parse(stored) : [];
+        const map = new Map<string, SurgeryRecord>();
+        existingDrafts.forEach(r => {
+          if (!findMatchingAssignmentForRecord(r, knownAssignments)) {
+            map.set(getDraftKey(r), r);
+          }
         });
-        selectedRecords.forEach(r => {
-          map.set(getDraftKey(r), r);
+
+        let newlyAddedCount = 0;
+        unassignedRecords.forEach(r => {
+          const k = getDraftKey(r);
+          if (!map.has(k)) {
+            newlyAddedCount++;
+          }
+          map.set(k, r);
         });
         localStorage.setItem(LS_DRAFT_KEY, JSON.stringify(Array.from(map.values())));
 
@@ -820,13 +866,23 @@ const InnerApp: React.FC = () => {
         setPackageListFilter('all');
         window.dispatchEvent(new CustomEvent('package_list_filter_changed', { detail: 'all' }));
         window.dispatchEvent(new Event('package_drafts_updated'));
-        addToast(`Đã thêm ${selectedRecords.length} ca vào danh sách Gói DV`, 'info');
+
+        if (alreadyAssigned.length > 0) {
+          addToast(
+            `Đã thêm ${newlyAddedCount} ca mới vào Gói DV (bỏ qua ${alreadyAssigned.length} ca đã được gán gói trước đó để tránh trùng lặp)`,
+            'info'
+          );
+        } else if (newlyAddedCount === 0) {
+          addToast('Ca phẫu thuật đã chọn đã có sẵn trong danh sách chờ gán Gói DV!', 'info');
+        } else {
+          addToast(`Đã thêm ${newlyAddedCount} ca vào danh sách Gói DV`, 'info');
+        }
       } catch (e) {
         console.error('Error saving draft package records:', e);
       }
     }
     setActiveTable('packages');
-  }, [setActiveTable, addToast]);
+  }, [setActiveTable, addToast, packageAssignments, paymentListData.allAssignments]);
 
   // Command Palette
   const { cmdPaletteOpen, setCmdPaletteOpen, commandItems } = useAppCommandPalette({

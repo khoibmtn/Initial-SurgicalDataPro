@@ -19,7 +19,7 @@ import {
   DutyScheduleDateConfig,
 } from '../../types';
 import { getTimeRuleForRecord } from '../../services/laborConfigService';
-import { ServicePackageAssignment, ServicePackageDefinition, PositionCatalogItem, getRecordDateString } from '../../types/servicePackage';
+import { ServicePackageAssignment, ServicePackageDefinition, PositionCatalogItem, getRecordDateString, findMatchingAssignmentForRecord } from '../../types/servicePackage';
 import { PaymentListsContext } from '../../hooks/usePaymentLists';
 import { PaymentListSelector, PaymentListSelection, formatReportMonthYearLabel } from './PaymentListSelector';
 import { useAuth } from '../../contexts/AuthContext';
@@ -246,17 +246,14 @@ export const SurgeryTableViewRouter: React.FC<SurgeryTableViewRouterProps> = ({
 
   if (!currentReport.result || !currentReport.stats || !currentReport.activeTable) return null;
 
-  // Composite keys of records that have a package assignment
-  const assignedKeys = new Set(packageAssignments.map(a => a.compositeKey));
-
   if (currentReport.activeTable === 'list') {
     const rowStyle = (r: SurgeryRecord) => {
       const min = getTimeRuleForRecord(r.loaiPTTT, r.ngayBD || r.start, config.timeItemsList, config.timeRules)?.min;
       const timeWarn = min && r.timeMinutes < min ? 'bg-yellow-50 text-red-600 font-medium' : '';
       // Highlight red if record has a package assignment
-      const ngayBDStr = getRecordDateString(r);
-      const compositeKey = `${r.patientId}_${ngayBDStr.substring(0, 10)}_${(r.tenKT || '').normalize('NFC').trim().toLowerCase().replace(/\s+/g, '_')}`;
-      if (assignedKeys.has(compositeKey)) return 'bg-red-50 border-l-4 border-l-red-400';
+      if (findMatchingAssignmentForRecord(r, packageAssignments)) {
+        return 'bg-red-50 border-l-4 border-l-red-400';
+      }
       return timeWarn;
     };
     const ptCount = currentReport.result.validRecords.filter((r) => r.loaiPTTT?.startsWith('P')).length;

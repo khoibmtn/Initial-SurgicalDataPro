@@ -54,6 +54,7 @@ import {
   PositionCatalogItem,
   getPositionShortLabel,
   buildCompositeKey,
+  findMatchingAssignmentForRecord,
   getRecordDateString,
   normalizeForKey,
   clearPackageDrafts,
@@ -924,10 +925,12 @@ export const PackageListView: React.FC<Props> = ({
   const assignedCount = stats.assignedCount;
   const unassignedCount = stats.unassignedCount;
 
-  // Open modal for new assignment
+  // Open modal for new assignment (auto-switch to edit if already assigned to prevent duplicates)
   const handleAdd = (record: SurgeryRecord) => {
+    const knownAssignments = paymentLists?.allAssignments?.length ? paymentLists.allAssignments : assignments;
+    const existing = findMatchingAssignmentForRecord(record, knownAssignments);
     setModalRecords([record]);
-    setModalExistingAssignment(null);
+    setModalExistingAssignment(existing || null);
     setModalOpen(true);
   };
 

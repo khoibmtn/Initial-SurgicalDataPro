@@ -12,9 +12,9 @@ import {
   appendExtraRawSheetsToWorkbook,
 } from '../services/excelExportService';
 import { calculateOvertimeRows } from '../services/overtimeCalculationService';
-import { deduplicateAssignments } from '../services/servicePackageService';
+import { deduplicateAssignments, toDeterministicAssignmentDocId } from '../services/servicePackageService';
 import { buildPackagePaymentPrintConfig } from '../hooks/usePrintController';
-import { getPositionShortLabel } from '../types/servicePackage';
+import { getPositionShortLabel, buildCompositeKey, findMatchingAssignmentForRecord } from '../types/servicePackage';
 import type { SurgeryRecord } from '../types';
 import type { ServicePackageAssignment, ServicePackageDefinition, PositionCatalogItem } from '../types/servicePackage';
 import type { PaymentList } from '../types/paymentList';
@@ -611,6 +611,38 @@ describe('Service Package Excel Export Service', () => {
       const deduped = deduplicateAssignments(raw);
       expect(deduped).toHaveLength(1);
       expect(deduped[0].id).toBe('doc-new');
+    });
+
+    it('should normalize DD/MM/YYYY and YYYY-MM-DD into identical compositeKey and detect existing assignment', () => {
+      const k1 = buildCompositeKey('2600162142', '14/10/2026 12:00', 'Cắt u lành phần mềm đường kính dưới 10cm');
+      const k2 = buildCompositeKey('2600162142', '2026-10-14T05:00:00.000Z', 'Cắt u lành phần mềm đường kính dưới 10cm');
+      expect(k1).toBe(k2);
+      expect(toDeterministicAssignmentDocId(k1)).toBe(toDeterministicAssignmentDocId(k2));
+
+      const existing: ServicePackageAssignment = {
+        id: 'assign-1',
+        patientId: '2600162142',
+        patientName: 'BÙI VĂN HIỂN',
+        ngayBD: '2026-10-14T05:00:00.000Z',
+        tenKT: 'Cắt u lành phần mềm đường kính dưới 10cm',
+        compositeKey: k2,
+        packageId: 'pkg-ngoai',
+        packageName: 'DV chọn BSPT theo yêu cầu Ngoại',
+        staffAssignments: [],
+        linkedSurgeryKeys: [],
+        createdAt: 1000,
+        updatedAt: 1000,
+      };
+
+      const matched = findMatchingAssignmentForRecord(
+        {
+          patientId: '2600162142',
+          ngayBD: '14/10/2026 12:00',
+          tenKT: 'Cắt u lành phần mềm đường kính dưới 10cm',
+        },
+        [existing]
+      );
+      expect(matched?.id).toBe('assign-1');
     });
   });
 });

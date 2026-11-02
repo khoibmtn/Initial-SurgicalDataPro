@@ -246,11 +246,45 @@ export function normalizeForKey(s: string): string {
     .replace(/\s+/g, '_');
 }
 
+/** Chuẩn hóa chuỗi ngày (ISO hoặc DD/MM/YYYY) về YYYY-MM-DD để tạo compositeKey đồng nhất */
+export function normalizeDateForKey(ngayBD: string): string {
+  const raw = (ngayBD || '').trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  const vnMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (vnMatch) return `${vnMatch[3]}-${vnMatch[2]}-${vnMatch[1]}`;
+  return raw.substring(0, 10);
+}
+
 /** Tạo composite key cho 1 cuộc mổ */
 export function buildCompositeKey(patientId: string, ngayBD: string, tenKT: string): string {
   // Normalize ngayBD: chỉ lấy phần date YYYY-MM-DD
-  const dateKey = (ngayBD || '').substring(0, 10);
+  const dateKey = normalizeDateForKey(ngayBD || '');
   return `${(patientId || '').trim()}_${dateKey}_${normalizeForKey(tenKT || '')}`;
+}
+
+/** Kiểm tra xem 1 ca phẫu thuật đã có bản ghi gán gói dịch vụ tương ứng hay chưa */
+export function findMatchingAssignmentForRecord(
+  rec: { patientId?: string; ngayBD?: any; start?: any; tenKT?: string } | null | undefined,
+  assignments: ServicePackageAssignment[]
+): ServicePackageAssignment | undefined {
+  if (!rec || !assignments || assignments.length === 0) return undefined;
+  const rDate = normalizeDateForKey(getRecordDateString(rec) || String(rec.ngayBD || ''));
+  const cleanPid = (rec.patientId || '').trim().toLowerCase();
+  const normTenKT = normalizeForKey(rec.tenKT || '');
+  const rKey = buildCompositeKey(rec.patientId || '', rDate, rec.tenKT || '');
+
+  return assignments.find((a) => {
+    if (a.compositeKey === rKey) return true;
+    const aRebuiltKey = buildCompositeKey(a.patientId || '', a.ngayBD || '', a.tenKT || '');
+    if (aRebuiltKey === rKey) return true;
+    const aPid = (a.patientId || '').trim().toLowerCase();
+    if (cleanPid && aPid && cleanPid === aPid && normalizeForKey(a.tenKT || '') === normTenKT) {
+      const aDate = normalizeDateForKey(a.ngayBD || '');
+      if (!rDate || !aDate || rDate === aDate) return true;
+    }
+    return false;
+  });
 }
 
 export const LS_DRAFT_KEY = 'package_draft_records';
