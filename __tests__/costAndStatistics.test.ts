@@ -50,6 +50,10 @@ import {
   updateCostItem,
 } from '../services/surgeryCostService';
 import {
+  getSpecialtyComparisonData,
+} from '../services/specialtyComparisonService';
+import { reportService } from '../services/reportService';
+import {
   PersistedSurgeryRecord,
   SurgeryNamePrice,
   SurgeryCostItem,
@@ -472,6 +476,112 @@ describe('Cost Calculation & Statistics Page', () => {
       // Tổng chỉ số mùa vụ vẫn được bảo toàn = 1.0
       const total = adjusted.reduce((s, v) => s + v, 0);
       expect(total).toBeCloseTo(1.0, 5);
+    });
+  });
+
+  describe('6. Specialty Comparison Cross-Month Aggregation by Surgery Name', () => {
+    it('gộp các ca phẫu thuật cùng tên (tenKT) giữa T10/2026, T9/2026 và T10/2025 vào 1 dòng duy nhất kể cả khi khác donGia, maTuongDuong hoặc PTV chính', async () => {
+      const spy = vi.spyOn(reportService, 'getReports').mockImplementation(async (dateFrom, _dateTo, type) => {
+        if (type !== 'MONTHLY') return [];
+        if (dateFrom.startsWith('2026-10')) {
+          return [
+            {
+              id: 'cur_1',
+              ngayBD: '2026-10-05T08:00:00.000Z',
+              tenKT: 'Phẫu thuật nội soi cắt ruột thừa',
+              maTuongDuong: '10.0110.0258',
+              donGia: 3_350_000,
+              thanhTien: 46_900_000,
+              soLuong: 14,
+              ptChinh: 'Đào Văn Điệp',
+            },
+            {
+              id: 'cur_2',
+              ngayBD: '2026-10-12T08:00:00.000Z',
+              tenKT: 'Phẫu thuật vết thương phần mềm phức tạp',
+              maTuongDuong: '',
+              donGia: 0,
+              thanhTien: 10_830_000,
+              soLuong: 5,
+              ptChinh: 'Nguyễn Văn Tuất',
+            },
+          ] as PersistedSurgeryRecord[];
+        }
+        if (dateFrom.startsWith('2026-09')) {
+          return [
+            {
+              id: 'prev_1',
+              ngayBD: '2026-09-10T08:00:00.000Z',
+              tenKT: 'Phẫu thuật nội soi cắt ruột thừa',
+              // Khác trạng thái mã tương đương & khác đơn giá so với T10/2026
+              maTuongDuong: '',
+              donGia: 3_100_000,
+              thanhTien: 37_200_000,
+              soLuong: 12,
+              ptChinh: 'Đào Văn Điệp',
+            },
+            {
+              id: 'prev_2',
+              ngayBD: '2026-09-15T08:00:00.000Z',
+              tenKT: 'Phẫu thuật vết thương phần mềm phức tạp',
+              maTuongDuong: '03.0045.0123',
+              donGia: 2_166_000,
+              thanhTien: 15_162_000,
+              soLuong: 7,
+              // PTV chính thuộc khoa Ngoại TH thay vì CTCH
+              ptChinh: 'Đào Văn Điệp',
+            },
+          ] as PersistedSurgeryRecord[];
+        }
+        if (dateFrom.startsWith('2025-10')) {
+          return [
+            {
+              id: 'same_1',
+              ngayBD: '2025-10-20T08:00:00.000Z',
+              tenKT: 'Phẫu thuật nội soi cắt ruột thừa',
+              maTuongDuong: '03.0080.0258',
+              donGia: 2_900_000,
+              thanhTien: 43_500_000,
+              soLuong: 15,
+              ptChinh: 'Đào Văn Điệp',
+            },
+          ] as PersistedSurgeryRecord[];
+        }
+        return [];
+      });
+
+      const staffList = [
+        { id: 's1', name: 'Đào Văn Điệp', department: 'Ngoại TH', role: 'Bác sĩ' },
+        { id: 's2', name: 'Nguyễn Văn Tuất', department: 'CTCH', role: 'Bác sĩ' },
+      ] as any[];
+
+      const res = await getSpecialtyComparisonData(
+        { mode: 'single', targetMonth: 10, targetYear: 2026 },
+        staffList
+      );
+
+      const allRows = res.groups.flatMap(g => g.rows);
+      // Chỉ có đúng 2 kỹ thuật duy nhất (không bị tách thành 5 dòng riêng biệt)
+      expect(allRows.length).toBe(2);
+
+      const rtRow = allRows.find(r => r.tenKT === 'Phẫu thuật nội soi cắt ruột thừa')!;
+      expect(rtRow).toBeDefined();
+      expect(rtRow.currentCount).toBe(14);
+      expect(rtRow.prevCount).toBe(12);
+      expect(rtRow.samePeriodCount).toBe(15);
+      expect(rtRow.currentRevenue).toBe(46_900_000);
+      expect(rtRow.prevRevenue).toBe(37_200_000);
+      expect(rtRow.samePeriodRevenue).toBe(43_500_000);
+      expect(rtRow.note).not.toContain('Mới phát sinh');
+
+      const vtpmRow = allRows.find(r => r.tenKT === 'Phẫu thuật vết thương phần mềm phức tạp')!;
+      expect(vtpmRow).toBeDefined();
+      expect(vtpmRow.currentCount).toBe(5);
+      expect(vtpmRow.prevCount).toBe(7);
+      expect(vtpmRow.currentRevenue).toBe(10_830_000);
+      expect(vtpmRow.prevRevenue).toBe(15_162_000);
+
+      spy.mockRestore();
     });
   });
 });

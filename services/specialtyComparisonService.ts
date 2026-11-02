@@ -296,10 +296,21 @@ export function restoreDefaultOverrides(): Record<string, SpecialtyCode> {
   }
 }
 
+export function normalizeSurgeryName(name?: string): string {
+  if (!name) return '';
+  return name
+    .normalize('NFKC')
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
 export function saveSpecialtyOverride(tenKT: string, specialty: SpecialtyCode): void {
   try {
     const current = getSpecialtyOverrides();
-    const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
+    const normKey = normalizeSurgeryName(tenKT);
     current[normKey] = specialty;
     localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(current));
     notifySpecialtiesChanged();
@@ -311,8 +322,10 @@ export function saveSpecialtyOverride(tenKT: string, specialty: SpecialtyCode): 
 export function removeSpecialtyOverride(tenKT: string): void {
   try {
     const current = getSpecialtyOverrides();
-    const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
+    const normKey = normalizeSurgeryName(tenKT);
+    const rawKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
     delete current[normKey];
+    delete current[rawKey];
     localStorage.setItem(STORAGE_OVERRIDES_KEY, JSON.stringify(current));
     notifySpecialtiesChanged();
   } catch (e) {
@@ -447,12 +460,16 @@ export function classifySpecialty(
   staffList?: StaffMember[],
   customOverrides?: Record<string, SpecialtyCode>
 ): SpecialtyCode {
-  const normKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
+  const normKey = normalizeSurgeryName(tenKT);
+  const rawKey = tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
 
   // 1. Kiểm tra User Override trước tiên
   const overrides = customOverrides || getSpecialtyOverrides();
   if (overrides[normKey]) {
     return overrides[normKey];
+  }
+  if (overrides[rawKey]) {
+    return overrides[rawKey];
   }
 
   // 2. Tìm Khoa của Bác sĩ phẫu thuật chính
@@ -809,6 +826,7 @@ export async function getSpecialtyComparisonData(
     displayName: string;
     maTuongDuong: string;
     specialty: SpecialtyCode;
+    specialtyWeights: Map<SpecialtyCode, number>;
     hasCostConfig: boolean;
     nameCostMap: Map<string, number>;
     current: number;
@@ -845,23 +863,19 @@ export async function getSpecialtyComparisonData(
     r: PersistedSurgeryRecord,
     period: 'current' | 'prev' | 'samePeriod'
   ) => {
-    if (!r.tenKT) return;
+    const normName = normalizeSurgeryName(r.tenKT);
+    if (!normName) return;
+
     const specialty = classifySpecialty(r.tenKT, r.ptChinh, staffList, overrides);
     const rawMTD = (r.maTuongDuong || '').trim();
     const isGT = isRecordGayTe(r.maTuongDuong, r.tenKT);
     const baseMTD = normalizeMaTuongDuong(rawMTD).replace(/_GT$/i, '');
-    const method = isGT ? 'GT' : 'GM';
-    const donGia = Math.round(Number(r.donGia) || 0);
-    const normName = r.tenKT.trim().toLowerCase().replace(/\s+/g, ' ');
 
-    // Khóa gom nhóm:
-    // 1 tên kỹ thuật nếu cùng mã tương đương:
-    // - khác phương pháp vô cảm (gây mê, gây tê) thì tách theo phương pháp vô cảm
-    // - cùng phương pháp vô cảm và cùng giá: hiển thị chung (nếu khác tên thì lấy 1 tên nhiều chi phí nhất)
-    // - chưa có mã tương đương: gom theo chuyên khoa + normName + phương pháp vô cảm + giá
-    const key = baseMTD
-      ? `${specialty}:::MTD_${baseMTD}:::${method}:::${donGia}`
-      : `${specialty}:::NOMTD_${normName}:::${method}:::${donGia}`;
+    // Khóa gom nhóm theo đúng tên kỹ thuật đã chuẩn hóa (normName)
+    // để tất cả các ca cùng tên phẫu thuật giữa các kỳ (T10/2026, T9/2026, T10/2025)
+    // luôn được tổng hợp gộp chung vào 1 dòng duy nhất, không bị tách dòng khi khác đơn giá,
+    // khác bác sĩ thực hiện hoặc khác trạng thái mã tương đương.
+    const key = normName;
 
     // Mã tương đương hiển thị trên dòng:
     // Nếu có mã tương đương: ca gây tê có hậu tố _GT (nếu chưa có thì thêm _GT), ca gây mê dùng baseMTD
@@ -872,9 +886,9 @@ export async function getSpecialtyComparisonData(
 
     const qty = r.soLuong || 1;
     let rev = 0;
-    if (r.thanhTien != null && !isNaN(Number(r.thanhTien))) {
+    if (r.thanhTien != null && !isNaN(Number(r.thanhTien)) && Number(r.thanhTien) > 0) {
       rev = Number(r.thanhTien);
-    } else if (r.donGia != null && !isNaN(Number(r.donGia))) {
+    } else if (r.donGia != null && !isNaN(Number(r.donGia)) && Number(r.donGia) > 0) {
       rev = Number(r.donGia) * qty;
     }
 
@@ -891,6 +905,7 @@ export async function getSpecialtyComparisonData(
         displayName: r.tenKT.trim(),
         maTuongDuong: rowMTD,
         specialty,
+        specialtyWeights: new Map<SpecialtyCode, number>(),
         hasCostConfig: false,
         nameCostMap: new Map<string, number>(),
         current: 0,
@@ -922,7 +937,21 @@ export async function getSpecialtyComparisonData(
       item.hasCostConfig = true;
     }
 
-    // Tích lũy chi phí/doanh thu theo từng biến thể tên kỹ thuật để chọn tên nhiều chi phí nhất
+    // Xác định chuyên khoa thống nhất cho cùng tên phẫu thuật (ưu tiên kỳ hiện tại nếu chưa gán override)
+    const specWeight = (period === 'current' ? 1000 : 1) * qty;
+    const nextSpecWeight = (item.specialtyWeights.get(specialty) || 0) + specWeight;
+    item.specialtyWeights.set(specialty, nextSpecWeight);
+    let bestSpec = item.specialty;
+    let bestSpecWeight = -1;
+    for (const [sp, w] of item.specialtyWeights.entries()) {
+      if (w > bestSpecWeight) {
+        bestSpecWeight = w;
+        bestSpec = sp;
+      }
+    }
+    item.specialty = bestSpec;
+
+    // Tích lũy chi phí/doanh thu theo từng biến thể tên kỹ thuật để chọn tên hiển thị chuẩn
     const rawName = r.tenKT.trim();
     const currentNameCost = item.nameCostMap.get(rawName) || 0;
     item.nameCostMap.set(rawName, currentNameCost + (totalCost || rev || qty));
@@ -1187,8 +1216,9 @@ export async function getSpecialtyComparisonData(
   const monthMap = new Map<string, MonthlyTrendItem>();
 
   currentRecords.forEach(r => {
-    if (!r.tenKT) return;
-    const specialty = classifySpecialty(r.tenKT, r.ptChinh, staffList, overrides);
+    const normName = normalizeSurgeryName(r.tenKT);
+    if (!normName) return;
+    const specialty = itemsMap.get(normName)?.specialty || classifySpecialty(r.tenKT, r.ptChinh, staffList, overrides);
     let lEntry = loaiMap.get(specialty);
     if (!lEntry) {
       lEntry = {
@@ -1202,9 +1232,9 @@ export async function getSpecialtyComparisonData(
 
     const qty = r.soLuong || 1;
     let rev = 0;
-    if (r.thanhTien != null && !isNaN(Number(r.thanhTien))) {
+    if (r.thanhTien != null && !isNaN(Number(r.thanhTien)) && Number(r.thanhTien) > 0) {
       rev = Number(r.thanhTien);
-    } else if (r.donGia != null && !isNaN(Number(r.donGia))) {
+    } else if (r.donGia != null && !isNaN(Number(r.donGia)) && Number(r.donGia) > 0) {
       rev = Number(r.donGia) * qty;
     }
 

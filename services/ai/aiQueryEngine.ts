@@ -2796,13 +2796,18 @@ export function executeMultiDimensionalPivotTool(
         lItem.cmpRev += rev;
       }
 
-      // Procedure grouping key (same as SpecialtyComparisonTab)
+      // Procedure grouping key (by normalized surgery name, same as SpecialtyComparisonTab)
       const rawMTD = (r.maTuongDuong || '').trim();
       const isGT = isRecordGayTe(r.maTuongDuong, r.tenKT);
       const baseMTD = rawMTD.toUpperCase().replace(/\s+/g, '').replace(/_GT$/i, '');
-      const method = isGT ? 'GT' : 'GM';
-      const normName = (r.tenKT || '').trim().toLowerCase().replace(/\s+/g, ' ');
-      const procKey = baseMTD ? `MTD_${baseMTD}:::${method}` : `NAME_${normName}:::${method}`;
+      const normName = (r.tenKT || '')
+        .normalize('NFKC')
+        .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+        .replace(/\u00A0/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+      const procKey = normName;
       const displayMTD = baseMTD ? (isGT ? `${baseMTD}_GT` : baseMTD) : '';
 
       const pItem = procMap.get(procKey) || {
@@ -2814,6 +2819,9 @@ export function executeMultiDimensionalPivotTool(
         curRev: 0,
         cmpRev: 0,
       };
+      if (!pItem.maTuongDuong && displayMTD) {
+        pItem.maTuongDuong = displayMTD;
+      }
       if (isPrimary) {
         pItem.curQty = Math.round((pItem.curQty + qty) * 100) / 100;
         pItem.curRev += rev;

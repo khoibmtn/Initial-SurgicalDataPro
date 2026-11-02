@@ -1359,18 +1359,12 @@ const SurgeryNameBreakdown: React.FC<SurgeryNameBreakdownProps> = ({ data, nav, 
       }
       const unitPrice = nameCases > 0 ? Math.round(nameCost / nameCases) : 0;
 
-      let groupKey: string;
       let finalMTD = '';
-
       if (rawMTD) {
         const baseMTD = rawMTD.trim().toUpperCase().replace(/_GT$/i, '');
-        const method = isGT ? 'GAY_TE' : 'GAY_ME';
         finalMTD = isGT ? (rawMTD.toUpperCase().endsWith('_GT') ? rawMTD.toUpperCase() : `${baseMTD}_GT`) : baseMTD;
-        groupKey = `MTD_${baseMTD}:::${method}:::${unitPrice}`;
-      } else {
-        finalMTD = '';
-        groupKey = `NOMTD_${name}`;
       }
+      const groupKey = name;
 
       if (!groupMap.has(groupKey)) {
         groupMap.set(groupKey, {

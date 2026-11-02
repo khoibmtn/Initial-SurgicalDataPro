@@ -88,10 +88,16 @@ function daysInMonth(month: number, year: number): number {
 
 // --- Name normalization ---
 
-/** Normalize tenKT: trim + lowercase + collapse whitespace. Preserves meaningful terms. */
+/** Normalize tenKT: NFKC + trim + lowercase + collapse whitespace. Preserves meaningful terms. */
 export function normalizeTenKT(name: string): string {
   if (!name) return '';
-  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+  return name
+    .normalize('NFKC')
+    .replace(/[\u200B\u200C\u200D\uFEFF]/g, '')
+    .replace(/\u00A0/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
 }
 
 // --- Raw Year Cache (in-memory to eliminate redundant Firestore calls) ---
