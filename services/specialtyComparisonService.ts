@@ -1560,3 +1560,199 @@ export async function getSpecialtyComparisonData(
     monthlyTimeline,
   };
 }
+
+/**
+ * Tính ghi chú cho từng dòng dịch vụ kỹ thuật (tách đóng góp của Số lượng ca và Đơn giá)
+ * theo chế độ so sánh: 'same_period' (so cùng kỳ) hoặc 'prev_period' (so tháng trước).
+ */
+export function buildRowVarianceNote(
+  r: ComparisonRow,
+  mode: 'same_period' | 'prev_period' = 'same_period',
+  periodMeta?: PeriodMetadata | null
+): string {
+  const cur = r.currentCount || 0;
+  const curRev = r.currentRevenue || 0;
+  const hasSame = periodMeta ? periodMeta.hasSamePeriodData : true;
+
+  if (mode === 'same_period' && !hasSame) return r.note || '';
+
+  const base = mode === 'same_period' ? (r.samePeriodCount || 0) : (r.prevCount || 0);
+  const baseRev = mode === 'same_period' ? (r.samePeriodRevenue || 0) : (r.prevRevenue || 0);
+  const other = mode === 'same_period' ? (r.prevCount || 0) : (hasSame ? (r.samePeriodCount || 0) : 0);
+
+  const currentLabel = periodMeta?.currentLabel || 'kỳ này';
+  const baseLabel = mode === 'same_period'
+    ? (periodMeta?.samePeriodLabel || 'cùng kỳ')
+    : (periodMeta?.prevLabel || 'tháng trước');
+  const shortBaseName = mode === 'same_period' ? 'cùng kỳ' : 'tháng trước';
+
+  if (cur === 0 && (base > 0 || other > 0)) {
+    return `Không phát sinh trong ${currentLabel}`;
+  }
+  if (cur > 0 && base === 0 && other === 0) {
+    return `Mới phát sinh trong ${currentLabel}`;
+  }
+  if (cur > 0 && base === 0 && other > 0) {
+    return `Mới phát sinh so ${shortBaseName} (${baseLabel})`;
+  }
+
+  if (cur > 0 && base > 0 && curRev > 0 && baseRev > 0) {
+    const p0 = baseRev / base;
+    const p1 = curRev / cur;
+    const qtyDiff = cur - base;
+    const priceDiff = p1 - p0;
+
+    const qtyRevEffect = Math.round(qtyDiff * p0);
+    const priceRevEffect = Math.round(curRev - baseRev) - qtyRevEffect;
+
+    const totalRevPctRounded = Number((((curRev - baseRev) / baseRev) * 100).toFixed(1));
+    const hasPriceChange = Math.abs(priceDiff) >= 1 && Math.abs(priceRevEffect) >= 1;
+
+    let qtyPctRounded = 0;
+    let pricePctRounded = 0;
+    if (hasPriceChange) {
+      if (qtyDiff === 0) {
+        qtyPctRounded = 0;
+        pricePctRounded = totalRevPctRounded;
+      } else {
+        qtyPctRounded = Number(((qtyRevEffect / baseRev) * 100).toFixed(1));
+        pricePctRounded = Number((totalRevPctRounded - qtyPctRounded).toFixed(1));
+      }
+    } else {
+      qtyPctRounded = totalRevPctRounded;
+      pricePctRounded = 0;
+    }
+
+    const fmtSignedMoney = (val: number) => {
+      const rounded = Math.round(val);
+      const sign = rounded > 0 ? '+' : (rounded < 0 ? '-' : '');
+      return `${sign}${Math.abs(rounded).toLocaleString('vi-VN')} ₫`;
+    };
+    const fmtSignedPct = (val: number) => {
+      const sign = val > 0 ? '+' : '';
+      return `${sign}${val.toFixed(1)}%`;
+    };
+
+    const absQty = Number(Math.abs(qtyDiff).toFixed(2));
+    const hasQtyChange = absQty > 0;
+    const noteParts: string[] = [];
+
+    if (hasQtyChange) {
+      const qtyArrow = qtyDiff > 0 ? '↑ ' : '↓ ';
+      noteParts.push(`${qtyArrow}${absQty} ca: ${fmtSignedMoney(qtyRevEffect)} (${fmtSignedPct(qtyPctRounded)})`);
+    }
+
+    if (hasPriceChange) {
+      const rawPricePct = ((p1 - p0) / p0) * 100;
+      const absPricePct = Number(Math.abs(rawPricePct).toFixed(1));
+      const priceArrow = priceDiff > 0 ? '↑' : '↓';
+      noteParts.push(`${priceArrow} giá (${absPricePct}%): ${fmtSignedMoney(priceRevEffect)} (${fmtSignedPct(pricePctRounded)})`);
+    }
+
+    return noteParts.join('; ');
+  }
+
+  return '';
+}
+
+/**
+ * Tính ghi chú tổng hợp (tách đóng góp của Số lượng ca và Đơn giá vào số chênh)
+ * cho dòng TỔNG CỘNG TOÀN VIỆN hoặc TỔNG CỘNG chuyên khoa.
+ */
+export function buildAggregateVarianceNote(
+  rows: ComparisonRow[],
+  hasSamePeriodData: boolean,
+  mode: 'same_period' | 'prev_period' = 'same_period'
+): string {
+  if (rows.length === 0) return '';
+  if (mode === 'same_period' && !hasSamePeriodData) return '';
+
+  let totalCurCount = 0;
+  let totalBaseCount = 0;
+  let totalCurRev = 0;
+  let totalBaseRev = 0;
+
+  let sumPriceEffect = 0;
+  let sumMatchedBaseRevAtCurQty = 0;
+
+  for (const r of rows) {
+    const cur = r.currentCount || 0;
+    const base = mode === 'same_period' ? (r.samePeriodCount || 0) : (r.prevCount || 0);
+    const curRev = r.currentRevenue || 0;
+    const baseRev = mode === 'same_period' ? (r.samePeriodRevenue || 0) : (r.prevRevenue || 0);
+
+    totalCurCount += cur;
+    totalBaseCount += base;
+    totalCurRev += curRev;
+    totalBaseRev += baseRev;
+
+    if (cur > 0 && base > 0 && curRev > 0 && baseRev > 0) {
+      const p0 = baseRev / base;
+      const p1 = curRev / cur;
+      const qtyDiff = cur - base;
+      const priceDiff = p1 - p0;
+      const qtyRevEffect = Math.round(qtyDiff * p0);
+      const priceRevEffect = Math.round(curRev - baseRev) - qtyRevEffect;
+
+      if (Math.abs(priceDiff) >= 1 && Math.abs(priceRevEffect) >= 1) {
+        sumPriceEffect += priceRevEffect;
+        sumMatchedBaseRevAtCurQty += cur * p0;
+      }
+    }
+  }
+
+  if (totalBaseRev <= 0) return '';
+
+  const totalRevDiff = Math.round(totalCurRev - totalBaseRev);
+  const totalQtyDiff = totalCurCount - totalBaseCount;
+  const priceRevEffect = Math.round(sumPriceEffect);
+  const qtyRevEffect = totalRevDiff - priceRevEffect;
+
+  const totalRevPctRounded = Number((((totalCurRev - totalBaseRev) / totalBaseRev) * 100).toFixed(1));
+  const hasPriceChange = Math.abs(priceRevEffect) >= 1;
+  const absQty = Number(Math.abs(totalQtyDiff).toFixed(2));
+  const hasQtyChange = absQty > 0 || Math.abs(qtyRevEffect) >= 1;
+
+  let qtyPctRounded = 0;
+  let pricePctRounded = 0;
+  if (hasPriceChange) {
+    if (!hasQtyChange) {
+      qtyPctRounded = 0;
+      pricePctRounded = totalRevPctRounded;
+    } else {
+      qtyPctRounded = Number(((qtyRevEffect / totalBaseRev) * 100).toFixed(1));
+      pricePctRounded = Number((totalRevPctRounded - qtyPctRounded).toFixed(1));
+    }
+  } else {
+    qtyPctRounded = totalRevPctRounded;
+    pricePctRounded = 0;
+  }
+
+  const fmtSignedMoney = (val: number) => {
+    const rounded = Math.round(val);
+    const sign = rounded > 0 ? '+' : (rounded < 0 ? '-' : '');
+    return `${sign}${Math.abs(rounded).toLocaleString('vi-VN')} ₫`;
+  };
+  const fmtSignedPct = (val: number) => {
+    const sign = val > 0 ? '+' : '';
+    return `${sign}${val.toFixed(1)}%`;
+  };
+
+  const noteParts: string[] = [];
+  if (hasQtyChange) {
+    const qtyArrow = totalQtyDiff > 0 ? '↑ ' : (totalQtyDiff < 0 ? '↓ ' : (qtyRevEffect >= 0 ? '↑ ' : '↓ '));
+    noteParts.push(`${qtyArrow}${absQty} ca: ${fmtSignedMoney(qtyRevEffect)} (${fmtSignedPct(qtyPctRounded)})`);
+  }
+
+  if (hasPriceChange) {
+    const rawPricePct = sumMatchedBaseRevAtCurQty > 0
+      ? (priceRevEffect / sumMatchedBaseRevAtCurQty) * 100
+      : 0;
+    const absPricePct = Number(Math.abs(rawPricePct).toFixed(1));
+    const priceArrow = priceRevEffect > 0 ? '↑' : '↓';
+    const pctLabel = absPricePct > 0 ? ` (${absPricePct}%)` : '';
+    noteParts.push(`${priceArrow} giá${pctLabel}: ${fmtSignedMoney(priceRevEffect)} (${fmtSignedPct(pricePctRounded)})`);
+  }
+
+  return noteParts.join('; ');
+}

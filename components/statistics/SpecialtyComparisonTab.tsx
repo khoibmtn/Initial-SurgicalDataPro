@@ -40,6 +40,8 @@ import {
   CostSubtype,
   SpecialtyLoaiItem,
   MonthlyTrendItem,
+  buildRowVarianceNote,
+  buildAggregateVarianceNote,
 } from '../../services/specialtyComparisonService';
 import { exportSpecialtyComparisonExcel, exportSpecialtyComparisonCSV } from '../../services/excelExportComparisonService';
 import { PageCombobox } from '../common/PageCombobox';
@@ -277,16 +279,34 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     localStorage.setItem(STORAGE_SHOW_DETAIL_KEY, String(next));
   };
 
-  // Option: Show Note (Ghi chú) column - Default TRUE
-  const [showNote, setShowNote] = useState<boolean>(() => {
+  // Option: Note (Ghi chú) 3-state mode: 'same_period' -> 'prev_period' -> 'off' (Default: 'same_period')
+  const [noteMode, setNoteMode] = useState<'same_period' | 'prev_period' | 'off'>(() => {
     const saved = localStorage.getItem(STORAGE_SHOW_NOTE_KEY);
-    return saved !== null ? saved === 'true' : true;
+    if (saved === 'same_period' || saved === 'prev_period' || saved === 'off') return saved;
+    if (saved === 'false') return 'off';
+    return 'same_period';
   });
 
+  const showNote = noteMode !== 'off';
+  const activeNoteCompareMode: 'same_period' | 'prev_period' = noteMode === 'prev_period' ? 'prev_period' : 'same_period';
+  const noteBadgeLabel = noteMode === 'same_period'
+    ? 'Ghi chú (ss cùng kỳ)'
+    : noteMode === 'prev_period'
+    ? 'Ghi chú (ss tháng trước)'
+    : 'Ghi chú';
+  const noteColHeaderLabel = noteMode === 'prev_period'
+    ? 'Ghi chú (ss tháng trước)'
+    : 'Ghi chú (ss cùng kỳ)';
+
   const toggleShowNote = () => {
-    const next = !showNote;
-    setShowNote(next);
-    localStorage.setItem(STORAGE_SHOW_NOTE_KEY, String(next));
+    const next: 'same_period' | 'prev_period' | 'off' =
+      noteMode === 'same_period'
+        ? 'prev_period'
+        : noteMode === 'prev_period'
+        ? 'off'
+        : 'same_period';
+    setNoteMode(next);
+    localStorage.setItem(STORAGE_SHOW_NOTE_KEY, next);
   };
 
   const toggleRowExpand = (rowKey: string) => {
@@ -1621,10 +1641,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     ? 'bg-white text-teal-800 border-teal-300 shadow-xs'
                     : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
                 }`}
-                title={showNote ? 'Đang hiện cột Ghi chú. Bấm để ẩn.' : 'Đang ẩn cột Ghi chú. Bấm để hiện.'}
+                title="Bấm để chuyển chế độ Ghi chú: So sánh cùng kỳ → So sánh tháng trước → Tắt hiển thị"
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${showNote ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                <span>Ghi chú</span>
+                <span>{noteBadgeLabel}</span>
               </button>
             </div>
 
@@ -1913,7 +1933,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
                   {/* Ghi chú */}
                   {showNote && (
-                    <th className="px-3 py-2 text-left min-w-[240px]">Ghi chú</th>
+                    <th className="px-3 py-2 text-left min-w-[240px]">{noteColHeaderLabel}</th>
                   )}
                 </tr>
               </thead>
@@ -2130,10 +2150,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           {/* Ghi chú */}
                           {showNote && (
                             <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                              {renderNoteContent(r.note)}
+                              {renderNoteContent(buildRowVarianceNote(r, activeNoteCompareMode, periodMeta))}
                               {metricMode === 'revenue' && !rowMetrics.isValid && (
                                 <span className="text-amber-700 font-normal not-italic ml-1">
-                                  {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                                  {buildRowVarianceNote(r, activeNoteCompareMode, periodMeta) ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
                                 </span>
                               )}
                             </td>
@@ -2281,8 +2301,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                   </td>
                   <td className={`px-2 py-2 text-center ${showNote ? 'border-r border-gray-300' : ''} text-gray-400 font-medium`}>—</td>
                   {showNote && (
-                    <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
-                      Cảnh báo: {overallKPIs.totalAlerts} | Tích cực: {overallKPIs.totalPositives}
+                    <td className="px-3 py-2 text-gray-600 text-[11px] font-normal">
+                      {renderNoteContent(
+                        buildAggregateVarianceNote(allCombinedRows, periodMeta?.hasSamePeriodData || false, activeNoteCompareMode)
+                      ) || `Cảnh báo: ${overallKPIs.totalAlerts} | Tích cực: ${overallKPIs.totalPositives}`}
                     </td>
                   )}
                 </tr>
@@ -2504,10 +2526,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                       ? 'bg-white text-teal-800 border-teal-300 shadow-xs'
                       : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
                   }`}
-                  title={showNote ? 'Đang hiện cột Ghi chú. Bấm để ẩn.' : 'Đang ẩn cột Ghi chú. Bấm để hiện.'}
+                  title="Bấm để chuyển chế độ Ghi chú: So sánh cùng kỳ → So sánh tháng trước → Tắt hiển thị"
                 >
                   <span className={`w-2 h-2 rounded-full shrink-0 ${showNote ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
-                  <span>Ghi chú</span>
+                  <span>{noteBadgeLabel}</span>
                 </button>
               </div>
 
@@ -2776,7 +2798,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     </th>
 
                     {showNote && (
-                      <th className="px-3 py-2 text-left min-w-[240px]">Ghi chú</th>
+                      <th className="px-3 py-2 text-left min-w-[240px]">{noteColHeaderLabel}</th>
                     )}
                   </tr>
                 </thead>
@@ -2985,10 +3007,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             {/* Ghi chú */}
                             {showNote && (
                               <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                                {renderNoteContent(r.note)}
+                                {renderNoteContent(buildRowVarianceNote(r, activeNoteCompareMode, periodMeta))}
                                 {metricMode === 'revenue' && !rowMetrics.isValid && (
                                   <span className="text-amber-700 font-normal not-italic ml-1">
-                                    {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                                    {buildRowVarianceNote(r, activeNoteCompareMode, periodMeta) ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
                                   </span>
                                 )}
                               </td>
@@ -3139,8 +3161,10 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                         </td>
                         <td className={`px-2 py-2 text-center ${showNote ? 'border-r border-gray-300' : ''} text-gray-400 font-medium`}>—</td>
                         {showNote && (
-                          <td className="px-3 py-2 text-gray-600 text-[10.5px] font-semibold">
-                            Cảnh báo: {filteredSingleGroup.alertCount} | Tích cực: {filteredSingleGroup.positiveCount}
+                          <td className="px-3 py-2 text-gray-600 text-[11px] font-normal">
+                            {renderNoteContent(
+                              buildAggregateVarianceNote(filteredSingleGroup.rows, periodMeta?.hasSamePeriodData || false, activeNoteCompareMode)
+                            ) || `Cảnh báo: ${filteredSingleGroup.alertCount} | Tích cực: ${filteredSingleGroup.positiveCount}`}
                           </td>
                         )}
                       </tr>
