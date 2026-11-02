@@ -573,6 +573,11 @@ describe('Cost Calculation & Statistics Page', () => {
       expect(rtRow.prevRevenue).toBe(37_200_000);
       expect(rtRow.samePeriodRevenue).toBe(43_500_000);
       expect(rtRow.note).not.toContain('Mới phát sinh');
+      expect(rtRow.priceBreakdown).toBeDefined();
+      expect(rtRow.priceBreakdown!.map(p => p.unitPrice)).toEqual([2_900_000, 3_100_000, 3_350_000]);
+      expect(rtRow.priceBreakdown![0].samePeriodCount).toBe(15);
+      expect(rtRow.priceBreakdown![1].prevCount).toBe(12);
+      expect(rtRow.priceBreakdown![2].currentCount).toBe(14);
 
       const vtpmRow = allRows.find(r => r.tenKT === 'Phẫu thuật vết thương phần mềm phức tạp')!;
       expect(vtpmRow).toBeDefined();

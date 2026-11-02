@@ -35,6 +35,7 @@ import {
   saveSpecialtyOverride,
   getSpecialtyOverrides,
   ComparisonRow,
+  ComparisonPriceSubRow,
   FinancialCategory,
   CostSubtype,
   SpecialtyLoaiItem,
@@ -58,9 +59,10 @@ const STORAGE_SORT_COL_KEY = 'sdp_comparison_sort_col';
 const STORAGE_SORT_DIR_KEY = 'sdp_comparison_sort_dir';
 const STORAGE_SHOW_DIFF_KEY = 'sdp_comparison_show_diff';
 const STORAGE_SHOW_MTD_KEY = 'sdp_comparison_show_mtd';
+const STORAGE_SHOW_DETAIL_KEY = 'sdp_comparison_show_detail';
 
 function getRowMetricDisplay(
-  r: ComparisonRow,
+  r: ComparisonRow | ComparisonPriceSubRow,
   metricMode: 'count' | 'revenue',
   financialCategory: FinancialCategory = 'revenue',
   costSubtype: CostSubtype = 'all',
@@ -256,6 +258,35 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     const saved = localStorage.getItem(STORAGE_SHOW_DIFF_KEY);
     return saved !== null ? saved === 'true' : true;
   });
+
+  // Option: Show Price Breakdown Detail Sub-rows - Default FALSE (when toggled ON, all rows default to expanded)
+  const [showDetail, setShowDetail] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_SHOW_DETAIL_KEY);
+    return saved !== null ? saved === 'true' : false;
+  });
+  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(() => new Set());
+
+  const toggleShowDetail = () => {
+    const next = !showDetail;
+    setShowDetail(next);
+    if (next) {
+      // Mặc định bung toàn bộ dòng con khi bật chế độ chi tiết
+      setCollapsedRows(new Set());
+    }
+    localStorage.setItem(STORAGE_SHOW_DETAIL_KEY, String(next));
+  };
+
+  const toggleRowExpand = (rowKey: string) => {
+    setCollapsedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(rowKey)) {
+        next.delete(rowKey);
+      } else {
+        next.add(rowKey);
+      }
+      return next;
+    });
+  };
 
   // Metric mode: 'count' (Số lượng) | 'revenue' (Viện phí)
   const [metricMode, setMetricMode] = useState<'count' | 'revenue'>('count');
@@ -1476,6 +1507,21 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 <span>$ chênh</span>
               </button>
 
+              {/* Toggle Show Price Breakdown Detail */}
+              <button
+                type="button"
+                onClick={toggleShowDetail}
+                className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                  showDetail
+                    ? 'bg-white text-indigo-800 border-indigo-300 shadow-xs'
+                    : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                }`}
+                title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                <span>Chi tiết</span>
+              </button>
+
               {/* Full/Short money toggle */}
               {metricMode === 'revenue' && (
                 <button
@@ -1794,196 +1840,299 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     const isAlert = r.status === 'ALERT';
                     const isPositive = r.status === 'POSITIVE';
                     const badgeClass = getSpecialtyBadgeColor(r.specialty);
-                    const isPopoverOpen = openReassignKey === `${r.specialty}:::${r.tenKT}`;
+                    const rowKey = `${r.specialty}:::${r.tenKT}`;
+                    const isPopoverOpen = openReassignKey === rowKey;
+                    const isExpanded = !collapsedRows.has(rowKey);
+                    const subRows = r.priceBreakdown || [];
 
                     const rowMetrics = getRowMetricDisplay(r, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
 
                     return (
-                      <tr
-                        key={`${r.specialty}-${r.tenKT}-${idx}`}
-                        className={`transition-colors hover:bg-blue-50/40 group ${
-                          isAlert
-                            ? 'bg-orange-50/40'
-                            : isPositive
-                            ? 'bg-emerald-50/30'
-                            : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
-                        }`}
-                      >
-                        {/* Mã tương đương */}
-                        {showMaTuongDuong && (
-                          <td className="px-2.5 py-1.5 font-mono font-semibold text-blue-700 border-r border-gray-200 text-center whitespace-nowrap text-xs">
-                            {r.maTuongDuong || ''}
-                          </td>
-                        )}
+                      <React.Fragment key={`${r.specialty}-${r.tenKT}-${idx}`}>
+                        <tr
+                          className={`transition-colors hover:bg-blue-50/40 group ${
+                            isAlert
+                              ? 'bg-orange-50/40'
+                              : isPositive
+                              ? 'bg-emerald-50/30'
+                              : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
+                          }`}
+                        >
+                          {/* Mã tương đương */}
+                          {showMaTuongDuong && (
+                            <td className="px-2.5 py-1.5 font-mono font-semibold text-blue-700 border-r border-gray-200 text-center whitespace-nowrap text-xs">
+                              {r.maTuongDuong || ''}
+                            </td>
+                          )}
 
-                        {/* Tên phẫu thuật */}
-                        <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="leading-snug text-xs">{r.tenKT}</span>
-                            {metricMode === 'revenue' && !rowMetrics.isValid && (
-                              <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Kỹ thuật này chưa có định mức chi phí thuốc/VTTH">
-                                Chưa có CP
-                              </span>
-                            )}
-                          </div>
-                        </td>
-
-                        {/* Chuyên khoa: Text Badge + Nút chuyển popover menu */}
-                        <td className="px-2 py-1.5 border-r border-gray-200 relative">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold border tracking-wide shadow-2xs whitespace-nowrap ${badgeClass}`}>
-                              {r.specialtyName}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setOpenReassignKey(isPopoverOpen ? null : `${r.specialty}:::${r.tenKT}`)}
-                              className="p-1 rounded bg-gray-100 hover:bg-primary-100 text-gray-500 hover:text-primary-800 transition-colors shadow-2xs cursor-pointer"
-                              title="Đổi chuyên khoa cho kỹ thuật này"
-                            >
-                              <ArrowLeftRight className="h-3 w-3" />
-                            </button>
-                          </div>
-
-                          {/* Popover Selection Menu */}
-                          {isPopoverOpen && (
-                            <div
-                              ref={popoverRef}
-                              className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 text-xs animate-in fade-in zoom-in-95"
-                            >
-                              <div className="px-2.5 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
-                                Chuyển sang nhóm:
-                              </div>
-                              <div className="max-h-56 overflow-y-auto py-1">
-                                {getAllSpecialties().map(s => (
-                                   <button
-                                    key={s.code}
-                                    type="button"
-                                    onClick={() => handleReassignSpecialty(r.tenKT, s.code)}
-                                    className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-primary-50 transition-colors cursor-pointer ${
-                                      s.code === r.specialty ? 'font-bold text-primary-800 bg-primary-50/50' : 'text-gray-700'
-                                    }`}
-                                  >
-                                    <span>{s.name}</span>
-                                    {s.code === r.specialty && <Check className="h-3.5 w-3.5 text-primary-600" />}
-                                  </button>
-                                ))}
-                              </div>
+                          {/* Tên phẫu thuật */}
+                          <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {showDetail && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleRowExpand(rowKey)}
+                                  className="p-0.5 rounded hover:bg-blue-100 text-primary-700 transition-colors cursor-pointer shrink-0"
+                                  title={isExpanded ? 'Thu gọn các dòng giá con' : 'Bung các dòng giá con'}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-3.5 w-3.5" />
+                                  ) : (
+                                    <ChevronRight className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              )}
+                              <span className="leading-snug text-xs">{r.tenKT}</span>
+                              {metricMode === 'revenue' && !rowMetrics.isValid && (
+                                <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Kỹ thuật này chưa có định mức chi phí thuốc/VTTH">
+                                  Chưa có CP
+                                </span>
+                              )}
                             </div>
-                          )}
-                        </td>
+                          </td>
 
-                        {/* Kỳ hiện tại */}
-                        <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
-                          {metricMode === 'revenue' ? (
-                            rowMetrics.isValid ? (
-                              <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
-                            ) : (
-                              <span className="text-gray-400 font-normal">—</span>
-                            )
-                          ) : (
-                            rowMetrics.cur
-                          )}
-                        </td>
+                          {/* Chuyên khoa: Text Badge + Nút chuyển popover menu */}
+                          <td className="px-2 py-1.5 border-r border-gray-200 relative">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded text-[11px] font-bold border tracking-wide shadow-2xs whitespace-nowrap ${badgeClass}`}>
+                                {r.specialtyName}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setOpenReassignKey(isPopoverOpen ? null : rowKey)}
+                                className="p-1 rounded bg-gray-100 hover:bg-primary-100 text-gray-500 hover:text-primary-800 transition-colors shadow-2xs cursor-pointer"
+                                title="Đổi chuyên khoa cho kỹ thuật này"
+                              >
+                                <ArrowLeftRight className="h-3 w-3" />
+                              </button>
+                            </div>
 
-                        {/* Kỳ trước */}
-                        <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
-                          {metricMode === 'revenue' ? (
-                            rowMetrics.isValid ? (
-                              <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
-                            ) : (
-                              <span className="text-gray-400 font-normal">—</span>
-                            )
-                          ) : (
-                            rowMetrics.prev
-                          )}
-                        </td>
-
-                        {/* Số chênh kỳ trước */}
-                        {showDiff && (
-                          <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
-                            {metricMode === 'revenue' ? (
-                              rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.diff) : <span className="text-gray-400 font-normal">—</span>
-                            ) : (
-                              fmtDiffCell(rowMetrics.diff)
+                            {/* Popover Selection Menu */}
+                            {isPopoverOpen && (
+                              <div
+                                ref={popoverRef}
+                                className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 text-xs animate-in fade-in zoom-in-95"
+                              >
+                                <div className="px-2.5 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                                  Chuyển sang nhóm:
+                                </div>
+                                <div className="max-h-56 overflow-y-auto py-1">
+                                  {getAllSpecialties().map(s => (
+                                     <button
+                                      key={s.code}
+                                      type="button"
+                                      onClick={() => handleReassignSpecialty(r.tenKT, s.code)}
+                                      className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-primary-50 transition-colors cursor-pointer ${
+                                        s.code === r.specialty ? 'font-bold text-primary-800 bg-primary-50/50' : 'text-gray-700'
+                                      }`}
+                                    >
+                                      <span>{s.name}</span>
+                                      {s.code === r.specialty && <Check className="h-3.5 w-3.5 text-primary-600" />}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                           </td>
-                        )}
 
-                        {/* So kỳ trước (%) */}
-                        <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                          rowMetrics.pct !== null && rowMetrics.pct < 0
-                            ? 'text-red-600'
-                            : rowMetrics.pct !== null && rowMetrics.pct > 0
-                            ? 'text-emerald-700'
-                            : 'text-gray-600'
-                        }`}>
-                          {rowMetrics.isValid ? fmtPctStr(rowMetrics.pct) : <span className="text-gray-400 font-normal">—</span>}
-                        </td>
+                          {/* Kỳ hiện tại */}
+                          <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
+                            {metricMode === 'revenue' ? (
+                              rowMetrics.isValid ? (
+                                <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
+                              ) : (
+                                <span className="text-gray-400 font-normal">—</span>
+                              )
+                            ) : (
+                              rowMetrics.cur
+                            )}
+                          </td>
 
-                        {/* Cùng kỳ */}
-                        <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
-                          {periodMeta?.hasSamePeriodData
-                            ? (metricMode === 'revenue' ? (
-                                rowMetrics.isValid ? (
-                                  <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
-                                ) : (
-                                  <span className="text-gray-400 font-normal">—</span>
-                                )
-                              ) : rowMetrics.same)
-                            : '—'}
-                        </td>
+                          {/* Kỳ trước */}
+                          <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
+                            {metricMode === 'revenue' ? (
+                              rowMetrics.isValid ? (
+                                <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
+                              ) : (
+                                <span className="text-gray-400 font-normal">—</span>
+                              )
+                            ) : (
+                              rowMetrics.prev
+                            )}
+                          </td>
 
-                        {/* Số chênh cùng kỳ */}
-                        {showDiff && (
-                          <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                          {/* Số chênh kỳ trước */}
+                          {showDiff && (
+                            <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                              {metricMode === 'revenue' ? (
+                                rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.diff) : <span className="text-gray-400 font-normal">—</span>
+                              ) : (
+                                fmtDiffCell(rowMetrics.diff)
+                              )}
+                            </td>
+                          )}
+
+                          {/* So kỳ trước (%) */}
+                          <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                            rowMetrics.pct !== null && rowMetrics.pct < 0
+                              ? 'text-red-600'
+                              : rowMetrics.pct !== null && rowMetrics.pct > 0
+                              ? 'text-emerald-700'
+                              : 'text-gray-600'
+                          }`}>
+                            {rowMetrics.isValid ? fmtPctStr(rowMetrics.pct) : <span className="text-gray-400 font-normal">—</span>}
+                          </td>
+
+                          {/* Cùng kỳ */}
+                          <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                             {periodMeta?.hasSamePeriodData
                               ? (metricMode === 'revenue' ? (
-                                  rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.sameDiff) : <span className="text-gray-400 font-normal">—</span>
-                                ) : fmtDiffCell(rowMetrics.sameDiff))
+                                  rowMetrics.isValid ? (
+                                    <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
+                                  ) : (
+                                    <span className="text-gray-400 font-normal">—</span>
+                                  )
+                                ) : rowMetrics.same)
                               : '—'}
                           </td>
-                        )}
 
-                        {/* So cùng kỳ (%) */}
-                        <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                          rowMetrics.samePct !== null && rowMetrics.samePct < 0
-                            ? 'text-red-600'
-                            : rowMetrics.samePct !== null && rowMetrics.samePct > 0
-                            ? 'text-emerald-700'
-                            : 'text-gray-600'
-                        }`}>
-                          {periodMeta?.hasSamePeriodData ? (
-                            rowMetrics.isValid ? fmtPctStr(rowMetrics.samePct) : <span className="text-gray-400 font-normal">—</span>
-                          ) : '—'}
-                        </td>
+                          {/* Số chênh cùng kỳ */}
+                          {showDiff && (
+                            <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                              {periodMeta?.hasSamePeriodData
+                                ? (metricMode === 'revenue' ? (
+                                    rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.sameDiff) : <span className="text-gray-400 font-normal">—</span>
+                                  ) : fmtDiffCell(rowMetrics.sameDiff))
+                                : '—'}
+                            </td>
+                          )}
 
-                        {/* Nhận định */}
-                        <td className="px-2 py-1 text-center border-r border-gray-200">
-                          {isAlert && (
-                            <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
-                              CẢNH BÁO
-                            </span>
-                          )}
-                          {isPositive && (
-                            <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
-                              TÍCH CỰC
-                            </span>
-                          )}
-                          {!isAlert && !isPositive && (
-                            <span className="text-gray-400 font-medium">—</span>
-                          )}
-                        </td>
+                          {/* So cùng kỳ (%) */}
+                          <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                            rowMetrics.samePct !== null && rowMetrics.samePct < 0
+                              ? 'text-red-600'
+                              : rowMetrics.samePct !== null && rowMetrics.samePct > 0
+                              ? 'text-emerald-700'
+                              : 'text-gray-600'
+                          }`}>
+                            {periodMeta?.hasSamePeriodData ? (
+                              rowMetrics.isValid ? fmtPctStr(rowMetrics.samePct) : <span className="text-gray-400 font-normal">—</span>
+                            ) : '—'}
+                          </td>
 
-                        {/* Ghi chú */}
-                        <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                          {r.note}
-                          {metricMode === 'revenue' && !rowMetrics.isValid && (
-                            <span className="text-amber-700 font-normal not-italic ml-1">
-                              {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
+                          {/* Nhận định */}
+                          <td className="px-2 py-1 text-center border-r border-gray-200">
+                            {isAlert && (
+                              <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
+                                CẢNH BÁO
+                              </span>
+                            )}
+                            {isPositive && (
+                              <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
+                                TÍCH CỰC
+                              </span>
+                            )}
+                            {!isAlert && !isPositive && (
+                              <span className="text-gray-400 font-medium">—</span>
+                            )}
+                          </td>
+
+                          {/* Ghi chú */}
+                          <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
+                            {r.note}
+                            {metricMode === 'revenue' && !rowMetrics.isValid && (
+                              <span className="text-amber-700 font-normal not-italic ml-1">
+                                {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+
+                        {/* Các dòng con theo từng mức giá khi bật chế độ Chi tiết */}
+                        {showDetail && isExpanded && subRows.map((sub, sIdx) => {
+                          const subMetrics = getRowMetricDisplay(sub, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+                          return (
+                            <tr
+                              key={`${rowKey}-price-${sub.unitPrice}-${sIdx}`}
+                              className="bg-slate-50/80 hover:bg-blue-50/30 text-[11.5px] text-gray-600 border-t border-dashed border-gray-200/80"
+                            >
+                              {showMaTuongDuong && (
+                                <td className="px-2.5 py-1 font-mono text-[11px] text-gray-400 border-r border-gray-200 text-center whitespace-nowrap">
+                                  {sub.maTuongDuong || ''}
+                                </td>
+                              )}
+                              <td className="pl-8 pr-3 py-1 border-r border-gray-200">
+                                <div className="flex items-center justify-end gap-1.5 font-mono font-semibold text-slate-600">
+                                  <span className="text-gray-300 select-none">└</span>
+                                  <span>{sub.unitPrice > 0 ? sub.unitPrice.toLocaleString('en-US') : 'Chưa áp giá (0)'}</span>
+                                </div>
+                              </td>
+                              <td className="px-2 py-1 border-r border-gray-200 text-center text-gray-300">—</td>
+                              <td className="px-2 py-1 text-center font-semibold text-gray-800 bg-blue-50/30 border-r border-gray-200">
+                                {metricMode === 'revenue' ? (
+                                  subMetrics.isValid ? (
+                                    <span title={fmtFullMoney(subMetrics.cur)}>{fmtMoney(subMetrics.cur)}</span>
+                                  ) : '—'
+                                ) : subMetrics.cur}
+                              </td>
+                              <td className="px-2 py-1 text-center text-gray-600 border-r border-gray-200">
+                                {metricMode === 'revenue' ? (
+                                  subMetrics.isValid ? (
+                                    <span title={fmtFullMoney(subMetrics.prev)}>{fmtMoney(subMetrics.prev)}</span>
+                                  ) : '—'
+                                ) : subMetrics.prev}
+                              </td>
+                              {showDiff && (
+                                <td className="px-2 py-1 text-center border-r border-gray-200 text-[11px]">
+                                  {metricMode === 'revenue' ? (
+                                    subMetrics.isValid ? fmtMoneyDiffCell(subMetrics.diff) : '—'
+                                  ) : fmtDiffCell(subMetrics.diff)}
+                                </td>
+                              )}
+                              <td className={`px-2 py-1 text-center font-medium border-r border-gray-200 text-[11px] ${
+                                subMetrics.pct !== null && subMetrics.pct < 0
+                                  ? 'text-red-500'
+                                  : subMetrics.pct !== null && subMetrics.pct > 0
+                                  ? 'text-emerald-600'
+                                  : 'text-gray-400'
+                              }`}>
+                                {subMetrics.isValid ? fmtPctStr(subMetrics.pct) : '—'}
+                              </td>
+                              <td className="px-2 py-1 text-center text-gray-600 border-r border-gray-200">
+                                {periodMeta?.hasSamePeriodData
+                                  ? (metricMode === 'revenue' ? (
+                                      subMetrics.isValid ? (
+                                        <span title={fmtFullMoney(subMetrics.same)}>{fmtMoney(subMetrics.same)}</span>
+                                      ) : '—'
+                                    ) : subMetrics.same)
+                                  : '—'}
+                              </td>
+                              {showDiff && (
+                                <td className="px-2 py-1 text-center border-r border-gray-200 text-[11px]">
+                                  {periodMeta?.hasSamePeriodData
+                                    ? (metricMode === 'revenue' ? (
+                                        subMetrics.isValid ? fmtMoneyDiffCell(subMetrics.sameDiff) : '—'
+                                      ) : fmtDiffCell(subMetrics.sameDiff))
+                                    : '—'}
+                                </td>
+                              )}
+                              <td className={`px-2 py-1 text-center font-medium border-r border-gray-200 text-[11px] ${
+                                subMetrics.samePct !== null && subMetrics.samePct < 0
+                                  ? 'text-red-500'
+                                  : subMetrics.samePct !== null && subMetrics.samePct > 0
+                                  ? 'text-emerald-600'
+                                  : 'text-gray-400'
+                              }`}>
+                                {periodMeta?.hasSamePeriodData ? (
+                                  subMetrics.isValid ? fmtPctStr(subMetrics.samePct) : '—'
+                                ) : '—'}
+                              </td>
+                              <td className="px-2 py-1 text-center border-r border-gray-200 text-gray-300">—</td>
+                              <td className="px-3 py-1 text-gray-400 text-[10.5px]" />
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1992,7 +2141,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
               {/* Totals Footer */}
               <tfoot>
                 <tr className="bg-[#F2F4F7] font-bold text-gray-900 border-t-2 border-[#003366] text-xs">
-                  <td colSpan={2} className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
+                  <td colSpan={showMaTuongDuong ? 3 : 2} className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
                     TỔNG CỘNG TOÀN VIỆN ({overallKPIs.totalDistinctSurgeries} kỹ thuật)
                   </td>
                   <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">
@@ -2216,6 +2365,21 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                 >
                   <span className={`w-2 h-2 rounded-full shrink-0 ${showDiff ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
                   <span>$ chênh</span>
+                </button>
+
+                {/* Toggle Show Price Breakdown Detail */}
+                <button
+                  type="button"
+                  onClick={toggleShowDetail}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded border font-semibold text-[11px] shadow-2xs cursor-pointer transition-all ${
+                    showDetail
+                      ? 'bg-white text-indigo-800 border-indigo-300 shadow-xs'
+                      : 'bg-white/60 text-gray-500 border-gray-300 hover:bg-white hover:text-gray-700'
+                  }`}
+                  title={showDetail ? 'Đang bật chế độ chi tiết theo đơn giá. Bấm để tắt.' : 'Bật chế độ chi tiết: bung các dòng con theo từng mức giá'}
+                >
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${showDetail ? 'bg-emerald-500 ring-2 ring-emerald-200' : 'bg-rose-500 ring-2 ring-rose-200'}`} />
+                  <span>Chi tiết</span>
                 </button>
 
                 {/* Full/Short money toggle */}
@@ -2517,187 +2681,289 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                     filteredSingleGroup.rows.map((r, idx) => {
                       const isAlert = r.status === 'ALERT';
                       const isPositive = r.status === 'POSITIVE';
-                      const isPopoverOpen = openReassignKey === `${r.specialty}:::${r.tenKT}`;
+                      const rowKey = `${r.specialty}:::${r.tenKT}`;
+                      const isPopoverOpen = openReassignKey === rowKey;
+                      const isExpanded = !collapsedRows.has(rowKey);
+                      const subRows = r.priceBreakdown || [];
 
                       const rowMetrics = getRowMetricDisplay(r, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
 
                       return (
-                        <tr
-                          key={`${r.tenKT}-${idx}`}
-                          className={`transition-colors hover:bg-blue-50/40 group ${
-                            isAlert
-                              ? 'bg-orange-50/40'
-                              : isPositive
-                              ? 'bg-emerald-50/30'
-                              : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
-                          }`}
-                        >
-                          {/* Mã tương đương */}
-                          {showMaTuongDuong && (
-                            <td className="px-2.5 py-1.5 font-mono font-semibold text-blue-700 border-r border-gray-200 text-center whitespace-nowrap text-xs">
-                              {r.maTuongDuong || ''}
-                            </td>
-                          )}
+                        <React.Fragment key={`${r.tenKT}-${idx}`}>
+                          <tr
+                            className={`transition-colors hover:bg-blue-50/40 group ${
+                              isAlert
+                                ? 'bg-orange-50/40'
+                                : isPositive
+                                ? 'bg-emerald-50/30'
+                                : (idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50')
+                            }`}
+                          >
+                            {/* Mã tương đương */}
+                            {showMaTuongDuong && (
+                              <td className="px-2.5 py-1.5 font-mono font-semibold text-blue-700 border-r border-gray-200 text-center whitespace-nowrap text-xs">
+                                {r.maTuongDuong || ''}
+                              </td>
+                            )}
 
-                          {/* Tên phẫu thuật + Nút chuyển chuyên khoa */}
-                          <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200 relative">
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <div className="flex items-center gap-1.5 flex-wrap flex-1">
-                                <span className="leading-snug text-xs">{r.tenKT}</span>
-                                {metricMode === 'revenue' && !rowMetrics.isValid && (
-                                  <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Kỹ thuật này chưa có định mức chi phí thuốc/VTTH">
-                                    Chưa có CP
-                                  </span>
-                                )}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setOpenReassignKey(isPopoverOpen ? null : `${r.specialty}:::${r.tenKT}`)}
-                                className="p-1 rounded bg-gray-100 hover:bg-primary-100 text-gray-500 hover:text-primary-800 transition-colors shadow-2xs shrink-0 cursor-pointer"
-                                title="Đổi chuyên khoa cho kỹ thuật này"
-                              >
-                                <ArrowLeftRight className="h-3 w-3" />
-                              </button>
-                            </div>
-
-                            {/* Popover Selection Menu */}
-                            {isPopoverOpen && (
-                              <div
-                                ref={popoverRef}
-                                className="absolute z-50 top-full right-4 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 text-xs animate-in fade-in zoom-in-95"
-                              >
-                                <div className="px-2.5 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
-                                  Chuyển sang nhóm:
-                                </div>
-                                <div className="max-h-56 overflow-y-auto py-1">
-                                  {getAllSpecialties().map(s => (
+                            {/* Tên phẫu thuật + Nút chuyển chuyên khoa */}
+                            <td className="px-3 py-1.5 font-medium text-gray-800 border-r border-gray-200 relative">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5 flex-wrap flex-1">
+                                  {showDetail && (
                                     <button
-                                      key={s.code}
                                       type="button"
-                                      onClick={() => handleReassignSpecialty(r.tenKT, s.code)}
-                                      className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-primary-50 transition-colors cursor-pointer ${
-                                        s.code === r.specialty ? 'font-bold text-primary-800 bg-primary-50/50' : 'text-gray-700'
-                                      }`}
+                                      onClick={() => toggleRowExpand(rowKey)}
+                                      className="p-0.5 rounded hover:bg-blue-100 text-primary-700 transition-colors cursor-pointer shrink-0"
+                                      title={isExpanded ? 'Thu gọn các dòng giá con' : 'Bung các dòng giá con'}
                                     >
-                                      <span>{s.name}</span>
-                                      {s.code === r.specialty && <Check className="h-3.5 w-3.5 text-primary-600" />}
+                                      {isExpanded ? (
+                                        <ChevronDown className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <ChevronRight className="h-3.5 w-3.5" />
+                                      )}
                                     </button>
-                                  ))}
+                                  )}
+                                  <span className="leading-snug text-xs">{r.tenKT}</span>
+                                  {metricMode === 'revenue' && !rowMetrics.isValid && (
+                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 shrink-0" title="Kỹ thuật này chưa có định mức chi phí thuốc/VTTH">
+                                      Chưa có CP
+                                    </span>
+                                  )}
                                 </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenReassignKey(isPopoverOpen ? null : rowKey)}
+                                  className="p-1 rounded bg-gray-100 hover:bg-primary-100 text-gray-500 hover:text-primary-800 transition-colors shadow-2xs shrink-0 cursor-pointer"
+                                  title="Đổi chuyên khoa cho kỹ thuật này"
+                                >
+                                  <ArrowLeftRight className="h-3 w-3" />
+                                </button>
                               </div>
-                            )}
-                          </td>
 
-                          {/* Kỳ hiện tại */}
-                          <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
-                            {metricMode === 'revenue' ? (
-                              rowMetrics.isValid ? (
-                                <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
-                              ) : (
-                                <span className="text-gray-400 font-normal">—</span>
-                              )
-                            ) : (
-                              rowMetrics.cur
-                            )}
-                          </td>
-
-                          {/* Kỳ trước */}
-                          <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
-                            {metricMode === 'revenue' ? (
-                              rowMetrics.isValid ? (
-                                <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
-                              ) : (
-                                <span className="text-gray-400 font-normal">—</span>
-                              )
-                            ) : (
-                              rowMetrics.prev
-                            )}
-                          </td>
-
-                          {/* Số chênh kỳ trước */}
-                          {showDiff && (
-                            <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
-                              {metricMode === 'revenue' ? (
-                                rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.diff) : <span className="text-gray-400 font-normal">—</span>
-                              ) : (
-                                fmtDiffCell(rowMetrics.diff)
+                              {/* Popover Selection Menu */}
+                              {isPopoverOpen && (
+                                <div
+                                  ref={popoverRef}
+                                  className="absolute z-50 top-full right-4 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-200 py-1.5 text-xs animate-in fade-in zoom-in-95"
+                                >
+                                  <div className="px-2.5 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                                    Chuyển sang nhóm:
+                                  </div>
+                                  <div className="max-h-56 overflow-y-auto py-1">
+                                    {getAllSpecialties().map(s => (
+                                      <button
+                                        key={s.code}
+                                        type="button"
+                                        onClick={() => handleReassignSpecialty(r.tenKT, s.code)}
+                                        className={`w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-primary-50 transition-colors cursor-pointer ${
+                                          s.code === r.specialty ? 'font-bold text-primary-800 bg-primary-50/50' : 'text-gray-700'
+                                        }`}
+                                      >
+                                        <span>{s.name}</span>
+                                        {s.code === r.specialty && <Check className="h-3.5 w-3.5 text-primary-600" />}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
                               )}
                             </td>
-                          )}
 
-                          {/* So kỳ trước */}
-                          <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
-                            rowMetrics.pct !== null && rowMetrics.pct < 0
-                              ? 'text-red-600'
-                              : rowMetrics.pct !== null && rowMetrics.pct > 0
-                              ? 'text-emerald-700'
-                              : 'text-gray-600'
-                          }`}>
-                            {rowMetrics.isValid ? fmtPctStr(rowMetrics.pct) : <span className="text-gray-400 font-normal">—</span>}
-                          </td>
+                            {/* Kỳ hiện tại */}
+                            <td className="px-2 py-1.5 text-center font-bold text-gray-900 bg-blue-50/50 border-r border-gray-200">
+                              {metricMode === 'revenue' ? (
+                                rowMetrics.isValid ? (
+                                  <span title={fmtFullMoney(rowMetrics.cur)}>{fmtMoney(rowMetrics.cur)}</span>
+                                ) : (
+                                  <span className="text-gray-400 font-normal">—</span>
+                                )
+                              ) : (
+                                rowMetrics.cur
+                              )}
+                            </td>
 
-                          {/* Cùng kỳ */}
-                          <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
-                            {periodMeta?.hasSamePeriodData
-                              ? (metricMode === 'revenue' ? (
-                                  rowMetrics.isValid ? (
-                                    <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
-                                  ) : (
-                                    <span className="text-gray-400 font-normal">—</span>
-                                  )
-                                ) : rowMetrics.same)
-                              : '—'}
-                          </td>
+                            {/* Kỳ trước */}
+                            <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
+                              {metricMode === 'revenue' ? (
+                                rowMetrics.isValid ? (
+                                  <span title={fmtFullMoney(rowMetrics.prev)}>{fmtMoney(rowMetrics.prev)}</span>
+                                ) : (
+                                  <span className="text-gray-400 font-normal">—</span>
+                                )
+                              ) : (
+                                rowMetrics.prev
+                              )}
+                            </td>
 
-                          {/* Số chênh cùng kỳ */}
-                          {showDiff && (
-                            <td className="px-2 py-2 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                            {/* Số chênh kỳ trước */}
+                            {showDiff && (
+                              <td className="px-2 py-1.5 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                                {metricMode === 'revenue' ? (
+                                  rowMetrics.isValid ? fmtMoneyDiffCell(rowMetrics.diff) : <span className="text-gray-400 font-normal">—</span>
+                                ) : (
+                                  fmtDiffCell(rowMetrics.diff)
+                                )}
+                              </td>
+                            )}
+
+                            {/* So kỳ trước */}
+                            <td className={`px-2 py-1.5 text-center font-bold border-r border-gray-200 ${
+                              rowMetrics.pct !== null && rowMetrics.pct < 0
+                                ? 'text-red-600'
+                                : rowMetrics.pct !== null && rowMetrics.pct > 0
+                                ? 'text-emerald-700'
+                                : 'text-gray-600'
+                            }`}>
+                              {rowMetrics.isValid ? fmtPctStr(rowMetrics.pct) : <span className="text-gray-400 font-normal">—</span>}
+                            </td>
+
+                            {/* Cùng kỳ */}
+                            <td className="px-2 py-1.5 text-center text-gray-700 border-r border-gray-200">
                               {periodMeta?.hasSamePeriodData
-                                ? (metricMode === 'revenue' ? fmtMoneyDiffCell(rowMetrics.sameDiff) : fmtDiffCell(rowMetrics.sameDiff))
+                                ? (metricMode === 'revenue' ? (
+                                    rowMetrics.isValid ? (
+                                      <span title={fmtFullMoney(rowMetrics.same)}>{fmtMoney(rowMetrics.same)}</span>
+                                    ) : (
+                                      <span className="text-gray-400 font-normal">—</span>
+                                    )
+                                  ) : rowMetrics.same)
                                 : '—'}
                             </td>
-                          )}
 
-                          {/* So cùng kỳ */}
-                          <td className={`px-2 py-2 text-center font-bold border-r border-gray-200 ${
-                            rowMetrics.samePct !== null && rowMetrics.samePct < 0
-                              ? 'text-red-600'
-                              : rowMetrics.samePct !== null && rowMetrics.samePct > 0
-                              ? 'text-emerald-700'
-                              : 'text-gray-600'
-                          }`}>
-                            {periodMeta?.hasSamePeriodData ? (
-                              rowMetrics.isValid ? fmtPctStr(rowMetrics.samePct) : <span className="text-gray-400 font-normal">—</span>
-                            ) : '—'}
-                          </td>
+                            {/* Số chênh cùng kỳ */}
+                            {showDiff && (
+                              <td className="px-2 py-2 text-center border-r border-gray-200 font-bold text-[11.5px]">
+                                {periodMeta?.hasSamePeriodData
+                                  ? (metricMode === 'revenue' ? fmtMoneyDiffCell(rowMetrics.sameDiff) : fmtDiffCell(rowMetrics.sameDiff))
+                                  : '—'}
+                              </td>
+                            )}
 
-                          {/* Nhận định */}
-                          <td className="px-2 py-1 text-center border-r border-gray-200">
-                            {isAlert && (
-                              <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
-                                CẢNH BÁO
-                              </span>
-                            )}
-                            {isPositive && (
-                              <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
-                                TÍCH CỰC
-                              </span>
-                            )}
-                            {!isAlert && !isPositive && (
-                              <span className="text-gray-400 font-medium">—</span>
-                            )}
-                          </td>
+                            {/* So cùng kỳ */}
+                            <td className={`px-2 py-2 text-center font-bold border-r border-gray-200 ${
+                              rowMetrics.samePct !== null && rowMetrics.samePct < 0
+                                ? 'text-red-600'
+                                : rowMetrics.samePct !== null && rowMetrics.samePct > 0
+                                ? 'text-emerald-700'
+                                : 'text-gray-600'
+                            }`}>
+                              {periodMeta?.hasSamePeriodData ? (
+                                rowMetrics.isValid ? fmtPctStr(rowMetrics.samePct) : <span className="text-gray-400 font-normal">—</span>
+                              ) : '—'}
+                            </td>
 
-                          {/* Ghi chú */}
-                          <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                            {r.note}
-                            {metricMode === 'revenue' && !rowMetrics.isValid && (
-                              <span className="text-amber-700 font-normal not-italic ml-1">
-                                {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
-                              </span>
-                            )}
-                          </td>
-                        </tr>
+                            {/* Nhận định */}
+                            <td className="px-2 py-1 text-center border-r border-gray-200">
+                              {isAlert && (
+                                <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#FCE4D6] text-[#C00000] border border-orange-200 shadow-2xs">
+                                  CẢNH BÁO
+                                </span>
+                              )}
+                              {isPositive && (
+                                <span className="inline-block px-2 py-0.5 rounded text-[10.5px] font-extrabold bg-[#E2EFDA] text-[#2E7D32] border border-emerald-200 shadow-2xs">
+                                  TÍCH CỰC
+                                </span>
+                              )}
+                              {!isAlert && !isPositive && (
+                                <span className="text-gray-400 font-medium">—</span>
+                              )}
+                            </td>
+
+                            {/* Ghi chú */}
+                            <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
+                              {r.note}
+                              {metricMode === 'revenue' && !rowMetrics.isValid && (
+                                <span className="text-amber-700 font-normal not-italic ml-1">
+                                  {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+
+                          {/* Các dòng con theo từng mức giá khi bật chế độ Chi tiết */}
+                          {showDetail && isExpanded && subRows.map((sub, sIdx) => {
+                            const subMetrics = getRowMetricDisplay(sub, metricMode, financialCategory, costSubtype, periodMeta?.hasSamePeriodData || false);
+                            return (
+                              <tr
+                                key={`${rowKey}-price-${sub.unitPrice}-${sIdx}`}
+                                className="bg-slate-50/80 hover:bg-blue-50/30 text-[11.5px] text-gray-600 border-t border-dashed border-gray-200/80"
+                              >
+                                {showMaTuongDuong && (
+                                  <td className="px-2.5 py-1 font-mono text-[11px] text-gray-400 border-r border-gray-200 text-center whitespace-nowrap">
+                                    {sub.maTuongDuong || ''}
+                                  </td>
+                                )}
+                                <td className="pl-8 pr-3 py-1 border-r border-gray-200">
+                                  <div className="flex items-center justify-end gap-1.5 font-mono font-semibold text-slate-600">
+                                    <span className="text-gray-300 select-none">└</span>
+                                    <span>{sub.unitPrice > 0 ? sub.unitPrice.toLocaleString('en-US') : 'Chưa áp giá (0)'}</span>
+                                  </div>
+                                </td>
+                                <td className="px-2 py-1 text-center font-semibold text-gray-800 bg-blue-50/30 border-r border-gray-200">
+                                  {metricMode === 'revenue' ? (
+                                    subMetrics.isValid ? (
+                                      <span title={fmtFullMoney(subMetrics.cur)}>{fmtMoney(subMetrics.cur)}</span>
+                                    ) : '—'
+                                  ) : subMetrics.cur}
+                                </td>
+                                <td className="px-2 py-1 text-center text-gray-600 border-r border-gray-200">
+                                  {metricMode === 'revenue' ? (
+                                    subMetrics.isValid ? (
+                                      <span title={fmtFullMoney(subMetrics.prev)}>{fmtMoney(subMetrics.prev)}</span>
+                                    ) : '—'
+                                  ) : subMetrics.prev}
+                                </td>
+                                {showDiff && (
+                                  <td className="px-2 py-1 text-center border-r border-gray-200 text-[11px]">
+                                    {metricMode === 'revenue' ? (
+                                      subMetrics.isValid ? fmtMoneyDiffCell(subMetrics.diff) : '—'
+                                    ) : fmtDiffCell(subMetrics.diff)}
+                                  </td>
+                                )}
+                                <td className={`px-2 py-1 text-center font-medium border-r border-gray-200 text-[11px] ${
+                                  subMetrics.pct !== null && subMetrics.pct < 0
+                                    ? 'text-red-500'
+                                    : subMetrics.pct !== null && subMetrics.pct > 0
+                                    ? 'text-emerald-600'
+                                    : 'text-gray-400'
+                                }`}>
+                                  {subMetrics.isValid ? fmtPctStr(subMetrics.pct) : '—'}
+                                </td>
+                                <td className="px-2 py-1 text-center text-gray-600 border-r border-gray-200">
+                                  {periodMeta?.hasSamePeriodData
+                                    ? (metricMode === 'revenue' ? (
+                                        subMetrics.isValid ? (
+                                          <span title={fmtFullMoney(subMetrics.same)}>{fmtMoney(subMetrics.same)}</span>
+                                        ) : '—'
+                                      ) : subMetrics.same)
+                                    : '—'}
+                                </td>
+                                {showDiff && (
+                                  <td className="px-2 py-1 text-center border-r border-gray-200 text-[11px]">
+                                    {periodMeta?.hasSamePeriodData
+                                      ? (metricMode === 'revenue' ? (
+                                          subMetrics.isValid ? fmtMoneyDiffCell(subMetrics.sameDiff) : '—'
+                                        ) : fmtDiffCell(subMetrics.sameDiff))
+                                      : '—'}
+                                  </td>
+                                )}
+                                <td className={`px-2 py-1 text-center font-medium border-r border-gray-200 text-[11px] ${
+                                  subMetrics.samePct !== null && subMetrics.samePct < 0
+                                    ? 'text-red-500'
+                                    : subMetrics.samePct !== null && subMetrics.samePct > 0
+                                    ? 'text-emerald-600'
+                                    : 'text-gray-400'
+                                }`}>
+                                  {periodMeta?.hasSamePeriodData ? (
+                                    subMetrics.isValid ? fmtPctStr(subMetrics.samePct) : '—'
+                                  ) : '—'}
+                                </td>
+                                <td className="px-2 py-1 text-center border-r border-gray-200 text-gray-300">—</td>
+                                <td className="px-3 py-1 text-gray-400 text-[10.5px]" />
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
                       );
                     })
                   )}
@@ -2710,7 +2976,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
                     return (
                       <tr className="bg-[#F2F4F7] font-bold text-gray-900 border-t-2 border-[#003366] text-xs">
-                        <td className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
+                        <td colSpan={showMaTuongDuong ? 2 : 1} className="px-3 py-2 uppercase tracking-wide text-primary-950 border-r border-gray-300">
                           TỔNG CỘNG
                         </td>
                         <td className="px-2 py-2 text-center bg-blue-100/70 border-r border-gray-300 text-primary-950 font-extrabold">

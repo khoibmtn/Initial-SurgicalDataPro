@@ -47,6 +47,49 @@ export const SPECIALTIES = DEFAULT_SPECIALTIES;
 
 export type ComparisonStatus = 'ALERT' | 'POSITIVE' | 'NORMAL';
 
+export interface ComparisonPriceSubRow {
+  unitPrice: number;
+  maTuongDuong?: string;
+  // Số lượng (Count)
+  currentCount: number;
+  prevCount: number;
+  prevDiff: number;
+  prevChangePct: number | null;
+  samePeriodCount: number;
+  samePeriodDiff: number | null;
+  samePeriodChangePct: number | null;
+  // Viện phí (Revenue)
+  currentRevenue: number;
+  prevRevenue: number;
+  prevRevenueDiff: number;
+  prevRevenueChangePct: number | null;
+  samePeriodRevenue: number;
+  samePeriodRevenueDiff: number | null;
+  samePeriodRevenueChangePct: number | null;
+
+  // Chi phí & Lợi nhuận
+  hasCostConfig: boolean;
+  currentMedicCost: number;
+  prevMedicCost: number;
+  samePeriodMedicCost: number;
+
+  currentVtthCost: number;
+  prevVtthCost: number;
+  samePeriodVtthCost: number;
+
+  currentLaborCost: number;
+  prevLaborCost: number;
+  samePeriodLaborCost: number;
+
+  currentTotalCost: number;
+  prevTotalCost: number;
+  samePeriodTotalCost: number;
+
+  currentProfit: number;
+  prevProfit: number;
+  samePeriodProfit: number;
+}
+
 export interface ComparisonRow {
   tenKT: string;
   maTuongDuong?: string;
@@ -94,6 +137,7 @@ export interface ComparisonRow {
   status: ComparisonStatus;
   statusLabel: 'CẢNH BÁO' | 'TÍCH CỰC' | 'ỔN ĐỊNH';
   note: string;
+  priceBreakdown?: ComparisonPriceSubRow[];
 }
 
 export interface SpecialtyReportGroup {
@@ -822,6 +866,33 @@ export async function getSpecialtyComparisonData(
   defs.meta.hasSamePeriodData = hasSamePeriodData;
   defs.meta.hasPrevData = hasPrevData;
 
+  interface SubItemCounter {
+    unitPrice: number;
+    maTuongDuong: string;
+    hasCostConfig: boolean;
+    current: number;
+    prev: number;
+    samePeriod: number;
+    currentRevenue: number;
+    prevRevenue: number;
+    samePeriodRevenue: number;
+    currentMedicCost: number;
+    prevMedicCost: number;
+    samePeriodMedicCost: number;
+    currentVtthCost: number;
+    prevVtthCost: number;
+    samePeriodVtthCost: number;
+    currentLaborCost: number;
+    prevLaborCost: number;
+    samePeriodLaborCost: number;
+    currentTotalCost: number;
+    prevTotalCost: number;
+    samePeriodTotalCost: number;
+    currentProfit: number;
+    prevProfit: number;
+    samePeriodProfit: number;
+  }
+
   interface ItemCounter {
     displayName: string;
     maTuongDuong: string;
@@ -829,6 +900,7 @@ export async function getSpecialtyComparisonData(
     specialtyWeights: Map<SpecialtyCode, number>;
     hasCostConfig: boolean;
     nameCostMap: Map<string, number>;
+    priceMap: Map<number, SubItemCounter>;
     current: number;
     prev: number;
     samePeriod: number;
@@ -892,6 +964,13 @@ export async function getSpecialtyComparisonData(
       rev = Number(r.donGia) * qty;
     }
 
+    let unitPrice = 0;
+    if (r.donGia != null && !isNaN(Number(r.donGia)) && Number(r.donGia) > 0) {
+      unitPrice = Math.round(Number(r.donGia));
+    } else if (rev > 0 && qty > 0) {
+      unitPrice = Math.round(rev / qty);
+    }
+
     const matchedCost = costItems ? findMatchingCostItem(r, costItems) : undefined;
     const hasCost = !!matchedCost;
     const medic = matchedCost ? matchedCost.medicCost * qty : 0;
@@ -908,6 +987,7 @@ export async function getSpecialtyComparisonData(
         specialtyWeights: new Map<SpecialtyCode, number>(),
         hasCostConfig: false,
         nameCostMap: new Map<string, number>(),
+        priceMap: new Map<number, SubItemCounter>(),
         current: 0,
         prev: 0,
         samePeriod: 0,
@@ -984,6 +1064,68 @@ export async function getSpecialtyComparisonData(
       item.samePeriodLaborCost += labor;
       item.samePeriodTotalCost += totalCost;
       item.samePeriodProfit += profit;
+    }
+
+    // Tích lũy dòng con theo từng mức đơn giá (unitPrice)
+    if (!item.priceMap.has(unitPrice)) {
+      item.priceMap.set(unitPrice, {
+        unitPrice,
+        maTuongDuong: rowMTD,
+        hasCostConfig: false,
+        current: 0,
+        prev: 0,
+        samePeriod: 0,
+        currentRevenue: 0,
+        prevRevenue: 0,
+        samePeriodRevenue: 0,
+        currentMedicCost: 0,
+        prevMedicCost: 0,
+        samePeriodMedicCost: 0,
+        currentVtthCost: 0,
+        prevVtthCost: 0,
+        samePeriodVtthCost: 0,
+        currentLaborCost: 0,
+        prevLaborCost: 0,
+        samePeriodLaborCost: 0,
+        currentTotalCost: 0,
+        prevTotalCost: 0,
+        samePeriodTotalCost: 0,
+        currentProfit: 0,
+        prevProfit: 0,
+        samePeriodProfit: 0,
+      });
+    }
+    const subItem = item.priceMap.get(unitPrice)!;
+    if (hasCost) {
+      subItem.hasCostConfig = true;
+    }
+    if (!subItem.maTuongDuong && rowMTD) {
+      subItem.maTuongDuong = rowMTD;
+    }
+    if (period === 'current') {
+      subItem.current += qty;
+      subItem.currentRevenue += rev;
+      subItem.currentMedicCost += medic;
+      subItem.currentVtthCost += vtth;
+      subItem.currentLaborCost += labor;
+      subItem.currentTotalCost += totalCost;
+      subItem.currentProfit += profit;
+    } else if (period === 'prev') {
+      subItem.prev += qty;
+      subItem.prevRevenue += rev;
+      subItem.prevMedicCost += medic;
+      subItem.prevVtthCost += vtth;
+      subItem.prevLaborCost += labor;
+      subItem.prevTotalCost += totalCost;
+      subItem.prevProfit += profit;
+    } else if (period === 'samePeriod') {
+      subItem.samePeriod += qty;
+      subItem.samePeriodRevenue += rev;
+      subItem.samePeriodMedicCost += medic;
+      subItem.samePeriodVtthCost += vtth;
+      subItem.samePeriodLaborCost += labor;
+      subItem.samePeriodTotalCost += totalCost;
+      subItem.samePeriodProfit += profit;
     }
   };
 
@@ -1073,6 +1215,67 @@ export async function getSpecialtyComparisonData(
       }
     }
 
+    // Xây dựng danh sách dòng con theo từng mức giá (priceBreakdown), sắp xếp tăng dần theo đơn giá (0 ở cuối)
+    const priceBreakdown: ComparisonPriceSubRow[] = Array.from(item.priceMap.values())
+      .sort((a, b) => {
+        if (a.unitPrice === 0 && b.unitPrice !== 0) return 1;
+        if (a.unitPrice !== 0 && b.unitPrice === 0) return -1;
+        return a.unitPrice - b.unitPrice;
+      })
+      .map(sub => {
+        const sCur = sub.current;
+        const sPrev = sub.prev;
+        const sSame = sub.samePeriod;
+        const sCurRev = sub.currentRevenue;
+        const sPrevRev = sub.prevRevenue;
+        const sSameRev = sub.samePeriodRevenue;
+
+        const sPrevDiff = sCur - sPrev;
+        const sPrevChangePct = sPrev > 0 ? ((sCur - sPrev) / sPrev) * 100 : null;
+        const sSamePeriodDiff = hasSamePeriodData ? (sCur - sSame) : null;
+        const sSamePeriodChangePct = (hasSamePeriodData && sSame > 0) ? ((sCur - sSame) / sSame) * 100 : null;
+
+        const sPrevRevenueDiff = sCurRev - sPrevRev;
+        const sPrevRevenueChangePct = sPrevRev > 0 ? ((sCurRev - sPrevRev) / sPrevRev) * 100 : null;
+        const sSamePeriodRevenueDiff = hasSamePeriodData ? (sCurRev - sSameRev) : null;
+        const sSamePeriodRevenueChangePct = (hasSamePeriodData && sSameRev > 0) ? ((sCurRev - sSameRev) / sSameRev) * 100 : null;
+
+        return {
+          unitPrice: sub.unitPrice,
+          maTuongDuong: sub.maTuongDuong || '',
+          currentCount: sCur,
+          prevCount: sPrev,
+          prevDiff: sPrevDiff,
+          prevChangePct: sPrevChangePct,
+          samePeriodCount: hasSamePeriodData ? sSame : 0,
+          samePeriodDiff: sSamePeriodDiff,
+          samePeriodChangePct: sSamePeriodChangePct,
+          currentRevenue: sCurRev,
+          prevRevenue: sPrevRev,
+          prevRevenueDiff: sPrevRevenueDiff,
+          prevRevenueChangePct: sPrevRevenueChangePct,
+          samePeriodRevenue: hasSamePeriodData ? sSameRev : 0,
+          samePeriodRevenueDiff: sSamePeriodRevenueDiff,
+          samePeriodRevenueChangePct: sSamePeriodRevenueChangePct,
+          hasCostConfig: sub.hasCostConfig,
+          currentMedicCost: sub.currentMedicCost,
+          prevMedicCost: sub.prevMedicCost,
+          samePeriodMedicCost: sub.samePeriodMedicCost,
+          currentVtthCost: sub.currentVtthCost,
+          prevVtthCost: sub.prevVtthCost,
+          samePeriodVtthCost: sub.samePeriodVtthCost,
+          currentLaborCost: sub.currentLaborCost,
+          prevLaborCost: sub.prevLaborCost,
+          samePeriodLaborCost: sub.samePeriodLaborCost,
+          currentTotalCost: sub.currentTotalCost,
+          prevTotalCost: sub.prevTotalCost,
+          samePeriodTotalCost: sub.samePeriodTotalCost,
+          currentProfit: sub.currentProfit,
+          prevProfit: sub.prevProfit,
+          samePeriodProfit: sub.samePeriodProfit,
+        };
+      });
+
     allRows.push({
       tenKT: chosenName,
       maTuongDuong: item.maTuongDuong || '',
@@ -1118,6 +1321,7 @@ export async function getSpecialtyComparisonData(
       status,
       statusLabel,
       note,
+      priceBreakdown,
     });
   });
 
