@@ -1,107 +1,122 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 21/10/2026 08:52 (Giờ địa phương GMT+7)  
-> **Nhánh Git hiện tại:** `main` & `temp-19-10-2026-14h20` (đã đồng bộ & push lên `origin`)  
-> **Remote:** `origin/main` & `origin/temp-19-10-2026-14h20` đã đồng bộ lên GitHub  
+> **Thời gian cập nhật:** 02/11/2026 18:25 (Giờ địa phương GMT+7)  
+> **Nhánh Git hiện tại:** `main` (đã đồng bộ & push lên `origin/main`)  
+> **Commit mới nhất:** `2b4cb79` (`feat(comparison): add aggregate variance note in total row and 3-state Ghi chú toggle`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Deployment URL mới nhất:** https://initial-surgical-data-6s419rkb2-khois-projects-73d0737a.vercel.app  
-> **Local Dev Port:** `http://localhost:3002` (Vite dev server)  
+> **Deployment URL mới nhất:** https://initial-surgical-data-dfptfhxxv-khois-projects-73d0737a.vercel.app  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build)`  
-> **Trạng thái Test:** `444 / 444 tests PASS` (35 test suites, 100% pass)  
 
 ---
 
-## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
+## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành Trong Phiên (02/11/2026)
 
-### 1.0. Bổ Sung Schema Nghiệp Vụ Chấm Công Ngoài Giờ / Xung Đột Cho AI & Giao Diện Quản Lý Mô Hình AI Chuẩn Ứng Dụng MCQ (21/10/2026)
-- **A1 — Bổ sung Công cụ Tính & Tra cứu Chấm công Ngoài giờ (`executeOvertimeAnalysisTool`) và Đối soát Xung đột (`executeConflictAndQualityTool`) (`services/ai/aiQueryEngine.ts`, `services/ai/aiSemanticSchema.ts`):**
-  1. Gọi trực tiếp hàm nghiệp vụ lõi `calculateOvertimeRows` và `groupOvertimeDataForReport` của tab **Ngoài giờ**, tự động đối chiếu **Lịch trực 24h** của ngày mở ca `T` và ngày `T-1`, loại trừ nhân sự thuộc tua trực 24h và phân loại rõ **Kíp mổ phiên (lố giờ)** vs **Kíp tăng cường**.
-  2. Khắc phục triệt để lỗi nhân đôi bản ghi (ví dụ 5 ca thành 10 ca) bằng `deduplicateSurgeryRecords` + `ensureHydratedSurgeryRecord` và bảo toàn trọn vẹn ca trực 24h đang mở trên Báo cáo hàng ngày khi người dùng hỏi *"trong danh sách các ca mổ hôm qua / đang mở..."*.
-  3. Gọi trực tiếp `reprocessSurgicalRecords` trong `executeConflictAndQualityTool` để trả lời chính xác về **Trùng NV**, **Trùng máy**, **Thiếu mã máy**, **Chưa gán GV**, **Lỗi định mức thời gian**, **TT <100%** và **Tổng phụ cấp PTTT theo từng nhân viên**.
-  4. Tự động đính kèm `buildDirectTableSnapshotForLLM` khi số ca $\le 60$ để AI đọc trực tiếp từng dòng dữ liệu đang hiển thị trên bảng.
-- **A2 — Thiết kế lại Giao diện Quản lý & Khai báo Mô hình AI theo mẫu Ứng dụng MCQ (`components/config/AIConfigPanel.tsx`, `services/ai/aiConfigService.ts`, `services/ai/aiProviderClient.ts`, `types/ai.ts`):**
-  1. Header `🤖 Quản lý & Khai báo các mô hình AI` kèm nút `+ Thêm mô hình mới` và thanh thêm nhanh theo hãng (`+ Google Gemini`, `+ OpenAI`, `+ Anthropic Claude`, `+ DeepSeek`).
-  2. Form `+ Khai báo mô hình AI mới` hỗ trợ chọn Provider, chọn Model có sẵn hoặc nhấn **`☁️ Tải danh sách model từ API`** (`fetchModelsFromProviderAPI`), nhập API Key ẩn/hiện, Base URL kèm nút `Mặc định`, `Temperature`, `Max Tokens`, checkbox `Hỗ trợ ảnh (OCR)` và nút `Test mô hình` / `Lưu & Kích hoạt`.
-  3. Danh sách Thẻ Mô hình (`declaredModels`) hiển thị badge hãng, tên model, `modelId`, nhãn `📷 Vision/OCR & Text`, `★ Mặc định chính`, API Key ẩn (`maskApiKeyPreview`), trạng thái `Đã kết nối`, banner kết quả kiểm thử và cụm nút `● Đang Active`, `Đặt mặc định`, `✓ Test`, `⚙️ Cấu hình ⌄`.
-
-### 1.1. Hợp Nhất Duy Nhất 1 Popup Trợ Lý AI Phân Tích Toàn Hệ Thống, Hỏi Lại Nguồn Dữ Liệu & Trích Dẫn Nguồn `DD/MM/YYYY` (20/10/2026 - Commit `66a87ed`)
-- **A1 — Hợp nhất duy nhất 1 Popup AI + Messenger Floating Bubble toàn hệ thống (`App.tsx`, `AIStorageDrawer.tsx`, `StatisticsTab.tsx`, `StorageQueryBar.tsx`):**
-  1. Gỡ bỏ hoàn toàn các instance `<AIStorageDrawer />` rời rạc theo từng tab và sub-tab `'ai_studio'` trùng lặp trong `StatisticsTab.tsx`.
-  2. Sử dụng **duy nhất 1 instance `<AIStorageDrawer slotId="statistics_studio" />`** ở cấp `App.tsx`, giữ nguyên lịch sử trò chuyện và trạng thái thu nhỏ dạng bong bóng Messenger (`bottom-5 right-5`) khi chuyển qua lại giữa mọi tab (`BC hàng ngày`, `BC tháng`, `Lịch mổ`, `Thống kê`).
-  3. Tại trang **Thống kê** (`StatisticsTab.tsx`) và thanh **Truy vấn lưu trữ** (`StorageQueryBar.tsx`), nút **`"Trợ lý AI Phân tích"`** mở trực tiếp Popup AI hợp nhất (mặc định mở rộng chế độ Studio 2 cột `defaultExpanded = true` khi mở từ trang Thống kê).
-  4. Tự động đồng bộ dữ liệu đang mở ở `BC ngày` (`dailyOpenedRecords`), `BC tháng` (`monthlyOpenedRecords`) và `Thống kê` (`statsContextState`) vào Popup AI hợp nhất.
-- **A2 — Nhận diện nguồn dữ liệu thông minh, Cơ chế Hỏi lại (Clarification Gate) & Trích dẫn nguồn bắt buộc (`aiQueryEngine.ts`, `aiSemanticSchema.ts`, `AIChatWorkspace.tsx`, `types/ai.ts`):**
-  1. **Trích xuất thời gian & nguồn dữ liệu (`extractTimeConstraintsFromPrompt`):** Tự động nhận diện ngày cụ thể (`DD/MM/YYYY`, *"hôm nay"*, *"hôm qua"*), tháng (`tháng X/YYYY`), quý (`quý X`), năm (`2025`, `2026`), khoảng đầu/cuối năm (*"9 tháng đầu năm 2026 so với 2025"*) và nguồn chỉ định (*"báo cáo ngày"*, *"báo cáo tháng"*, *"đang mở"*).
-  2. **Tự động nạp dữ liệu phù hợp (`ensureSurgeryRecordsForQuery`):** Lấy từ dữ liệu đang mở trên màn hình hoặc tự động truy vấn Firestore (`processed_records`, `duty_schedules`, `service_package_assignments`) theo đúng khoảng thời gian yêu cầu.
-  3. **Clarification Gate (0ms, không tốn lượt gọi LLM):** Khi tab hiện tại chưa mở dữ liệu (`0 ca`) và câu hỏi của người dùng chưa nêu rõ thời gian/nguồn số liệu, AI lập tức trả về `needsClarification: true` kèm các **nút chọn nhanh 1-click (`clarificationOptions`)** để người dùng chọn nguồn dữ liệu mong muốn.
-  4. **Trích dẫn nguồn bắt buộc (`dataSourceCitation`):** Hiển thị badge **`📌 Nguồn số liệu:`** nổi bật ở đầu mỗi câu trả lời của AI và yêu cầu AI mở đầu câu trả lời bằng nguồn dữ liệu + khoảng ngày `DD/MM/YYYY` chính xác (kèm số lượng ca của từng kỳ khi so sánh cùng kỳ YoY).
-- **A3 — Tinh gọn Cấu hình AI Mặc định (`AIConfigPanel.tsx`):**
-  - Rút gọn Phần 2 trong `Cấu hình -> Cấu hình AI` thành **1 khung cấu hình mặc định duy nhất** (*"2. Cấu hình Mặc định cho Trợ lý AI Phân tích Toàn hệ thống"*), đồng bộ cho toàn ứng dụng và vẫn cho phép đổi nhanh Mô hình + Mức độ suy luận (`Effort`) ngay trên thanh tiêu đề Popup AI.
-
----
-
-### 1.2. Hệ Thống Trợ Lý AI Đa Mô Hình, Phân Quyền RBAC, Bong Bóng Messenger & Chuẩn Hóa So Sánh Cùng Kỳ YoY (20/10/2026 - Commits `37229a7`, `ccc46d3`)
-- **Đa nhà cung cấp LLM (`aiConfigService.ts`, `aiProviderClient.ts`):**
-  - Hỗ trợ **Google Gemini** (`gemini-2.5-pro`, `gemini-2.5-flash`...), **OpenAI** (`gpt-4.1`, `o3-mini`...), **Anthropic Claude** (`claude-sonnet-4-20250514`...) và **DeepSeek** (`deepseek-chat`, `deepseek-reasoner`) kèm Base URL tùy chỉnh, kiểm tra kết nối trực tiếp, điều chỉnh `Temperature`, `Reasoning Effort` (`low`/`medium`/`high`) và `Max Output Tokens`.
-- **Phân quyền RBAC cho tính năng AI (`permissionService.ts`, `PermissionMatrixSubTab.tsx`, `usePermissions.ts`):**
-  - Bổ sung quyền `use_ai_assistant` (*"Sử dụng Trợ lý AI Phân tích"*), mặc định chỉ bật cho vai trò **Trưởng khoa (`department_head`)** và Admin.
-- **Hiển thị trực quan & Xuất dữ liệu (`AIArtifactRenderer.tsx`, `AIChatWorkspace.tsx`):**
-  - Render bảng Markdown GFM chuẩn xác trong câu trả lời và hiển thị các Artifact tương tác (**Bảng dữ liệu có tìm kiếm/sắp xếp**, **Biểu đồ tương tác Recharts** Bar/Line/Area/Pie/Composed kèm Brush kéo chọn khoảng, **Thẻ KPI**), hỗ trợ xuất trực tiếp ra **Excel (`.xlsx`)** và **Ảnh (`.png`)**.
-- **Độ chính xác số liệu & Prompt kỷ luật cao (`aiQueryEngine.ts`, `aiSemanticSchema.ts`):**
-  - Phân loại chuyên khoa dựa trên danh mục chuẩn `surgeryCategories` (với fallback từ khóa ICD/PPPT) và chỉ trả lời đúng trọng tâm câu hỏi của người dùng, tuyệt đối không tự ý suy diễn thêm phần tích PTV hay mùa vụ khi không được hỏi.
+### 1.1. Phân Tích So Sánh Phẫu Thuật Theo Chuyên Khoa (`services/specialtyComparisonService.ts`, `components/statistics/SpecialtyComparisonTab.tsx`)
+1. **Gộp các phẫu thuật trùng tên (`tenKT` chuẩn hóa) giữa các kỳ bất kể chênh lệch đơn giá hoặc Mã tương đương (`347b2c1`):**
+   - Chuẩn hóa khóa gộp theo `tenKT` (normalize Unicode NFC, dấu câu, khoảng trắng) trong `specialtyComparisonService.ts`, `StatsSummary.tsx`, `statisticsService.ts` và `aiQueryEngine.ts` để các ca cùng tên kỹ thuật giữa `T10/2026`, `T9/2026` và `T10/2025` luôn gộp chung trên 1 dòng duy nhất, không bị tách dòng làm lệch số tiền kỳ trước / cùng kỳ về `0 ₫`.
+2. **Chế độ `Tách chi tiết giá` (`priceBreakdown` & `ComparisonPriceSubRow`) (`b3984fb`, `1dafec3`):**
+   - Bổ sung mảng `priceBreakdown?: ComparisonPriceSubRow[]` trong `ComparisonRow`, nhóm theo từng mức `unitPrice` (sắp xếp đơn giá tăng dần, `0` ở cuối).
+   - Bổ sung nút badge **`Tách chi tiết giá`** trên thanh công cụ bảng Phân tích so sánh. Khi bật, mặc định bung toàn bộ các dòng con dưới mỗi dịch vụ kỹ thuật (`└ 1,857,900`, `└ 1,932,200`...), cho phép đóng/mở từng dòng qua nút chevron.
+3. **Hiển thị số lượng ca cạnh số tiền ở chế độ Viện phí (`2a986d7`):**
+   - Bổ sung hàm `fmtMoneyWithCount` trong `SpecialtyComparisonTab.tsx` để hiển thị số ca trong ngoặc đơn bên cạnh số tiền trên giao diện ứng dụng ở các cột Kỳ phân tích, Kỳ trước và Cùng kỳ (dòng chính, dòng con tách giá và dòng tổng cộng — ví dụ: `21,25 tr (11)`, `6,45 tr (5)`).
+4. **Phân tích nhân tố Số lượng & Đơn giá trong cột `Ghi chú` + Badge `Ghi chú` 3 chế độ (`f8f7cd8`, `4516f53`, `5797c1f`, `2b4cb79`):**
+   - **Công thức tách nhân tố (`buildRowVarianceNote` & `buildAggregateVarianceNote`):**
+     - Phần đóng góp do thay đổi Số lượng: $\Delta R_Q = \text{round}((Q_1 - Q_0) \times P_0)$
+     - Phần đóng góp do thay đổi Đơn giá: $\Delta R_P = \text{round}(R_1 - R_0) - \Delta R_Q$
+     - Phần trăm đóng góp của Số lượng và Giá được tính trên doanh thu kỳ gốc ($R_0$) sao cho tổng `%` của 2 yếu tố luôn khớp tuyệt đối với cột **So cùng kỳ** hoặc **So tháng trước** (ví dụ: `↑ 4 ca: +7.431.600 ₫ (+57.1%); ↑ giá (4%): +817.300 ₫ (+6.3%)` $\rightarrow$ tổng `+63.4%`).
+     - Nếu số ca không thay đổi (`0 ca`), tự động ẩn phần số ca; nếu giá không thay đổi, tự động ẩn phần giá.
+     - Áp dụng cho cả từng dòng dịch vụ kỹ thuật và hàng **TỔNG CỘNG TOÀN VIỆN** / **TỔNG CỘNG** chuyên khoa.
+   - **Màu sắc & Định dạng (`renderNoteContent`):**
+     - Tăng (`↑`) tô màu xanh lá (`text-emerald-700`), giảm (`↓`) tô màu đỏ (`text-red-600`), các con số và phần trăm được **in đậm (`font-bold`)**.
+   - **Thứ tự các badge bật/tắt & 3 chế độ `Ghi chú`:**
+     - Thứ tự badge: `Mã TĐ` $\rightarrow$ `$ chênh` $\rightarrow$ `$ rút gọn` $\rightarrow$ `Tách chi tiết giá` $\rightarrow$ `Ghi chú`.
+     - Click vào badge `Ghi chú` chuyển tuần hoàn qua 3 chế độ:
+       1. **`Ghi chú (ss cùng kỳ)`** (chấm xanh - mặc định): So sánh với cùng kỳ, tiêu đề cột hiển thị `Ghi chú (ss cùng kỳ)`.
+       2. **`Ghi chú (ss tháng trước)`** (chấm xanh): So sánh với tháng trước, tiêu đề cột hiển thị `Ghi chú (ss tháng trước)`.
+       3. **`Ghi chú`** (chấm đỏ): Ẩn cột Ghi chú.
 
 ---
 
-### 1.3. Tinh Gọn UX Popup Ca Mổ, Lưu Trữ Trạng Thái Lịch Mổ & Thanh Chọn Ngày Trên Mobile (20/10/2026 - Commit `b5f69f8`)
-- Chống đóng popup khi click nhầm ra ngoài backdrop, tối giản nút Khóa/Mở khóa ca mổ, đánh dấu sao đỏ `*` cho 5 trường bắt buộc, hiển thị tooltip cảnh báo trường thiếu và lưu trữ toàn bộ trạng thái hiển thị trang Lịch mổ vào `localStorage` + `sessionStorage`.
+### 1.2. Quản Lý Gói Dịch Vụ Theo Yêu Cầu (DVYC), In Ấn, Xuất Excel & Bảo Mật Đăng Nhập (`65c7a1e`, `23edd38`, `1925c79`, `b2ca931`)
+1. **Chống thêm gói DVYC trùng nhau & Tự động dọn bản ghi trùng (`23edd38`):**
+   - Chuẩn hóa khóa định danh ca phẫu thuật (`normalizeRecordIdentityKey`) trong `servicePackageAssignmentService.ts` và chặn gán trùng gói dịch vụ cho cùng 1 ca mổ ở cả tầng UI (`ServicePackageTab.tsx`, `ServicePaymentSubTab.tsx`) lẫn tầng service, đồng thời tự động hợp nhất/dọn các bản ghi gán trùng trước đó (khắc phục sai lệch số liệu 21 triệu vs 18 triệu).
+2. **Cải tiến bộ lọc Đợt thanh toán & Nhãn lọc gói DVYC (`65c7a1e`):**
+   - Đổi nhãn `"Tất cả (theo DS phẫu thuật)"` và `"Tất cả DVYC trong DS PT"` thành `"Tất cả DVYC trong tháng mm/yyyy"` (hoặc theo kỳ đang mở).
+   - Bổ sung đường kẻ ngang phân cách và tiêu đề nhóm `Các đợt thanh toán:` (chữ xám đậm) phía trên danh sách các đợt trong dropdown lọc ở tab Thanh toán dịch vụ.
+3. **Sửa lỗi in Giấy báo ngoài giờ & Tối ưu độ rộng cột khi in Gói dịch vụ khổ ngang (`65c7a1e`):**
+   - Khắc phục chức năng in Giấy báo ngoài giờ và thu gọn cột Họ tên / căn chỉnh lại tỷ lệ các cột trong bảng in Thanh toán dịch vụ theo yêu cầu khổ ngang.
+4. **Bổ sung Sheet `TT Gói DV (Rút gọn)` khi xuất Excel (`1925c79`, `b2ca931`):**
+   - Thêm sheet rút gọn trong `excelExportService.ts` với mỗi gói dịch vụ gồm đúng 2 cột (`Số lượng`, `Thành tiền`) và cột `Tổng cộng` gồm 2 cột (`Số lượng`, `Tổng tiền`), căn chỉnh độ rộng cột gọn gàng vừa khít nội dung.
+5. **Bắt buộc màn hình Đăng nhập duy nhất khi chưa xác thực & Giới hạn Cấu hình AI cho Admin (`1925c79`, `65c7a1e`):**
+   - Khi chưa đăng nhập (`!isAuthenticated`), chỉ hiển thị duy nhất trang Đăng nhập (`LoginScreen`), không cho phép truy cập các tab tải file Minh Lộ hay DVKT.
+   - Chỉ tài khoản `admin` mới được xem và chỉnh sửa tab Cấu hình AI.
 
 ---
 
-## 📐 2. Cấu Trúc Dữ Liệu & Hàm Xử Lý Trọng Điểm Của Hệ Thống AI
+## 📐 2. Cấu Trúc Dữ Liệu & Hàm Xử Lý Trọng Điểm Mới Bổ Sung
 
-### 2.1. Cấu Trúc Tin Nhắn & Lựa Chọn Làm Rõ Nguồn Dữ Liệu (`types/ai.ts`)
 ```typescript
-export interface AIClarificationOption {
-  label: string;
-  prompt: string;
-  description?: string;
+// services/specialtyComparisonService.ts
+export interface ComparisonPriceSubRow {
+  unitPrice: number;
+  maTuongDuong?: string;
+  currentCount: number;
+  prevCount: number;
+  prevDiff: number;
+  prevChangePct: number | null;
+  samePeriodCount: number;
+  samePeriodDiff: number | null;
+  samePeriodChangePct: number | null;
+  currentRevenue: number;
+  prevRevenue: number;
+  prevRevenueDiff: number;
+  prevRevenueChangePct: number | null;
+  samePeriodRevenue: number;
+  samePeriodRevenueDiff: number | null;
+  samePeriodRevenueChangePct: number | null;
+  hasCostConfig: boolean;
+  currentMedicCost: number;
+  prevMedicCost: number;
+  samePeriodMedicCost: number;
+  currentVtthCost: number;
+  prevVtthCost: number;
+  samePeriodVtthCost: number;
+  currentLaborCost: number;
+  prevLaborCost: number;
+  samePeriodLaborCost: number;
+  currentTotalCost: number;
+  prevTotalCost: number;
+  samePeriodTotalCost: number;
+  currentProfit: number;
+  prevProfit: number;
+  samePeriodProfit: number;
 }
 
-export interface AIChatMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: string;
-  providerId?: AIProviderId;
-  modelId?: string;
-  effort?: AIReasoningEffort;
-  artifacts?: AIArtifact[];
-  querySummary?: string;
-  dataSourceCitation?: string;
-  clarificationOptions?: AIClarificationOption[];
-  isError?: boolean;
-}
+export function buildRowVarianceNote(
+  r: ComparisonRow,
+  mode: 'same_period' | 'prev_period' = 'same_period',
+  periodMeta?: PeriodMetadata | null
+): string;
+
+export function buildAggregateVarianceNote(
+  rows: ComparisonRow[],
+  hasSamePeriodData: boolean,
+  mode: 'same_period' | 'prev_period' = 'same_period'
+): string;
 ```
 
-### 2.2. Pipeline Truy Vấn Liên Kết & Clarification Gate (`services/ai/aiQueryEngine.ts`)
-- `extractTimeConstraintsFromPrompt(prompt)`: Bóc tách `years`, `months`, `quarters`, `firstNMonths`, `lastNMonths`, `specificDates`, `explicitSource` và cờ `hasExplicitTimeOrSource`.
-- `ensureSurgeryRecordsForQuery(context, prompt)`: Tự động quyết định lấy dữ liệu đang mở hay tải từ Firestore (`loadMonthlyRecordsByYear` / `queryRecordsByDateRange`) và sinh chuỗi `dataSourceCitation` chuẩn `DD/MM/YYYY`.
-- `runRelationalQueryPipeline(prompt, context)`:
-  - Nếu `baseRecords.length === 0 && !timeConstraints.hasExplicitTimeOrSource`: Trả về ngay `needsClarification: true` kèm `clarificationOptions`.
-  - Nếu đủ ngữ cảnh: Tính toán chính xác `specialtyYoYComparison`, `monthlyTrend`, `crossTabStaffMonth`, `staffShiftCrossAnalysis`, `packageUsageSummary` và đóng gói vào `AISemanticContextSummary`.
-
 ---
 
-## 📂 3. Lịch Sử Commit Gần Nhất (`temp-19-10-2026-14h20`)
-1. `66a87ed` — `feat(ai): unify global AI assistant popup, add data source clarification gate and DD/MM/YYYY citation` (10 files changed)
-2. `ccc46d3` — `feat(ai): add RBAC permissions, persist chat history, Messenger minimize bubble, GFM table renderer, and accurate YoY specialty comparison`
-3. `37229a7` — `feat(ai): add multi-provider AI analytics studio, relational query engine, and storage assistant drawers`
-4. `b5f69f8` — `feat(schedule): refine surgery modal UX, persist view settings and show mobile date controls`
-5. `eb45f89` — `style(ui): unify action button backgrounds to navy blue (primary-700) across app`
-
----
-
-## 🚀 4. Trạng Thái Triển Khai & Kiểm Thử
-- **Git Branch:** `temp-19-10-2026-14h20` (đã push đầy đủ lên `origin/temp-19-10-2026-14h20`).
-- **Vercel Production:** Đã deploy thành công lên `https://initial-surgical-data-pro.vercel.app`.
-- **Build & Test:** `npm run build` (`vite v6.4.1`) & `npm test` (`442 / 442 tests PASS` trên 35 test suites) hoàn tất 100% không có lỗi.
+## 📂 3. Lịch Sử Commit Gần Nhất (`main`)
+1. `2b4cb79` — `feat(comparison): add aggregate variance note in total row and 3-state Ghi chú toggle`
+2. `5797c1f` — `fix(comparison): omit unchanged quantity or price segment in Ghi chú`
+3. `2a986d7` — `feat(comparison): display case count next to revenue in UI period columns`
+4. `4516f53` — `style(comparison): colorize increase/decrease and bold numbers in Ghi chú column`
+5. `f8f7cd8` — `feat(comparison): add price/volume variance breakdown in note and Ghi chú toggle badge`
+6. `1dafec3` — `chore(ui): rename detail toggle label to 'Tách chi tiết giá'`
+7. `b3984fb` — `feat(statistics): add price breakdown detail toggle and expandable sub-rows in SpecialtyComparisonTab`
+8. `347b2c1` — `fix(statistics): merge surgeries with identical tenKT across comparison periods regardless of donGia or maTuongDuong differences`
+9. `b2ca931` — `style(export): tighten column widths to fit content in compact service package summary sheet`
+10. `1925c79` — `feat(auth,export): enforce login-only screen when unauthenticated and add compact service package summary sheet to Excel export`
+11. `23edd38` — `feat(packages): multi-layer anti-duplicate package assignment mechanism & auto-cleanup`
+12. `65c7a1e` — `fix(security,print,packages): restrict AI config to admin, fix overtime & package print layout, update package filter dropdown UI`
