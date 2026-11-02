@@ -865,6 +865,52 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
     );
   };
 
+  const renderNoteContent = (note: string) => {
+    if (!note) return null;
+    if (note.includes('ca:')) {
+      const parts = note.split('; ');
+      return (
+        <span className="not-italic">
+          {parts.map((part, pIdx) => {
+            const isUp = part.startsWith('↑');
+            const isDown = part.startsWith('↓');
+            const colorClass = isUp
+              ? 'text-emerald-700'
+              : isDown
+              ? 'text-red-600'
+              : 'text-gray-600';
+
+            const tokens = part.split(/([↑↓]|[+-]?\d+(?:[.,]\d+)*%?)/g);
+            return (
+              <React.Fragment key={pIdx}>
+                {pIdx > 0 && <span className="text-gray-400 font-semibold">; </span>}
+                <span className={colorClass}>
+                  {tokens.map((tok, tIdx) => {
+                    if (/^([↑↓]|[+-]?\d+(?:[.,]\d+)*%?)$/.test(tok)) {
+                      return (
+                        <strong key={tIdx} className="font-bold">
+                          {tok}
+                        </strong>
+                      );
+                    }
+                    return <React.Fragment key={tIdx}>{tok}</React.Fragment>;
+                  })}
+                </span>
+              </React.Fragment>
+            );
+          })}
+        </span>
+      );
+    }
+    if (note.startsWith('Mới phát sinh')) {
+      return <span className="text-emerald-700">{note}</span>;
+    }
+    if (note.startsWith('Không phát sinh')) {
+      return <span className="text-red-600">{note}</span>;
+    }
+    return <span>{note}</span>;
+  };
+
   // Helper render sort header icon
   const renderSortIcon = (colKey: SortColumnKey) => {
     if (sortCol !== colKey) {
@@ -2070,7 +2116,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                           {/* Ghi chú */}
                           {showNote && (
                             <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                              {r.note}
+                              {renderNoteContent(r.note)}
                               {metricMode === 'revenue' && !rowMetrics.isValid && (
                                 <span className="text-amber-700 font-normal not-italic ml-1">
                                   {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
@@ -2925,7 +2971,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
                             {/* Ghi chú */}
                             {showNote && (
                               <td className="px-3 py-1.5 text-gray-600 italic text-[11px]">
-                                {r.note}
+                                {renderNoteContent(r.note)}
                                 {metricMode === 'revenue' && !rowMetrics.isValid && (
                                   <span className="text-amber-700 font-normal not-italic ml-1">
                                     {r.note ? '• Chưa có định mức CP' : 'Chưa có định mức CP'}
