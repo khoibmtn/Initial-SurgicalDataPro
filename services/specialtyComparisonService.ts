@@ -1237,18 +1237,22 @@ export async function getSpecialtyComparisonData(
         };
 
         const absQty = Number(Math.abs(qtyDiff).toFixed(2));
-        const qtyArrow = qtyDiff > 0 ? '↑ ' : (qtyDiff < 0 ? '↓ ' : '');
-        const qtyPart = `${qtyArrow}${absQty} ca: ${fmtSignedMoney(qtyRevEffect)} (${fmtSignedPct(qtyPctRounded)})`;
+        const hasQtyChange = absQty > 0;
+        const noteParts: string[] = [];
+
+        if (hasQtyChange) {
+          const qtyArrow = qtyDiff > 0 ? '↑ ' : '↓ ';
+          noteParts.push(`${qtyArrow}${absQty} ca: ${fmtSignedMoney(qtyRevEffect)} (${fmtSignedPct(qtyPctRounded)})`);
+        }
 
         if (hasPriceChange) {
           const rawPricePct = ((p1 - p0) / p0) * 100;
           const absPricePct = Number(Math.abs(rawPricePct).toFixed(1));
           const priceArrow = priceDiff > 0 ? '↑' : '↓';
-          const pricePart = `${priceArrow} giá (${absPricePct}%): ${fmtSignedMoney(priceRevEffect)} (${fmtSignedPct(pricePctRounded)})`;
-          note = `${qtyPart}; ${pricePart}`;
-        } else {
-          note = qtyPart;
+          noteParts.push(`${priceArrow} giá (${absPricePct}%): ${fmtSignedMoney(priceRevEffect)} (${fmtSignedPct(pricePctRounded)})`);
         }
+
+        note = noteParts.join('; ');
       }
     }
 

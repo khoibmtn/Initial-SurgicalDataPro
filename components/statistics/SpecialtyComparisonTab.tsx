@@ -881,7 +881,7 @@ export const SpecialtyComparisonTab: React.FC<Props> = ({
 
   const renderNoteContent = (note: string) => {
     if (!note) return null;
-    if (note.includes('ca:')) {
+    if (note.includes('ca:') || note.includes('giá (')) {
       const parts = note.split('; ');
       return (
         <span className="not-italic">
