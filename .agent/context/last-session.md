@@ -1,17 +1,29 @@
 # Báo Cáo Lưu Trữ Ngữ Cảnh Phiên Làm Việc (Last Session Context)
 
-> **Thời gian cập nhật:** 02/11/2026 18:25 (Giờ địa phương GMT+7)  
+> **Thời gian cập nhật:** 09/11/2026 18:04 (Giờ địa phương GMT+7)  
 > **Nhánh Git hiện tại:** `main` (đã đồng bộ & push lên `origin/main`)  
-> **Commit mới nhất:** `2b4cb79` (`feat(comparison): add aggregate variance note in total row and 3-state Ghi chú toggle`)  
+> **Commit mới nhất:** `e2509d6` (`fix(charts): force full data labels on short bars and sync fullscreen theme with system UI`)  
 > **Production URL (Vercel):** https://initial-surgical-data-pro.vercel.app  
-> **Deployment URL mới nhất:** https://initial-surgical-data-dfptfhxxv-khois-projects-73d0737a.vercel.app  
+> **Deployment URL mới nhất:** https://initial-surgical-data-67kmk5k1t-khois-projects-73d0737a.vercel.app  
 > **Trạng thái Build:** `Thành công 100% (Vite v6.4.1 - 0 lỗi build)`  
 
 ---
 
-## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành Trong Phiên (02/11/2026)
+## 📌 1. Các Tính Năng & Nâng Cấp Trọng Điểm Đã Hoàn Thành
 
-### 1.1. Phân Tích So Sánh Phẫu Thuật Theo Chuyên Khoa (`services/specialtyComparisonService.ts`, `components/statistics/SpecialtyComparisonTab.tsx`)
+### 1.1. Trực Quan Hóa Biểu Đồ So Sánh Chuyên Khoa (`components/statistics/ComparisonChartsView.tsx`) — Phiên 09/11/2026 (`e2509d6`)
+1. **Ép các thanh biểu diễn số liệu hiển thị đầy đủ 100% (không bị cắt `...`):**
+   - **Biểu đồ Biến động Tăng trưởng (Diverging Bar)** — cả ở giao diện thẻ ngoài lẫn giao diện mở rộng toàn màn hình:
+     - Loại bỏ `truncate` và `overflow-hidden` trên thanh màu; áp dụng `min-w-fit max-w-full whitespace-nowrap` (`style={{ width: `${barWidthPct}%`, minWidth: 'fit-content' }}`) để các thanh có giá trị nhỏ (như `-3 ca`, `-18 ca`, `-1,3%`) luôn tự động mở rộng đủ độ dài chứa trọn vẹn con số bên trong thay vì bị cắt thành `-...` hay `-1...`.
+     - Mở rộng khung hiển thị toàn màn hình của biểu đồ từ `max-w-4xl` lên `max-w-6xl` để tăng không gian biểu diễn tỷ lệ thanh.
+   - **Biểu đồ Cầu nối (Waterfall):** Bổ sung `whitespace-nowrap` cho nhãn số liệu trong từng box (`renderWaterfallTick`) để không bị ngắt dòng khi nhiều cột.
+2. **Đồng bộ giao diện Toàn màn hình theo giao diện hệ thống (Sáng):**
+   - Thay đổi giá trị khởi tạo `modalTheme` từ mặc định `'dark'` sang tự động lấy theo giao diện hệ thống ứng dụng (`getSystemTheme()` $\rightarrow$ mặc định `'light'`), đồng thời đồng bộ lại qua `useEffect` mỗi khi mở cửa sổ phóng to (vẫn giữ nút chuyển đổi Sáng/Tối thủ công trên thanh công cụ modal).
+   - Đồng bộ màu sắc nhãn tổng (`renderStackTotalLabel`) và đường biểu đồ Xu hướng (`Timeline Expanded`) trong chế độ toàn màn hình Sáng để hiển thị sắc nét, độ tương phản cao.
+
+---
+
+### 1.2. Phân Tích So Sánh Phẫu Thuật Theo Chuyên Khoa (`services/specialtyComparisonService.ts`, `components/statistics/SpecialtyComparisonTab.tsx`) — Phiên 02/11/2026
 1. **Gộp các phẫu thuật trùng tên (`tenKT` chuẩn hóa) giữa các kỳ bất kể chênh lệch đơn giá hoặc Mã tương đương (`347b2c1`):**
    - Chuẩn hóa khóa gộp theo `tenKT` (normalize Unicode NFC, dấu câu, khoảng trắng) trong `specialtyComparisonService.ts`, `StatsSummary.tsx`, `statisticsService.ts` và `aiQueryEngine.ts` để các ca cùng tên kỹ thuật giữa `T10/2026`, `T9/2026` và `T10/2025` luôn gộp chung trên 1 dòng duy nhất, không bị tách dòng làm lệch số tiền kỳ trước / cùng kỳ về `0 ₫`.
 2. **Chế độ `Tách chi tiết giá` (`priceBreakdown` & `ComparisonPriceSubRow`) (`b3984fb`, `1dafec3`):**
@@ -37,7 +49,7 @@
 
 ---
 
-### 1.2. Quản Lý Gói Dịch Vụ Theo Yêu Cầu (DVYC), In Ấn, Xuất Excel & Bảo Mật Đăng Nhập (`65c7a1e`, `23edd38`, `1925c79`, `b2ca931`)
+### 1.3. Quản Lý Gói Dịch Vụ Theo Yêu Cầu (DVYC), In Ấn, Xuất Excel & Bảo Mật Đăng Nhập (`65c7a1e`, `23edd38`, `1925c79`, `b2ca931`)
 1. **Chống thêm gói DVYC trùng nhau & Tự động dọn bản ghi trùng (`23edd38`):**
    - Chuẩn hóa khóa định danh ca phẫu thuật (`normalizeRecordIdentityKey`) trong `servicePackageAssignmentService.ts` và chặn gán trùng gói dịch vụ cho cùng 1 ca mổ ở cả tầng UI (`ServicePackageTab.tsx`, `ServicePaymentSubTab.tsx`) lẫn tầng service, đồng thời tự động hợp nhất/dọn các bản ghi gán trùng trước đó (khắc phục sai lệch số liệu 21 triệu vs 18 triệu).
 2. **Cải tiến bộ lọc Đợt thanh toán & Nhãn lọc gói DVYC (`65c7a1e`):**
@@ -53,9 +65,18 @@
 
 ---
 
-## 📐 2. Cấu Trúc Dữ Liệu & Hàm Xử Lý Trọng Điểm Mới Bổ Sung
+## 📐 2. Cấu Trúc Dữ Liệu & Hàm Xử Lý Trọng Điểm
 
 ```typescript
+// components/statistics/ComparisonChartsView.tsx
+const getSystemTheme = (): 'dark' | 'light' => {
+  if (typeof document !== 'undefined' && (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark'))) {
+    return 'dark';
+  }
+  return 'light';
+};
+const [modalTheme, setModalTheme] = useState<'dark' | 'light'>(getSystemTheme);
+
 // services/specialtyComparisonService.ts
 export interface ComparisonPriceSubRow {
   unitPrice: number;
@@ -108,15 +129,15 @@ export function buildAggregateVarianceNote(
 ---
 
 ## 📂 3. Lịch Sử Commit Gần Nhất (`main`)
-1. `2b4cb79` — `feat(comparison): add aggregate variance note in total row and 3-state Ghi chú toggle`
-2. `5797c1f` — `fix(comparison): omit unchanged quantity or price segment in Ghi chú`
-3. `2a986d7` — `feat(comparison): display case count next to revenue in UI period columns`
-4. `4516f53` — `style(comparison): colorize increase/decrease and bold numbers in Ghi chú column`
-5. `f8f7cd8` — `feat(comparison): add price/volume variance breakdown in note and Ghi chú toggle badge`
-6. `1dafec3` — `chore(ui): rename detail toggle label to 'Tách chi tiết giá'`
-7. `b3984fb` — `feat(statistics): add price breakdown detail toggle and expandable sub-rows in SpecialtyComparisonTab`
-8. `347b2c1` — `fix(statistics): merge surgeries with identical tenKT across comparison periods regardless of donGia or maTuongDuong differences`
-9. `b2ca931` — `style(export): tighten column widths to fit content in compact service package summary sheet`
-10. `1925c79` — `feat(auth,export): enforce login-only screen when unauthenticated and add compact service package summary sheet to Excel export`
-11. `23edd38` — `feat(packages): multi-layer anti-duplicate package assignment mechanism & auto-cleanup`
-12. `65c7a1e` — `fix(security,print,packages): restrict AI config to admin, fix overtime & package print layout, update package filter dropdown UI`
+1. `e2509d6` — `fix(charts): force full data labels on short bars and sync fullscreen theme with system UI`
+2. `b258ae3` — `docs(context): save session context snapshot 02/11/2026`
+3. `2b4cb79` — `feat(comparison): add aggregate variance note in total row and 3-state Ghi chú toggle`
+4. `5797c1f` — `fix(comparison): omit unchanged quantity or price segment in Ghi chú`
+5. `2a986d7` — `feat(comparison): display case count next to revenue in UI period columns`
+6. `4516f53` — `style(comparison): colorize increase/decrease and bold numbers in Ghi chú column`
+7. `f8f7cd8` — `feat(comparison): add price/volume variance breakdown in note and Ghi chú toggle badge`
+8. `1dafec3` — `chore(ui): rename detail toggle label to 'Tách chi tiết giá'`
+9. `b3984fb` — `feat(statistics): add price breakdown detail toggle and expandable sub-rows in SpecialtyComparisonTab`
+10. `347b2c1` — `fix(statistics): merge surgeries with identical tenKT across comparison periods regardless of donGia or maTuongDuong differences`
+11. `b2ca931` — `style(export): tighten column widths to fit content in compact service package summary sheet`
+12. `1925c79` — `feat(auth,export): enforce login-only screen when unauthenticated and add compact service package summary sheet to Excel export`
