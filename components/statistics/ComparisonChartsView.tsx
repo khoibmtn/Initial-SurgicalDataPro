@@ -344,8 +344,21 @@ export const ComparisonChartsView: React.FC<Props> = ({
   // Trạng thái biểu đồ đang mở rộng toàn màn hình (Fullscreen Modal - NotebookLM style)
   type ExpandedChartType = 'diverging' | 'grouped' | 'waterfall' | 'revPerCase' | 'loai' | 'timeline' | 'topImpact' | null;
   const [expandedChart, setExpandedChart] = useState<ExpandedChartType>(null);
-  // Giao diện sáng/tối trong popup mở rộng (Light / Dark theme toggle)
-  const [modalTheme, setModalTheme] = useState<'dark' | 'light'>('dark');
+  // Giao diện sáng/tối trong popup mở rộng: Mặc định đồng bộ theo giao diện hệ thống ứng dụng (Sáng)
+  const getSystemTheme = (): 'dark' | 'light' => {
+    if (typeof document !== 'undefined' && (document.documentElement.classList.contains('dark') || document.body.classList.contains('dark'))) {
+      return 'dark';
+    }
+    return 'light';
+  };
+  const [modalTheme, setModalTheme] = useState<'dark' | 'light'>(getSystemTheme);
+
+  // Đồng bộ lại theo giao diện hệ thống mỗi khi mở toàn màn hình
+  useEffect(() => {
+    if (expandedChart) {
+      setModalTheme(getSystemTheme());
+    }
+  }, [expandedChart]);
 
   // Xử lý phím ESC để đóng popup phóng to
   useEffect(() => {
@@ -1113,7 +1126,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
               {item.fullName || item.name}
             </div>
             <div className="pt-0.5 flex justify-center">
-              <span className={`${isUltraCompact ? 'px-1 py-0.2 text-[8px]' : isCompact ? 'px-1.5 py-0.2 text-[9px]' : 'px-1.5 py-0.5 text-[10px]'} rounded-md font-bold border ${badgeClass}`}>
+              <span className={`${isUltraCompact ? 'px-1 py-0.2 text-[8px]' : isCompact ? 'px-1.5 py-0.2 text-[9px]' : 'px-1.5 py-0.5 text-[10px]'} rounded-md font-bold border whitespace-nowrap ${badgeClass}`}>
                 {badgeText}
               </span>
             </div>
@@ -1143,7 +1156,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
   };
 
   // Render nhãn Tổng trên đỉnh cột Stacked Bar
-  const renderStackTotalLabel = (props: any) => {
+  const renderStackTotalLabel = (props: any, isDark: boolean = false) => {
     const { x, y, width, index } = props;
     const item = loaiChartData[index];
     if (!item || !item.total) return null;
@@ -1152,7 +1165,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
       <text
         x={x + width / 2}
         y={Math.max(14, y - 6)}
-        fill="#0f3a60"
+        fill={isDark ? '#93c5fd' : '#0f3a60'}
         textAnchor="middle"
         fontSize={10.5}
         fontWeight={800}
@@ -1505,28 +1518,28 @@ export const ComparisonChartsView: React.FC<Props> = ({
 
                   {/* Ngang hàng với bar: Bar track + Right label */}
                   <div className="flex items-center gap-2">
-                    {/* Diverging bar track (Trục giữa 50%) - Tăng chiều cao h-6, bo góc nhẹ */}
+                    {/* Diverging bar track (Trục giữa 50%) - Tăng chiều cao h-6, bo góc nhẹ, ép hiển thị đầy đủ số liệu */}
                     <div className="flex-1 grid grid-cols-2 gap-1 h-6 bg-gray-100 rounded overflow-hidden p-0.5">
                       {/* Cột Trái: Âm / Sụt giảm */}
-                      <div className="flex justify-end items-center h-full">
+                      <div className="flex justify-end items-center h-full min-w-0">
                         {item.diff < 0 && (
                           <div
-                            className="h-full bg-rose-500 rounded-xs transition-all duration-300 group-hover:bg-rose-600 flex items-center justify-start px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
-                            style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                            className="h-full bg-rose-500 rounded-xs transition-all duration-300 group-hover:bg-rose-600 flex items-center justify-start px-2 text-[11px] font-bold text-white shadow-2xs min-w-fit max-w-full whitespace-nowrap"
+                            style={{ width: `${barWidthPct}%`, minWidth: 'fit-content' }}
                           >
-                            <span className="truncate">{barInnerLabel}</span>
+                            <span className="whitespace-nowrap">{barInnerLabel}</span>
                           </div>
                         )}
                       </div>
 
                       {/* Cột Phải: Dương / Tăng trưởng */}
-                      <div className="flex justify-start items-center h-full">
+                      <div className="flex justify-start items-center h-full min-w-0">
                         {item.diff > 0 && (
                           <div
-                            className="h-full bg-emerald-500 rounded-xs transition-all duration-300 group-hover:bg-emerald-600 flex items-center justify-end px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
-                            style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                            className="h-full bg-emerald-500 rounded-xs transition-all duration-300 group-hover:bg-emerald-600 flex items-center justify-end px-2 text-[11px] font-bold text-white shadow-2xs min-w-fit max-w-full whitespace-nowrap"
+                            style={{ width: `${barWidthPct}%`, minWidth: 'fit-content' }}
                           >
-                            <span className="truncate">{barInnerLabel}</span>
+                            <span className="whitespace-nowrap">{barInnerLabel}</span>
                           </div>
                         )}
                       </div>
@@ -2744,7 +2757,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
               <div className={`flex-1 overflow-y-auto p-4 sm:p-8 flex flex-col transition-colors ${modalTheme === 'dark' ? 'bg-[#18191a]' : 'bg-gray-50/70'}`}>
                 {/* 1. Diverging Expanded */}
                 {expandedChart === 'diverging' && (
-                  <div className="max-w-4xl mx-auto w-full py-1 space-y-2">
+                  <div className="max-w-6xl mx-auto w-full py-1 space-y-2">
                     {/* Label thể hiện số liệu nào so sánh với số liệu nào */}
                     <div className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl border transition-colors ${
                       modalTheme === 'dark' ? 'bg-[#202224] border-gray-700/80 text-gray-200' : 'bg-white border-gray-200/90 text-gray-800 shadow-xs'
@@ -2794,25 +2807,25 @@ export const ComparisonChartsView: React.FC<Props> = ({
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {/* Diverging bar track - Tăng chiều cao h-6 bo góc nhẹ */}
+                              {/* Diverging bar track - Tăng chiều cao h-6 bo góc nhẹ, ép hiển thị đầy đủ số liệu */}
                               <div className={`flex-1 grid grid-cols-2 gap-1 h-6 rounded overflow-hidden p-0.5 border ${modalTheme === 'dark' ? 'bg-[#151617] border-gray-700/60' : 'bg-gray-100 border-gray-200'}`}>
-                                <div className="flex justify-end items-center h-full">
+                                <div className="flex justify-end items-center h-full min-w-0">
                                   {item.diff < 0 && (
                                     <div
-                                      className="h-full bg-rose-500 rounded-xs transition-all duration-300 group-hover:bg-rose-400 flex items-center justify-start px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
-                                      style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                                      className="h-full bg-rose-500 rounded-xs transition-all duration-300 group-hover:bg-rose-400 flex items-center justify-start px-2 text-[11px] font-bold text-white shadow-2xs min-w-fit max-w-full whitespace-nowrap"
+                                      style={{ width: `${barWidthPct}%`, minWidth: 'fit-content' }}
                                     >
-                                      <span className="truncate">{barInnerLabel}</span>
+                                      <span className="whitespace-nowrap">{barInnerLabel}</span>
                                     </div>
                                   )}
                                 </div>
-                                <div className="flex justify-start items-center h-full">
+                                <div className="flex justify-start items-center h-full min-w-0">
                                   {item.diff > 0 && (
                                     <div
-                                      className="h-full bg-emerald-500 rounded-xs transition-all duration-300 group-hover:bg-emerald-400 flex items-center justify-end px-2 text-[11px] font-bold text-white shadow-2xs overflow-hidden"
-                                      style={{ width: `${Math.max(barWidthPct, 14)}%` }}
+                                      className="h-full bg-emerald-500 rounded-xs transition-all duration-300 group-hover:bg-emerald-400 flex items-center justify-end px-2 text-[11px] font-bold text-white shadow-2xs min-w-fit max-w-full whitespace-nowrap"
+                                      style={{ width: `${barWidthPct}%`, minWidth: 'fit-content' }}
                                     >
-                                      <span className="truncate">{barInnerLabel}</span>
+                                      <span className="whitespace-nowrap">{barInnerLabel}</span>
                                     </div>
                                   )}
                                 </div>
@@ -3180,7 +3193,7 @@ export const ComparisonChartsView: React.FC<Props> = ({
                             <LabelList content={renderInsideStackLabel} />
                           </Bar>
                           <Bar dataKey="emptyTop" stackId="loai" fill="transparent">
-                            <LabelList content={renderStackTotalLabel} />
+                            <LabelList content={(props: any) => renderStackTotalLabel(props, modalTheme === 'dark')} />
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
@@ -3288,16 +3301,16 @@ export const ComparisonChartsView: React.FC<Props> = ({
                                   type="monotone"
                                   dataKey={specName}
                                   name={specName}
-                                  stroke="#38bdf8"
+                                  stroke={modalTheme === 'dark' ? '#38bdf8' : '#2563eb'}
                                   strokeWidth={3.5}
-                                  dot={{ r: 6, fill: '#38bdf8', strokeWidth: 2, stroke: '#0f172a' }}
+                                  dot={{ r: 6, fill: modalTheme === 'dark' ? '#38bdf8' : '#2563eb', strokeWidth: 2, stroke: modalTheme === 'dark' ? '#0f172a' : '#ffffff' }}
                                   activeDot={{ r: 8 }}
                                 >
                                   <LabelList
                                     dataKey={specName}
                                     position="top"
                                     formatter={(val: number) => val > 0 ? (metricMode === 'revenue' ? fmtMoney(val) : `${fmtNum(val)} ca`) : ''}
-                                    style={{ fontSize: 12, fontWeight: 700, fill: '#38bdf8' }}
+                                    style={{ fontSize: 12, fontWeight: 700, fill: modalTheme === 'dark' ? '#38bdf8' : '#1d4ed8' }}
                                     offset={10}
                                   />
                                 </Line>
